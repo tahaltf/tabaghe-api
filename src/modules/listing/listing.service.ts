@@ -1,20 +1,34 @@
 // src/modules/listing/listing.service.ts
-import {BadRequestException, ForbiddenException, Injectable, NotFoundException} from '@nestjs/common';
-import {PrismaService} from '../../prisma/prisma.service';
-import {CreateListingDto} from './dto/create-listing.dto';
-import {ListingStatus, ListingType, UserRole} from '@prisma/client';
-import {UpdateListingDto} from './dto/update-listing.dto';
-import {DeleteListingDto} from "./dto/delete-listing.dto";
+
+import {
+    BadRequestException,
+    ForbiddenException,
+    Injectable,
+    NotFoundException,
+} from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
+import { QuotaService } from '../quota/quota.service';
+
+import { CreateListingDto } from './dto/create-listing.dto';
+import { UpdateListingDto } from './dto/update-listing.dto';
+import { DeleteListingDto } from './dto/delete-listing.dto';
+
+import { ListingStatus, ListingType, UserRole } from '@prisma/client';
 
 @Injectable()
 export class ListingService {
-    constructor(private readonly prisma: PrismaService) {
-    }
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly quotaService: QuotaService, // 👈 اضافه شد
+    ) {}
 
+    // =========================
+    // Create Listing
+    // =========================
     async create(userId: string, dto: CreateListingDto) {
         this.validateTypePayload(dto);
 
-        return this.prisma.listing.create({
+        const listing = await this.prisma.listing.create({
             data: {
                 authorId: userId,
                 type: dto.type,
@@ -27,48 +41,67 @@ export class ListingService {
                 city: dto.city,
                 thumbnail: dto.thumbnail,
                 gallery: dto.gallery ?? [],
-                direct: dto.direct
-                    ? {create: dto.direct}
-                    : undefined,
-                exchange: dto.exchange
-                    ? {create: dto.exchange}
-                    : undefined,
-                auction: dto.auction
-                    ? {create: dto.auction}
-                    : undefined,
+                direct: dto.direct ? { create: dto.direct } : undefined,
+                exchange: dto.exchange ? { create: dto.exchange } : undefined,
+                auction: dto.auction ? { create: dto.auction } : undefined,
             },
         });
+
+        // 🔥 مصرف سهمیه (بعد از create موفق)
+        await this.quotaService.consumeOnCreate(
+            userId,
+            dto.type,
+            listing.id,
+        );
+
+        return listing;
     }
 
+    // =========================
+    // Validation
+    // =========================
     private validateTypePayload(dto: CreateListingDto) {
         switch (dto.type) {
             case ListingType.DIRECT:
-                if (!dto.direct) throw new BadRequestException('Direct payload required');
+                if (!dto.direct) {
+                    throw new BadRequestException('Direct payload required');
+                }
                 break;
 
             case ListingType.EXCHANGE:
-                if (!dto.exchange) throw new BadRequestException('Exchange payload required');
+                if (!dto.exchange) {
+                    throw new BadRequestException('Exchange payload required');
+                }
                 if (dto.exchange.allowDirectSale && !dto.exchange.directPrice) {
-                    throw new BadRequestException('directPrice required when allowDirectSale is true');
+                    throw new BadRequestException(
+                        'directPrice required when allowDirectSale is true',
+                    );
                 }
                 break;
 
             case ListingType.AUCTION:
-                if (!dto.auction) throw new BadRequestException('Auction payload required');
+                if (!dto.auction) {
+                    throw new BadRequestException('Auction payload required');
+                }
                 if (dto.auction.buyNowEnabled && !dto.auction.buyNowPrice) {
-                    throw new BadRequestException('buyNowPrice required when buyNowEnabled is true');
+                    throw new BadRequestException(
+                        'buyNowPrice required when buyNowEnabled is true',
+                    );
                 }
                 break;
         }
     }
 
+    // =========================
+    // Update Listing
+    // =========================
     async update(
         userId: string,
         listingId: string,
         dto: UpdateListingDto,
     ) {
         const listing = await this.prisma.listing.findUnique({
-            where: {id: listingId},
+            where: { id: listingId },
             include: {
                 direct: true,
                 exchange: true,
@@ -88,11 +121,13 @@ export class ListingService {
             listing.status !== ListingStatus.DRAFT &&
             listing.status !== ListingStatus.PENDING
         ) {
-            throw new ForbiddenException('Listing cannot be edited in this status');
+            throw new ForbiddenException(
+                'Listing cannot be edited in this status',
+            );
         }
 
         return this.prisma.listing.update({
-            where: {id: listingId},
+            where: { id: listingId },
             data: {
                 title: dto.title,
                 description: dto.description,
@@ -101,20 +136,16 @@ export class ListingService {
                 thumbnail: dto.thumbnail,
                 gallery: dto.gallery,
 
-                direct: dto.direct
-                    ? {update: dto.direct}
-                    : undefined,
-
-                exchange: dto.exchange
-                    ? {update: dto.exchange}
-                    : undefined,
-
-                auction: dto.auction
-                    ? {update: dto.auction}
-                    : undefined,
+                direct: dto.direct ? { update: dto.direct } : undefined,
+                exchange: dto.exchange ? { update: dto.exchange } : undefined,
+                auction: dto.auction ? { update: dto.auction } : undefined,
             },
         });
     }
+
+    // =========================
+    // Delete Listing (User)
+    // =========================
     async delete(
         userId: string,
         listingId: string,
@@ -129,11 +160,13 @@ export class ListingService {
         }
 
         if (listing.authorId !== userId) {
-            throw new ForbiddenException('You are not the owner of this listing');
+            throw new ForbiddenException(
+                'You are not the owner of this listing',
+            );
         }
 
         if (listing.status === ListingStatus.DELETED_BY_USER) {
-            return listing; // idempotent delete
+            return listing; // idempotent
         }
 
         return this.prisma.listing.update({
@@ -145,6 +178,10 @@ export class ListingService {
             },
         });
     }
+
+    // =========================
+    // Admin Approve
+    // =========================
     async approve(listingId: string, role: UserRole) {
         if (role !== UserRole.ADMIN) {
             throw new ForbiddenException('Admin access only');
@@ -159,7 +196,9 @@ export class ListingService {
         }
 
         if (listing.status !== ListingStatus.PENDING) {
-            throw new ForbiddenException('Only pending listings can be approved');
+            throw new ForbiddenException(
+                'Only pending listings can be approved',
+            );
         }
 
         return this.prisma.listing.update({
@@ -171,6 +210,9 @@ export class ListingService {
         });
     }
 
+    // =========================
+    // Admin Reject
+    // =========================
     async reject(
         listingId: string,
         role: UserRole,
@@ -189,10 +231,12 @@ export class ListingService {
         }
 
         if (listing.status !== ListingStatus.PENDING) {
-            throw new ForbiddenException('Only pending listings can be rejected');
+            throw new ForbiddenException(
+                'Only pending listings can be rejected',
+            );
         }
 
-        return this.prisma.listing.update({
+        const updated = await this.prisma.listing.update({
             where: { id: listingId },
             data: {
                 status: ListingStatus.REJECTED,
@@ -200,5 +244,10 @@ export class ListingService {
                 rejectedAt: new Date(),
             },
         });
+
+        // 🔁 بازگشت سهمیه
+        await this.quotaService.releaseOnReject(listingId);
+
+        return updated;
     }
 }
