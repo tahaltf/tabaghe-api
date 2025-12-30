@@ -28,34 +28,38 @@ export class ListingService {
     async create(userId: string, dto: CreateListingDto) {
         this.validateTypePayload(dto);
 
-        const listing = await this.prisma.listing.create({
-            data: {
-                authorId: userId,
-                type: dto.type,
-                status: ListingStatus.PENDING,
-                title: dto.title,
-                categoryId: dto.categoryId,
-                condition: dto.condition,
-                description: dto.description,
-                province: dto.province,
-                city: dto.city,
-                thumbnail: dto.thumbnail,
-                gallery: dto.gallery ?? [],
-                direct: dto.direct ? { create: dto.direct } : undefined,
-                exchange: dto.exchange ? { create: dto.exchange } : undefined,
-                auction: dto.auction ? { create: dto.auction } : undefined,
-            },
+        return this.prisma.$transaction(async (tx) => {
+            const listing = await tx.listing.create({
+                data: {
+                    authorId: userId,
+                    type: dto.type,
+                    status: ListingStatus.PENDING,
+                    title: dto.title,
+                    categoryId: dto.categoryId,
+                    condition: dto.condition,
+                    description: dto.description,
+                    province: dto.province,
+                    city: dto.city,
+                    thumbnail: dto.thumbnail,
+                    gallery: dto.gallery ?? [],
+                    direct: dto.direct ? { create: dto.direct } : undefined,
+                    exchange: dto.exchange ? { create: dto.exchange } : undefined,
+                    auction: dto.auction ? { create: dto.auction } : undefined,
+                },
+            });
+
+
+            await this.quotaService.consumeOnCreate(
+                userId,
+                dto.type,
+                listing.id,
+                tx,
+            );
+
+            return listing;
         });
-
-        // 🔥 مصرف سهمیه (بعد از create موفق)
-        await this.quotaService.consumeOnCreate(
-            userId,
-            dto.type,
-            listing.id,
-        );
-
-        return listing;
     }
+
 
     // =========================
     // Validation
@@ -222,32 +226,35 @@ export class ListingService {
             throw new ForbiddenException('Admin access only');
         }
 
-        const listing = await this.prisma.listing.findUnique({
-            where: { id: listingId },
+        return this.prisma.$transaction(async (tx) => {
+            const listing = await tx.listing.findUnique({
+                where: { id: listingId },
+            });
+
+            if (!listing) {
+                throw new NotFoundException('Listing not found');
+            }
+
+            if (listing.status !== ListingStatus.PENDING) {
+                throw new ForbiddenException(
+                    'Only pending listings can be rejected',
+                );
+            }
+
+            const updated = await tx.listing.update({
+                where: { id: listingId },
+                data: {
+                    status: ListingStatus.REJECTED,
+                    rejectionReason: reason,
+                    rejectedAt: new Date(),
+                },
+            });
+
+            // 🔁 بازگشت سهمیه (اتمیک)
+            await this.quotaService.releaseOnReject(tx, listingId);
+
+            return updated;
         });
-
-        if (!listing) {
-            throw new NotFoundException('Listing not found');
-        }
-
-        if (listing.status !== ListingStatus.PENDING) {
-            throw new ForbiddenException(
-                'Only pending listings can be rejected',
-            );
-        }
-
-        const updated = await this.prisma.listing.update({
-            where: { id: listingId },
-            data: {
-                status: ListingStatus.REJECTED,
-                rejectionReason: reason,
-                rejectedAt: new Date(),
-            },
-        });
-
-        // 🔁 بازگشت سهمیه
-        await this.quotaService.releaseOnReject(listingId);
-
-        return updated;
     }
+
 }

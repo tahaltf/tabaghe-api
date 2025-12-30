@@ -5,6 +5,8 @@ import { WalletModule } from './modules/wallet/wallet.module';
 import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ListingModule } from './modules/listing/listing.module';
+import { PlansModule } from './modules/plans/plans.module';
+import { QuotaModule } from './modules/quota/quota.module';
 
 @Module({
   imports: [
@@ -14,6 +16,8 @@ import { ListingModule } from './modules/listing/listing.module';
     AuthModule,
     WalletModule,
     ListingModule,
+    PlansModule,
+    QuotaModule,
 
   ],
 })

@@ -1,39 +1,37 @@
-import {
-    ForbiddenException,
-    Injectable,
-} from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
-import {
-    ListingType,
-    QuotaAction,
-    QuotaReason,
-} from '@prisma/client';
+import { ForbiddenException, Injectable } from '@nestjs/common';
+import { ListingType, Prisma, QuotaAction, QuotaReason } from '@prisma/client';
 
 @Injectable()
 export class QuotaService {
-    constructor(private prisma: PrismaService) {}
+    // ❌ PrismaService دیگر اینجا استفاده نمی‌شود
 
     // -----------------------------
-    // Public API (used by Listing)
+    // Public API
     // -----------------------------
 
     async consumeOnCreate(
         userId: string,
         listingType: ListingType,
         listingId: string,
+        prisma: Prisma.TransactionClient,
     ) {
         if (listingType === ListingType.DIRECT) {
-            const freeLeft = await this.getRemainingFreeDirect(userId);
+            const freeLeft = await this.getRemainingFreeDirect(prisma, userId);
+
             if (freeLeft > 0) {
-                return this.commitFreeDirect(userId, listingType, listingId);
+                await this.commitFreeDirect(prisma, userId, listingType, listingId);
+                return;
             }
         }
 
-        return this.consumeFromPlan(userId, listingType, listingId);
+        await this.consumeFromPlan(prisma, userId, listingType, listingId);
     }
 
-    async releaseOnReject(listingId: string) {
-        const ledger = await this.prisma.quotaLedger.findFirst({
+    async releaseOnReject(
+        prisma: Prisma.TransactionClient,
+        listingId: string,
+    ) {
+        const ledger = await prisma.quotaLedger.findFirst({
             where: {
                 listingId,
                 action: QuotaAction.COMMIT,
@@ -42,7 +40,7 @@ export class QuotaService {
 
         if (!ledger) return;
 
-        await this.prisma.quotaLedger.create({
+        await prisma.quotaLedger.create({
             data: {
                 userId: ledger.userId,
                 listingId,
@@ -59,14 +57,17 @@ export class QuotaService {
     // Free DIRECT quota
     // -----------------------------
 
-    private async getRemainingFreeDirect(userId: string): Promise<number> {
-        const setting = await this.prisma.appSetting.findUnique({
+    private async getRemainingFreeDirect(
+        prisma: Prisma.TransactionClient,
+        userId: string,
+    ): Promise<number> {
+        const setting = await prisma.appSetting.findUnique({
             where: { key: 'FREE_DIRECT_QUOTA' },
         });
 
         const freeLimit = Number(setting?.value ?? 2);
 
-        const used = await this.prisma.quotaLedger.count({
+        const commits = await prisma.quotaLedger.count({
             where: {
                 userId,
                 listingType: ListingType.DIRECT,
@@ -75,15 +76,26 @@ export class QuotaService {
             },
         });
 
+        const releases = await prisma.quotaLedger.count({
+            where: {
+                userId,
+                listingType: ListingType.DIRECT,
+                reason: QuotaReason.FREE_DIRECT,
+                action: QuotaAction.RELEASE,
+            },
+        });
+
+        const used = commits - releases;
         return Math.max(0, freeLimit - used);
     }
 
     private async commitFreeDirect(
+        prisma: Prisma.TransactionClient,
         userId: string,
         listingType: ListingType,
         listingId: string,
     ) {
-        return this.prisma.quotaLedger.create({
+        await prisma.quotaLedger.create({
             data: {
                 userId,
                 listingId,
@@ -100,11 +112,12 @@ export class QuotaService {
     // -----------------------------
 
     private async consumeFromPlan(
+        prisma: Prisma.TransactionClient,
         userId: string,
         listingType: ListingType,
         listingId: string,
     ) {
-        const purchases = await this.prisma.userPlanPurchase.findMany({
+        const purchases = await prisma.userPlanPurchase.findMany({
             where: {
                 userId,
                 status: 'ACTIVE',
@@ -127,7 +140,7 @@ export class QuotaService {
             );
             if (!rule) continue;
 
-            const used = await this.prisma.quotaLedger.count({
+            const used = await prisma.quotaLedger.count({
                 where: {
                     planPurchaseId: purchase.id,
                     listingType,
@@ -136,7 +149,7 @@ export class QuotaService {
             });
 
             if (used < rule.count) {
-                return this.prisma.quotaLedger.create({
+                await prisma.quotaLedger.create({
                     data: {
                         userId,
                         listingId,
@@ -147,6 +160,7 @@ export class QuotaService {
                         note: 'Consumed from plan',
                     },
                 });
+                return;
             }
         }
 
