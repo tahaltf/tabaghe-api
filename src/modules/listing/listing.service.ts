@@ -50,10 +50,10 @@ export class ListingService {
 
 
             await this.quotaService.consumeOnCreate(
+                tx,
                 userId,
                 dto.type,
                 listing.id,
-                tx,
             );
 
             return listing;

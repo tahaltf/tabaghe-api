@@ -62,6 +62,60 @@ enum WalletTransactionStatus {
   FAILED
 }
 
+enum AuctionStatus {
+  ACTIVE
+  FINISHED
+}
+
+enum AuctionSettlementStatus {
+  PENDING
+  PAID
+  FAILED
+  PENALIZED
+}
+
+enum AuctionBidStatus {
+  ACTIVE
+  OUTBID
+  WON
+  LOST
+  CANCELLED
+}
+
+enum ExchangeOfferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELLED
+}
+
+enum NotificationType {
+  AUCTION_WON
+  AUCTION_LOST
+  AUCTION_PAYMENT_REMINDER
+  AUCTION_PENALIZED
+  BUY_NOW
+  EXCHANGE_OFFER_RECEIVED
+  EXCHANGE_OFFER_ACCEPTED
+  EXCHANGE_OFFER_REJECTED
+}
+
+enum RepairRequestStatus {
+  PENDING_REVIEW
+  REJECTED
+  APPROVED
+  DELIVERY_TIME_SELECTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum TicketStatus {
+  OPEN
+  ANSWERED
+  CLOSED
+}
+
 ////////////////////
 /// USER
 ////////////////////
@@ -79,17 +133,21 @@ model User {
   planPurchases UserPlanPurchase[]
   quotaLedger   QuotaLedger[]
 
-  notifications Notification[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  notifications  Notification[]
+  exchangeOffers ExchangeOffer[]
 
   bids        AuctionBid[]
   highestBids ListingAuction[] @relation("HighestBidder")
+
+  repairRequests RepairRequest[]
+  tickets        Ticket[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 ////////////////////
-/// WALLET (LEDGER BASED)
+/// WALLET
 ////////////////////
 
 model Wallet {
@@ -119,7 +177,7 @@ model WalletTransaction {
 }
 
 ////////////////////
-/// LISTING (CORE)
+/// LISTING
 ////////////////////
 
 model Listing {
@@ -154,20 +212,17 @@ model Listing {
   exchange ListingExchange?
   auction  ListingAuction?
 
-  quotaLedger QuotaLedger[]
+  quotaLedger    QuotaLedger[]
+  exchangeOffers ExchangeOffer[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([status, type])
   @@index([authorId])
-    @@index([province, city])
-    @@index([createdAt])
+  @@index([province, city])
+  @@index([createdAt])
 }
-
-////////////////////
-/// DIRECT
-////////////////////
 
 model ListingDirect {
   listingId String  @id
@@ -176,10 +231,6 @@ model ListingDirect {
   price           Decimal
   shippingMethods String[]
 }
-
-////////////////////
-/// EXCHANGE
-////////////////////
 
 model ListingExchange {
   listingId String  @id
@@ -197,22 +248,6 @@ model ListingExchange {
   directPrice      Decimal?
 }
 
-////////////////////
-/// AUCTION
-////////////////////
-
-enum AuctionStatus {
-  ACTIVE
-  FINISHED
-}
-
-enum AuctionSettlementStatus {
-  PENDING
-  PAID
-  FAILED
-  PENALIZED
-}
-
 model ListingAuction {
   listingId String  @id
   listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
@@ -221,20 +256,19 @@ model ListingAuction {
   minBidIncrement Decimal
   endDatetime     DateTime
 
-  buyNowEnabled    Boolean       @default(false)
-  buyNowPrice      Decimal?
-  finishedAt       DateTime?
-  // NEW
+  buyNowEnabled Boolean  @default(false)
+  buyNowPrice   Decimal?
+
   status           AuctionStatus @default(ACTIVE)
-  highestBidAmount Decimal? // cache
-  highestBidderId  String? // cache
+  highestBidAmount Decimal?
+  highestBidderId  String?
   highestBidder    User?         @relation("HighestBidder", fields: [highestBidderId], references: [id])
 
   bids AuctionBid[]
 
   settlementStatus AuctionSettlementStatus @default(PENDING)
-
-  paymentDeadline DateTime?
+  paymentDeadline  DateTime?
+  finishedAt       DateTime?
 
   @@index([status, endDatetime])
 }
@@ -255,21 +289,10 @@ model AuctionBid {
 
   @@index([listingId, createdAt])
   @@index([bidderId, createdAt])
-  @@index([listingId, amount])
 }
 
 ////////////////////
-/// SETTINGS
-////////////////////
-
-model AppSetting {
-  key       String   @id
-  value     String
-  updatedAt DateTime @updatedAt
-}
-
-////////////////////
-/// PLANS
+/// PLANS & QUOTA
 ////////////////////
 
 model Plan {
@@ -313,10 +336,6 @@ model UserPlanPurchase {
   createdAt DateTime @default(now())
 }
 
-////////////////////
-/// QUOTA LEDGER
-////////////////////
-
 model QuotaLedger {
   id String @id @default(cuid())
 
@@ -327,9 +346,8 @@ model QuotaLedger {
   listing   Listing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
 
   listingType ListingType
-
-  action QuotaAction
-  reason QuotaReason
+  action      QuotaAction
+  reason      QuotaReason
 
   planPurchaseId String?
   planPurchase   UserPlanPurchase? @relation(fields: [planPurchaseId], references: [id], onDelete: SetNull)
@@ -338,27 +356,15 @@ model QuotaLedger {
   createdAt DateTime @default(now())
 
   @@index([userId, listingType])
-  @@index([listingId])
 }
 
-enum AuctionBidStatus {
-  ACTIVE // پیشنهاد فعلی معتبر (ممکنه highest باشه یا بعداً outbid بشه)
-  OUTBID // کسی بالاتر زده، پولش باید آزاد بشه
-  WON // برنده نهایی
-  LOST // بازنده نهایی (بعد از پایان)
-  CANCELLED // اگر لازم شد (ادمین/سیستم)
-}
-
-enum NotificationType {
-  AUCTION_WON
-  AUCTION_LOST
-  AUCTION_PAYMENT_REMINDER
-  AUCTION_PENALIZED
-  BUY_NOW
-}
+////////////////////
+/// NOTIFICATION
+////////////////////
 
 model Notification {
-  id     String @id @default(cuid())
+  id String @id @default(cuid())
+
   userId String
   user   User   @relation(fields: [userId], references: [id])
 
@@ -373,6 +379,102 @@ model Notification {
 
   @@index([userId, isRead])
 }
+
+////////////////////
+/// EXCHANGE
+////////////////////
+
+model ExchangeOffer {
+  id String @id @default(cuid())
+
+  listingId String
+  listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  offererId String
+  offerer   User   @relation(fields: [offererId], references: [id])
+
+  title       String
+  description String?
+  images      String[]
+
+  extraPayment Decimal             @default(0)
+  status       ExchangeOfferStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+
+  @@index([listingId, status])
+  @@index([offererId])
+}
+
+////////////////////
+/// REPAIR & TICKET
+////////////////////
+
+model RepairRequest {
+  id String @id @default(cuid())
+
+  trackingCode String @unique
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  deviceType String
+  brand      String
+  model      String
+
+  description String
+  images      String[]
+
+  status               RepairRequestStatus @default(PENDING_REVIEW)
+  rejectionReason      String?
+  selectedDeliveryTime DateTime?
+
+  tickets Ticket[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Ticket {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  repairRequestId String?
+  repairRequest   RepairRequest? @relation(fields: [repairRequestId], references: [id])
+
+  subject String
+  status  TicketStatus @default(OPEN)
+
+  messages TicketMessage[]
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([repairRequestId])
+}
+
+model TicketMessage {
+  id String @id @default(cuid())
+
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  senderRole UserRole
+  message    String
+
+  createdAt DateTime @default(now())
+
+  @@index([ticketId, createdAt])
+}
+
+////////////////////
+/// IDEMPOTENCY
+////////////////////
 
 model IdempotencyKey {
   id        String   @id @default(cuid())
