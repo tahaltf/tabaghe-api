@@ -6,7 +6,7 @@ import {
     IsInt,
     Min,
     IsBoolean,
-    ValidateNested,
+    ValidateNested, IsDateString,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ListingType, ItemCondition } from '@prisma/client';
@@ -51,21 +51,26 @@ class ExchangeDto {
 
 class AuctionDto {
     @IsInt()
+    @Min(1)
     basePrice!: number;
 
     @IsInt()
+    @Min(1)
     minBidIncrement!: number;
 
-    @Type(() => Date)
-    endDatetime!: Date;
+    @IsDateString()
+    endDatetime!: string;
 
+    @IsOptional()
     @IsBoolean()
-    buyNowEnabled!: boolean;
+    buyNowEnabled?: boolean;
 
     @IsOptional()
     @IsInt()
+    @Min(1)
     buyNowPrice?: number;
 }
+
 
 export class CreateListingDto {
     @IsEnum(ListingType)

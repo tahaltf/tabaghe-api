@@ -34,7 +34,7 @@ export class AuthService {
         const user = await this.users.createUser({ phone, passwordHash });
 
         // create wallet for user (idempotency handled by unique constraint in schema)
-        await this.wallet.createWalletForUser(user.id).catch(() => null);
+        // await this.wallet.createWalletForUser(user.id).catch(() => null);
 
         return this.issueTokens(user.id, user.role);
     }
