@@ -1,27 +1,52 @@
-version: "3.9"
+version: '3.8'
 
 services:
-  postgres:
-    image: postgres:16
-    container_name: tabaghe_postgres
-    restart: unless-stopped
-
+  # دیتابیس پستگرس پروژه طبقه
+  postgres_db:
+    image: postgres:15
+    container_name: tabagheh_postgres
+    restart: always
     environment:
-      POSTGRES_USER: tabaghe
-      POSTGRES_PASSWORD: tabaghe
-      POSTGRES_DB: tabaghe
-
-    ports:
-      - "5432:5432"
-
+      POSTGRES_USER: tabagheh_maindb
+      POSTGRES_PASSWORD: "@QWEasdZXC123456"
+      POSTGRES_DB: tabagheh_db
     volumes:
-      - tabaghe_pg:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - tabagheh_net
 
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tabaghe"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+  # بک‌اِند NestJS
+  backend:
+    build: ./tabaghe-api
+    container_name: tabagheh_api
+    restart: always
+    ports:
+      - "3000:3000"
+    depends_on:
+      - postgres_db
+    environment:
+      # نکته مهم: %40 همان @ اول پسورد است که برای URL انکود شده
+      - DATABASE_URL=postgresql://tabagheh_maindb:%40QWEasdZXC123456@postgres_db:5432/tabagheh_db
+      - DATABASE_HOST=postgres_db
+      - DATABASE_PORT=5432
+      - DATABASE_USER=tabagheh_maindb
+      - NODE_ENV=production
+    networks:
+      - tabagheh_net
+
+  # فرانت‌اِند Angular
+  frontend:
+    build: ./tabaghe-frontend
+    container_name: tabagheh_web
+    restart: always
+    ports:
+      - "8081:80"
+    networks:
+      - tabagheh_net
+
+networks:
+  tabagheh_net:
+    driver: bridge
 
 volumes:
-  tabaghe_pg:
+  pgdata:
