@@ -16,6 +16,13 @@ enum UserRole {
   ADMIN
 }
 
+enum UserStatus {
+  INCOMPLETE
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum ListingType {
   DIRECT
   EXCHANGE
@@ -28,11 +35,18 @@ enum ListingStatus {
   APPROVED
   REJECTED
   DELETED_BY_USER
+  SOLD
 }
 
 enum ItemCondition {
   NEW
   USED
+}
+
+enum ShippingPayer {
+  SELLER
+  BUYER_PREPAID
+  CASH_ON_DELIVERY
 }
 
 enum QuotaReason {
@@ -58,7 +72,7 @@ enum WalletTransactionType {
 
 enum WalletTransactionStatus {
   PENDING
-  CONFIRMED
+  SUCCESS
   FAILED
 }
 
@@ -116,34 +130,68 @@ enum TicketStatus {
   CLOSED
 }
 
+enum OtpPurpose {
+  LOGIN
+  REGISTER
+}
+
 ////////////////////
 /// USER
 ////////////////////
 
 model User {
-  id           String   @id @default(cuid())
-  phone        String   @unique
-  email        String?  @unique
-  passwordHash String
-  role         UserRole @default(USER)
+  id                String     @id @default(cuid())
+  phone             String     @unique
+  email             String?    @unique
+  passwordHash      String?
+  firstName         String?
+  lastName          String?
+  nationalCode      String?    @unique
+  nationalCardImage String?
+  status            UserStatus @default(INCOMPLETE)
+  role              UserRole   @default(USER)
 
-  listings Listing[]
-  wallet   Wallet?
+  // ✅ فیلدهای اضافه شده برای صفحه تنظیمات
+  avatar            String?    // عکس پروفایل
+  bio               String?    // بیوگرافی یا درباره من
+  notifyEmail       Boolean    @default(true)
+  notifySms         Boolean    @default(false)
+  notifyPush        Boolean    @default(true)
+  lastLoginAt       DateTime?
 
-  planPurchases UserPlanPurchase[]
-  quotaLedger   QuotaLedger[]
-
+  listings       Listing[]
+  wallet         Wallet?
+  planPurchases  UserPlanPurchase[]
+  quotaLedger    QuotaLedger[]
   notifications  Notification[]
   exchangeOffers ExchangeOffer[]
+  bids           AuctionBid[]
 
-  bids        AuctionBid[]
   highestBids ListingAuction[] @relation("HighestBidder")
+  secondBids  ListingAuction[] @relation("SecondBidder")
+  thirdBids   ListingAuction[] @relation("ThirdBidder")
 
   repairRequests RepairRequest[]
   tickets        Ticket[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+////////////////////
+/// AUTH & OTP
+////////////////////
+
+model OtpCode {
+  id        String     @id @default(cuid())
+  phone     String
+  code      String
+  purpose   OtpPurpose @default(LOGIN)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime   @default(now())
+
+  @@index([phone])
 }
 
 ////////////////////
@@ -155,25 +203,23 @@ model Wallet {
   userId           String  @unique
   balanceAvailable Decimal @default(0)
   balanceBlocked   Decimal @default(0)
-
-  user         User                @relation(fields: [userId], references: [id])
-  transactions WalletTransaction[]
+  user             User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions     WalletTransaction[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model WalletTransaction {
-  id       String @id @default(cuid())
-  walletId String
-  wallet   Wallet @relation(fields: [walletId], references: [id])
-
-  type   WalletTransactionType
-  amount Decimal
-  status WalletTransactionStatus
-  meta   Json?
-
-  createdAt DateTime @default(now())
+  id          String                  @id @default(cuid())
+  walletId    String
+  wallet      Wallet                  @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  type        WalletTransactionType
+  amount      Decimal
+  status      WalletTransactionStatus
+  referenceId String?
+  meta        Json?
+  createdAt   DateTime                @default(now())
 }
 
 ////////////////////
@@ -181,37 +227,29 @@ model WalletTransaction {
 ////////////////////
 
 model Listing {
-  id String @id @default(cuid())
-
-  authorId String
-  author   User   @relation(fields: [authorId], references: [id])
-
-  type   ListingType
-  status ListingStatus @default(PENDING)
-
-  title      String
-  categoryId String
-
-  gallery   String[] @default([])
-  thumbnail String?
-
-  condition   ItemCondition
-  description String
-
-  province String
-  city     String
-
+  id              String        @id @default(cuid())
+  authorId        String
+  author          User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  type            ListingType
+  status          ListingStatus @default(PENDING)
+  title           String
+  categoryId      String
+  gallery         String[]      @default([])
+  thumbnail       String?
+  condition       ItemCondition
+  description     String
+  province        String
+  city            String
+  shippingPayer   ShippingPayer @default(BUYER_PREPAID)
   rejectionReason String?
   deleteReason    String?
+  approvedAt      DateTime?
+  rejectedAt      DateTime?
+  deletedAt       DateTime?
 
-  approvedAt DateTime?
-  rejectedAt DateTime?
-  deletedAt  DateTime?
-
-  direct   ListingDirect?
-  exchange ListingExchange?
-  auction  ListingAuction?
-
+  direct         ListingDirect?
+  exchange       ListingExchange?
+  auction        ListingAuction?
   quotaLedger    QuotaLedger[]
   exchangeOffers ExchangeOffer[]
 
@@ -225,67 +263,64 @@ model Listing {
 }
 
 model ListingDirect {
-  listingId String  @id
-  listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
-
+  listingId       String   @id
+  listing         Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
   price           Decimal
+  allowExchange   Boolean  @default(false)
   shippingMethods String[]
 }
 
 model ListingExchange {
-  listingId String  @id
-  listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
-
+  listingId          String   @id
+  listing            Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
   desiredCategoryId  String
   desiredTitle       String
   desiredDescription String?
-
   ownValue           Decimal
-  extraPaymentAmount Decimal @default(0)
-
-  acceptOtherItems Boolean  @default(false)
-  allowDirectSale  Boolean  @default(false)
-  directPrice      Decimal?
+  extraPaymentAmount Decimal  @default(0)
+  acceptOtherItems   Boolean  @default(false)
+  allowDirectSale    Boolean  @default(false)
+  directPrice        Decimal?
 }
 
 model ListingAuction {
-  listingId String  @id
-  listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
-
+  listingId       String        @id
+  listing         Listing       @relation(fields: [listingId], references: [id], onDelete: Cascade)
   basePrice       Decimal
   minBidIncrement Decimal
   endDatetime     DateTime
+  buyNowEnabled   Boolean       @default(false)
+  buyNowPrice     Decimal?
+  status          AuctionStatus @default(ACTIVE)
 
-  buyNowEnabled Boolean  @default(false)
-  buyNowPrice   Decimal?
-
-  status           AuctionStatus @default(ACTIVE)
   highestBidAmount Decimal?
   highestBidderId  String?
-  highestBidder    User?         @relation("HighestBidder", fields: [highestBidderId], references: [id])
+  highestBidder    User?    @relation("HighestBidder", fields: [highestBidderId], references: [id], onDelete: SetNull)
 
-  bids AuctionBid[]
+  secondBidderId String?
+  secondBidder   User?   @relation("SecondBidder", fields: [secondBidderId], references: [id], onDelete: SetNull)
 
+  thirdBidderId String?
+  thirdBidder   User?   @relation("ThirdBidder", fields: [thirdBidderId], references: [id], onDelete: SetNull)
+
+  bids            AuctionBid[]
   settlementStatus AuctionSettlementStatus @default(PENDING)
-  paymentDeadline  DateTime?
-  finishedAt       DateTime?
+  paymentDeadline DateTime?
+  finishedAt      DateTime?
 
   @@index([status, endDatetime])
 }
 
 model AuctionBid {
-  id String @id @default(cuid())
-
-  listingId String
-  auction   ListingAuction @relation(fields: [listingId], references: [listingId], onDelete: Cascade)
-
-  bidderId String
-  bidder   User   @relation(fields: [bidderId], references: [id])
-
-  amount Decimal
-  status AuctionBidStatus @default(ACTIVE)
-
-  createdAt DateTime @default(now())
+  id            String           @id @default(cuid())
+  listingId     String
+  auction       ListingAuction   @relation(fields: [listingId], references: [listingId], onDelete: Cascade)
+  bidderId      String
+  bidder        User             @relation(fields: [bidderId], references: [id], onDelete: Cascade)
+  amount        Decimal
+  blockedAmount Decimal          @default(0)
+  status        AuctionBidStatus @default(ACTIVE)
+  createdAt     DateTime         @default(now())
 
   @@index([listingId, createdAt])
   @@index([bidderId, createdAt])
@@ -296,64 +331,51 @@ model AuctionBid {
 ////////////////////
 
 model Plan {
-  id          String  @id @default(cuid())
+  id          String             @id @default(cuid())
   title       String
   description String?
-  price       Int     @default(0)
-  isActive    Boolean @default(true)
-
-  rules     PlanRule[]
-  purchases UserPlanPurchase[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  price       Int                @default(0)
+  isActive    Boolean            @default(true)
+  rules       PlanRule[]
+  purchases   UserPlanPurchase[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
 }
 
 model PlanRule {
-  id     String @id @default(cuid())
+  id     String      @id @default(cuid())
   planId String
-  plan   Plan   @relation(fields: [planId], references: [id], onDelete: Cascade)
-
-  type  ListingType
-  count Int
+  plan   Plan        @relation(fields: [planId], references: [id], onDelete: Cascade)
+  type   ListingType
+  count  Int
 
   @@unique([planId, type])
 }
 
 model UserPlanPurchase {
-  id String @id @default(cuid())
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  planId String
-  plan   Plan   @relation(fields: [planId], references: [id])
-
-  status String @default("ACTIVE")
-
+  id          String        @id @default(cuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId      String
+  plan        Plan          @relation(fields: [planId], references: [id])
+  status      String        @default("ACTIVE")
   quotaLedger QuotaLedger[]
-
-  createdAt DateTime @default(now())
+  createdAt   DateTime      @default(now())
 }
 
 model QuotaLedger {
-  id String @id @default(cuid())
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  listingId String?
-  listing   Listing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
-
-  listingType ListingType
-  action      QuotaAction
-  reason      QuotaReason
-
+  id             String            @id @default(cuid())
+  userId         String
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listingId      String?
+  listing        Listing?          @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  listingType    ListingType
+  action         QuotaAction
+  reason         QuotaReason
   planPurchaseId String?
   planPurchase   UserPlanPurchase? @relation(fields: [planPurchaseId], references: [id], onDelete: SetNull)
-
-  note      String?
-  createdAt DateTime @default(now())
+  note           String?
+  createdAt      DateTime          @default(now())
 
   @@index([userId, listingType])
 }
@@ -363,19 +385,15 @@ model QuotaLedger {
 ////////////////////
 
 model Notification {
-  id String @id @default(cuid())
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  type    NotificationType
-  title   String
-  message String
-  meta    Json?
-
-  isRead Boolean @default(false)
-
-  createdAt DateTime @default(now())
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  message   String
+  meta      Json?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
 
   @@index([userId, isRead])
 }
@@ -385,22 +403,17 @@ model Notification {
 ////////////////////
 
 model ExchangeOffer {
-  id String @id @default(cuid())
-
-  listingId String
-  listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
-
-  offererId String
-  offerer   User   @relation(fields: [offererId], references: [id])
-
-  title       String
-  description String?
-  images      String[]
-
+  id           String              @id @default(cuid())
+  listingId    String
+  listing      Listing             @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  offererId    String
+  offerer      User                @relation(fields: [offererId], references: [id], onDelete: Cascade)
+  title        String
+  description  String?
+  images       String[]
   extraPayment Decimal             @default(0)
   status       ExchangeOfferStatus @default(PENDING)
-
-  createdAt DateTime @default(now())
+  createdAt    DateTime            @default(now())
 
   @@index([listingId, status])
   @@index([offererId])
@@ -411,63 +424,48 @@ model ExchangeOffer {
 ////////////////////
 
 model RepairRequest {
-  id String @id @default(cuid())
-
-  trackingCode String @unique
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  deviceType String
-  brand      String
-  model      String
-
-  description String
-  images      String[]
-
+  id                   String              @id @default(cuid())
+  trackingCode         String              @unique
+  userId               String
+  user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceType           String
+  brand                String
+  model                String
+  description          String
+  images               String[]
   status               RepairRequestStatus @default(PENDING_REVIEW)
   rejectionReason      String?
   selectedDeliveryTime DateTime?
-
-  tickets Ticket[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  tickets              Ticket[]
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
 
   @@index([userId])
   @@index([status])
 }
 
 model Ticket {
-  id String @id @default(cuid())
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
+  id              String          @id @default(cuid())
+  userId          String
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   repairRequestId String?
-  repairRequest   RepairRequest? @relation(fields: [repairRequestId], references: [id])
-
-  subject String
-  status  TicketStatus @default(OPEN)
-
-  messages TicketMessage[]
-
-  createdAt DateTime @default(now())
+  repairRequest   RepairRequest?  @relation(fields: [repairRequestId], references: [id], onDelete: SetNull)
+  subject         String
+  status          TicketStatus    @default(OPEN)
+  messages        TicketMessage[]
+  createdAt       DateTime        @default(now())
 
   @@index([userId])
   @@index([repairRequestId])
 }
 
 model TicketMessage {
-  id String @id @default(cuid())
-
-  ticketId String
-  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-
+  id         String   @id @default(cuid())
+  ticketId   String
+  ticket     Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   senderRole UserRole
   message    String
-
-  createdAt DateTime @default(now())
+  createdAt  DateTime @default(now())
 
   @@index([ticketId, createdAt])
 }

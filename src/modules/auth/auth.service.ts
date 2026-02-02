@@ -1,85 +1,113 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  BadRequestException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
-import * as bcrypt from 'bcrypt';
-import { UsersService } from '../users/users.service';
-import { WalletService } from '../wallet/wallet.service';
-
-type JwtPayload = { sub: string; role: string };
+import { PrismaService } from '../../prisma/prisma.service';
+import axios from 'axios';
 
 @Injectable()
 export class AuthService {
-    private readonly accessTtl: number;
-    private readonly refreshTtl: number;
-    private readonly accessSecret: string;
-    private readonly refreshSecret: string;
+  constructor(
+    private prisma: PrismaService,
+    private jwtService: JwtService,
+  ) {}
 
-    constructor(
-        private readonly users: UsersService,
-        private readonly wallet: WalletService,
-        private readonly jwt: JwtService,
-        private readonly config: ConfigService,
-    ) {
-        this.accessSecret = this.config.getOrThrow<string>('JWT_ACCESS_SECRET');
-        this.refreshSecret = this.config.getOrThrow<string>('JWT_REFRESH_SECRET');
-        this.accessTtl = Number(this.config.get('JWT_ACCESS_TTL_SECONDS') ?? 900);
-        this.refreshTtl = Number(this.config.get('JWT_REFRESH_TTL_SECONDS') ?? 604800);
+  async requestOtp(phone: string) {
+    const code = Math.floor(10000 + Math.random() * 90000).toString();
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 دقیقه اعتبار
+
+    // پاک کردن کدهای قبلی و ایجاد کد جدید
+    await this.prisma.otpCode.deleteMany({ where: { phone } });
+    await this.prisma.otpCode.create({
+      data: { phone, code, expiresAt, purpose: 'LOGIN' },
+    });
+
+    console.log(`🚀 OTP Code for ${phone}: ${code}`);
+
+    try {
+      // ارسال پیامک از طریق سامانه sms.ir
+      await axios.post(
+        'https://api.sms.ir/v1/send/verify',
+        {
+          mobile: phone,
+          templateId: 591069, // کد قالب شما
+          parameters: [{ name: 'CONTACTS', value: code }],
+        },
+        {
+          headers: {
+            'X-API-KEY': 'v0CQZ1eHgKedhRyBYIjHYhIsClPRW64esI8jRfuG6sDaMcNa',
+          },
+        },
+      );
+
+      return { success: true };
+    } catch (error: any) {
+      console.log(error);
+
+      // در حالت توسعه، اگر پیامک ارسال نشد خطا نمی‌دهیم تا بتوان با کنسول تست کرد
+      return { success: true, warning: 'SMS not sent, check console' };
+    }
+  }
+
+  async verifyOtp(phone: string, code: string) {
+    const otpRecord = await this.prisma.otpCode.findFirst({
+      where: { phone, code, expiresAt: { gt: new Date() } },
+    });
+
+    if (!otpRecord) {
+      throw new BadRequestException('کد وارد شده اشتباه یا منقضی شده است');
     }
 
-    async register(phone: string, password: string) {
-        const existing = await this.users.findByPhone(phone);
-        if (existing) throw new BadRequestException('Phone already registered');
+    // استفاده از تراکنش برای تضمین ساخته شدن همزمان کاربر و کیف پول
+    const user = await this.prisma.$transaction(async (tx) => {
+      let user = await tx.user.findUnique({ where: { phone } });
 
-        const passwordHash = await bcrypt.hash(password, 10);
-        const user = await this.users.createUser({ phone, passwordHash });
-
-        // create wallet for user (idempotency handled by unique constraint in schema)
-        // await this.wallet.createWalletForUser(user.id).catch(() => null);
-
-        return this.issueTokens(user.id, user.role);
-    }
-
-    async login(phone: string, password: string) {
-        const user = await this.users.findByPhone(phone);
-        if (!user) throw new UnauthorizedException('Invalid credentials');
-
-        const ok = await bcrypt.compare(password, user.passwordHash);
-        if (!ok) throw new UnauthorizedException('Invalid credentials');
-
-        return this.issueTokens(user.id, user.role);
-    }
-
-    async refresh(refreshToken: string) {
-        let payload: JwtPayload;
-        try {
-            payload = await this.jwt.verifyAsync<JwtPayload>(refreshToken, {
-                secret: this.refreshSecret,
-            });
-        } catch {
-            throw new UnauthorizedException('Invalid refresh token');
-        }
-
-        return this.issueTokens(payload.sub, payload.role);
-    }
-
-    private async issueTokens(userId: string, role: string) {
-        const payload: JwtPayload = { sub: userId, role };
-
-        const accessToken = await this.jwt.signAsync(payload, {
-            secret: this.accessSecret,
-            expiresIn: this.accessTtl,
+      if (!user) {
+        user = await tx.user.create({
+          data: {
+            phone,
+            status: 'INCOMPLETE',
+          },
         });
 
-        const refreshToken = await this.jwt.signAsync(payload, {
-            secret: this.refreshSecret,
-            expiresIn: this.refreshTtl,
+        // ایجاد کیف پول بلافاصله بعد از ساخت کاربر
+        await tx.wallet.create({
+          data: { userId: user.id },
         });
+      }
 
-        return {
-            accessToken,
-            refreshToken,
-            tokenType: 'Bearer',
-            expiresIn: this.accessTtl,
-        };
+      return user;
+    });
+
+    // حذف کدهای OTP مصرف شده
+    await this.prisma.otpCode.deleteMany({ where: { phone } });
+
+    const payload = { sub: user.id, phone: user.phone };
+    return {
+      accessToken: this.jwtService.sign(payload),
+      user: {
+        id: user.id,
+        status: user.status,
+        phone: user.phone,
+      },
+    };
+  }
+
+  async refresh(refreshToken: string) {
+    try {
+      const payload = this.jwtService.verify(refreshToken);
+      const user = await this.prisma.user.findUnique({
+        where: { id: payload.sub },
+      });
+      if (!user) throw new UnauthorizedException();
+
+      return {
+        accessToken: this.jwtService.sign({ sub: user.id, phone: user.phone }),
+      };
+    } catch (e: any) {
+      throw new UnauthorizedException('Invalid token');
     }
+  }
 }

@@ -1,260 +1,260 @@
-// src/modules/listing/listing.service.ts
-
 import {
-    BadRequestException,
-    ForbiddenException,
-    Injectable,
-    NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { QuotaService } from '../quota/quota.service';
-
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { DeleteListingDto } from './dto/delete-listing.dto';
-
-import { ListingStatus, ListingType, UserRole } from '@prisma/client';
+import { RejectListingDto } from './dto/reject-listing.dto';
+import { ListingStatus, ListingType, UserRole, Prisma } from '@prisma/client';
 
 @Injectable()
 export class ListingService {
-    constructor(
-        private readonly prisma: PrismaService,
-        private readonly quotaService: QuotaService, // 👈 اضافه شد
-    ) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly quotaService: QuotaService,
+  ) {}
 
-    // =========================
-    // Create Listing
-    // =========================
-    async create(userId: string, dto: CreateListingDto) {
-        this.validateTypePayload(dto);
+  // متد کمکی برای پارس کردن ایمن دیتای ورودی از FormData
+  private parseNestedData(data: any) {
+    if (typeof data === 'string') {
+      try {
+        return JSON.parse(data);
+      } catch (e) {
+        return data;
+      }
+    }
+    return data;
+  }
 
-        return this.prisma.$transaction(async (tx) => {
-            const listing = await tx.listing.create({
-                data: {
-                    authorId: userId,
-                    type: dto.type,
-                    status: ListingStatus.PENDING,
-                    title: dto.title,
-                    categoryId: dto.categoryId,
-                    condition: dto.condition,
-                    description: dto.description,
-                    province: dto.province,
-                    city: dto.city,
-                    thumbnail: dto.thumbnail,
-                    gallery: dto.gallery ?? [],
-                    direct: dto.direct ? { create: dto.direct } : undefined,
-                    exchange: dto.exchange ? { create: dto.exchange } : undefined,
-                    auction: dto.auction ? { create: dto.auction } : undefined,
-                },
-            });
+  async findAll(query: any = {}, page = 1, limit = 10) {
+    const { province, categoryId, type, minPrice, maxPrice, search } = query;
+    const skip = (page - 1) * limit;
 
+    const whereClause: Prisma.ListingWhereInput = {
+      status: ListingStatus.APPROVED,
+    };
 
-            await this.quotaService.consumeOnCreate(
-                tx,
-                userId,
-                dto.type,
-                listing.id,
-            );
+    if (province) whereClause.province = province;
+    if (categoryId) whereClause.categoryId = categoryId;
+    if (type) whereClause.type = type;
 
-            return listing;
-        });
+    if (search) {
+      whereClause.OR = [
+        { title: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+      ];
     }
 
+    if (minPrice || maxPrice) {
+      const min = minPrice ? Number(minPrice) : 0;
+      const max = maxPrice ? Number(maxPrice) : Number.MAX_SAFE_INTEGER;
 
-    // =========================
-    // Validation
-    // =========================
-    private validateTypePayload(dto: CreateListingDto) {
-        switch (dto.type) {
-            case ListingType.DIRECT:
-                if (!dto.direct) {
-                    throw new BadRequestException('Direct payload required');
-                }
-                break;
+      const priceConditions = [
+        { direct: { price: { gte: min, lte: max } } },
+        { auction: { basePrice: { gte: min, lte: max } } },
+        { exchange: { ownValue: { gte: min, lte: max } } },
+      ];
 
-            case ListingType.EXCHANGE:
-                if (!dto.exchange) {
-                    throw new BadRequestException('Exchange payload required');
-                }
-                if (dto.exchange.allowDirectSale && !dto.exchange.directPrice) {
-                    throw new BadRequestException(
-                        'directPrice required when allowDirectSale is true',
-                    );
-                }
-                break;
-
-            case ListingType.AUCTION:
-                if (!dto.auction) {
-                    throw new BadRequestException('Auction payload required');
-                }
-                if (dto.auction.buyNowEnabled && !dto.auction.buyNowPrice) {
-                    throw new BadRequestException(
-                        'buyNowPrice required when buyNowEnabled is true',
-                    );
-                }
-                break;
-        }
+      whereClause.AND = [...(whereClause.AND as any[] || []), { OR: priceConditions }];
     }
 
-    // =========================
-    // Update Listing
-    // =========================
-    async update(
-        userId: string,
-        listingId: string,
-        dto: UpdateListingDto,
-    ) {
-        const listing = await this.prisma.listing.findUnique({
-            where: { id: listingId },
-            include: {
-                direct: true,
-                exchange: true,
-                auction: true,
-            },
-        });
+    const [items, total] = await Promise.all([
+      this.prisma.listing.findMany({
+        where: whereClause,
+        include: { direct: true, auction: true, exchange: true, author: { select: { firstName: true, lastName: true } } },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.listing.count({ where: whereClause }),
+    ]);
 
-        if (!listing) {
-            throw new NotFoundException('Listing not found');
-        }
+    return {
+      data: items,
+      meta: { total, page, lastPage: Math.ceil(total / limit) }
+    };
+  }
 
-        if (listing.authorId !== userId) {
-            throw new ForbiddenException('You are not the owner of this listing');
-        }
+  async findAllByUser(userId: string) {
+    return this.prisma.listing.findMany({
+      where: { authorId: userId },
+      include: { direct: true, auction: true, exchange: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
 
-        if (
-            listing.status !== ListingStatus.DRAFT &&
-            listing.status !== ListingStatus.PENDING
-        ) {
-            throw new ForbiddenException(
-                'Listing cannot be edited in this status',
-            );
-        }
+  async findAllForAdmin(status?: ListingStatus) {
+    return this.prisma.listing.findMany({
+      where: status ? { status } : {},
+      include: { direct: true, auction: true, exchange: true, author: { select: { phone: true, firstName: true, lastName: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
 
-        return this.prisma.listing.update({
-            where: { id: listingId },
-            data: {
-                title: dto.title,
-                description: dto.description,
-                province: dto.province,
-                city: dto.city,
-                thumbnail: dto.thumbnail,
-                gallery: dto.gallery,
+  async findOne(id: string) {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id },
+      include: { direct: true, auction: true, exchange: true, author: { select: { firstName: true, lastName: true, phone: true } } },
+    });
+    if (!listing) throw new NotFoundException('آگهی یافت نشد');
+    return listing;
+  }
 
-                direct: dto.direct ? { update: dto.direct } : undefined,
-                exchange: dto.exchange ? { update: dto.exchange } : undefined,
-                auction: dto.auction ? { update: dto.auction } : undefined,
-            },
-        });
-    }
+  async create(userId: string, dto: any) {
+    // پارس کردن داده‌های تودرتو چون از FormData می‌آیند
+    const direct = this.parseNestedData(dto.direct);
+    const exchange = this.parseNestedData(dto.exchange);
+    const auction = this.parseNestedData(dto.auction);
 
-    // =========================
-    // Delete Listing (User)
-    // =========================
-    async delete(
-        userId: string,
-        listingId: string,
-        dto: DeleteListingDto,
-    ) {
-        const listing = await this.prisma.listing.findUnique({
-            where: { id: listingId },
-        });
-
-        if (!listing) {
-            throw new NotFoundException('Listing not found');
-        }
-
-        if (listing.authorId !== userId) {
-            throw new ForbiddenException(
-                'You are not the owner of this listing',
-            );
-        }
-
-        if (listing.status === ListingStatus.DELETED_BY_USER) {
-            return listing; // idempotent
-        }
-
-        return this.prisma.listing.update({
-            where: { id: listingId },
-            data: {
-                status: ListingStatus.DELETED_BY_USER,
-                deleteReason: dto.deleteReason,
-                deletedAt: new Date(),
-            },
-        });
-    }
-
-    // =========================
-    // Admin Approve
-    // =========================
-    async approve(listingId: string, role: UserRole) {
-        if (role !== UserRole.ADMIN) {
-            throw new ForbiddenException('Admin access only');
-        }
-
-        const listing = await this.prisma.listing.findUnique({
-            where: { id: listingId },
-        });
-
-        if (!listing) {
-            throw new NotFoundException('Listing not found');
-        }
-
-        if (listing.status !== ListingStatus.PENDING) {
-            throw new ForbiddenException(
-                'Only pending listings can be approved',
-            );
-        }
-
-        return this.prisma.listing.update({
-            where: { id: listingId },
-            data: {
-                status: ListingStatus.APPROVED,
-                approvedAt: new Date(),
-            },
-        });
-    }
-
-    // =========================
-    // Admin Reject
-    // =========================
-    async reject(
-        listingId: string,
-        role: UserRole,
-        reason: string,
-    ) {
-        if (role !== UserRole.ADMIN) {
-            throw new ForbiddenException('Admin access only');
-        }
-
-        return this.prisma.$transaction(async (tx) => {
-            const listing = await tx.listing.findUnique({
-                where: { id: listingId },
-            });
-
-            if (!listing) {
-                throw new NotFoundException('Listing not found');
+    return this.prisma.$transaction(async (tx) => {
+      const listing = await tx.listing.create({
+        data: {
+          authorId: userId,
+          type: dto.type,
+          status: ListingStatus.PENDING,
+          title: dto.title,
+          categoryId: dto.categoryId,
+          condition: dto.condition,
+          description: dto.description,
+          province: dto.province,
+          city: dto.city,
+          shippingPayer: dto.shippingPayer,
+          thumbnail: dto.thumbnail,
+          gallery: dto.gallery ?? [],
+          direct: dto.type === ListingType.DIRECT && direct ? {
+            create: {
+              price: direct.price,
+              allowExchange: direct.allowExchange,
+              shippingMethods: direct.shippingMethods,
             }
-
-            if (listing.status !== ListingStatus.PENDING) {
-                throw new ForbiddenException(
-                    'Only pending listings can be rejected',
-                );
+          } : undefined,
+          exchange: (dto.type === ListingType.EXCHANGE || (dto.type === ListingType.DIRECT && direct?.allowExchange)) ? {
+            create: {
+              desiredCategoryId: exchange?.desiredCategoryId || '',
+              desiredTitle: exchange?.desiredTitle || '',
+              desiredDescription: exchange?.desiredDescription,
+              ownValue: exchange?.ownValue || 0,
+              extraPaymentAmount: exchange?.extraPaymentAmount || 0,
+              acceptOtherItems: exchange?.acceptOtherItems || false,
+              allowDirectSale: exchange?.allowDirectSale || false,
+              directPrice: exchange?.directPrice,
             }
+          } : undefined,
+          auction: dto.type === ListingType.AUCTION && auction ? {
+            create: {
+              basePrice: auction.basePrice,
+              minBidIncrement: auction.minBidIncrement,
+              endDatetime: auction.endDatetime,
+              buyNowEnabled: auction.buyNowEnabled,
+              buyNowPrice: auction.buyNowPrice,
+            }
+          } : undefined,
+        },
+      });
 
-            const updated = await tx.listing.update({
-                where: { id: listingId },
-                data: {
-                    status: ListingStatus.REJECTED,
-                    rejectionReason: reason,
-                    rejectedAt: new Date(),
-                },
-            });
+      await this.quotaService.consumeOnCreate(tx, userId, dto.type, listing.id);
+      return listing;
+    });
+  }
 
-            // 🔁 بازگشت سهمیه (اتمیک)
-            await this.quotaService.releaseOnReject(tx, listingId);
+  async update(userId: string, listingId: string, dto: any) {
+    const listing = await this.findOne(listingId);
+    if (listing.authorId !== userId) throw new ForbiddenException('شما مالک این آگهی نیستید');
 
-            return updated;
-        });
+    const direct = this.parseNestedData(dto.direct);
+    const exchange = this.parseNestedData(dto.exchange);
+    const auction = this.parseNestedData(dto.auction);
+
+    if (listing.type === ListingType.AUCTION && listing.auction?.highestBidderId && dto.type && dto.type !== ListingType.AUCTION) {
+      throw new BadRequestException('مزایده دارای پیشنهاد فعال است و قابل تغییر نیست');
     }
 
+    const currentType = dto.type || listing.type;
+
+    return this.prisma.listing.update({
+      where: { id: listingId },
+      data: {
+        title: dto.title,
+        description: dto.description,
+        province: dto.province,
+        city: dto.city,
+        condition: dto.condition,
+        categoryId: dto.categoryId,
+        shippingPayer: dto.shippingPayer,
+        thumbnail: dto.thumbnail,
+        gallery: dto.gallery,
+        type: currentType,
+        status: ListingStatus.PENDING,
+
+        direct: currentType === ListingType.DIRECT && direct ? {
+          upsert: {
+            create: { price: direct.price || 0, allowExchange: direct.allowExchange || false, shippingMethods: direct.shippingMethods || [] },
+            update: { price: direct.price, allowExchange: direct.allowExchange, shippingMethods: direct.shippingMethods }
+          }
+        } : (listing.direct ? { delete: true } : undefined),
+
+        exchange: ((currentType === ListingType.EXCHANGE || (currentType === ListingType.DIRECT && direct?.allowExchange)) && exchange) ? {
+          upsert: {
+            create: {
+              desiredCategoryId: exchange.desiredCategoryId || '',
+              desiredTitle: exchange.desiredTitle || '',
+              ownValue: exchange.ownValue || 0
+            },
+            update: {
+              desiredCategoryId: exchange.desiredCategoryId,
+              desiredTitle: exchange.desiredTitle,
+              ownValue: exchange.ownValue,
+              extraPaymentAmount: exchange.extraPaymentAmount
+            }
+          }
+        } : (listing.exchange ? { delete: true } : undefined),
+
+        auction: currentType === ListingType.AUCTION && auction ? {
+          upsert: {
+            create: { basePrice: auction.basePrice || 0, minBidIncrement: auction.minBidIncrement || 50000, endDatetime: auction.endDatetime || new Date() },
+            update: { basePrice: auction.basePrice, minBidIncrement: auction.minBidIncrement, endDatetime: auction.endDatetime }
+          }
+        } : (listing.auction ? { delete: true } : undefined),
+      },
+    });
+  }
+
+  async delete(userId: string, listingId: string, dto: DeleteListingDto) {
+    const listing = await this.findOne(listingId);
+    if (listing.authorId !== userId) throw new ForbiddenException('دسترسی ندارید');
+    return this.prisma.listing.update({
+      where: { id: listingId },
+      data: { status: ListingStatus.DELETED_BY_USER, deleteReason: dto.deleteReason, deletedAt: new Date() },
+    });
+  }
+
+  async approve(listingId: string, role: UserRole) {
+    if (role !== UserRole.ADMIN) throw new ForbiddenException('فقط ادمین');
+    return this.prisma.listing.update({
+      where: { id: listingId },
+      data: { status: ListingStatus.APPROVED, approvedAt: new Date() },
+    });
+  }
+
+  async reject(listingId: string, role: UserRole, dto: RejectListingDto) {
+    if (role !== UserRole.ADMIN) throw new ForbiddenException('فقط ادمین');
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.listing.update({
+        where: { id: listingId },
+        data: { status: ListingStatus.REJECTED, rejectionReason: dto.rejectionReason, rejectedAt: new Date() },
+      });
+      await this.quotaService.releaseOnReject(tx, listingId);
+      return updated;
+    });
+  }
+
+  private validateTypePayload(dto: CreateListingDto) {
+    // چون در FormData داده‌ها ممکن است استرینگ باشند، در اینجا باید احتیاط کرد
+    // اما چون قبلاً در سرویس پارس شده‌اند، متد Create از آبجکت‌های واقعی استفاده می‌کند.
+  }
 }

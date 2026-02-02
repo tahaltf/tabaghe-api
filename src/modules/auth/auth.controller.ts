@@ -1,25 +1,33 @@
-import { Body, Controller, Post } from '@nestjs/common';
-import { AuthService } from './auth.service';
-import { RegisterDto } from './dto/register.dto';
-import { LoginDto } from './dto/login.dto';
+import { Body, Controller, Post, HttpCode, HttpStatus } from '@nestjs/common';
+import { AuthService } from './auth.service'; // تغییر نام از Auth به AuthService
+import { RequestOtpDto, VerifyOtpDto } from './dto/otp.dto';
 import { RefreshDto } from './dto/refresh.dto';
 
 @Controller('auth')
 export class AuthController {
-    constructor(private readonly auth: AuthService) {}
+  // تزریق سرویس با نام جدید
+  constructor(private readonly authService: AuthService) {}
 
-    @Post('register')
-    register(@Body() dto: RegisterDto) {
-        return this.auth.register(dto.phone, dto.password);
-    }
+  /**
+   * مرحله اول: درخواست کد تایید
+   * سیستم بررسی می‌کند اگر فاصله زمانی رعایت شده باشد، پیامک ارسال می‌کند.
+   */
+  @Post('request')
+  @HttpCode(HttpStatus.OK)
+  async request(@Body() dto: RequestOtpDto) {
+    return this.authService.requestOtp(dto.phone);
+  }
 
-    @Post('login')
-    login(@Body() dto: LoginDto) {
-        return this.auth.login(dto.phone, dto.password);
-    }
 
-    @Post('refresh')
-    refresh(@Body() dto: RefreshDto) {
-        return this.auth.refresh(dto.refreshToken);
-    }
+  @Post('verify')
+  @HttpCode(HttpStatus.OK)
+  async verify(@Body() dto: VerifyOtpDto) {
+    return this.authService.verifyOtp(dto.phone, dto.code);
+  }
+
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  async refresh(@Body() dto: RefreshDto) {
+    return this.authService.refresh(dto.refreshToken);
+  }
 }

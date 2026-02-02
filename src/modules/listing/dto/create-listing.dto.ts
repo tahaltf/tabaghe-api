@@ -6,15 +6,20 @@ import {
     IsInt,
     Min,
     IsBoolean,
-    ValidateNested, IsDateString,
+    ValidateNested,
+    IsDateString,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ListingType, ItemCondition } from '@prisma/client';
+import { ListingType, ItemCondition, ShippingPayer } from '@prisma/client';
 
 class DirectDto {
     @IsInt()
     @Min(0)
     price!: number;
+
+    @IsBoolean()
+    @IsOptional()
+    allowExchange: boolean = false; // تیک "مایل به معاوضه هستم" در فروش مستقیم
 
     @IsArray()
     @IsString({ each: true })
@@ -93,6 +98,9 @@ export class CreateListingDto {
 
     @IsString()
     city!: string;
+
+    @IsEnum(ShippingPayer) // اضافه شده مطابق تغییرات پریسما
+    shippingPayer!: ShippingPayer;
 
     @IsOptional()
     @IsString()

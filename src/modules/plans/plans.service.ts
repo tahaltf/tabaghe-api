@@ -1,76 +1,67 @@
-// src/modules/plans/plans.service.ts
-
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
+import { QuotaAction, QuotaReason } from '@prisma/client';
 
 @Injectable()
 export class PlansService {
-    constructor(
-        private readonly prisma: PrismaService,
-        private readonly walletService: WalletService,
-    ) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly walletService: WalletService,
+  ) {}
 
-    // -----------------------------------
-    // Public: Get active plans
-    // -----------------------------------
-    async getActivePlans() {
-        return this.prisma.plan.findMany({
-            where: { isActive: true },
-            include: { rules: true },
-            orderBy: { createdAt: 'asc' },
+  // تغییر نام برای هماهنگی با Controller
+  async getActivePlans() {
+    return this.prisma.plan.findMany({
+      where: { isActive: true },
+      include: { rules: true },
+    });
+  }
+
+  async buyPlan(userId: string, planId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const plan = await tx.plan.findUnique({
+        where: { id: planId },
+        include: { rules: true },
+      });
+
+      if (!plan || !plan.isActive) {
+        throw new NotFoundException('پلن مورد نظر یافت نشد یا غیرفعال است');
+      }
+
+      // کسر مبلغ از کیف پول
+      await this.walletService.payFromAvailable(userId, plan.price, planId, tx);
+
+      const purchase = await tx.userPlanPurchase.create({
+        data: {
+          userId,
+          planId,
+          status: 'ACTIVE',
+        },
+      });
+
+      // اضافه کردن سهمیه به لجر
+      // چون فیلد count در لجر نداریم، به تعداد rule.count ردیف ایجاد می‌کنیم
+      for (const rule of plan.rules) {
+        const quotaEntries = Array.from({ length: rule.count }).map(() => ({
+          userId,
+          planPurchaseId: purchase.id,
+          listingType: rule.type,
+          action: QuotaAction.RELEASE, // آزاد کردن سهمیه برای کاربر
+          reason: QuotaReason.PLAN,
+          note: `خرید پلن: ${plan.title}`,
+        }));
+
+        await tx.quotaLedger.createMany({
+          data: quotaEntries,
         });
-    }
+      }
 
-    // -----------------------------------
-    // User: Buy plan (wallet settlement)
-    // -----------------------------------
-    async buyPlan(userId: string, planId: string) {
-        const plan = await this.prisma.plan.findUnique({
-            where: { id: planId },
-        });
-
-        if (!plan || !plan.isActive) {
-            throw new NotFoundException('Plan not available');
-        }
-
-        return this.prisma.$transaction(async (tx) => {
-            // 💰 پرداخت مستقیم از موجودی کیف پول
-            await this.walletService.payFromAvailable(
-                userId,
-                plan.price,
-                {
-                    type: 'BUY_PLAN',
-                    planId: plan.id,
-                    title: plan.title,
-                },
-            );
-
-            return tx.userPlanPurchase.create({
-                data: {
-                    userId,
-                    planId,
-                    status: 'ACTIVE',
-                },
-            });
-        });
-    }
-
-    // -----------------------------------
-    // Helper: get user active plans
-    // -----------------------------------
-    async getUserActivePlans(userId: string) {
-        return this.prisma.userPlanPurchase.findMany({
-            where: {
-                userId,
-                status: 'ACTIVE',
-            },
-            include: {
-                plan: {
-                    include: { rules: true },
-                },
-            },
-            orderBy: { createdAt: 'asc' },
-        });
-    }
+      return purchase;
+    });
+  }
 }

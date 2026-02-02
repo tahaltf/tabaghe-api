@@ -3,17 +3,17 @@ import { PrismaService } from '../prisma/prisma.service';
 
 @Controller('health')
 export class HealthController {
-    constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-    @Get()
-    async health() {
-        // DB ping
-        await this.prisma.$queryRaw`SELECT 1`;
+  @Get()
+  async health() {
+    // DB ping
+    await this.prisma.$queryRaw`SELECT 1`;
 
-        return {
-            ok: true,
-            status: 'up',
-            time: new Date().toISOString(),
-        };
-    }
+    return {
+      ok: true,
+      status: 'up',
+      time: new Date().toISOString(),
+    };
+  }
 }
