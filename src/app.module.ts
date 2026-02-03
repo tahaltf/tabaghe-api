@@ -18,7 +18,7 @@ import { RequestLoggerMiddleware } from './common/middleware/request-logger.midd
 import { ExchangeModule } from './modules/exchange/exchange.module';
 import { RepairModule } from './modules/repair/repair.module';
 import { SupportModule } from './modules/support/support.module';
-//import { ChatsModule } from './chats/chats.module';
+import { ChatsModule } from './chats/chats.module';
 
 @Module({
   imports: [
@@ -43,7 +43,7 @@ import { SupportModule } from './modules/support/support.module';
     RepairModule,
     NotificationModule,
     SupportModule,
-   //ChatsModule,
+   ChatsModule,
   ],
   controllers: [
     HealthController,
