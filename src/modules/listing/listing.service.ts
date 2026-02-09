@@ -6,10 +6,6 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { QuotaService } from '../quota/quota.service';
-import { CreateListingDto } from './dto/create-listing.dto';
-import { UpdateListingDto } from './dto/update-listing.dto';
-import { DeleteListingDto } from './dto/delete-listing.dto';
-import { RejectListingDto } from './dto/reject-listing.dto';
 import { ListingStatus, ListingType, UserRole, Prisma } from '@prisma/client';
 
 @Injectable()
@@ -19,8 +15,8 @@ export class ListingService {
     private readonly quotaService: QuotaService,
   ) {}
 
-  // متد کمکی برای پارس کردن ایمن دیتای ورودی از FormData
   private parseNestedData(data: any) {
+    if (!data) return null;
     if (typeof data === 'string') {
       try {
         return JSON.parse(data);
@@ -31,15 +27,22 @@ export class ListingService {
     return data;
   }
 
+  // --- عمومی (Public) ---
+
+// در فایل listing.service.ts سمت بک‌اِند
+  // --- عمومی (Public) ---
+
   async findAll(query: any = {}, page = 1, limit = 10) {
-    const { province, categoryId, type, minPrice, maxPrice, search } = query;
+    // ✅ هماهنگی کامل با پارامترهای ارسالی از فرانت‌اِند
+    const { provinceId, categoryId, type, minPrice, maxPrice, search, sort } = query;
     const skip = (page - 1) * limit;
 
     const whereClause: Prisma.ListingWhereInput = {
       status: ListingStatus.APPROVED,
     };
 
-    if (province) whereClause.province = province;
+    // ✅ فیلتر بر اساس استان (Province) به جای شهر
+    if (provinceId) whereClause.provinceId = provinceId;
     if (categoryId) whereClause.categoryId = categoryId;
     if (type) whereClause.type = type;
 
@@ -50,109 +53,214 @@ export class ListingService {
       ];
     }
 
+    // ✅ فیلتر قیمت (هندل کردن انواع آگهی)
     if (minPrice || maxPrice) {
       const min = minPrice ? Number(minPrice) : 0;
       const max = maxPrice ? Number(maxPrice) : Number.MAX_SAFE_INTEGER;
 
-      const priceConditions = [
-        { direct: { price: { gte: min, lte: max } } },
-        { auction: { basePrice: { gte: min, lte: max } } },
-        { exchange: { ownValue: { gte: min, lte: max } } },
+      whereClause.AND = [
+        {
+          OR: [
+            { direct: { price: { gte: min, lte: max } } },
+            { auction: { basePrice: { gte: min, lte: max } } },
+            { exchange: { ownValue: { gte: min, lte: max } } },
+          ]
+        }
       ];
+    }
 
-      whereClause.AND = [...(whereClause.AND as any[] || []), { OR: priceConditions }];
+    // ✅ اصلاح لاجیک مرتب‌سازی (Sort)
+    let orderBy: Prisma.ListingOrderByWithRelationInput = { createdAt: 'desc' };
+
+    if (sort === 'price_asc') {
+      // توجه: Prisma اجازه سورت روی فیلدهای nullable در رابطه‌ها را با شرایط خاص می‌دهد
+      orderBy = { direct: { price: 'asc' } };
+    } else if (sort === 'price_desc') {
+      orderBy = { direct: { price: 'desc' } };
+    } else if (sort === 'oldest') {
+      orderBy = { createdAt: 'asc' };
     }
 
     const [items, total] = await Promise.all([
       this.prisma.listing.findMany({
         where: whereClause,
-        include: { direct: true, auction: true, exchange: true, author: { select: { firstName: true, lastName: true } } },
-        orderBy: { createdAt: 'desc' },
+        include: {
+          direct: true,
+          auction: true,
+          exchange: true,
+          province: { select: { name: true, id: true } }, // ✅ اضافه شد برای نمایش نام استان
+          city: { select: { name: true, id: true } },
+          category: { select: { title: true, id: true } },
+          author: { select: { firstName: true, lastName: true, avatar: true, isVerified: true } }
+        },
+        orderBy,
         skip,
         take: limit,
       }),
       this.prisma.listing.count({ where: whereClause }),
     ]);
 
-    return {
-      data: items,
-      meta: { total, page, lastPage: Math.ceil(total / limit) }
-    };
-  }
-
-  async findAllByUser(userId: string) {
-    return this.prisma.listing.findMany({
-      where: { authorId: userId },
-      include: { direct: true, auction: true, exchange: true },
-      orderBy: { createdAt: 'desc' },
-    });
-  }
-
-  async findAllForAdmin(status?: ListingStatus) {
-    return this.prisma.listing.findMany({
-      where: status ? { status } : {},
-      include: { direct: true, auction: true, exchange: true, author: { select: { phone: true, firstName: true, lastName: true } } },
-      orderBy: { createdAt: 'desc' },
-    });
+    return { data: items, meta: { total, page, lastPage: Math.ceil(total / limit) } };
   }
 
   async findOne(id: string) {
     const listing = await this.prisma.listing.findUnique({
       where: { id },
-      include: { direct: true, auction: true, exchange: true, author: { select: { firstName: true, lastName: true, phone: true } } },
+      include: {
+        direct: true,
+        auction: {
+          include: {
+            bids: {
+              orderBy: { amount: 'desc' },
+              take: 10,
+              // ✅ اصلاح: در مدل شما رابطه bidder نام دارد، نه user
+              include: { bidder: { select: { firstName: true, lastName: true } } }
+            }
+          }
+        },
+        exchange: true,
+        province: { select: { name: true, id: true } },
+        city: { select: { name: true, id: true } },
+        category: { select: { title: true, id: true } },
+        // ✅ اصلاح: دریافت فیلدهای پروفایل و تایید هویت
+        author: {
+          select: {
+            firstName: true,
+            lastName: true,
+            phone: true,
+            avatar: true,
+            isVerified: true,
+            rating: true,
+            isOnline: true
+          }
+        },
+      },
     });
     if (!listing) throw new NotFoundException('آگهی یافت نشد');
     return listing;
   }
 
+
+  async placeBid(userId: string, listingId: string, amount: number) {
+    return this.prisma.$transaction(async (tx) => {
+      const listing = await tx.listing.findUnique({
+        where: { id: listingId },
+        include: { auction: true },
+      });
+
+      if (!listing || !listing.auction) throw new BadRequestException('آگهی مزایده نیست');
+      if (new Date() > listing.auction.endDatetime) throw new BadRequestException('زمان تمام شده');
+
+      const currentPrice = Number(listing.auction.basePrice);
+      const minIncrement = Number(listing.auction.minBidIncrement);
+      const minRequiredBid = currentPrice + minIncrement;
+
+      // ✅ شرط بررسی گام افزایش
+      if (amount < minRequiredBid) {
+        throw new BadRequestException(`مبلغ پیشنهادی باید حداقل ${minRequiredBid.toLocaleString()} تومان باشد (گام افزایش: ${minIncrement})`);
+      }
+
+      // ثبت بید... (بقیه کد مثل قبل)
+      const bid = await tx.auctionBid.create({
+        data: { amount, bidderId: userId, listingId }
+      });
+
+      await tx.listingAuction.update({
+        where: { listingId },
+        data: { basePrice: amount }
+      });
+
+      return bid;
+    });
+  }
+
+// در فایل listing.service.ts
+
+  async createExchangeOffer(userId: string, dto: any, files: Array<Express.Multer.File>) {
+    const imagePaths: string[] = [];
+
+    // بررسی فایل‌ها
+    if (files && files.length > 0) {
+      files.forEach(file => {
+        // ✅ الان چون در کنترلر ذخیره کردیم، filename وجود دارد
+        if (file.filename) {
+          imagePaths.push(file.filename);
+        }
+      });
+    }
+
+    return this.prisma.exchangeOffer.create({
+      data: {
+        listingId: dto.listingId,
+        offererId: userId,
+        title: dto.offeredItem,
+        description: dto.description,
+        extraPayment: Number(dto.cashAmount || 0),
+        // تبدیل استرینگ 'true'/'false' به بولین
+        isPayerMe: dto.isPayerMe === 'true' || dto.isPayerMe === true,
+        images: imagePaths, // ✅ الان آرایه ای از رشته هاست: ["abc.jpg", "xyz.png"]
+        status: 'PENDING'
+      }
+    });
+  }
+  async checkAvailability(listingId: string) {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      select: { status: true }
+    });
+    return listing?.status === ListingStatus.APPROVED;
+  }
+
+  // --- مدیریت آگهی (CRUD) ---
+
   async create(userId: string, dto: any) {
-    // پارس کردن داده‌های تودرتو چون از FormData می‌آیند
-    const direct = this.parseNestedData(dto.direct);
-    const exchange = this.parseNestedData(dto.exchange);
-    const auction = this.parseNestedData(dto.auction);
+    const direct = this.parseNestedData(dto.direct) || {};
+    const exchange = this.parseNestedData(dto.exchange) || {};
+    const auction = this.parseNestedData(dto.auction) || {};
+
+    if (!dto.categoryId) throw new BadRequestException('انتخاب دسته‌بندی الزامی است');
+
+    let auctionEndDate: Date | undefined;
+    if (dto.type === ListingType.AUCTION && auction.endDatetime) {
+      auctionEndDate = new Date(auction.endDatetime);
+    }
 
     return this.prisma.$transaction(async (tx) => {
       const listing = await tx.listing.create({
         data: {
-          authorId: userId,
+          title: dto.title,
           type: dto.type,
           status: ListingStatus.PENDING,
-          title: dto.title,
-          categoryId: dto.categoryId,
           condition: dto.condition,
           description: dto.description,
-          province: dto.province,
-          city: dto.city,
           shippingPayer: dto.shippingPayer,
           thumbnail: dto.thumbnail,
           gallery: dto.gallery ?? [],
-          direct: dto.type === ListingType.DIRECT && direct ? {
+          author: { connect: { id: userId } },
+          category: { connect: { id: dto.categoryId } },
+          province: { connect: { id: dto.provinceId } },
+          city: { connect: { id: dto.cityId } },
+          direct: dto.type === ListingType.DIRECT ? {
             create: {
-              price: direct.price,
-              allowExchange: direct.allowExchange,
-              shippingMethods: direct.shippingMethods,
-            }
+              price: Number(direct.price || 0),
+              allowExchange: !!direct.allowExchange,
+              shippingMethods: direct.shippingMethods || [],
+            },
           } : undefined,
-          exchange: (dto.type === ListingType.EXCHANGE || (dto.type === ListingType.DIRECT && direct?.allowExchange)) ? {
+          exchange: (dto.type === ListingType.EXCHANGE || (dto.type === ListingType.DIRECT && direct.allowExchange)) ? {
             create: {
-              desiredCategoryId: exchange?.desiredCategoryId || '',
-              desiredTitle: exchange?.desiredTitle || '',
-              desiredDescription: exchange?.desiredDescription,
-              ownValue: exchange?.ownValue || 0,
-              extraPaymentAmount: exchange?.extraPaymentAmount || 0,
-              acceptOtherItems: exchange?.acceptOtherItems || false,
-              allowDirectSale: exchange?.allowDirectSale || false,
-              directPrice: exchange?.directPrice,
-            }
+              desiredCategoryId: exchange.desiredCategoryId || '',
+              desiredTitle: exchange.desiredTitle || '',
+              ownValue: Number(exchange.ownValue || 0),
+              extraPaymentAmount: Number(exchange.extraPaymentAmount || 0),
+            },
           } : undefined,
-          auction: dto.type === ListingType.AUCTION && auction ? {
+          auction: dto.type === ListingType.AUCTION && auctionEndDate ? {
             create: {
-              basePrice: auction.basePrice,
-              minBidIncrement: auction.minBidIncrement,
-              endDatetime: auction.endDatetime,
-              buyNowEnabled: auction.buyNowEnabled,
-              buyNowPrice: auction.buyNowPrice,
-            }
+              basePrice: Number(auction.basePrice || 0),
+              minBidIncrement: Number(auction.minBidIncrement || 5000),
+              endDatetime: auctionEndDate,
+            },
           } : undefined,
         },
       });
@@ -163,68 +271,78 @@ export class ListingService {
   }
 
   async update(userId: string, listingId: string, dto: any) {
-    const listing = await this.findOne(listingId);
-    if (listing.authorId !== userId) throw new ForbiddenException('شما مالک این آگهی نیستید');
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      include: { direct: true, exchange: true, auction: true },
+    });
+
+    if (!listing) throw new NotFoundException('آگهی یافت نشد');
+    if (listing.authorId !== userId) throw new ForbiddenException('عدم دسترسی');
 
     const direct = this.parseNestedData(dto.direct);
     const exchange = this.parseNestedData(dto.exchange);
     const auction = this.parseNestedData(dto.auction);
-
-    if (listing.type === ListingType.AUCTION && listing.auction?.highestBidderId && dto.type && dto.type !== ListingType.AUCTION) {
-      throw new BadRequestException('مزایده دارای پیشنهاد فعال است و قابل تغییر نیست');
-    }
-
     const currentType = dto.type || listing.type;
+
+    let auctionEndDate = (currentType === ListingType.AUCTION && auction?.endDatetime)
+      ? new Date(auction.endDatetime)
+      : listing.auction?.endDatetime;
 
     return this.prisma.listing.update({
       where: { id: listingId },
       data: {
         title: dto.title,
         description: dto.description,
-        province: dto.province,
-        city: dto.city,
         condition: dto.condition,
-        categoryId: dto.categoryId,
         shippingPayer: dto.shippingPayer,
         thumbnail: dto.thumbnail,
         gallery: dto.gallery,
         type: currentType,
         status: ListingStatus.PENDING,
+        ...(dto.categoryId && { category: { connect: { id: dto.categoryId } } }),
+        ...(dto.provinceId && { province: { connect: { id: dto.provinceId } } }),
+        ...(dto.cityId && { city: { connect: { id: dto.cityId } } }),
 
         direct: currentType === ListingType.DIRECT && direct ? {
           upsert: {
-            create: { price: direct.price || 0, allowExchange: direct.allowExchange || false, shippingMethods: direct.shippingMethods || [] },
-            update: { price: direct.price, allowExchange: direct.allowExchange, shippingMethods: direct.shippingMethods }
-          }
+            create: { price: Number(direct.price || 0), allowExchange: !!direct.allowExchange, shippingMethods: direct.shippingMethods || [] },
+            update: { price: Number(direct.price || 0), allowExchange: !!direct.allowExchange, shippingMethods: direct.shippingMethods || [] },
+          },
         } : (listing.direct ? { delete: true } : undefined),
 
-        exchange: ((currentType === ListingType.EXCHANGE || (currentType === ListingType.DIRECT && direct?.allowExchange)) && exchange) ? {
+        exchange: (currentType === ListingType.EXCHANGE || (currentType === ListingType.DIRECT && direct?.allowExchange)) && exchange ? {
           upsert: {
-            create: {
-              desiredCategoryId: exchange.desiredCategoryId || '',
-              desiredTitle: exchange.desiredTitle || '',
-              ownValue: exchange.ownValue || 0
-            },
-            update: {
-              desiredCategoryId: exchange.desiredCategoryId,
-              desiredTitle: exchange.desiredTitle,
-              ownValue: exchange.ownValue,
-              extraPaymentAmount: exchange.extraPaymentAmount
-            }
-          }
+            create: { desiredCategoryId: exchange.desiredCategoryId || '', desiredTitle: exchange.desiredTitle || '', ownValue: Number(exchange.ownValue || 0), extraPaymentAmount: Number(exchange.extraPaymentAmount || 0) },
+            update: { desiredCategoryId: exchange.desiredCategoryId, desiredTitle: exchange.desiredTitle, ownValue: Number(exchange.ownValue || 0), extraPaymentAmount: Number(exchange.extraPaymentAmount || 0) },
+          },
         } : (listing.exchange ? { delete: true } : undefined),
 
-        auction: currentType === ListingType.AUCTION && auction ? {
+        auction: currentType === ListingType.AUCTION && auction && auctionEndDate ? {
           upsert: {
-            create: { basePrice: auction.basePrice || 0, minBidIncrement: auction.minBidIncrement || 50000, endDatetime: auction.endDatetime || new Date() },
-            update: { basePrice: auction.basePrice, minBidIncrement: auction.minBidIncrement, endDatetime: auction.endDatetime }
-          }
+            create: { basePrice: Number(auction.basePrice || 0), minBidIncrement: Number(auction.minBidIncrement || 5000), endDatetime: auctionEndDate },
+            update: { basePrice: Number(auction.basePrice || 0), minBidIncrement: Number(auction.minBidIncrement || 5000), endDatetime: auctionEndDate },
+          },
         } : (listing.auction ? { delete: true } : undefined),
       },
     });
   }
 
-  async delete(userId: string, listingId: string, dto: DeleteListingDto) {
+  async findAllByUser(userId: string) {
+    return this.prisma.listing.findMany({
+      where: { authorId: userId },
+      include: {
+        direct: true,
+        auction: true,
+        exchange: true,
+        province: { select: { name: true } },
+        city: { select: { name: true } },
+        category: { select: { title: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async delete(userId: string, listingId: string, dto: any) {
     const listing = await this.findOne(listingId);
     if (listing.authorId !== userId) throw new ForbiddenException('دسترسی ندارید');
     return this.prisma.listing.update({
@@ -241,7 +359,7 @@ export class ListingService {
     });
   }
 
-  async reject(listingId: string, role: UserRole, dto: RejectListingDto) {
+  async reject(listingId: string, role: UserRole, dto: any) {
     if (role !== UserRole.ADMIN) throw new ForbiddenException('فقط ادمین');
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.listing.update({
@@ -253,8 +371,77 @@ export class ListingService {
     });
   }
 
-  private validateTypePayload(dto: CreateListingDto) {
-    // چون در FormData داده‌ها ممکن است استرینگ باشند، در اینجا باید احتیاط کرد
-    // اما چون قبلاً در سرویس پارس شده‌اند، متد Create از آبجکت‌های واقعی استفاده می‌کند.
+  async findAllForAdmin(status?: ListingStatus) {
+    return this.prisma.listing.findMany({
+      where: status ? { status } : {},
+      include: {
+        direct: true,
+        auction: true,
+        exchange: true,
+        province: { select: { name: true } },
+        city: { select: { name: true } },
+        category: { select: { title: true } },
+        author: { select: { phone: true, firstName: true, lastName: true, avatar: true, isVerified: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+  // در listing.service.ts
+
+// 1. متد ذخیره/حذف نشان
+  async toggleSave(userId: string, listingId: string) {
+    const existing = await this.prisma.savedListing.findUnique({
+      where: {
+        userId_listingId: {
+          userId,
+          listingId,
+        },
+      },
+    });
+
+    if (existing) {
+      await this.prisma.savedListing.delete({
+        where: { id: existing.id },
+      });
+      return { saved: false };
+    } else {
+      await this.prisma.savedListing.create({
+        data: {
+          userId,
+          listingId,
+        },
+      });
+      return { saved: true };
+    }
+  }
+
+// 2. متد دریافت لیست نشان‌شده‌ها
+  async getSavedListings(userId: string) {
+    const saved = await this.prisma.savedListing.findMany({
+      where: { userId },
+      include: {
+        listing: {
+          include: {
+            category: true,
+            author: {
+              select: { firstName: true, lastName: true, avatar: true },
+            },
+            direct: true,
+            auction: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return saved.map((s) => s.listing);
+  }
+
+// 3. متد چک کردن وضعیت (اختیاری)
+  async isListingSaved(userId: string, listingId: string) {
+    const existing = await this.prisma.savedListing.findUnique({
+      where: { userId_listingId: { userId, listingId } }
+    });
+    return { saved: !!existing };
   }
 }

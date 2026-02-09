@@ -1,65 +1,131 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { v4 as uuidv4 } from 'uuid'; // npm install uuid و @types/uuid نیاز است
-// اگر uuid ندارید، فعلا از Math.random استفاده کنید
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class ChatsService {
-  // دیتابیس موقت در حافظه رم
-  private chats = [];
-  private messages = [];
+  constructor(private prisma: PrismaService) {}
 
-  initiateChat(userId: string, listingId: string) {
-    // چک کن قبلا چت بوده؟
-    let chat = this.chats.find(
-      (c) =>
-        c.listingId === listingId &&
-        (c.buyerId === userId || c.sellerId === userId),
-    );
+  // ۱. شروع چت (وقتی خریدار دکمه چت رو میزنه)
+  async initiateChat(userId: string, listingId: string) {
+    // اول آگهی رو پیدا کن تا فروشنده مشخص بشه
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+    });
 
-    if (!chat) {
-      chat = {
-        id: uuidv4(), // یا Date.now().toString()
-        listingId,
-        buyerId: userId,
-        sellerId: 'seller-id-fixed', // فرض میکنیم فروشنده ثابت است
-        createdAt: new Date(),
-      };
-      this.chats.push(chat);
+    if (!listing) throw new NotFoundException('آگهی یافت نشد');
+    if (listing.authorId === userId) {
+      throw new BadRequestException('نمیتوانید با خودتان چت کنید');
+    }
 
-      // یک پیام خوش‌آمدگویی پیش‌فرض
-      this.messages.push({
-        id: uuidv4(),
-        chatId: chat.id,
-        senderId: 'seller-id-fixed',
-        text: 'سلام! چطور میتونم کمکتون کنم؟',
-        createdAt: new Date().toISOString(),
+    // چک کن آیا قبلاً چتی بین این دو نفر سر این آگهی بوده؟
+    let conversation = await this.prisma.conversation.findUnique({
+      where: {
+        listingId_buyerId: {
+          listingId: listingId,
+          buyerId: userId,
+        },
+      },
+      // اینجا اطلاعات اضافه رو می‌گیریم که اگر چت موجود بود، برگردونیم
+      include: {
+        listing: { select: { title: true, thumbnail: true, id: true } },
+        buyer: { select: { firstName: true, lastName: true, id: true } },
+        seller: { select: { firstName: true, lastName: true, id: true } },
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 1, // آخرین پیام
+        },
+      },
+    });
+
+    // اگر نبود، یکی بساز
+    if (!conversation) {
+      conversation = await this.prisma.conversation.create({
+        data: {
+          listingId,
+          buyerId: userId,
+          sellerId: listing.authorId,
+        },
+        include: {
+          listing: { select: { title: true, thumbnail: true, id: true } },
+          buyer: { select: { firstName: true, lastName: true, id: true } },
+          seller: { select: { firstName: true, lastName: true, id: true } },
+          messages: true, // اولش پیامی نیست
+        },
       });
     }
 
-    // برگرداندن فرمت مورد انتظار فرانت‌اند (ChatSession)
-    return {
-      ...chat,
-      messages: this.messages.filter((m) => m.chatId === chat.id),
-    };
+    return conversation;
   }
 
-  getMessages(chatId: string) {
-    return this.messages.filter((m) => m.chatId === chatId);
+  // ۲. دریافت لیست تمام مکالمات کاربر (برای سایدبار داشبورد)
+  async getMyConversations(userId: string) {
+    return this.prisma.conversation.findMany({
+      where: {
+        OR: [{ buyerId: userId }, { sellerId: userId }],
+      },
+      include: {
+        listing: {
+          select: { title: true, thumbnail: true, id: true },
+        },
+        buyer: { select: { firstName: true, lastName: true, id: true } },
+        seller: { select: { firstName: true, lastName: true, id: true } },
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 1, // آخرین پیام برای نمایش در لیست
+        },
+      },
+      orderBy: { updatedAt: 'desc' }, // جدیدترین‌ها بالا باشن
+    });
   }
 
-  sendMessage(chatId: string, senderId: string, text: string) {
-    const chat = this.chats.find((c) => c.id === chatId);
-    if (!chat) throw new NotFoundException('Chat not found');
+  // ۳. دریافت پیام‌های یک چت خاص
+  async getMessages(chatId: string, userId: string) {
+    // اول چک کن کاربر دسترسی داره یا نه
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: chatId },
+    });
 
-    const newMessage = {
-      id: uuidv4(), // یا Date.now().toString()
-      chatId,
-      senderId,
-      text,
-      createdAt: new Date().toISOString(),
-    };
+    if (
+      !conversation ||
+      (conversation.buyerId !== userId && conversation.sellerId !== userId)
+    ) {
+      throw new BadRequestException('دسترسی به این مکالمه ندارید');
+    }
 
-    this.messages.push(newMessage);
-    return newMessage;
+    return this.prisma.message.findMany({
+      where: { conversationId: chatId },
+      orderBy: { createdAt: 'asc' }, // پیام‌های قدیمی بالا، جدید پایین
+    });
+  }
+
+  // ۴. ارسال پیام
+  async sendMessage(chatId: string, senderId: string, text: string) {
+    // مطمئن شو چت وجود داره
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: chatId },
+    });
+
+    if (!conversation) throw new NotFoundException('مکالمه یافت نشد');
+
+    // ایجاد پیام
+    const message = await this.prisma.message.create({
+      data: {
+        conversationId: chatId,
+        senderId: senderId,
+        content: text,
+      },
+    });
+
+    // آپدیت زمان مکالمه (برای اینکه بیاد صدر لیست)
+    await this.prisma.conversation.update({
+      where: { id: chatId },
+      data: { updatedAt: new Date() },
+    });
+
+    return message;
   }
 }

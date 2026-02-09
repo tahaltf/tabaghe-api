@@ -10,7 +10,13 @@ async function bootstrap() {
 
   // ۱. تنظیمات CORS (حتماً قبل از listen باشد)
   app.enableCors({
-    origin: ['https://app.tabagheh.com', 'http://app.tabagheh.com'],
+    origin: [
+      'https://app.tabagheh.com',
+      'http://app.tabagheh.com',
+      'http://tabagheh.com',
+      'https://tabagheh.com',
+      'http://localhost:4200',
+    ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,
   });
@@ -20,6 +26,8 @@ async function bootstrap() {
   app.use(urlencoded({ extended: true, limit: '50mb' }));
 
   // ۲. حالا سرور را استارت بزن
-  await app.listen(process.env.PORT ?? 3000);
+  // await app.listen(process.env.PORT ?? 3000);
+  console.log(process.env.PORT);
+  await app.listen(3000);
 }
 bootstrap();

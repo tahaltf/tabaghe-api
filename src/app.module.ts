@@ -19,15 +19,30 @@ import { ExchangeModule } from './modules/exchange/exchange.module';
 import { RepairModule } from './modules/repair/repair.module';
 import { SupportModule } from './modules/support/support.module';
 import { ChatsModule } from './chats/chats.module';
+import { WalletController } from "./modules/wallet/wallet.controller";
+import { CommonModuleModule } from './common-module/common-module.module';
+// 👇 این دو تا ایمپورت رو اضافه کن
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
+import { OrdersModule } from './orders/orders.module';
+import { AddressModule } from './modules/address/address.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+
+    ServeStaticModule.forRoot({
+      rootPath: join(process.cwd(), 'uploads'), // اشاره مستقیم به پوشه uploads در ریشه پروژه
+      serveRoot: '/uploads', // آدرس دسترسی: localhost:3000/uploads/...
+      serveStaticOptions: {
+        index: false, // حیاتی: جلوگیری از گشتن دنبال index.html و ارور ENOENT
+      },
+    }),
     ScheduleModule.forRoot(),
     EventEmitterModule.forRoot(),
     ThrottlerModule.forRoot([
       {
-        ttl: 60_000, // ⏱️ milliseconds
+        ttl: 60_000,
         limit: 100,
       },
     ]),
@@ -43,15 +58,17 @@ import { ChatsModule } from './chats/chats.module';
     RepairModule,
     NotificationModule,
     SupportModule,
-   ChatsModule,
+    ChatsModule,
+    CommonModuleModule,
+    OrdersModule,
+    AddressModule,
   ],
   controllers: [
     HealthController,
-    // ... بقیه controllerها
+    WalletController
   ],
   providers: [
     PrismaService,
-    // ...
   ],
 })
 export class AppModule {

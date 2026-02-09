@@ -5,7 +5,7 @@ import {
   Req,
   UseGuards,
   Get,
-  Header, // Header اضافه شد
+  Header,
   UseInterceptors,
   UploadedFile,
   BadRequestException,
@@ -13,86 +13,53 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { existsSync, mkdirSync } from 'fs';
 import { UsersService } from './users.service';
-import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard)
 export class UsersController {
-  constructor(
-    private readonly usersService: UsersService,
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly usersService: UsersService) {}
 
-  // دریافت آمار پیشخوان با غیرفعال کردن کش برای رفع مشکل لودینگ فرانت
+  @Get('me')
+  async getMe(@Req() req: any) {
+    return this.usersService.getMe(req.user.id);
+  }
+
   @Get('dashboard-stats')
   @Header('Cache-Control', 'no-store, no-cache, must-revalidate')
   @Header('Pragma', 'no-cache')
   async getDashboardStats(@Req() req: any) {
-    const userId = req.user.id;
-
-    const [
-      wallet,
-      activeAuctions,
-      wonBids,
-      exchangeOffersReceived,
-      highestBidderCount,
-      activeListings,
-    ] = await Promise.all([
-      // کیف پول و مبالغ
-      this.prisma.wallet.findUnique({ where: { userId } }),
-
-      // مزایده‌های فعال کاربر
-      this.prisma.listingAuction.count({
-        where: { listing: { authorId: userId }, status: 'ACTIVE' },
-      }),
-
-      // مزایده‌های برنده شده
-      this.prisma.auctionBid.count({
-        where: { bidderId: userId, status: 'WON' },
-      }),
-
-      // پیشنهادهای معاوضه دریافت شده برای آگهی‌های کاربر
-      this.prisma.exchangeOffer.count({
-        where: { listing: { authorId: userId }, status: 'PENDING' },
-      }),
-
-      // تعداد مزایده‌هایی که کاربر فعلاً نفر اول آن‌هاست
-      this.prisma.listingAuction.count({
-        where: { highestBidderId: userId, status: 'ACTIVE' },
-      }),
-
-      // تعداد آگهی‌های تایید شده و فعال کاربر
-      this.prisma.listing.count({
-        where: { authorId: userId, status: 'APPROVED' },
-      }),
-    ]);
-
-    return {
-      balanceAvailable: wallet?.balanceAvailable || 0,
-      balanceBlocked: wallet?.balanceBlocked || 0,
-      activeAuctions,
-      wonBids,
-      exchangeOffersReceived,
-      highestBidderCount,
-      activeListings,
-      remainingQuota: 10 - activeListings,
-    };
+    return this.usersService.getDashboardStats(req.user.id);
   }
 
   @Patch('complete-profile')
   @UseInterceptors(
     FileInterceptor('nationalCardImage', {
       storage: diskStorage({
-        destination: './uploads/national-cards',
-        filename: (req, file, callback) => {
+        destination: (req, file, cb) => {
+          const uploadPath = './uploads/national-cards';
+          if (!existsSync(uploadPath))
+            mkdirSync(uploadPath, { recursive: true });
+          cb(null, uploadPath);
+        },
+        filename: (req, file, cb) => {
           const uniqueSuffix =
             Date.now() + '-' + Math.round(Math.random() * 1e9);
-          callback(null, `card-${uniqueSuffix}${extname(file.originalname)}`);
+          cb(null, `card-${uniqueSuffix}${extname(file.originalname)}`);
         },
       }),
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) {
+          return cb(
+            new BadRequestException('Only image files are allowed!'),
+            false,
+          );
+        }
+        cb(null, true);
+      },
     }),
   )
   async completeProfile(
@@ -101,23 +68,28 @@ export class UsersController {
     @Body() body: any,
   ) {
     if (!file) throw new BadRequestException('تصویر کارت ملی الزامی است');
-
     return this.usersService.completeProfile(req.user.id, {
       firstName: body.firstName,
       lastName: body.lastName,
       nationalCode: body.nationalCode,
-      nationalCardImage: file.path,
+      nationalCardImage: file.filename,
     });
   }
+
   @Patch('settings')
   @UseInterceptors(
     FileInterceptor('nationalCardImage', {
       storage: diskStorage({
-        destination: './uploads/national-cards',
-        filename: (req, file, callback) => {
+        destination: (req, file, cb) => {
+          const uploadPath = './uploads/national-cards';
+          if (!existsSync(uploadPath))
+            mkdirSync(uploadPath, { recursive: true });
+          cb(null, uploadPath);
+        },
+        filename: (req, file, cb) => {
           const uniqueSuffix =
             Date.now() + '-' + Math.round(Math.random() * 1e9);
-          callback(null, `card-${uniqueSuffix}${extname(file.originalname)}`);
+          cb(null, `card-${uniqueSuffix}${extname(file.originalname)}`);
         },
       }),
     }),
@@ -125,33 +97,9 @@ export class UsersController {
   async updateSettings(
     @Req() req: any,
     @Body() dto: UpdateSettingsDto,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile() file?: any,
   ) {
-    const data = { ...dto };
-    if (file) {
-      data.nationalCardImage = file.path; // ذخیره آدرس فایل آپلود شده
-    }
-    return this.usersService.updateSettings(req.user.id, data);
-  }
-
-  // اضافه کردن متد GET برای لود اولیه تنظیمات
-  @Get('me')
-  async getMe(@Req() req: any) {
-    return this.prisma.user.findUnique({
-      where: { id: req.user.id },
-      select: {
-        id: true,
-        phone: true, // موبایل همیشه پر هست و از اینجا میاد
-        email: true,
-        firstName: true,
-        lastName: true,
-        nationalCardImage: true,
-        avatar: true,
-        bio: true,
-        notifyEmail: true,
-        notifySms: true,
-        notifyPush: true,
-      },
-    });
+    if (file) dto.nationalCardImage = file.filename;
+    return this.usersService.updateSettings(req.user.id, dto);
   }
 }

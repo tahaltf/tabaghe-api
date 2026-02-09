@@ -140,24 +140,28 @@ enum OtpPurpose {
 ////////////////////
 
 model User {
-  id                String     @id @default(cuid())
-  phone             String     @unique
-  email             String?    @unique
-  passwordHash      String?
-  firstName         String?
-  lastName          String?
-  nationalCode      String?    @unique
-  nationalCardImage String?
-  status            UserStatus @default(INCOMPLETE)
-  role              UserRole   @default(USER)
-
-  // ✅ فیلدهای اضافه شده برای صفحه تنظیمات
-  avatar            String?    // عکس پروفایل
-  bio               String?    // بیوگرافی یا درباره من
-  notifyEmail       Boolean    @default(true)
-  notifySms         Boolean    @default(false)
-  notifyPush        Boolean    @default(true)
-  lastLoginAt       DateTime?
+  id                  String         @id @default(cuid())
+  phone               String         @unique
+  email               String?        @unique
+  passwordHash        String?
+  savedListings SavedListing[]  // رابطه جدید
+  firstName           String?
+  buyerOrders         Order[]        @relation("BuyerOrders") // 👈 اضافه کن
+  sellerOrders        Order[]        @relation("SellerOrders") // 👈 اضافه کن
+  lastName            String?
+  nationalCode        String?        @unique
+  nationalCardImage   String?
+  status              UserStatus     @default(INCOMPLETE)
+  role                UserRole       @default(USER)
+  buyerConversations  Conversation[] @relation("BuyerConversations")
+  sellerConversations Conversation[] @relation("SellerConversations")
+  messagesSent        Message[]
+  avatar              String? // عکس پروفایل
+  bio                 String? // بیوگرافی یا درباره من
+  notifyEmail         Boolean        @default(true)
+  notifySms           Boolean        @default(false)
+  notifyPush          Boolean        @default(true)
+  lastLoginAt         DateTime?
 
   listings       Listing[]
   wallet         Wallet?
@@ -166,18 +170,38 @@ model User {
   notifications  Notification[]
   exchangeOffers ExchangeOffer[]
   bids           AuctionBid[]
-
+addresses Address[] // رابطه با آدرس
   highestBids ListingAuction[] @relation("HighestBidder")
   secondBids  ListingAuction[] @relation("SecondBidder")
   thirdBids   ListingAuction[] @relation("ThirdBidder")
+  isVerified  Boolean          @default(false)
 
+  // امتیاز فروشنده (برای نمایش ستاره یا درصد رضایت در صفحه آگهی)
+  rating      Float @default(0)
+  reviewCount Int   @default(0)
+
+  // نمایش وضعیت آنلاین بودن (برای اینکه در چت بزنیم "آنلاین" یا "آخرین بازدید...")
+  isOnline       Boolean         @default(false)
   repairRequests RepairRequest[]
   tickets        Ticket[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+model Address {
+  id          String   @id @default(cuid())
+  title       String   // مثلا: خانه، شرکت
+  province    String
+  city        String
+  fullAddress String
+  postalCode  String
+  phone       String
 
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+
+  createdAt   DateTime @default(now())
+}
 ////////////////////
 /// AUTH & OTP
 ////////////////////
@@ -199,11 +223,11 @@ model OtpCode {
 ////////////////////
 
 model Wallet {
-  id               String  @id @default(cuid())
-  userId           String  @unique
-  balanceAvailable Decimal @default(0)
-  balanceBlocked   Decimal @default(0)
-  user             User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String              @id @default(cuid())
+  userId           String              @unique
+  balanceAvailable Decimal             @default(0)
+  balanceBlocked   Decimal             @default(0)
+  user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions     WalletTransaction[]
 
   createdAt DateTime @default(now())
@@ -227,20 +251,26 @@ model WalletTransaction {
 ////////////////////
 
 model Listing {
-  id              String        @id @default(cuid())
+  id              String         @id @default(cuid())
   authorId        String
-  author          User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  author          User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
   type            ListingType
-  status          ListingStatus @default(PENDING)
+  order           Order? // 👈 اضافه کن (هر آگهی می‌تواند یک سفارش داشته باشد)
+  status          ListingStatus  @default(PENDING)
+  savedBy       SavedListing[]  // رابطه جدید
   title           String
+  conversations   Conversation[]
   categoryId      String
-  gallery         String[]      @default([])
+  category        Category       @relation(fields: [categoryId], references: [id])
+  gallery         String[]       @default([])
   thumbnail       String?
   condition       ItemCondition
   description     String
-  province        String
-  city            String
-  shippingPayer   ShippingPayer @default(BUYER_PREPAID)
+  provinceId      String
+  province        Location       @relation("ProvinceListings", fields: [provinceId], references: [id])
+  cityId          String
+  city            Location       @relation("CityListings", fields: [cityId], references: [id])
+  shippingPayer   ShippingPayer  @default(BUYER_PREPAID)
   rejectionReason String?
   deleteReason    String?
   approvedAt      DateTime?
@@ -258,7 +288,7 @@ model Listing {
 
   @@index([status, type])
   @@index([authorId])
-  @@index([province, city])
+  @@index([provinceId, cityId])
   @@index([createdAt])
 }
 
@@ -303,10 +333,10 @@ model ListingAuction {
   thirdBidderId String?
   thirdBidder   User?   @relation("ThirdBidder", fields: [thirdBidderId], references: [id], onDelete: SetNull)
 
-  bids            AuctionBid[]
+  bids             AuctionBid[]
   settlementStatus AuctionSettlementStatus @default(PENDING)
-  paymentDeadline DateTime?
-  finishedAt      DateTime?
+  paymentDeadline  DateTime?
+  finishedAt       DateTime?
 
   @@index([status, endDatetime])
 }
@@ -325,7 +355,18 @@ model AuctionBid {
   @@index([listingId, createdAt])
   @@index([bidderId, createdAt])
 }
+// جدول واسط برای ذخیره آگهی‌ها
+model SavedListing {
+  id        String   @id @default(cuid())
+  userId    String
+  listingId String
+  createdAt DateTime @default(now())
 
+  user    User    @relation(fields: [userId], references: [id])
+  listing Listing @relation(fields: [listingId], references: [id])
+
+  @@unique([userId, listingId]) // هر کاربر یک آگهی را فقط یک بار می‌تواند ذخیره کند
+}
 ////////////////////
 /// PLANS & QUOTA
 ////////////////////
@@ -414,6 +455,8 @@ model ExchangeOffer {
   extraPayment Decimal             @default(0)
   status       ExchangeOfferStatus @default(PENDING)
   createdAt    DateTime            @default(now())
+  updatedAt    DateTime @updatedAt
+  isPayerMe    Boolean  @default(true) // آیا پیشنهاد دهنده پول می‌دهد؟
 
   @@index([listingId, status])
   @@index([offererId])
@@ -483,4 +526,115 @@ model IdempotencyKey {
   createdAt DateTime @default(now())
 
   @@index([userId, endpoint])
+}
+
+enum LocationType {
+  PROVINCE
+  CITY
+}
+
+model Category {
+  id        String     @id @default(cuid())
+  title     String
+  slug      String     @unique
+  parentId  String?
+  parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children  Category[] @relation("CategoryTree")
+  listings  Listing[]
+  createdAt DateTime   @default(now())
+}
+
+model Location {
+  id       String       @id @default(cuid())
+  name     String
+  type     LocationType
+  parentId String?
+  parent   Location?    @relation("LocationTree", fields: [parentId], references: [id])
+  children Location[]   @relation("LocationTree")
+
+  // این دو خط رو دقیقاً با این اسامی جایگزین کن:
+  provinceListings Listing[] @relation("ProvinceListings")
+  cityListings     Listing[] @relation("CityListings")
+
+  createdAt DateTime @default(now())
+}
+
+////////////////////
+/// CHAT SYSTEM
+////////////////////
+
+model Conversation {
+  id String @id @default(cuid())
+
+  // آگهی مربوطه
+  listingId String
+  listing   Listing @relation(fields: [listingId], references: [id])
+
+  // خریدار (شروع کننده چت)
+  buyerId String
+  buyer   User   @relation("BuyerConversations", fields: [buyerId], references: [id])
+
+  // فروشنده (صاحب آگهی)
+  sellerId String
+  seller   User   @relation("SellerConversations", fields: [sellerId], references: [id])
+
+  messages Message[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // این خط خیلی مهمه: هر خریدار برای هر آگهی فقط یک چت داشته باشه
+  @@unique([listingId, buyerId])
+  @@index([buyerId])
+  @@index([sellerId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  senderId String
+  sender   User   @relation(fields: [senderId], references: [id])
+
+  content   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([conversationId])
+}
+
+enum OrderType {
+  DIRECT
+  AUCTION
+  EXCHANGE
+}
+enum OrderStatus {
+  PENDING     // در انتظار پرداخت
+  PAID        // پرداخت شده / در حال پردازش
+  SHIPPED     // ارسال شده
+  DELIVERED   // تحویل شده
+  CANCELLED   // لغو شده
+}
+model Order {
+  id        String  @id @default(cuid())
+  listingId String  @unique
+  listing   Listing @relation(fields: [listingId], references: [id])
+
+  buyerId String
+  buyer   User   @relation("BuyerOrders", fields: [buyerId], references: [id])
+
+  sellerId String
+  seller   User   @relation("SellerOrders", fields: [sellerId], references: [id])
+
+  type       OrderType
+  finalPrice Decimal?
+
+  // برای معاوضه: آیدی پیشنهادی که قبول شده
+  exchangeOfferId String?
+
+  status       String  @default("PAID") // PAID, SHIPPED, DELIVERED
+  trackingCode String?
+
+  createdAt DateTime @default(now())
 }
