@@ -22,6 +22,7 @@ import {AdminWalletController} from "../wallet/admin-wallet.controller";
         AdminLedgerController,
     ],
     providers: [AuctionService, AuctionGateway, AuctionJob, AuctionScheduler, IdempotencyService],
+    exports:[AuctionService]
 })
 export class AuctionModule {
 }

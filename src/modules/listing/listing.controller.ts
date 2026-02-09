@@ -18,6 +18,7 @@ import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { ListingService } from './listing.service';
+import { AuctionService } from '../auction/auction.service'; // ✅ ایمپورت شد
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -25,9 +26,12 @@ import { UserRole, ListingStatus } from '@prisma/client';
 import { CurrentUser } from "../auth/decorators/current-user.decorator";
 import { v4 as uuidv4 } from 'uuid';
 
-@Controller('listings') // فقط listings کافیست، ads را اگر نیاز نیست حذف کن
+@Controller('listings')
 export class ListingController {
-  constructor(private readonly listingService: ListingService) {}
+  constructor(
+    private readonly listingService: ListingService,
+    private readonly auctionService: AuctionService // ✅ تزریق سرویس مزایده
+  ) {}
 
   // ======================================================
   // 1. PUBLIC GET ENDPOINTS (Static Routes First)
@@ -50,8 +54,6 @@ export class ListingController {
     return this.listingService.findAllByUser(req.user.id);
   }
 
-  // ✅ اصلاح مسیر به 'saved' تا با درخواست فرانت مچ شود
-  // ✅ این متد حتماً باید قبل از Get(':id') باشد
   @UseGuards(JwtAuthGuard)
   @Get('saved')
   async getSavedListings(@Req() req) {
@@ -109,7 +111,8 @@ export class ListingController {
     if (!amount || amount <= 0) {
       throw new BadRequestException('مبلغ پیشنهادی معتبر نیست');
     }
-    return this.listingService.placeBid(req.user.id, id, amount);
+    // ✅ هدایت درخواست به سرویس مزایده که منطق بلوکه کردن پول را دارد
+    return this.auctionService.placeBid(req.user.id, id, amount);
   }
 
   @UseGuards(JwtAuthGuard)

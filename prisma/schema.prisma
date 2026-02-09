@@ -633,7 +633,7 @@ model Order {
   // برای معاوضه: آیدی پیشنهادی که قبول شده
   exchangeOfferId String?
 
-  status       String  @default("PAID") // PAID, SHIPPED, DELIVERED
+status       OrderStatus @default(PAID)
   trackingCode String?
 
   createdAt DateTime @default(now())

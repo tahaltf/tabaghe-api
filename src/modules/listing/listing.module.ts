@@ -7,9 +7,10 @@ import {QuotaModule} from "../quota/quota.module";
 import {ListingSearchController} from "./listing-search.controller";
 import {PrismaService} from "../../prisma/prisma.service";
 import {ListingSearchService} from "./listing-search.service";
+import { AuctionModule } from "../auction/auction.module";
 
 @Module({
-  imports: [PrismaModule, QuotaModule],
+  imports: [PrismaModule, QuotaModule , AuctionModule],
   controllers: [ListingController, ListingSearchController],
   providers: [ListingService, ListingSearchService,
     PrismaService,],

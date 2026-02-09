@@ -29,11 +29,7 @@ export class ListingService {
 
   // --- عمومی (Public) ---
 
-// در فایل listing.service.ts سمت بک‌اِند
-  // --- عمومی (Public) ---
-
   async findAll(query: any = {}, page = 1, limit = 10) {
-    // ✅ هماهنگی کامل با پارامترهای ارسالی از فرانت‌اِند
     const { provinceId, categoryId, type, minPrice, maxPrice, search, sort } = query;
     const skip = (page - 1) * limit;
 
@@ -41,7 +37,6 @@ export class ListingService {
       status: ListingStatus.APPROVED,
     };
 
-    // ✅ فیلتر بر اساس استان (Province) به جای شهر
     if (provinceId) whereClause.provinceId = provinceId;
     if (categoryId) whereClause.categoryId = categoryId;
     if (type) whereClause.type = type;
@@ -53,7 +48,6 @@ export class ListingService {
       ];
     }
 
-    // ✅ فیلتر قیمت (هندل کردن انواع آگهی)
     if (minPrice || maxPrice) {
       const min = minPrice ? Number(minPrice) : 0;
       const max = maxPrice ? Number(maxPrice) : Number.MAX_SAFE_INTEGER;
@@ -69,11 +63,9 @@ export class ListingService {
       ];
     }
 
-    // ✅ اصلاح لاجیک مرتب‌سازی (Sort)
     let orderBy: Prisma.ListingOrderByWithRelationInput = { createdAt: 'desc' };
 
     if (sort === 'price_asc') {
-      // توجه: Prisma اجازه سورت روی فیلدهای nullable در رابطه‌ها را با شرایط خاص می‌دهد
       orderBy = { direct: { price: 'asc' } };
     } else if (sort === 'price_desc') {
       orderBy = { direct: { price: 'desc' } };
@@ -88,7 +80,7 @@ export class ListingService {
           direct: true,
           auction: true,
           exchange: true,
-          province: { select: { name: true, id: true } }, // ✅ اضافه شد برای نمایش نام استان
+          province: { select: { name: true, id: true } },
           city: { select: { name: true, id: true } },
           category: { select: { title: true, id: true } },
           author: { select: { firstName: true, lastName: true, avatar: true, isVerified: true } }
@@ -113,7 +105,6 @@ export class ListingService {
             bids: {
               orderBy: { amount: 'desc' },
               take: 10,
-              // ✅ اصلاح: در مدل شما رابطه bidder نام دارد، نه user
               include: { bidder: { select: { firstName: true, lastName: true } } }
             }
           }
@@ -122,7 +113,6 @@ export class ListingService {
         province: { select: { name: true, id: true } },
         city: { select: { name: true, id: true } },
         category: { select: { title: true, id: true } },
-        // ✅ اصلاح: دریافت فیلدهای پروفایل و تایید هویت
         author: {
           select: {
             firstName: true,
@@ -140,49 +130,12 @@ export class ListingService {
     return listing;
   }
 
-
-  async placeBid(userId: string, listingId: string, amount: number) {
-    return this.prisma.$transaction(async (tx) => {
-      const listing = await tx.listing.findUnique({
-        where: { id: listingId },
-        include: { auction: true },
-      });
-
-      if (!listing || !listing.auction) throw new BadRequestException('آگهی مزایده نیست');
-      if (new Date() > listing.auction.endDatetime) throw new BadRequestException('زمان تمام شده');
-
-      const currentPrice = Number(listing.auction.basePrice);
-      const minIncrement = Number(listing.auction.minBidIncrement);
-      const minRequiredBid = currentPrice + minIncrement;
-
-      // ✅ شرط بررسی گام افزایش
-      if (amount < minRequiredBid) {
-        throw new BadRequestException(`مبلغ پیشنهادی باید حداقل ${minRequiredBid.toLocaleString()} تومان باشد (گام افزایش: ${minIncrement})`);
-      }
-
-      // ثبت بید... (بقیه کد مثل قبل)
-      const bid = await tx.auctionBid.create({
-        data: { amount, bidderId: userId, listingId }
-      });
-
-      await tx.listingAuction.update({
-        where: { listingId },
-        data: { basePrice: amount }
-      });
-
-      return bid;
-    });
-  }
-
-// در فایل listing.service.ts
+  // ❌ متد placeBid حذف شد چون باید در AuctionService باشد
 
   async createExchangeOffer(userId: string, dto: any, files: Array<Express.Multer.File>) {
     const imagePaths: string[] = [];
-
-    // بررسی فایل‌ها
     if (files && files.length > 0) {
       files.forEach(file => {
-        // ✅ الان چون در کنترلر ذخیره کردیم، filename وجود دارد
         if (file.filename) {
           imagePaths.push(file.filename);
         }
@@ -196,13 +149,13 @@ export class ListingService {
         title: dto.offeredItem,
         description: dto.description,
         extraPayment: Number(dto.cashAmount || 0),
-        // تبدیل استرینگ 'true'/'false' به بولین
         isPayerMe: dto.isPayerMe === 'true' || dto.isPayerMe === true,
-        images: imagePaths, // ✅ الان آرایه ای از رشته هاست: ["abc.jpg", "xyz.png"]
+        images: imagePaths,
         status: 'PENDING'
       }
     });
   }
+
   async checkAvailability(listingId: string) {
     const listing = await this.prisma.listing.findUnique({
       where: { id: listingId },
@@ -386,9 +339,7 @@ export class ListingService {
       orderBy: { createdAt: 'desc' },
     });
   }
-  // در listing.service.ts
 
-// 1. متد ذخیره/حذف نشان
   async toggleSave(userId: string, listingId: string) {
     const existing = await this.prisma.savedListing.findUnique({
       where: {
@@ -415,7 +366,6 @@ export class ListingService {
     }
   }
 
-// 2. متد دریافت لیست نشان‌شده‌ها
   async getSavedListings(userId: string) {
     const saved = await this.prisma.savedListing.findMany({
       where: { userId },
@@ -437,7 +387,6 @@ export class ListingService {
     return saved.map((s) => s.listing);
   }
 
-// 3. متد چک کردن وضعیت (اختیاری)
   async isListingSaved(userId: string, listingId: string) {
     const existing = await this.prisma.savedListing.findUnique({
       where: { userId_listingId: { userId, listingId } }

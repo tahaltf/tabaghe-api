@@ -1,51 +1,50 @@
-import { Controller, Get, Post, Body, Param, Request, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Request, Query, UseGuards } from '@nestjs/common';
 import { ChatsService } from './chats.service';
-// import { JwtAuthGuard } from '../auth/jwt-auth.guard'; // اگر گارد دارید آنکامنت کنید
+// import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
-@Controller('chat') // 👈 نکته مهم: اسم مسیر رو به 'chat' (مفرد) تغییر دادم تا با فرانت هماهنگ بشه
+@Controller('chat')
 export class ChatsController {
   constructor(private readonly chatsService: ChatsService) {}
 
-  // ۱. شروع چت (از صفحه آگهی)
-  // @UseGuards(JwtAuthGuard)
   @Post('initiate')
-  initiateChat(
+  async initiateChat(
     @Request() req,
     @Body('listingId') listingId: string,
-    @Body('userId') bodyUserId: string // موقت برای تست بدون توکن
+    @Body('userId') bodyUserId: string
   ) {
-    // اولویت با آیدی داخل توکن است، اگر نبود از بادی می‌گیرد
     const userId = req.user?.id || bodyUserId;
     return this.chatsService.initiateChat(userId, listingId);
   }
 
-  // ۲. دریافت لیست مکالمات (برای سایدبار داشبورد)
-  // @UseGuards(JwtAuthGuard)
   @Get('conversations')
-  getMyConversations(@Request() req, @Body('userId') bodyUserId: string) {
-    const userId = req.user?.id || bodyUserId;
+  async getMyConversations(
+    @Request() req,
+    @Query('userId') queryUserId: string // ✅ دریافت از کوئری (?userId=...)
+  ) {
+    const userId = req.user?.id || queryUserId;
     return this.chatsService.getMyConversations(userId);
   }
 
-  // ۳. دریافت پیام‌های یک مکالمه خاص
-  // @UseGuards(JwtAuthGuard)
   @Get('messages/:id')
-  getMessages(
+  async getMessages(
     @Request() req,
     @Param('id') chatId: string,
-    @Body('userId') bodyUserId: string
+    @Query('userId') queryUserId: string // ✅ دریافت از کوئری (?userId=...)
   ) {
-    const userId = req.user?.id || bodyUserId;
+    const userId = req.user?.id || queryUserId;
+    // لاگ برای دیباگ در کنسول
+    console.log('--- Controller Check ---');
+    console.log('Chat ID:', chatId);
+    console.log('User ID from Request:', userId);
+
     return this.chatsService.getMessages(chatId, userId);
   }
 
-  // ۴. ارسال پیام جدید
-  // @UseGuards(JwtAuthGuard)
   @Post('message')
-  sendMessage(
+  async sendMessage(
     @Request() req,
-    @Body('conversationId') conversationId: string, // نام پارامتر با فرانت هماهنگ شد
-    @Body('content') content: string,               // نام پارامتر با فرانت هماهنگ شد (قبلا text بود)
+    @Body('conversationId') conversationId: string,
+    @Body('content') content: string,
     @Body('userId') bodyUserId: string
   ) {
     const userId = req.user?.id || bodyUserId;

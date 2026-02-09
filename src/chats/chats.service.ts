@@ -9,9 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 export class ChatsService {
   constructor(private prisma: PrismaService) {}
 
-  // ۱. شروع چت (وقتی خریدار دکمه چت رو میزنه)
   async initiateChat(userId: string, listingId: string) {
-    // اول آگهی رو پیدا کن تا فروشنده مشخص بشه
     const listing = await this.prisma.listing.findUnique({
       where: { id: listingId },
     });
@@ -21,7 +19,6 @@ export class ChatsService {
       throw new BadRequestException('نمیتوانید با خودتان چت کنید');
     }
 
-    // چک کن آیا قبلاً چتی بین این دو نفر سر این آگهی بوده؟
     let conversation = await this.prisma.conversation.findUnique({
       where: {
         listingId_buyerId: {
@@ -29,19 +26,17 @@ export class ChatsService {
           buyerId: userId,
         },
       },
-      // اینجا اطلاعات اضافه رو می‌گیریم که اگر چت موجود بود، برگردونیم
       include: {
         listing: { select: { title: true, thumbnail: true, id: true } },
         buyer: { select: { firstName: true, lastName: true, id: true } },
         seller: { select: { firstName: true, lastName: true, id: true } },
         messages: {
           orderBy: { createdAt: 'desc' },
-          take: 1, // آخرین پیام
+          take: 1,
         },
       },
     });
 
-    // اگر نبود، یکی بساز
     if (!conversation) {
       conversation = await this.prisma.conversation.create({
         data: {
@@ -53,7 +48,7 @@ export class ChatsService {
           listing: { select: { title: true, thumbnail: true, id: true } },
           buyer: { select: { firstName: true, lastName: true, id: true } },
           seller: { select: { firstName: true, lastName: true, id: true } },
-          messages: true, // اولش پیامی نیست
+          messages: true,
         },
       });
     }
@@ -61,8 +56,9 @@ export class ChatsService {
     return conversation;
   }
 
-  // ۲. دریافت لیست تمام مکالمات کاربر (برای سایدبار داشبورد)
   async getMyConversations(userId: string) {
+    if(!userId) throw new BadRequestException('User ID is missing');
+
     return this.prisma.conversation.findMany({
       where: {
         OR: [{ buyerId: userId }, { sellerId: userId }],
@@ -75,52 +71,59 @@ export class ChatsService {
         seller: { select: { firstName: true, lastName: true, id: true } },
         messages: {
           orderBy: { createdAt: 'desc' },
-          take: 1, // آخرین پیام برای نمایش در لیست
+          take: 1,
         },
       },
-      orderBy: { updatedAt: 'desc' }, // جدیدترین‌ها بالا باشن
+      orderBy: { updatedAt: 'desc' },
     });
   }
 
-  // ۳. دریافت پیام‌های یک چت خاص
+  // --- متد مشکل دار ---
   async getMessages(chatId: string, userId: string) {
-    // اول چک کن کاربر دسترسی داره یا نه
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: chatId },
     });
 
-    if (
-      !conversation ||
-      (conversation.buyerId !== userId && conversation.sellerId !== userId)
-    ) {
+    // لاگ‌های دیباگ (حتما در ترمینال سرور چک کنید)
+    console.log('--- Service Debug ---');
+    console.log('Request User ID:', userId);
+    console.log('Chat Found:', !!conversation);
+    if(conversation) {
+      console.log('Buyer ID:', conversation.buyerId);
+      console.log('Seller ID:', conversation.sellerId);
+      console.log('Is Buyer Match?', conversation.buyerId === userId);
+      console.log('Is Seller Match?', conversation.sellerId === userId);
+    }
+
+    if (!conversation) {
+      throw new NotFoundException('مکالمه پیدا نشد');
+    }
+
+    if (conversation.buyerId !== userId && conversation.sellerId !== userId) {
       throw new BadRequestException('دسترسی به این مکالمه ندارید');
     }
 
     return this.prisma.message.findMany({
       where: { conversationId: chatId },
-      orderBy: { createdAt: 'asc' }, // پیام‌های قدیمی بالا، جدید پایین
+      orderBy: { createdAt: 'asc' },
     });
   }
 
-  // ۴. ارسال پیام
-  async sendMessage(chatId: string, senderId: string, text: string) {
-    // مطمئن شو چت وجود داره
+  async sendMessage(chatId: string, senderId: string, content: string) {
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: chatId },
     });
 
     if (!conversation) throw new NotFoundException('مکالمه یافت نشد');
 
-    // ایجاد پیام
     const message = await this.prisma.message.create({
       data: {
         conversationId: chatId,
         senderId: senderId,
-        content: text,
+        content: content,
       },
     });
 
-    // آپدیت زمان مکالمه (برای اینکه بیاد صدر لیست)
     await this.prisma.conversation.update({
       where: { id: chatId },
       data: { updatedAt: new Date() },
