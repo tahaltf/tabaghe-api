@@ -26,8 +26,8 @@ async function bootstrap() {
   app.use(urlencoded({ extended: true, limit: '50mb' }));
 
   // ۲. حالا سرور را استارت بزن
-  // await app.listen(process.env.PORT ?? 3000);
+  await app.listen(process.env.PORT ?? 3000);
   // console.log(process.env.PORT);
-  await app.listen(3000);
+  // await app.listen(3000);
 }
 bootstrap();
