@@ -136,22 +136,37 @@ export class UsersService {
   async updateSettings(userId: string, dto: UpdateSettingsDto) {
     try {
       const updateData: any = {
-        firstName: dto.firstName, lastName: dto.lastName, email: dto.email,
-        bio: dto.bio, avatar: dto.avatar,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        email: dto.email,
+        bio: dto.bio,
+        avatar: dto.avatar,
         notifyEmail: String(dto.notifyEmail) === 'true',
         notifySms: String(dto.notifySms) === 'true',
         notifyPush: String(dto.notifyPush) === 'true',
       };
-      if (dto.nationalCardImage) updateData.nationalCardImage = dto.nationalCardImage;
+
+      // ✅ اصلاح مهم: اگر کارت ملی آپلود شد، وضعیت باید "در انتظار تایید" شود
+      if (dto.nationalCardImage) {
+        updateData.nationalCardImage = dto.nationalCardImage;
+        updateData.status = UserStatus.PENDING; // 👈 این خط جا افتاده بود
+      }
 
       return await this.prisma.user.update({
         where: { id: userId },
         data: updateData,
-        select: { id: true, email: true, firstName: true, lastName: true, avatar: true }
+        // حتما status را هم برگردانید تا فرانت‌اند بلافاصله متوجه تغییر شود
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          avatar: true,
+          status: true // 👈 اضافه شد
+        }
       });
     } catch (error) {
       if (error.code === 'P2002') throw new BadRequestException('ایمیل تکراری است.');
       throw error;
     }
-  }
-}
+  }}
