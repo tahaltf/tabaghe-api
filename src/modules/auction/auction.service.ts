@@ -4,12 +4,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
+import { FeeCalculatorService } from '../fees/fee-calculator.service'; // 👈 اضافه شد
 import {
   AuctionBidStatus,
   AuctionStatus,
   AuctionSettlementStatus,
+  ListingType, // 👈 اضافه شد
 } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { AuctionGateway } from './auction.gateway';
@@ -22,6 +24,7 @@ export class AuctionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly walletService: WalletService,
+    private readonly feeCalculator: FeeCalculatorService, // 👈 تزریق شد
     private readonly auctionGateway: AuctionGateway,
     private readonly eventEmitter: EventEmitter2,
   ) {}
@@ -30,7 +33,6 @@ export class AuctionService {
   // Place bid (اصلاح شده با فرمت پول)
   // -----------------------------------
   async placeBid(userId: string, listingId: string, amount: number) {
-    // تبدیل ورودی به دسی‌مال برای محاسبات دقیق دیتابیس
     const bidAmount = new Decimal(amount);
 
     if (bidAmount.lte(0)) {
@@ -61,7 +63,6 @@ export class AuctionService {
         : new Decimal(auction.basePrice);
 
       if (bidAmount.lt(minRequired)) {
-        // ✅ اصلاح شده: نمایش ۳ رقم ۳ رقم مبلغ
         throw new BadRequestException(
           `مبلغ پیشنهادی باید حداقل ${minRequired.toNumber().toLocaleString()} تومان باشد`,
         );
@@ -71,24 +72,20 @@ export class AuctionService {
         throw new BadRequestException('شما در حال حاضر بالاترین پیشنهاد را دارید');
       }
 
-      // === محاسبه دقیق ودیعه (۱۰ درصد) ===
       const DEPOSIT_PERCENTAGE = 0.1;
       const depositAmount = bidAmount.mul(DEPOSIT_PERCENTAGE);
 
-      // بررسی اینکه مقدار صفر یا منفی نباشد
       if (depositAmount.lte(0)) {
         throw new BadRequestException('خطا در محاسبه ودیعه (مبلغ نامعتبر)');
       }
 
-      // ۱. بلوکه کردن مبلغ محاسبه شده
       await this.walletService.blockAmount(
         userId,
-        depositAmount, // متغیر صحیح ارسال شد
+        depositAmount,
         listingId,
         tx,
       );
 
-      // ۲. مدیریت نفر سوم (آزادسازی پول نفر قبلی اگر لیست پر باشد)
       if (auction.thirdBidderId) {
         const thirdBid = await tx.auctionBid.findFirst({
           where: {
@@ -113,18 +110,16 @@ export class AuctionService {
         }
       }
 
-      // ۳. ایجاد رکورد پیشنهاد جدید
       const newBid = await tx.auctionBid.create({
         data: {
           listingId,
           bidderId: userId,
-          amount: bidAmount,          // مبلغ کل پیشنهاد
-          blockedAmount: depositAmount, // مبلغی که بلوکه شد (متغیر صحیح)
+          amount: bidAmount,
+          blockedAmount: depositAmount,
           status: AuctionBidStatus.ACTIVE,
         },
       });
 
-      // ۴. جابجایی نفرات (Shift)
       await tx.listingAuction.update({
         where: { listingId },
         data: {
@@ -138,7 +133,6 @@ export class AuctionService {
       return newBid;
     });
 
-    // ارسال ایونت‌ها
     this.auctionGateway.emitBidPlaced(listingId, {
       bidderId: userId,
       amount: result.amount,
@@ -205,7 +199,7 @@ export class AuctionService {
   }
 
   // -----------------------------------
-  // Pay auction
+  // Pay auction (با کسر کارمزد داینامیک)
   // -----------------------------------
   async payAuction(userId: string | null, listingId: string) {
     return this.prisma.$transaction(async (tx) => {
@@ -216,7 +210,6 @@ export class AuctionService {
 
       if (!auction) throw new NotFoundException('Auction not found');
 
-      // اگر userId نال باشد (ادمین فورس کرده) چک نمیکنیم، در غیر این صورت باید برنده باشد
       if (userId && auction.highestBidderId !== userId) {
         throw new ForbiddenException('شما برنده فعلی مزایده نیستید');
       }
@@ -238,11 +231,19 @@ export class AuctionService {
       const totalAmount = new Decimal(auction.highestBidAmount!);
       const blockedDeposit = new Decimal(winnerBid?.blockedAmount || 0);
 
+      // 👈 محاسبه کارمزد پلتفرم برای مزایده
+      const platformFee = await this.feeCalculator.calculateFee(
+        ListingType.AUCTION,
+        auction.listing.categoryId,
+        totalAmount
+      );
+
       await this.walletService.payAuctionFinal(
         payerId,
         auction.listing.authorId,
         totalAmount,
         blockedDeposit,
+        platformFee, // 👈 جایگزین 0 شد
         listingId,
         tx
       );
@@ -305,7 +306,6 @@ export class AuctionService {
     }
   }
 
-  // این متد برای استفاده خارجی (مثلا Scheduler جداگانه)
   async penalizeWinner(listingId: string) {
     return this.processNextWinner(listingId);
   }
@@ -363,7 +363,7 @@ export class AuctionService {
   }
 
   // -----------------------------------
-  // Buy now
+  // Buy now (با کسر کارمزد و Escrow امن)
   // -----------------------------------
   async buyNow(userId: string, listingId: string) {
     const result = await this.prisma.$transaction(async (tx) => {
@@ -380,7 +380,22 @@ export class AuctionService {
 
       const amount = new Decimal(auction.buyNowPrice);
 
-      await this.walletService.payFromAvailable(userId, amount, listingId, tx);
+      // 👈 محاسبه کارمزد پلتفرم
+      const platformFee = await this.feeCalculator.calculateFee(
+        ListingType.AUCTION,
+        auction.listing.categoryId,
+        amount
+      );
+
+      // 👈 استفاده از Escrow (پول در حساب بلوکه فروشنده می‌ماند)
+      await this.walletService.transferToEscrow(
+        userId,
+        auction.listing.authorId,
+        amount,
+        platformFee,
+        listingId,
+        tx
+      );
 
       const bidders = [
         auction.highestBidderId,
@@ -411,14 +426,6 @@ export class AuctionService {
           highestBidderId: userId,
           highestBidAmount: amount,
         },
-      });
-
-      let sellerWallet = await tx.wallet.findUnique({ where: { userId: auction.listing.authorId }});
-      if(!sellerWallet) sellerWallet = await tx.wallet.create({ data: { userId: auction.listing.authorId, balanceAvailable: 0, balanceBlocked: 0 }});
-
-      await tx.wallet.update({
-        where: { id: sellerWallet.id },
-        data: { balanceAvailable: { increment: amount } }
       });
 
       return { buyerId: userId, amount };
@@ -482,12 +489,10 @@ export class AuctionService {
   // Admin Methods
   // -----------------------------------
 
-  // ۱. جریمه دستی (فراخوانی همان متد penalizeWinner)
-  async forcePenalizeAuction(listingId: string) {
+  async forcePenalizeWinner(listingId: string) {
     return this.penalizeWinner(listingId);
   }
 
-  // ۲. کنسل کردن مزایده و عودت پول همه
   async forceRefundAuction(listingId: string) {
     return this.prisma.$transaction(async (tx) => {
       const auction = await tx.listingAuction.findUnique({
@@ -523,10 +528,7 @@ export class AuctionService {
     });
   }
 
-  // ۳. تسویه دستی توسط ادمین (Force Settle)
   async forceSettleAuction(listingId: string) {
-    // از آنجایی که این متد توسط ادمین صدا زده می‌شود، userId را null می‌فرستیم
-    // تا در متد payAuction چک مربوط به برنده بودن غیرفعال شود (با شرط موجود در payAuction)
     return this.payAuction(null, listingId);
   }
 }

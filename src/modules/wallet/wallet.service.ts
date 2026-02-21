@@ -1,7 +1,11 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
-import { WalletTransactionType, WalletTransactionStatus } from '@prisma/client';
-import Decimal from 'decimal.js'; // ✅ استفاده از کتابخانه دقیق ریاضی
+import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import {
+  WalletTransactionType,
+  WalletTransactionStatus,
+  Prisma,
+} from '@prisma/client';
+import Decimal from 'decimal.js';
 
 @Injectable()
 export class WalletService {
@@ -30,50 +34,39 @@ export class WalletService {
   }
 
   // =================================================================
-  // AUCTION LOGIC (اصلاح شده با Decimal Strict Check)
+  // AUCTION LOGIC
   // =================================================================
 
-  async blockAmount(userId: string, amount: number | any, listingId: string, tx?: any) {
+  async blockAmount(
+    userId: string,
+    amount: number | string | Decimal,
+    listingId: string,
+    tx?: Prisma.TransactionClient,
+  ) {
     const prisma = tx || this.prisma;
-
-    // ۱. تبدیل ورودی به فرمت دقیق Decimal
     const amountDec = new Decimal(amount);
 
-    if (amountDec.lte(0)) {
-      throw new BadRequestException('مبلغ مسدودسازی نامعتبر است (صفر یا منفی)');
-    }
+    if (amountDec.lte(0))
+      throw new BadRequestException('مبلغ مسدودسازی نامعتبر است');
 
-    // ۲. دریافت کیف پول
     const wallet = await prisma.wallet.findUnique({ where: { userId } });
-
-    // اگر کیف پول وجود ندارد، یعنی موجودی ۰ است
-    if (!wallet) {
-      console.error(`[Block Check] Wallet not found for user ${userId}`);
-      throw new BadRequestException(`موجودی کافی نیست (کیف پول یافت نشد، موجودی: ۰)`);
-    }
+    if (!wallet)
+      throw new BadRequestException('موجودی کافی نیست (کیف پول یافت نشد)');
 
     const balanceDec = new Decimal(wallet.balanceAvailable);
 
-    // ۳. لاگ دقیق برای اینکه در کنسول سرور ببینید چه خبر است
-    console.log(`[Wallet Block Check] User: ${userId}`);
-    console.log(`Current Balance: ${balanceDec.toString()}`);
-    console.log(`Required Deposit: ${amountDec.toString()}`);
-
-    // ۴. مقایسه دقیق ریاضی (اگر موجودی کمتر از مبلغ درخواستی باشد)
-    // استفاده از .lt() به جای عملگر < بسیار حیاتی است
     if (balanceDec.lt(amountDec)) {
-      console.error('[Block Check] Failed: Balance check failed');
-      // ✅ اصلاح شده: نمایش ۳ رقم ۳ رقم مبالغ
       const current = balanceDec.toNumber().toLocaleString();
       const required = amountDec.toNumber().toLocaleString();
-      throw new BadRequestException(`موجودی کیف پول کافی نیست. (موجودی: ${current} تومان، ودیعه مورد نیاز: ${required} تومان)`);
+      throw new BadRequestException(
+        `موجودی کیف پول کافی نیست. (موجودی: ${current} تومان، ودیعه مورد نیاز: ${required} تومان)`,
+      );
     }
 
-    // ۵. کسر و بلوکه کردن
     await prisma.wallet.update({
       where: { userId },
       data: {
-        balanceAvailable: { decrement: amountDec.toString() }, // استفاده از رشته برای دقت Prisma
+        balanceAvailable: { decrement: amountDec.toString() },
         balanceBlocked: { increment: amountDec.toString() },
       },
     });
@@ -81,7 +74,7 @@ export class WalletService {
     await prisma.walletTransaction.create({
       data: {
         walletId: wallet.id,
-        amount: amountDec.toNumber(), // برای ذخیره در دیتابیس
+        amount: amountDec.toNumber(),
         type: WalletTransactionType.BLOCK,
         status: WalletTransactionStatus.SUCCESS,
         referenceId: listingId,
@@ -90,11 +83,14 @@ export class WalletService {
     });
   }
 
-  async unblockAmount(userId: string, amount: number | any, listingId: string, tx?: any) {
+  async unblockAmount(
+    userId: string,
+    amount: number | string | Decimal,
+    listingId: string,
+    tx?: Prisma.TransactionClient,
+  ) {
     const prisma = tx || this.prisma;
     const amountDec = new Decimal(amount);
-
-    // دریافت والت برای اطمینان از وجود آن
     const wallet = await this.getWalletByUserId(userId);
 
     await prisma.wallet.update({
@@ -117,14 +113,19 @@ export class WalletService {
     });
   }
 
-  async confiscateBlocked(userId: string, amount: number | any, listingId: string, tx?: any) {
+  async confiscateBlocked(
+    userId: string,
+    amount: number | string | Decimal,
+    listingId: string,
+    tx?: Prisma.TransactionClient,
+  ) {
     const prisma = tx || this.prisma;
     const amountDec = new Decimal(amount);
     const wallet = await this.getWalletByUserId(userId);
 
     await prisma.wallet.update({
       where: { userId },
-      data: { balanceBlocked: { decrement: amountDec.toString() } }
+      data: { balanceBlocked: { decrement: amountDec.toString() } },
     });
 
     await prisma.walletTransaction.create({
@@ -134,47 +135,53 @@ export class WalletService {
         type: WalletTransactionType.PENALTY,
         status: WalletTransactionStatus.SUCCESS,
         referenceId: listingId,
-        meta: { description: 'جریمه عدم پرداخت مزایده (ضبط ودیعه)' }
-      }
+        meta: { description: 'جریمه عدم پرداخت مزایده (ضبط ودیعه)' },
+      },
     });
   }
 
+  // ✅ اصلاح شد: واریز به حساب بلوکه شده فروشنده (Escrow) + کسر کارمزد
   async payAuctionFinal(
     buyerId: string,
     sellerId: string,
-    totalAmount: number | any,
-    blockedDeposit: number | any,
+    totalAmount: number | string | Decimal,
+    blockedDeposit: number | string | Decimal,
+    platformFee: number | string | Decimal, // 👈 کارمزد اضافه شد
     refId: string,
-    tx?: any
+    tx?: Prisma.TransactionClient,
   ) {
     const prisma = tx || this.prisma;
     const totalDec = new Decimal(totalAmount);
     const depositDec = new Decimal(blockedDeposit);
+    const feeDec = new Decimal(platformFee);
     const remainderDec = totalDec.minus(depositDec);
+    const sellerRevenue = totalDec.minus(feeDec); // سهم خالص فروشنده
 
-    // ۱. چک موجودی برای مابقی
-    const buyerWallet = await prisma.wallet.findUnique({ where: { userId: buyerId } });
+    const buyerWallet = await prisma.wallet.findUnique({
+      where: { userId: buyerId },
+    });
     if (!buyerWallet) throw new BadRequestException('کیف پول خریدار یافت نشد');
 
-    const buyerBalance = new Decimal(buyerWallet.balanceAvailable);
-
-    if (remainderDec.gt(0) && buyerBalance.lt(remainderDec)) {
-      throw new BadRequestException('موجودی آزاد برای پرداخت مابه‌تفاوت کافی نیست');
+    if (
+      remainderDec.gt(0) &&
+      new Decimal(buyerWallet.balanceAvailable).lt(remainderDec)
+    ) {
+      throw new BadRequestException(
+        'موجودی آزاد برای پرداخت مابه‌تفاوت کافی نیست',
+      );
     }
 
-    // ۲. کسر ودیعه از Blocked
     if (depositDec.gt(0)) {
       await prisma.wallet.update({
         where: { userId: buyerId },
-        data: { balanceBlocked: { decrement: depositDec.toString() } }
+        data: { balanceBlocked: { decrement: depositDec.toString() } },
       });
     }
 
-    // ۳. کسر مابقی از Available
     if (remainderDec.gt(0)) {
       await prisma.wallet.update({
         where: { userId: buyerId },
-        data: { balanceAvailable: { decrement: remainderDec.toString() } }
+        data: { balanceAvailable: { decrement: remainderDec.toString() } },
       });
 
       await prisma.walletTransaction.create({
@@ -184,51 +191,72 @@ export class WalletService {
           type: WalletTransactionType.SETTLEMENT,
           status: WalletTransactionStatus.SUCCESS,
           referenceId: refId,
-          meta: { description: 'پرداخت مابه‌تفاوت مزایده' }
-        }
+          meta: { description: 'پرداخت مابه‌تفاوت مزایده' },
+        },
       });
     }
 
-    // ۴. واریز به فروشنده
-    let sellerWallet = await prisma.wallet.findUnique({ where: { userId: sellerId } });
+    // پول به جای آزاد شدن، برای فروشنده بلوکه می‌شود تا کالا به دست خریدار برسد
+    let sellerWallet = await prisma.wallet.findUnique({
+      where: { userId: sellerId },
+    });
     if (!sellerWallet) {
-      sellerWallet = await prisma.wallet.create({ data: { userId: sellerId, balanceAvailable: 0, balanceBlocked: 0 } });
+      sellerWallet = await prisma.wallet.create({
+        data: { userId: sellerId, balanceAvailable: 0, balanceBlocked: 0 },
+      });
     }
 
     await prisma.wallet.update({
       where: { userId: sellerId },
-      data: { balanceAvailable: { increment: totalDec.toString() } }
+      data: { balanceBlocked: { increment: sellerRevenue.toString() } },
     });
 
     await prisma.walletTransaction.create({
       data: {
         walletId: sellerWallet.id,
-        amount: totalDec.toNumber(),
+        amount: sellerRevenue.toNumber(),
         type: WalletTransactionType.DEPOSIT,
-        status: WalletTransactionStatus.SUCCESS,
+        status: WalletTransactionStatus.PENDING, // وضعیت پندینگ برای اسکرو
         referenceId: refId,
-        meta: { description: 'دریافت وجه فروش مزایده' }
-      }
+        meta: {
+          description: 'دریافت وجه فروش مزایده (در انتظار تایید خریدار)',
+        },
+      },
     });
   }
 
   // =================================================================
-  // ESCROW & OTHER METHODS
+  // ESCROW LOGIC (Direct Buy & Exchange)
   // =================================================================
 
-  async transferToEscrow(buyerId: string, sellerId: string, amount: number | any, refId: string, tx?: any) {
+  // ✅ اصلاح شد: اضافه شدن کارمزد پلتفرم (Platform Fee)
+  async transferToEscrow(
+    buyerId: string,
+    sellerId: string,
+    amount: number | string | Decimal,
+    platformFee: number | string | Decimal,
+    refId: string,
+    tx?: Prisma.TransactionClient,
+  ) {
     const prisma = tx || this.prisma;
     const amountDec = new Decimal(amount);
+    const feeDec = new Decimal(platformFee);
+    const sellerRevenue = amountDec.minus(feeDec);
 
-    const buyerWallet = await prisma.wallet.findUnique({ where: { userId: buyerId } });
+    const buyerWallet = await prisma.wallet.findUnique({
+      where: { userId: buyerId },
+    });
 
-    if (!buyerWallet || new Decimal(buyerWallet.balanceAvailable).lt(amountDec)) {
+    if (
+      !buyerWallet ||
+      new Decimal(buyerWallet.balanceAvailable).lt(amountDec)
+    ) {
       throw new BadRequestException('موجودی کیف پول برای خرید کافی نیست');
     }
 
     await prisma.wallet.update({
       where: { userId: buyerId },
-      data: { balanceAvailable: { decrement: amountDec.toString() } }
+      data: { balanceAvailable: { decrement: amountDec.toString() } },
     });
 
     await prisma.walletTransaction.create({
@@ -238,35 +266,42 @@ export class WalletService {
         type: WalletTransactionType.SETTLEMENT,
         status: WalletTransactionStatus.SUCCESS,
         referenceId: refId,
-        meta: { description: 'پرداخت سفارش (بلوکه نزد فروشنده)' }
-      }
+        meta: { description: 'پرداخت سفارش (بلوکه نزد فروشنده)' },
+      },
     });
 
-    let sellerWallet = await prisma.wallet.findUnique({ where: { userId: sellerId } });
+    let sellerWallet = await prisma.wallet.findUnique({
+      where: { userId: sellerId },
+    });
     if (!sellerWallet) {
       sellerWallet = await prisma.wallet.create({
-        data: { userId: sellerId, balanceAvailable: 0, balanceBlocked: 0 }
+        data: { userId: sellerId, balanceAvailable: 0, balanceBlocked: 0 },
       });
     }
 
     await prisma.wallet.update({
       where: { userId: sellerId },
-      data: { balanceBlocked: { increment: amountDec.toString() } }
+      data: { balanceBlocked: { increment: sellerRevenue.toString() } },
     });
 
     await prisma.walletTransaction.create({
       data: {
         walletId: sellerWallet.id,
-        amount: amountDec.toNumber(),
+        amount: sellerRevenue.toNumber(),
         type: WalletTransactionType.DEPOSIT,
         status: WalletTransactionStatus.PENDING,
         referenceId: refId,
-        meta: { description: 'دریافت وجه سفارش (بلوکه)' }
-      }
+        meta: { description: 'دریافت وجه سفارش (بلوکه)' },
+      },
     });
   }
 
-  async releaseEscrow(sellerId: string, amount: number | any, refId: string, tx?: any) {
+  async releaseEscrow(
+    sellerId: string,
+    amount: number | string | Decimal,
+    refId: string,
+    tx?: Prisma.TransactionClient,
+  ) {
     const prisma = tx || this.prisma;
     const amountDec = new Decimal(amount);
     const wallet = await this.getWalletByUserId(sellerId);
@@ -275,8 +310,8 @@ export class WalletService {
       where: { userId: sellerId },
       data: {
         balanceBlocked: { decrement: amountDec.toString() },
-        balanceAvailable: { increment: amountDec.toString() }
-      }
+        balanceAvailable: { increment: amountDec.toString() },
+      },
     });
 
     await prisma.walletTransaction.create({
@@ -286,16 +321,16 @@ export class WalletService {
         type: WalletTransactionType.UNBLOCK,
         status: WalletTransactionStatus.SUCCESS,
         referenceId: refId,
-        meta: { description: 'آزادسازی وجه سفارش' }
-      }
+        meta: { description: 'آزادسازی وجه سفارش پس از تایید خریدار' },
+      },
     });
   }
 
   // =================================================================
-  // STANDARD METHODS (Deposit / Withdraw)
+  // STANDARD METHODS (Deposit / Withdraw / Admin)
   // =================================================================
 
-  async deposit(userId: string, amount: number | any) {
+  async deposit(userId: string, amount: number | string | Decimal) {
     const wallet = await this.getWalletByUserId(userId);
     const amountDec = new Decimal(amount);
     if (amountDec.lte(0)) throw new BadRequestException('مبلغ نامعتبر است');
@@ -321,7 +356,6 @@ export class WalletService {
     const amountDec = new Decimal(dto.amount);
     const wallet = await this.getWalletByUserId(userId);
 
-    // چک دقیق موجودی برای برداشت
     if (new Decimal(wallet.balanceAvailable).lt(amountDec)) {
       throw new BadRequestException('موجودی قابل برداشت کافی نیست');
     }
@@ -347,7 +381,90 @@ export class WalletService {
     });
   }
 
-  async payFromAvailable(userId: string, amount: number | any, referenceId: string, tx?: any) {
+  async getWithdrawRequestsAdmin() {
+    return this.prisma.walletTransaction.findMany({
+      where: {
+        type: WalletTransactionType.WITHDRAW_REQUEST,
+        status: WalletTransactionStatus.PENDING,
+      },
+      include: {
+        wallet: {
+          include: {
+            user: {
+              select: { firstName: true, lastName: true, phone: true },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async processWithdraw(
+    transactionId: string,
+    action: 'APPROVE' | 'REJECT',
+    adminNote?: string,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const transaction = await tx.walletTransaction.findUnique({
+        where: { id: transactionId },
+      });
+
+      if (
+        !transaction ||
+        transaction.status !== WalletTransactionStatus.PENDING
+      ) {
+        throw new BadRequestException('تراکنش نامعتبر است یا قبلا پردازش شده');
+      }
+
+      const amountDec = new Decimal(transaction.amount); // جلوگیری از خطای اعشار در آپدیت‌های پریسما
+
+      if (action === 'APPROVE') {
+        await tx.wallet.update({
+          where: { id: transaction.walletId },
+          data: { balanceBlocked: { decrement: amountDec.toString() } },
+        });
+
+        await tx.walletTransaction.update({
+          where: { id: transactionId },
+          data: {
+            status: WalletTransactionStatus.SUCCESS,
+            type: WalletTransactionType.WITHDRAW_PAID,
+            meta: {
+              ...(transaction.meta as object),
+              adminNote,
+              approvedAt: new Date(),
+            },
+          },
+        });
+
+        return { message: 'درخواست برداشت تایید و مبلغ کسر شد' };
+      } else {
+        await tx.wallet.update({
+          where: { id: transaction.walletId },
+          data: {
+            balanceBlocked: { decrement: amountDec.toString() },
+            balanceAvailable: { increment: amountDec.toString() },
+          },
+        });
+
+        await tx.walletTransaction.update({
+          where: { id: transactionId },
+          data: {
+            status: WalletTransactionStatus.FAILED,
+            meta: {
+              ...(transaction.meta as object),
+              adminNote,
+              rejectionReason: 'رد توسط ادمین',
+            },
+          },
+        });
+
+        return { message: 'درخواست رد شد و مبلغ به کیف پول بازگشت' };
+      }
+    });
+  }
+  async payFromAvailable(userId: string, amount: number | string | Decimal, referenceId: string, tx?: Prisma.TransactionClient) {
     const prisma = tx || this.prisma;
     const amountDec = new Decimal(amount);
     const wallet = await prisma.wallet.findUnique({ where: { userId } });
@@ -370,76 +487,6 @@ export class WalletService {
         referenceId: referenceId,
         meta: { description: 'پرداخت از موجودی' },
       },
-    });
-  }
-
-  // =================================================================
-  // ADMIN METHODS
-  // =================================================================
-
-  async getWithdrawRequestsAdmin() {
-    return this.prisma.walletTransaction.findMany({
-      where: {
-        type: WalletTransactionType.WITHDRAW_REQUEST,
-        status: WalletTransactionStatus.PENDING,
-      },
-      include: {
-        wallet: {
-          include: {
-            user: {
-              select: { firstName: true, lastName: true, phone: true }
-            }
-          }
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-  }
-
-  async processWithdraw(transactionId: string, action: 'APPROVE' | 'REJECT', adminNote?: string) {
-    return this.prisma.$transaction(async (tx) => {
-      const transaction = await tx.walletTransaction.findUnique({ where: { id: transactionId } });
-
-      if (!transaction || transaction.status !== WalletTransactionStatus.PENDING) {
-        throw new BadRequestException('تراکنش نامعتبر است یا قبلا پردازش شده');
-      }
-
-      if (action === 'APPROVE') {
-        await tx.wallet.update({
-          where: { id: transaction.walletId },
-          data: { balanceBlocked: { decrement: transaction.amount } },
-        });
-
-        await tx.walletTransaction.update({
-          where: { id: transactionId },
-          data: {
-            status: WalletTransactionStatus.SUCCESS,
-            type: WalletTransactionType.WITHDRAW_PAID,
-            meta: { ...(transaction.meta as object), adminNote, approvedAt: new Date() },
-          },
-        });
-
-        return { message: 'درخواست برداشت تایید و مبلغ کسر شد' };
-
-      } else {
-        await tx.wallet.update({
-          where: { id: transaction.walletId },
-          data: {
-            balanceBlocked: { decrement: transaction.amount },
-            balanceAvailable: { increment: transaction.amount },
-          },
-        });
-
-        await tx.walletTransaction.update({
-          where: { id: transactionId },
-          data: {
-            status: WalletTransactionStatus.FAILED,
-            meta: { ...(transaction.meta as object), adminNote, rejectionReason: 'رد توسط ادمین' },
-          },
-        });
-
-        return { message: 'درخواست رد شد و مبلغ به کیف پول بازگشت' };
-      }
     });
   }
 }

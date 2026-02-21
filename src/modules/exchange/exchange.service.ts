@@ -4,7 +4,7 @@ import {
     Injectable,
     NotFoundException,
 } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { ExchangeOfferStatus, ListingType } from '@prisma/client';
 import { CreateExchangeOfferDto } from './create-exchange-offer.dto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -13,32 +13,48 @@ import { ExchangeEvents } from './exchange.events';
 @Injectable()
 export class ExchangeService {
     constructor(
-        private readonly prisma: PrismaService,
-        private readonly eventEmitter: EventEmitter2,
+      private readonly prisma: PrismaService,
+      private readonly eventEmitter: EventEmitter2,
     ) {}
 
     // -----------------------------------
     // Create Offer
     // -----------------------------------
     async createOffer(
-        userId: string,
-        listingId: string,
-        dto: CreateExchangeOfferDto,
+      userId: string,
+      listingId: string,
+      dto: CreateExchangeOfferDto,
+      files: any[] // 👈 اضافه کردن آرگومان چهارم
     ) {
+        const fileNames = files ? files.map(f => f.filename) : []; // 👈 تعریف متغیر که ارور TS2552 ندهد
         const listing = await this.prisma.listing.findUnique({
             where: { id: listingId },
         });
 
         if (!listing) {
-            throw new NotFoundException('Listing not found');
+            throw new NotFoundException('آگهی یافت نشد');
         }
 
         if (listing.type !== ListingType.EXCHANGE) {
-            throw new BadRequestException('Not an exchange listing');
+            throw new BadRequestException('این آگهی برای معاوضه نیست');
         }
 
-        if (listing.authorId === userId) {
-            throw new ForbiddenException('Cannot offer on your own listing');
+        // 👈 اصلاح شرط با استفاده از String() برای اطمینان از یکسان بودن تایپ‌ها
+        if (String(listing.authorId) === String(userId)) {
+            throw new ForbiddenException('شما نمی‌توانید برای آگهی خودتان پیشنهاد معاوضه ثبت کنید.');
+        }
+
+        // جلوگیری از ثبت پیشنهاد تکراری
+        const existingOffer = await this.prisma.exchangeOffer.findFirst({
+            where: {
+                offererId: userId,
+                listingId: listingId,
+                status: ExchangeOfferStatus.PENDING,
+            },
+        });
+
+        if (existingOffer) {
+            throw new BadRequestException('شما قبلاً یک پیشنهاد در حال بررسی برای این آگهی ثبت کرده‌اید.');
         }
 
         const offer = await this.prisma.exchangeOffer.create({
@@ -47,12 +63,13 @@ export class ExchangeService {
                 offererId: userId,
                 title: dto.title,
                 description: dto.description,
-                images: dto.images,
+                images: fileNames, // 👈 اینجا آرایه اسامی فایل‌ها رو ذخیره کن
                 extraPayment: dto.extraPayment ?? 0,
+                isPayerMe: dto.isPayerMe ?? true,
             },
         });
 
-        // 🔔 notify owner: new offer received
+        // 🔔 notify owner
         this.eventEmitter.emit(ExchangeEvents.OFFER_CREATED, {
             listingId,
             ownerId: listing.authorId,
@@ -86,7 +103,10 @@ export class ExchangeService {
                 offerer: {
                     select: {
                         id: true,
+                        firstName: true, // اضافه شد برای نمایش بهتر در فرانت
+                        lastName: true,
                         phone: true,
+                        avatar: true,
                     },
                 },
             },
@@ -131,11 +151,9 @@ export class ExchangeService {
                 data: { status: ExchangeOfferStatus.REJECTED },
             });
 
-            // close listing
-            await tx.listing.update({
-                where: { id: offer.listingId },
-                data: { status: 'DELETED_BY_USER' },
-            });
+            // ⚠️ نکته معماری: آگهی را اینجا DELETED_BY_USER یا SOLD نمی‌کنیم.
+            // آگهی باید باز بماند تا در مرحله Checkout توسط کاربر قابل پرداخت باشد.
+            // وضعیت SOLD در سرویس Orders بعد از پرداخت موفق ثبت می‌شود.
 
             // 🔔 notify offerer: accepted
             this.eventEmitter.emit(ExchangeEvents.OFFER_ACCEPTED, {
@@ -144,7 +162,7 @@ export class ExchangeService {
                 offerId: offer.id,
             });
 
-            return { ok: true };
+            return { ok: true, message: 'پیشنهاد با موفقیت تایید شد. اکنون نوبت پرداخت سرک و ثبت آدرس است.' };
         });
     }
 

@@ -64,10 +64,12 @@ enum WalletTransactionType {
   DEPOSIT
   BLOCK
   UNBLOCK
-  SETTLEMENT
+  SETTLEMENT       // واریز وجه سفارش به فروشنده
+  COMMISSION_FEE   // کسر کارمزد پلتفرم
   PENALTY
   WITHDRAW_REQUEST
   WITHDRAW_PAID
+  REFUND           // برگشت وجه به خریدار در صورت لغو یا حل اختلاف
 }
 
 enum WalletTransactionStatus {
@@ -162,7 +164,9 @@ model User {
   notifySms           Boolean        @default(false)
   notifyPush          Boolean        @default(true)
   lastLoginAt         DateTime?
-
+  givenReviews    Review[] @relation("GivenReviews")
+  receivedReviews Review[] @relation("ReceivedReviews")
+  shabaNumber       String?   // 👈 این خط رو اضافه کن
   listings       Listing[]
   wallet         Wallet?
   planPurchases  UserPlanPurchase[]
@@ -222,11 +226,13 @@ model OtpCode {
 /// WALLET
 ////////////////////
 
+// 1. اضافه کردن موجودی غیرقابل برداشت به کیف پول
 model Wallet {
   id               String              @id @default(cuid())
   userId           String              @unique
-  balanceAvailable Decimal             @default(0)
-  balanceBlocked   Decimal             @default(0)
+  balanceAvailable Decimal             @default(0) // قابل برداشت
+  balanceBlocked   Decimal             @default(0) // درگیر در معامله/مزایده
+  balanceCredit    Decimal             @default(0) // 👈 اعتبار هدیه/خسارت (غیرقابل برداشت)
   user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions     WalletTransaction[]
 
@@ -532,7 +538,7 @@ enum LocationType {
   PROVINCE
   CITY
 }
-
+// 3. آپدیت مدل Category برای ارتباط با قوانین کارمزد
 model Category {
   id        String     @id @default(cuid())
   title     String
@@ -541,6 +547,7 @@ model Category {
   parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id])
   children  Category[] @relation("CategoryTree")
   listings  Listing[]
+  feeRules  FeeRule[]  // 👈 اضافه شد
   createdAt DateTime   @default(now())
 }
 
@@ -611,30 +618,91 @@ enum OrderType {
 }
 enum OrderStatus {
   PENDING     // در انتظار پرداخت
-  PAID        // پرداخت شده / در حال پردازش
-  SHIPPED     // ارسال شده
-  DELIVERED   // تحویل شده
-  CANCELLED   // لغو شده
+  PAID        // پرداخت شده (پول در حساب واسط طبقه است)
+  SHIPPED     // ارسال شده توسط فروشنده
+  DELIVERED   // تحویل شده به خریدار (شروع مهلت تست)
+  COMPLETED   // تایید نهایی خریدار و واریز پول به فروشنده
+  DISPUTED    // ثبت شکایت / مغایرت کالا
+  CANCELLED   // لغو شده (استرداد وجه به خریدار)
 }
 model Order {
   id        String  @id @default(cuid())
   listingId String  @unique
   listing   Listing @relation(fields: [listingId], references: [id])
+  reviews   Review[]
 
-  buyerId String
-  buyer   User   @relation("BuyerOrders", fields: [buyerId], references: [id])
+  buyerId   String
+  buyer     User    @relation("BuyerOrders", fields: [buyerId], references: [id])
 
-  sellerId String
-  seller   User   @relation("SellerOrders", fields: [sellerId], references: [id])
+  sellerId  String
+  seller    User    @relation("SellerOrders", fields: [sellerId], references: [id])
 
-  type       OrderType
-  finalPrice Decimal?
+  type      OrderType
+
+  // بخش مالی و کمیسیون
+  finalPrice    Decimal
+  platformFee   Decimal @default(0)
+  sellerRevenue Decimal
 
   // برای معاوضه: آیدی پیشنهادی که قبول شده
   exchangeOfferId String?
 
-status       OrderStatus @default(PAID)
-  trackingCode String?
+  // -----------------------------------------------------------------
+  // بخش اول: اطلاعات ارسال به خریدار (آدرسی که فروشنده باید به آن بفرستد)
+  // -----------------------------------------------------------------
+  shippingAddress    String?
+  shippingPostalCode String?
+  shippingPhone      String?
+  trackingCode       String?    // کدی که فروشنده (صاحب آگهی) ثبت می‌کند
 
-  createdAt DateTime @default(now())
+  // -----------------------------------------------------------------
+  // بخش دوم: اطلاعات ارسال به فروشنده (آدرسی که خریدار باید به آن بفرستد)
+  // مخصوص معاوضه: چون هر دو طرف باید کالا ارسال کنند
+  // -----------------------------------------------------------------
+  sellerShippingAddress    String?
+  sellerShippingPostalCode String?
+  sellerShippingPhone      String?
+  sellerTrackingCode       String?    // کدی که پیشنهاددهنده (خریدار) ثبت می‌کند
+
+  // وضعیت سفارش و ترکینگ
+  status    OrderStatus @default(PENDING) // پیش‌فرض را PENDING بگذار برای هندل کردن درگاه
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@index([buyerId, status])
+  @@index([sellerId, status])
+}
+// 2. موتور قوانین محاسبه کارمزد (داینامیک برای پنل ادمین)
+model FeeRule {
+  id          String      @id @default(cuid())
+  listingType ListingType
+  categoryId  String?     // اگر null باشد، روی همه دسته‌ها اعمال می‌شود
+  minPrice    Decimal     @default(0)
+  maxPrice    Decimal?    // اگر null باشد، سقف ندارد
+  feePercent  Float       @default(0) // درصد کارمزد (مثلا 7)
+  feeFixed    Decimal     @default(0) // مبلغ ثابت کارمزد
+  isActive    Boolean     @default(true)
+
+  category    Category?   @relation(fields: [categoryId], references: [id])
+
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([listingType, categoryId, isActive])
+}
+model Review {
+  id          String   @id @default(cuid())
+  orderId     String
+  reviewerId  String
+  revieweeId  String
+  rating      Int      // بین ۱ تا ۵
+  comment     String?
+  createdAt   DateTime @default(now())
+
+  order       Order    @relation(fields: [orderId], references: [id])
+  reviewer    User     @relation("GivenReviews", fields: [reviewerId], references: [id])
+  reviewee    User     @relation("ReceivedReviews", fields: [revieweeId], references: [id])
+
+  // جلوگیری از ثبت چند نظر توسط یک نفر برای یک سفارش
+  @@unique([orderId, reviewerId])
 }

@@ -9,7 +9,7 @@ import {
     ForbiddenException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 
 @Controller('notifications')
 @UseGuards(JwtAuthGuard)

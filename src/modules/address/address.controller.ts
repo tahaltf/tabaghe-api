@@ -1,32 +1,29 @@
-import { Controller, Get, Post, Body, UseGuards, Req } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, Req } from '@nestjs/common';
+import { AddressService } from './address.service';
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 
 @Controller('addresses')
 @UseGuards(JwtAuthGuard)
 export class AddressController {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly addressService: AddressService) {}
 
   @Get()
   async getMyAddresses(@Req() req) {
-    return this.prisma.address.findMany({
-      where: { userId: req.user.id },
-      orderBy: { createdAt: 'desc' }
-    });
+    return this.addressService.getMyAddresses(req.user.id);
   }
 
   @Post()
   async createAddress(@Req() req, @Body() dto: any) {
-    return this.prisma.address.create({
-      data: {
-        userId: req.user.id,
-        title: dto.title,
-        province: dto.province,
-        city: dto.city,
-        fullAddress: dto.fullAddress,
-        postalCode: dto.postalCode,
-        phone: dto.phone
-      }
-    });
+    return this.addressService.createAddress(req.user.id, dto);
+  }
+
+  @Patch(':id')
+  async updateAddress(@Req() req, @Param('id') id: string, @Body() dto: any) {
+    return this.addressService.updateAddress(req.user.id, id, dto);
+  }
+
+  @Delete(':id')
+  async deleteAddress(@Req() req, @Param('id') id: string) {
+    return this.addressService.deleteAddress(req.user.id, id);
   }
 }

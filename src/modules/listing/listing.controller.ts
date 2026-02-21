@@ -12,13 +12,14 @@ import {
   UseInterceptors,
   UploadedFiles,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { ListingService } from './listing.service';
-import { AuctionService } from '../auction/auction.service'; // ✅ ایمپورت شد
+import { AuctionService } from '../auction/auction.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -30,12 +31,8 @@ import { v4 as uuidv4 } from 'uuid';
 export class ListingController {
   constructor(
     private readonly listingService: ListingService,
-    private readonly auctionService: AuctionService // ✅ تزریق سرویس مزایده
+    private readonly auctionService: AuctionService
   ) {}
-
-  // ======================================================
-  // 1. PUBLIC GET ENDPOINTS (Static Routes First)
-  // ======================================================
 
   @Get()
   findAll(@Query() query: any) {
@@ -43,10 +40,6 @@ export class ListingController {
     const limit = parseInt(query.limit) || 10;
     return this.listingService.findAll(query, page, limit);
   }
-
-  // ======================================================
-  // 2. USER SPECIFIC ROUTES (Static Routes First)
-  // ======================================================
 
   @UseGuards(JwtAuthGuard)
   @Get('my-listings')
@@ -56,13 +49,9 @@ export class ListingController {
 
   @UseGuards(JwtAuthGuard)
   @Get('saved')
-  async getSavedListings(@Req() req) {
+  async getSavedListings(@Req() req: any) {
     return this.listingService.getSavedListings(req.user.id);
   }
-
-  // ======================================================
-  // 3. ADMIN ROUTES (Static Routes First)
-  // ======================================================
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
@@ -71,10 +60,6 @@ export class ListingController {
     return this.listingService.findAllForAdmin(status);
   }
 
-  // ======================================================
-  // 4. DYNAMIC GET ENDPOINTS (Dynamic Routes :id Last)
-  // ======================================================
-
   @Get(':id/availability')
   checkAvailability(@Param('id') id: string) {
     return this.listingService.checkAvailability(id);
@@ -82,8 +67,20 @@ export class ListingController {
 
   @UseGuards(JwtAuthGuard)
   @Get(':id/is-saved')
-  async checkIsSaved(@Param('id') id: string, @Req() req) {
+  async checkIsSaved(@Param('id') id: string, @Req() req: any) {
     return this.listingService.isListingSaved(req.user.id, id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('exchange-offer/:id')
+  getExchangeOffer(@Param('id') id: string, @Req() req: any) {
+    return this.listingService.getExchangeOffer(id, req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/auction-checkout')
+  getAuctionCheckout(@Param('id') id: string, @Req() req: any) {
+    return this.listingService.getAuctionCheckoutData(id, req.user.id);
   }
 
   @Get(':id')
@@ -91,19 +88,15 @@ export class ListingController {
     return this.listingService.findOne(id);
   }
 
-  // ======================================================
-  // 5. POST / PATCH / DELETE ACTION ENDPOINTS
-  // ======================================================
-
   @UseGuards(JwtAuthGuard)
   @Post(':id/save')
-  async toggleSave(@Param('id') id: string, @Req() req) {
+  async toggleSave(@Param('id') id: string, @Req() req: any) {
     return this.listingService.toggleSave(req.user.id, id);
   }
 
   @UseGuards(JwtAuthGuard)
   @Post(':id/bid')
-  placeBid(
+  async placeBid( // 👈 کلمه async برای بررسی صاحب آگهی اضافه شد
     @Req() req: any,
     @Param('id') id: string,
     @Body('amount') amount: number,
@@ -111,7 +104,13 @@ export class ListingController {
     if (!amount || amount <= 0) {
       throw new BadRequestException('مبلغ پیشنهادی معتبر نیست');
     }
-    // ✅ هدایت درخواست به سرویس مزایده که منطق بلوکه کردن پول را دارد
+
+    // 🛡️ بررسی امنیتی: صاحب آگهی حق شرکت در مزایده خود را ندارد
+    const listing = await this.listingService.findOne(id);
+    if (listing.authorId === req.user.id) {
+      throw new ForbiddenException('شما نمی‌توانید در مزایده آگهی خودتان شرکت کنید');
+    }
+
     return this.auctionService.placeBid(req.user.id, id, amount);
   }
 
@@ -121,21 +120,18 @@ export class ListingController {
     storage: diskStorage({
       destination: (req, file, cb) => {
         const uploadPath = './uploads/listings';
-        if (!existsSync(uploadPath)) {
-          mkdirSync(uploadPath, { recursive: true });
-        }
+        if (!existsSync(uploadPath)) mkdirSync(uploadPath, { recursive: true });
         cb(null, uploadPath);
       },
       filename: (req, file, callback) => {
         const uniqueSuffix = uuidv4();
         const ext = extname(file.originalname);
-        const filename = `${uniqueSuffix}${ext}`;
-        callback(null, filename);
+        callback(null, `${uniqueSuffix}${ext}`);
       },
     }),
     fileFilter: (req, file, callback) => {
       if (!file.mimetype.match(/\/(jpg|jpeg|png|gif|webp)$/)) {
-        return callback(new BadRequestException('Only image files are allowed!'), false);
+        return callback(new BadRequestException('فرمت عکس نامعتبر است'), false);
       }
       callback(null, true);
     }
@@ -151,27 +147,21 @@ export class ListingController {
   @UseGuards(JwtAuthGuard)
   @Post()
   @UseInterceptors(
-    FilesInterceptor('files', 10, {
+    FilesInterceptor('images', 10, { // ✅ هماهنگ با 'images' فرانت
       storage: diskStorage({
         destination: (req, file, cb) => {
           const uploadPath = './uploads/listings';
-          if (!existsSync(uploadPath)) {
-            mkdirSync(uploadPath, { recursive: true });
-          }
+          if (!existsSync(uploadPath)) mkdirSync(uploadPath, { recursive: true });
           cb(null, uploadPath);
         },
         filename: (req, file, cb) => {
-          const uniqueSuffix =
-            Date.now() + '-' + Math.round(Math.random() * 1e9);
+          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
           cb(null, `${uniqueSuffix}${extname(file.originalname)}`);
         },
       }),
       fileFilter: (req, file, cb) => {
         if (!file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) {
-          return cb(
-            new BadRequestException('فقط فایل‌های تصویری مجاز هستند'),
-            false,
-          );
+          return cb(new BadRequestException('فرمت عکس نامعتبر است'), false);
         }
         cb(null, true);
       },
@@ -195,18 +185,15 @@ export class ListingController {
   @UseGuards(JwtAuthGuard)
   @Patch(':id')
   @UseInterceptors(
-    FilesInterceptor('files', 10, {
+    FilesInterceptor('images', 10, { // ✅ هماهنگ با 'images' فرانت
       storage: diskStorage({
         destination: (req, file, cb) => {
           const uploadPath = './uploads/listings';
-          if (!existsSync(uploadPath)) {
-            mkdirSync(uploadPath, { recursive: true });
-          }
+          if (!existsSync(uploadPath)) mkdirSync(uploadPath, { recursive: true });
           cb(null, uploadPath);
         },
         filename: (req, file, cb) => {
-          const uniqueSuffix =
-            Date.now() + '-' + Math.round(Math.random() * 1e9);
+          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
           cb(null, `${uniqueSuffix}${extname(file.originalname)}`);
         },
       }),
@@ -232,10 +219,6 @@ export class ListingController {
   delete(@Req() req: any, @Param('id') id: string, @Body() dto: any) {
     return this.listingService.delete(req.user.id, id, dto);
   }
-
-  // ======================================================
-  // 6. ADMIN ACTIONS
-  // ======================================================
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)

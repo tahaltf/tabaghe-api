@@ -4,7 +4,7 @@ import {
     Injectable,
     NotFoundException,
 } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { RepairRequestStatus } from '@prisma/client';
 import {CreateRepairDto} from "./create-repair.dto";
 import {SelectDeliveryTimeDto} from "./select-delivery-time.dto";

@@ -30,7 +30,7 @@ export class AdminAuctionController {
     // -----------------------------------
     @Post(':listingId/force-penalize')
     async forcePenalize(@Param('listingId') listingId: string) {
-        return this.auctionService.forcePenalizeAuction(listingId);
+        return this.auctionService.forcePenalizeWinner(listingId);
     }
 
     // -----------------------------------
