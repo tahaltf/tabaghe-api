@@ -4,6 +4,7 @@ import {
   Body,
   Get,
   Param,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -28,8 +29,17 @@ export class ReviewsController {
   }
 
   // این روت عمومی است تا همه بتوانند نظرات یک پروفایل را قبل از معامله ببینند
+  // با صفحه‌بندی تا از scrape جلوگیری بشه.
   @Get('user/:userId')
-  async getUserReviews(@Param('userId') userId: string) {
-    return this.reviewsService.getUserReviews(userId);
+  async getUserReviews(
+    @Param('userId') userId: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.reviewsService.getUserReviews(
+      userId,
+      page ? parseInt(page, 10) : 1,
+      pageSize ? parseInt(pageSize, 10) : 10,
+    );
   }
 }

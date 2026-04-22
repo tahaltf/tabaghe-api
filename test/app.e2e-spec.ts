@@ -1,9 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, VersioningType } from '@nestjs/common';
 import * as request from 'supertest';
-import { AppModule } from './../src/app.module';
+import { AppModule } from '../src/app.module';
 
-describe('AppController (e2e)', () => {
+/**
+ * نیاز به DATABASE_URL معتبر دارد (Prisma در بوت‌استرپ).
+ * مسیرها باید با main.ts هم‌خوان باشند: prefix ‎`api`‎ + نسخه ‎`v1`‎.
+ */
+describe('App (e2e)', () => {
   let app: INestApplication;
 
   beforeEach(async () => {
@@ -12,13 +16,26 @@ describe('AppController (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    app.setGlobalPrefix('api');
+    app.enableVersioning({
+      type: VersioningType.URI,
+      defaultVersion: '1',
+    });
     await app.init();
   });
 
-  it('/ (GET)', () => {
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('GET /api/v1 — hello با envelope موفق', () => {
     return request(app.getHttpServer())
-      .get('/')
+      .get('/api/v1')
       .expect(200)
-      .expect('Hello World!');
+      .expect((res) => {
+        expect(res.body?.success).toBe(true);
+        expect(res.body?.data).toBe('Hello World!');
+        expect(res.body?.error).toBeNull();
+      });
   });
 });

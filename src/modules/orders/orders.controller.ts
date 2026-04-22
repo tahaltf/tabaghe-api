@@ -1,69 +1,123 @@
-import {
+﻿import {
+  BadRequestException,
+  Body,
   Controller,
   Get,
-  Post,
-  Patch,
   Param,
-  Body,
+  Patch,
+  Post,
+  Query,
+  UploadedFile,
   UseGuards,
-  Request,
-  BadRequestException,
-  Query
+  UseInterceptors,
 } from '@nestjs/common';
-import { OrdersService } from './orders.service';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname } from 'path';
+
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { IsVerifiedGuard } from '../auth/guards/is-verified.guard';
+import { AuthenticatedUser } from '../../shared/contracts/auth';
+import { CreateOrderDto } from './dto/create-order.dto';
+import { OrdersCommandService } from './orders-command.service';
+import { OrdersQueryService } from './orders-query.service';
+
+const videoUploadConfig = {
+  storage: diskStorage({
+    destination: './uploads/orders/videos',
+    filename: (_req: unknown, file: Express.Multer.File, callback: (error: Error | null, filename: string) => void) => {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+      callback(null, `video-${uniqueSuffix}${extname(file.originalname)}`);
+    },
+  }),
+  fileFilter: (_req: unknown, file: Express.Multer.File, callback: (error: Error | null, acceptFile: boolean) => void) => {
+    if (!file.mimetype.match(/\/(mp4|mov|quicktime|x-msvideo|mpeg)$/)) {
+      return callback(new BadRequestException('فقط فایل‌های ویدیویی مجاز هستند'), false);
+    }
+    callback(null, true);
+  },
+  limits: { fileSize: 50 * 1024 * 1024 },
+};
 
 @Controller('orders')
-@UseGuards(JwtAuthGuard) // حتما باید کاربر لاگین باشه
+@UseGuards(JwtAuthGuard)
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly commandService: OrdersCommandService,
+    private readonly queryService: OrdersQueryService,
+  ) {}
 
   @Post()
-  async createOrder(@Request() req, @Body() dto: any) {
-    return this.ordersService.handleUniversalOrder(req.user.id, dto);
+  @UseGuards(IsVerifiedGuard)
+  createOrder(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateOrderDto) {
+    return this.commandService.createOrder(user.id, dto);
   }
 
-  // ثبت کد رهگیری پستی
+  @Get('my-orders')
+  getMyOrders(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('type') type?: 'BUY' | 'SELL',
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.queryService.getOrdersByType(
+      user.id,
+      type === 'SELL' ? 'SELL' : 'BUY',
+      {
+        page: page ? Number(page) : undefined,
+        pageSize: pageSize ? Number(pageSize) : undefined,
+      },
+    );
+  }
+
+  @Get('requests')
+  getMyRequests(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.queryService.getMyRequests(user.id, {
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
+  }
+
+  @Get(':id')
+  getOrderById(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.queryService.getOrderById(user.id, id);
+  }
+
   @Patch(':id/shipping')
-  async updateTrackingCode(
-    @Request() req,
+  @UseInterceptors(FileInterceptor('video', videoUploadConfig))
+  updateTrackingCode(
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body('trackingCode') trackingCode: string,
+    @UploadedFile() video?: Express.Multer.File,
   ) {
     if (!trackingCode) {
       throw new BadRequestException('لطفا کد رهگیری را وارد کنید');
     }
-    return this.ordersService.updateTrackingCode(req.user.id, id, trackingCode);
+    return this.commandService.updateTrackingCode(user.id, id, trackingCode, video?.filename);
   }
 
-  // تایید دریافت کالا
   @Patch(':id/confirm')
-  async confirmOrderDelivery(@Request() req, @Param('id') id: string) {
-    return this.ordersService.confirmOrder(req.user.id, id);
+  confirmOrderDelivery(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.commandService.confirmOrder(user.id, id);
   }
 
-  // 👈 مشکل دقیقا اینجا بود! الان به type=SELL حساس شد
-  @Get('my-orders')
-  async getMyOrders(@Request() req, @Query('type') type?: string) {
-    // اگر فرانت type رو SELL بفرسته، فروش‌ها رو میاره، در غیر این صورت خریدهارو میاره
-    const orderType = type === 'SELL' ? 'SELL' : 'BUY';
-    return this.ordersService.getOrdersByType(req.user.id, orderType);
-  }
-
-  @Get('requests')
-  async getMyRequests(@Request() req) {
-    return this.ordersService.getMyRequests(req.user.id);
-  }
-
-  // این متد برای ادمین یا بخش‌های دیگه است
-  @Get()
-  async getOrders(@Request() req, @Query('type') type: string) {
-    if (!type || (type !== 'BUY' && type !== 'SELL')) {
-      throw new BadRequestException('Order type (BUY or SELL) is required');
+  @Patch(':id/dispute')
+  @UseInterceptors(FileInterceptor('video', videoUploadConfig))
+  disputeOrderDelivery(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body('reason') reason: string,
+    @UploadedFile() video?: Express.Multer.File,
+  ) {
+    if (!reason || reason.trim().length < 5) {
+      throw new BadRequestException('لطفاً دلیل مغایرت را کامل توضیح دهید.');
     }
-    return this.ordersService.getOrdersByType(
-      req.user.id,
-      type as 'BUY' | 'SELL',
-    );
+    return this.commandService.disputeOrder(user.id, id, reason, video?.filename);
   }
 }

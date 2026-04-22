@@ -1,39 +1,49 @@
-import { Controller, Get, Post, Body, Param, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { SupportService } from './support.service';
-import { CreateTicketDto, SendMessageDto } from './dto/create-ticket.dto'; // مطمئن شوید اینها اکسپورت شده‌اند
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard'; // مسیر گارد خود را چک کنید
+import { CreateTicketDto, SendMessageDto } from './dto/create-ticket.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { AuthenticatedUser } from '../../shared/contracts/auth';
 
 @Controller('support')
-@UseGuards(JwtAuthGuard) // تمام متدهای این بخش نیاز به لاگین دارند
+@UseGuards(JwtAuthGuard)
 export class SupportController {
   constructor(private readonly supportService: SupportService) {}
 
-  // دریافت تمام تیکت‌های من
   @Get('tickets')
-  async getMyTickets(@Req() req) {
-    return this.supportService.getMyTickets(req.user.id);
+  async getMyTickets(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.supportService.getMyTickets(user.id, {
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
   }
 
-  // دریافت جزئیات یک تیکت خاص (همراه پیام‌ها)
   @Get('tickets/:id')
-  async getTicketDetails(@Param('id') id: string, @Req() req) {
-    return this.supportService.getTicketDetails(id, req.user.id);
+  async getTicketDetails(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.supportService.getTicketDetails(id, user.id);
   }
 
-  // ثبت تیکت جدید
   @Post('tickets')
-  async createTicket(@Req() req, @Body() dto: CreateTicketDto) {
-    return this.supportService.createTicket(req.user.id, dto);
+  async createTicket(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateTicketDto,
+  ) {
+    return this.supportService.createTicket(user.id, dto);
   }
 
-  // ارسال پیام جدید روی تیکت موجود
   @Post('tickets/:id/messages')
   async sendMessage(
     @Param('id') id: string,
-    @Req() req,
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: SendMessageDto,
   ) {
-    // شما باید این متد را در سرویس خود اضافه کنید (در مرحله ۲ توضیح داده‌ام)
-    return this.supportService.sendMessage(id, req.user.id, dto.message);
+    return this.supportService.sendMessage(id, user.id, dto.message);
   }
 }

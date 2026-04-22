@@ -1,128 +1,189 @@
+import { Transform, Type } from 'class-transformer';
 import {
-    IsEnum,
-    IsOptional,
-    IsString,
-    IsArray,
-    IsInt,
-    Min,
-    IsBoolean,
-    ValidateNested,
-    IsDateString,
+  IsArray,
+  IsBoolean,
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
-import { ListingType, ItemCondition, ShippingPayer } from '@prisma/client';
+import {
+  ExchangePayer,
+  ItemCondition,
+  ListingType,
+  ShippingPayer,
+} from '@prisma/client';
 
-class DirectDto {
-    @IsInt()
-    @Min(0)
-    price!: number;
+const toBoolean = ({ value }: { value: unknown }): boolean =>
+  value === true || value === 'true' || value === 1 || value === '1';
 
-    @IsBoolean()
-    @IsOptional()
-    allowExchange: boolean = false; // تیک "مایل به معاوضه هستم" در فروش مستقیم
+/**
+ * وقتی از multipart/form-data استفاده می‌کنیم، بخش‌های nested به‌صورت JSON string
+ * می‌آیند و این transformer آن‌ها را به object تبدیل می‌کند تا ValidateNested کار کند.
+ */
+const parseJson = ({ value }: { value: unknown }): unknown => {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+};
 
-    @IsArray()
-    @IsString({ each: true })
-    shippingMethods!: string[];
+class DirectPayloadDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  price?: number;
+
+  @IsOptional()
+  @Transform(toBoolean)
+  @IsBoolean()
+  allowExchange?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  shippingMethods?: string[];
 }
 
-class ExchangeDto {
-    @IsString()
-    desiredCategoryId!: string;
+class ExchangePayloadDto {
+  @IsOptional()
+  @IsString()
+  desiredCategoryId?: string;
 
-    @IsString()
-    desiredTitle!: string;
+  @IsOptional()
+  @IsString()
+  desiredTitle?: string;
 
-    @IsOptional()
-    @IsString()
-    desiredDescription?: string;
+  @IsOptional()
+  @IsString()
+  desiredDescription?: string;
 
-    @IsInt()
-    ownValue!: number;
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  ownValue?: number;
 
-    @IsInt()
-    extraPaymentAmount!: number;
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  extraPaymentAmount?: number;
 
-    @IsBoolean()
-    acceptOtherItems!: boolean;
+  @IsOptional()
+  @Transform(toBoolean)
+  @IsBoolean()
+  acceptOtherItems?: boolean;
 
-    @IsBoolean()
-    allowDirectSale!: boolean;
+  @IsOptional()
+  @Transform(toBoolean)
+  @IsBoolean()
+  allowDirectSale?: boolean;
 
-    @IsOptional()
-    @IsInt()
-    directPrice?: number;
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  directPrice?: number;
 }
 
-class AuctionDto {
-    @IsInt()
-    @Min(1)
-    basePrice!: number;
+class AuctionPayloadDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  basePrice?: number;
 
-    @IsInt()
-    @Min(1)
-    minBidIncrement!: number;
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(5000)
+  minBidIncrement?: number;
 
-    @IsDateString()
-    endDatetime!: string;
+  @IsOptional()
+  @IsDateString()
+  endDatetime?: string;
 
-    @IsOptional()
-    @IsBoolean()
-    buyNowEnabled?: boolean;
+  @IsOptional()
+  @Transform(toBoolean)
+  @IsBoolean()
+  buyNowEnabled?: boolean;
 
-    @IsOptional()
-    @IsInt()
-    @Min(1)
-    buyNowPrice?: number;
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  buyNowPrice?: number;
 }
-
 
 export class CreateListingDto {
-    @IsEnum(ListingType)
-    type!: ListingType;
+  @IsEnum(ListingType)
+  type!: ListingType;
 
-    @IsString()
-    title!: string;
+  @IsString()
+  title!: string;
 
-    @IsString()
-    categoryId!: string;
+  @IsString()
+  categoryId!: string;
 
-    @IsEnum(ItemCondition)
-    condition!: ItemCondition;
+  @IsEnum(ItemCondition)
+  condition!: ItemCondition;
 
-    @IsString()
-    description!: string;
+  @IsOptional()
+  @IsString()
+  description?: string;
 
-    @IsString()
-    province!: string;
+  @IsString()
+  provinceId!: string;
 
-    @IsString()
-    city!: string;
+  @IsString()
+  cityId!: string;
 
-    @IsEnum(ShippingPayer) // اضافه شده مطابق تغییرات پریسما
-    shippingPayer!: ShippingPayer;
+  @IsOptional()
+  @IsEnum(ShippingPayer)
+  shippingPayer?: ShippingPayer;
 
-    @IsOptional()
-    @IsString()
-    thumbnail?: string;
+  @IsOptional()
+  @IsEnum(ExchangePayer)
+  exchangePayer?: ExchangePayer;
 
-    @IsOptional()
-    @IsArray()
-    @IsString({ each: true })
-    gallery?: string[];
+  @IsOptional()
+  @Transform(toBoolean)
+  @IsBoolean()
+  sellerRequiresVerification?: boolean;
 
-    @ValidateNested()
-    @Type(() => DirectDto)
-    @IsOptional()
-    direct?: DirectDto;
+  @IsOptional()
+  @IsString()
+  thumbnail?: string;
 
-    @ValidateNested()
-    @Type(() => ExchangeDto)
-    @IsOptional()
-    exchange?: ExchangeDto;
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  gallery?: string[];
 
-    @ValidateNested()
-    @Type(() => AuctionDto)
-    @IsOptional()
-    auction?: AuctionDto;
+  @IsOptional()
+  @Transform(parseJson)
+  @ValidateNested()
+  @Type(() => DirectPayloadDto)
+  direct?: DirectPayloadDto;
+
+  @IsOptional()
+  @Transform(parseJson)
+  @ValidateNested()
+  @Type(() => ExchangePayloadDto)
+  exchange?: ExchangePayloadDto;
+
+  @IsOptional()
+  @Transform(parseJson)
+  @ValidateNested()
+  @Type(() => AuctionPayloadDto)
+  auction?: AuctionPayloadDto;
 }
+
+export { DirectPayloadDto, ExchangePayloadDto, AuctionPayloadDto };

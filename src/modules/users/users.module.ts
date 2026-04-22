@@ -1,15 +1,12 @@
 import { Module } from '@nestjs/common';
-import { UsersController } from './UsersController';
-import { AdminUsersController } from './admin.controller'; // 👈 ایمپورت کنترلر ادمین
+import { UsersController } from './users.controller';
+import { AdminUsersController } from './admin-users.controller';
 import { UsersService } from './users.service';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { AdminUsersService } from './admin-users.service';
 
 @Module({
-  controllers: [
-    UsersController,
-    AdminUsersController // 👈 اضافه شدن به لیست کنترلرها
-  ],
-  providers: [UsersService, PrismaService],
-  exports: [UsersService], // 👈 خیلی مهم
+  controllers: [UsersController, AdminUsersController],
+  providers: [UsersService, AdminUsersService],
+  exports: [UsersService],
 })
 export class UsersModule {}

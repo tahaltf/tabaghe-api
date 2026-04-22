@@ -13,6 +13,12 @@ export class PlansController {
     }
 
     @UseGuards(JwtAuthGuard)
+    @Get('me/summary')
+    mySummary(@Req() req) {
+        return this.plansService.getMySummary(req.user.id);
+    }
+
+    @UseGuards(JwtAuthGuard)
     @Post(':id/buy')
     buy(@Req() req, @Param('id') id: string) {
         return this.plansService.buyPlan(req.user.id, id);

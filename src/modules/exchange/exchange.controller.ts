@@ -4,14 +4,17 @@ import {
   Get,
   Param,
   Post,
-  Req, UploadedFiles,
+  Query,
+  Req,
+  UploadedFiles,
   UseGuards,
-  UseInterceptors
+  UseInterceptors,
 } from "@nestjs/common";
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ExchangeService } from './exchange.service';
 import { CreateExchangeOfferDto } from './create-exchange-offer.dto';
 import { FilesInterceptor } from "@nestjs/platform-express";
+import { listingImagesMulterOptions } from '../../common/upload/listing-images-upload.config';
 
 @Controller('exchange')
 export class ExchangeController {
@@ -19,7 +22,7 @@ export class ExchangeController {
 
   @UseGuards(JwtAuthGuard)
   @Post(':listingId/offers')
-  @UseInterceptors(FilesInterceptor('images')) // 👈 نام فیلد باید با فرانت (images) یکی باشد
+  @UseInterceptors(FilesInterceptor('images', 5, listingImagesMulterOptions))
   createOffer(
     @Req() req,
     @Param('listingId') listingId: string,
@@ -31,8 +34,22 @@ export class ExchangeController {
 
   @UseGuards(JwtAuthGuard)
   @Get(':listingId/offers')
-  getOffers(@Req() req, @Param('listingId') listingId: string) {
-    return this.service.getOffers(req.user.id, listingId);
+  getOffers(
+    @Req() req,
+    @Param('listingId') listingId: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.service.getOffers(req.user.id, listingId, {
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('offers/:offerId')
+  getOfferById(@Req() req, @Param('offerId') offerId: string) {
+    return this.service.getOfferById(req.user.id, offerId);
   }
 
   @UseGuards(JwtAuthGuard)

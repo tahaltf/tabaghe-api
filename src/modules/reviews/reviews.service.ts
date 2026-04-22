@@ -79,17 +79,34 @@ export class ReviewsService {
   }
 
   // دریافت نظراتی که یک کاربر دریافت کرده (برای نمایش در پروفایل عمومی)
-  async getUserReviews(userId: string) {
-    return this.prisma.review.findMany({
-      where: { revieweeId: userId },
-      include: {
-        reviewer: { select: { firstName: true, lastName: true, avatar: true } },
-        order: {
-          include: { listing: { select: { title: true, type: true } } }
-        }
+  // صفحه‌بندی الزامی شده تا endpoint عمومی قابل scrape نباشه.
+  async getUserReviews(userId: string, page = 1, pageSize = 10) {
+    const take = Math.min(30, Math.max(5, pageSize));
+    const skip = Math.max(0, (page - 1) * take);
+    const [items, total] = await Promise.all([
+      this.prisma.review.findMany({
+        where: { revieweeId: userId },
+        include: {
+          reviewer: { select: { firstName: true, lastName: true, avatar: true } },
+          order: {
+            include: { listing: { select: { title: true, type: true } } },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+      }),
+      this.prisma.review.count({ where: { revieweeId: userId } }),
+    ]);
+    return {
+      items,
+      pagination: {
+        page,
+        pageSize: take,
+        total,
+        totalPages: take > 0 ? Math.ceil(total / take) : 0,
       },
-      orderBy: { createdAt: 'desc' },
-    });
+    };
   }
 
   // نظراتی که من ثبت کرده‌ام (برای مدیریت در پنل کاربری)

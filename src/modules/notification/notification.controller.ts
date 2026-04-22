@@ -1,79 +1,56 @@
 import {
-    Controller,
-    Get,
-    Patch,
-    Param,
-    Req,
-    UseGuards,
-    NotFoundException,
-    ForbiddenException,
+  Controller,
+  Get,
+  Patch,
+  Param,
+  Query,
+  UseGuards,
+  NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { NotificationService } from './notification.service';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { AuthenticatedUser } from '../../shared/contracts/auth';
 
 @Controller('notifications')
 @UseGuards(JwtAuthGuard)
 export class NotificationController {
-    constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly service: NotificationService) {}
 
-    // -----------------------------------
-    // Get my notifications
-    // -----------------------------------
-    @Get()
-    async getMyNotifications(@Req() req) {
-        const userId = req.user.id;
+  @Get()
+  async list(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('onlyUnread') onlyUnread?: string,
+  ) {
+    return this.service.listForUserPaginated(user.id, {
+      page: page ? Number(page) : 1,
+      pageSize: pageSize ? Number(pageSize) : 20,
+      onlyUnread: onlyUnread === 'true',
+    });
+  }
 
-        return this.prisma.notification.findMany({
-            where: { userId },
-            orderBy: { createdAt: 'desc' },
-        });
-    }
+  @Get('unread-count')
+  unreadCount(@CurrentUser() user: AuthenticatedUser) {
+    return this.service.unreadCount(user.id).then((count) => ({ count }));
+  }
 
-    // -----------------------------------
-    // Mark notification as read
-    // -----------------------------------
-    @Patch(':id/read')
-    async markAsRead(
-        @Req() req,
-        @Param('id') id: string,
-    ) {
-        const userId = req.user.id;
+  @Patch('read-all')
+  async markAllAsRead(@CurrentUser() user: AuthenticatedUser) {
+    await this.service.markAllAsRead(user.id);
+    return { ok: true };
+  }
 
-        const notification = await this.prisma.notification.findUnique({
-            where: { id },
-        });
-
-        if (!notification) {
-            throw new NotFoundException('Notification not found');
-        }
-
-        if (notification.userId !== userId) {
-            throw new ForbiddenException('Access denied');
-        }
-
-        return this.prisma.notification.update({
-            where: { id },
-            data: { isRead: true },
-        });
-    }
-
-    // -----------------------------------
-    // Mark all notifications as read
-    // -----------------------------------
-    @Patch('read-all')
-    async markAllAsRead(@Req() req) {
-        const userId = req.user.id;
-
-        await this.prisma.notification.updateMany({
-            where: {
-                userId,
-                isRead: false,
-            },
-            data: {
-                isRead: true,
-            },
-        });
-
-        return { ok: true };
-    }
+  @Patch(':id/read')
+  async markAsRead(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    const updated = await this.service.markAsRead(user.id, id);
+    if (updated === null) throw new NotFoundException('اعلان یافت نشد');
+    if (updated === false) throw new ForbiddenException('دسترسی غیرمجاز');
+    return updated;
+  }
 }

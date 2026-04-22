@@ -11,14 +11,12 @@ import {AdminAuctionController} from "./admin-auction.controller";
 import {IdempotencyService} from "../../common/idempotency.service";
 import {AdminLedgerController} from "./admin-ledger.controller";
 import {AdminAuctionAuditController} from "./admin-auction-audit.controller";
-import {AdminWalletController} from "../wallet/admin-wallet.controller";
 import { FeesModule } from "../fees/fees.module";
 
 @Module({
     imports: [PrismaModule, WalletModule, NotificationModule , FeesModule],
     controllers: [AuctionController,
         AdminAuctionController,
-        AdminWalletController,
         AdminAuctionAuditController,
         AdminLedgerController,
     ],

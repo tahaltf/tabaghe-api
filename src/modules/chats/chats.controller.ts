@@ -1,6 +1,8 @@
-import { Controller, Get, Post, Body, Param, Request, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
 import { ChatsService } from './chats.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { AuthenticatedUser } from '../../shared/contracts/auth';
 
 @UseGuards(JwtAuthGuard)
 @Controller('chat')
@@ -9,36 +11,32 @@ export class ChatsController {
 
   @Post('initiate')
   async initiateChat(
-    @Request() req: any,
+    @CurrentUser() user: AuthenticatedUser,
     @Body('listingId') listingId: string,
-    @Body('targetUserId') targetUserId?: string, // 👈 اضافه شد
+    @Body('targetUserId') targetUserId?: string,
   ) {
-    // ✅ تغییر req.user.sub به req.user.id
-    return this.chatsService.initiateChat(req.user.id, listingId , targetUserId);
+    return this.chatsService.initiateChat(user.id, listingId, targetUserId);
   }
 
   @Get('conversations')
-  async getMyConversations(@Request() req: any) {
-    // ✅ اصلاح شد
-    return this.chatsService.getMyConversations(req.user.id);
+  async getMyConversations(@CurrentUser() user: AuthenticatedUser) {
+    return this.chatsService.getMyConversations(user.id);
   }
 
   @Get('messages/:id')
   async getMessages(
-    @Request() req: any,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id') chatId: string,
   ) {
-    // ✅ اصلاح شد
-    return this.chatsService.getMessages(chatId, req.user.id);
+    return this.chatsService.getMessages(chatId, user.id);
   }
 
   @Post('message')
   async sendMessage(
-    @Request() req: any,
+    @CurrentUser() user: AuthenticatedUser,
     @Body('conversationId') conversationId: string,
     @Body('content') content: string,
   ) {
-    // ✅ اصلاح شد
-    return this.chatsService.sendMessage(conversationId, req.user.id, content);
+    return this.chatsService.sendMessage(conversationId, user.id, content);
   }
 }

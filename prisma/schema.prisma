@@ -30,23 +30,54 @@ enum ListingType {
 }
 
 enum ListingStatus {
-  DRAFT
-  PENDING
-  APPROVED
-  REJECTED
-  DELETED_BY_USER
-  SOLD
+  PENDING   // در انتظار تایید ادمین
+  APPROVED  // منتشر شده
+  REJECTED  // رد شده
+  SOLD      // فروخته شده
+  ARCHIVED  // آرشیو شده (حذف موقت)
+  DELETED_BY_USER   // حذف شده توسط کاربر
 }
 
+enum OrderStatus {
+  PENDING
+  AWAITING_PAYMENT
+  PAID
+
+  // --- مراحل لجستیک متمرکز (Hub) ---
+  AWAITING_SHIPMENT_TO_HUB
+  SHIPPED_TO_HUB           // 👈 این خط باید حتماً اضافه بشه (ارسال شده به سمت هاب)
+  RECEIVED_AT_HUB
+  CHECKING_AT_HUB
+  VERIFIED_AT_HUB
+  REJECTED_AT_HUB
+  SHIPPED_TO_BUYER
+  // ----------------------------------
+
+  SHIPPED
+  DELIVERED
+  COMPLETED
+  DISPUTED
+  CANCELLED
+}
+
+enum ExchangePayer {
+  ME          // من (صاحب آگهی) مابه‌التفاوت را می‌دهم
+  BUYER       // خریدار (پیشنهاد دهنده) باید مابه‌التفاوت را بدهد
+  NONE        // معاوضه سر به سر (بدون رد و بدل پول)
+}
+enum PaymentMethod {
+  GATEWAY
+  WALLET
+}
 enum ItemCondition {
   NEW
   USED
 }
 
 enum ShippingPayer {
-  SELLER
+  SELLER_PREPAID
   BUYER_PREPAID
-  CASH_ON_DELIVERY
+  BUYER_POSTPAID
 }
 
 enum QuotaReason {
@@ -114,16 +145,31 @@ enum NotificationType {
   EXCHANGE_OFFER_RECEIVED
   EXCHANGE_OFFER_ACCEPTED
   EXCHANGE_OFFER_REJECTED
+  ADMIN_ANNOUNCEMENT
+  ORDER_STATUS_CHANGED
+  KYC_APPROVED
+  KYC_REJECTED
+  LISTING_APPROVED
+  LISTING_REJECTED
+  REPAIR_STATUS_CHANGED
+  TICKET_REPLY
+  SYSTEM
 }
 
 enum RepairRequestStatus {
-  PENDING_REVIEW
-  REJECTED
-  APPROVED
-  DELIVERY_TIME_SELECTED
-  IN_PROGRESS
-  COMPLETED
-  CANCELLED
+  PENDING_REVIEW           // ثبت اولیه، منتظر بررسی ادمین
+  REJECTED                 // رد شده (با دلیل)
+  APPROVED                 // تایید شده، منتظر انتخاب زمان توسط کاربر
+  DELIVERY_TIME_SELECTED   // کاربر زمان را انتخاب کرد، منتظر ارسال کالا
+  AWAITING_DELIVERY        // کاربر کالا را ارسال کرد (کد رهگیری + ویدیو)
+  RECEIVED_AT_HUB          // کالا به هاب طبقه رسید
+  UNDER_INSPECTION         // در حال بررسی/کارشناسی
+  RESULT_READY             // نتیجه آماده، منتظر تایید هزینه توسط کاربر
+  IN_PROGRESS              // در حال تعمیر
+  READY_TO_SHIP            // تعمیر کامل شد، آماده ارسال برگشتی
+  SHIPPED_BACK             // ارسال شد به کاربر (کد رهگیری + ویدیو)
+  COMPLETED                // به دست کاربر رسید / فرآیند کامل شد
+  CANCELLED                // لغو شده
 }
 
 enum TicketStatus {
@@ -137,8 +183,20 @@ enum OtpPurpose {
   REGISTER
 }
 
+enum LocationType {
+  PROVINCE
+  CITY
+}
+
+enum OrderType {
+  DIRECT
+  AUCTION
+  EXCHANGE
+}
+
+
 ////////////////////
-/// USER
+/// USER & PROFILE
 ////////////////////
 
 model User {
@@ -146,55 +204,67 @@ model User {
   phone               String         @unique
   email               String?        @unique
   passwordHash        String?
-  savedListings SavedListing[]  // رابطه جدید
+  savedListings       SavedListing[]
+
+  // 👈 فیلد جدید تایید قوانین
+  termsAcceptedAt     DateTime?
+
   firstName           String?
-  buyerOrders         Order[]        @relation("BuyerOrders") // 👈 اضافه کن
-  sellerOrders        Order[]        @relation("SellerOrders") // 👈 اضافه کن
   lastName            String?
   nationalCode        String?        @unique
   nationalCardImage   String?
   status              UserStatus     @default(INCOMPLETE)
   role                UserRole       @default(USER)
+
+  buyerOrders         Order[]        @relation("BuyerOrders")
+  sellerOrders        Order[]        @relation("SellerOrders")
+
   buyerConversations  Conversation[] @relation("BuyerConversations")
   sellerConversations Conversation[] @relation("SellerConversations")
   messagesSent        Message[]
-  avatar              String? // عکس پروفایل
-  bio                 String? // بیوگرافی یا درباره من
+
+  avatar              String?
+  bio                 String?
   notifyEmail         Boolean        @default(true)
   notifySms           Boolean        @default(false)
   notifyPush          Boolean        @default(true)
   lastLoginAt         DateTime?
-  givenReviews    Review[] @relation("GivenReviews")
-  receivedReviews Review[] @relation("ReceivedReviews")
-  shabaNumber       String?   // 👈 این خط رو اضافه کن
-  listings       Listing[]
-  wallet         Wallet?
-  planPurchases  UserPlanPurchase[]
-  quotaLedger    QuotaLedger[]
-  notifications  Notification[]
-  exchangeOffers ExchangeOffer[]
-  bids           AuctionBid[]
-addresses Address[] // رابطه با آدرس
-  highestBids ListingAuction[] @relation("HighestBidder")
-  secondBids  ListingAuction[] @relation("SecondBidder")
-  thirdBids   ListingAuction[] @relation("ThirdBidder")
-  isVerified  Boolean          @default(false)
 
-  // امتیاز فروشنده (برای نمایش ستاره یا درصد رضایت در صفحه آگهی)
-  rating      Float @default(0)
-  reviewCount Int   @default(0)
+  givenReviews        Review[]       @relation("GivenReviews")
+  receivedReviews     Review[]       @relation("ReceivedReviews")
 
-  // نمایش وضعیت آنلاین بودن (برای اینکه در چت بزنیم "آنلاین" یا "آخرین بازدید...")
-  isOnline       Boolean         @default(false)
-  repairRequests RepairRequest[]
-  tickets        Ticket[]
+  shabaNumber         String?
+  kycRejectionReason  String?
+  kycReviewedAt       DateTime?
+  listings            Listing[]
+  wallet              Wallet?
+  planPurchases       UserPlanPurchase[]
+  quotaLedger         QuotaLedger[]
+  notifications       Notification[]
+  exchangeOffers      ExchangeOffer[]
+  bids                AuctionBid[]
+  addresses           Address[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  highestBids         ListingAuction[] @relation("HighestBidder")
+  secondBids          ListingAuction[] @relation("SecondBidder")
+  thirdBids           ListingAuction[] @relation("ThirdBidder")
+
+  isVerified          Boolean          @default(false)
+  rating              Float            @default(0)
+  reviewCount         Int              @default(0)
+  isOnline            Boolean          @default(false)
+  trustScore          Int              @default(100)
+
+  repairRequests      RepairRequest[]
+  tickets             Ticket[]
+
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
 }
+
 model Address {
   id          String   @id @default(cuid())
-  title       String   // مثلا: خانه، شرکت
+  title       String
   province    String
   city        String
   fullAddress String
@@ -206,6 +276,7 @@ model Address {
 
   createdAt   DateTime @default(now())
 }
+
 ////////////////////
 /// AUTH & OTP
 ////////////////////
@@ -226,18 +297,17 @@ model OtpCode {
 /// WALLET
 ////////////////////
 
-// 1. اضافه کردن موجودی غیرقابل برداشت به کیف پول
 model Wallet {
   id               String              @id @default(cuid())
   userId           String              @unique
-  balanceAvailable Decimal             @default(0) // قابل برداشت
-  balanceBlocked   Decimal             @default(0) // درگیر در معامله/مزایده
-  balanceCredit    Decimal             @default(0) // 👈 اعتبار هدیه/خسارت (غیرقابل برداشت)
+  balanceAvailable Decimal             @default(0)
+  balanceBlocked   Decimal             @default(0)
+  balanceCredit    Decimal             @default(0)
   user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions     WalletTransaction[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
 }
 
 model WalletTransaction {
@@ -260,37 +330,47 @@ model Listing {
   id              String         @id @default(cuid())
   authorId        String
   author          User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
   type            ListingType
-  order           Order? // 👈 اضافه کن (هر آگهی می‌تواند یک سفارش داشته باشد)
+  order           Order?
+
+  // 👈 فیلد جدید تنظیمات معاوضه
+  exchangePayer   ExchangePayer? @default(NONE)
+
   status          ListingStatus  @default(PENDING)
-  savedBy       SavedListing[]  // رابطه جدید
+  savedBy         SavedListing[]
   title           String
   conversations   Conversation[]
+
   categoryId      String
   category        Category       @relation(fields: [categoryId], references: [id])
+
   gallery         String[]       @default([])
   thumbnail       String?
   condition       ItemCondition
   description     String
+
   provinceId      String
   province        Location       @relation("ProvinceListings", fields: [provinceId], references: [id])
   cityId          String
   city            Location       @relation("CityListings", fields: [cityId], references: [id])
+
   shippingPayer   ShippingPayer  @default(BUYER_PREPAID)
+
   rejectionReason String?
   deleteReason    String?
   approvedAt      DateTime?
   rejectedAt      DateTime?
   deletedAt       DateTime?
+sellerRequiresVerification Boolean @default(false)
+  direct          ListingDirect?
+  exchange        ListingExchange?
+  auction         ListingAuction?
+  quotaLedger     QuotaLedger[]
+  exchangeOffers  ExchangeOffer[]
 
-  direct         ListingDirect?
-  exchange       ListingExchange?
-  auction        ListingAuction?
-  quotaLedger    QuotaLedger[]
-  exchangeOffers ExchangeOffer[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
   @@index([status, type])
   @@index([authorId])
@@ -331,13 +411,13 @@ model ListingAuction {
 
   highestBidAmount Decimal?
   highestBidderId  String?
-  highestBidder    User?    @relation("HighestBidder", fields: [highestBidderId], references: [id], onDelete: SetNull)
+  highestBidder    User?         @relation("HighestBidder", fields: [highestBidderId], references: [id], onDelete: SetNull)
 
-  secondBidderId String?
-  secondBidder   User?   @relation("SecondBidder", fields: [secondBidderId], references: [id], onDelete: SetNull)
+  secondBidderId   String?
+  secondBidder     User?         @relation("SecondBidder", fields: [secondBidderId], references: [id], onDelete: SetNull)
 
-  thirdBidderId String?
-  thirdBidder   User?   @relation("ThirdBidder", fields: [thirdBidderId], references: [id], onDelete: SetNull)
+  thirdBidderId    String?
+  thirdBidder      User?         @relation("ThirdBidder", fields: [thirdBidderId], references: [id], onDelete: SetNull)
 
   bids             AuctionBid[]
   settlementStatus AuctionSettlementStatus @default(PENDING)
@@ -361,18 +441,19 @@ model AuctionBid {
   @@index([listingId, createdAt])
   @@index([bidderId, createdAt])
 }
-// جدول واسط برای ذخیره آگهی‌ها
+
 model SavedListing {
   id        String   @id @default(cuid())
   userId    String
   listingId String
   createdAt DateTime @default(now())
 
-  user    User    @relation(fields: [userId], references: [id])
-  listing Listing @relation(fields: [listingId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+  listing   Listing  @relation(fields: [listingId], references: [id])
 
-  @@unique([userId, listingId]) // هر کاربر یک آگهی را فقط یک بار می‌تواند ذخیره کند
+  @@unique([userId, listingId])
 }
+
 ////////////////////
 /// PLANS & QUOTA
 ////////////////////
@@ -461,8 +542,8 @@ model ExchangeOffer {
   extraPayment Decimal             @default(0)
   status       ExchangeOfferStatus @default(PENDING)
   createdAt    DateTime            @default(now())
-  updatedAt    DateTime @updatedAt
-  isPayerMe    Boolean  @default(true) // آیا پیشنهاد دهنده پول می‌دهد؟
+  updatedAt    DateTime            @updatedAt
+  isPayerMe    Boolean             @default(true)
 
   @@index([listingId, status])
   @@index([offererId])
@@ -477,14 +558,37 @@ model RepairRequest {
   trackingCode         String              @unique
   userId               String
   user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // اطلاعات کالا
   deviceType           String
   brand                String
   model                String
   description          String
   images               String[]
+  videos               String[]            @default([])
+
+  // وضعیت و فرایند
   status               RepairRequestStatus @default(PENDING_REVIEW)
   rejectionReason      String?
+
+  // slots ارسالی ادمین + انتخاب کاربر
+  availableSlots       Json?               // [{date: "2026-05-01", from: "10:00", to: "13:00"}, ...]
+  adminNote            String?             // توضیحات ادمین هنگام تایید
   selectedDeliveryTime DateTime?
+
+  // ارسال کاربر به طبقه
+  shippingTrackingCode String?
+  shippingVideo        String?
+
+  // کارشناسی و نتیجه
+  inspectionResult     String?             // توضیحات نتیجه بررسی
+  estimatedCost        Decimal?            // هزینه برآوردی تعمیر
+  userCostApproved     Boolean?            // آیا کاربر با هزینه موافقت کرد
+
+  // ارسال برگشت طبقه به کاربر
+  returnTrackingCode   String?
+  returnVideo          String?
+
   tickets              Ticket[]
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
@@ -534,36 +638,47 @@ model IdempotencyKey {
   @@index([userId, endpoint])
 }
 
-enum LocationType {
-  PROVINCE
-  CITY
-}
-// 3. آپدیت مدل Category برای ارتباط با قوانین کارمزد
 model Category {
   id        String     @id @default(cuid())
   title     String
   slug      String     @unique
+  icon      String?
   parentId  String?
   parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id])
   children  Category[] @relation("CategoryTree")
   listings  Listing[]
-  feeRules  FeeRule[]  // 👈 اضافه شد
+  feeRules  FeeRule[]
   createdAt DateTime   @default(now())
+
+  // Legacy generic fee (kept for backwards compat; new code uses type-specific below)
+  feePercentage Float   @default(5.0)
+  feeCap        Decimal @default(500000)
+
+  // Direct-sale commission
+  feePercentageDirect Float   @default(5.0)
+  feeCapDirect        Decimal @default(500000)
+
+  // Auction commission (charged to seller when auction completes)
+  feePercentageAuction Float   @default(5.0)
+  feeCapAuction        Decimal @default(500000)
+
+  // Percentage of the starting price that must be blocked in the bidder's
+  // wallet in order to participate in an auction for this category.
+  auctionDepositPercent Float  @default(10.0)
 }
 
 model Location {
-  id       String       @id @default(cuid())
-  name     String
-  type     LocationType
-  parentId String?
-  parent   Location?    @relation("LocationTree", fields: [parentId], references: [id])
-  children Location[]   @relation("LocationTree")
+  id               String       @id @default(cuid())
+  name             String
+  type             LocationType
+  parentId         String?
+  parent           Location?    @relation("LocationTree", fields: [parentId], references: [id])
+  children         Location[]   @relation("LocationTree")
 
-  // این دو خط رو دقیقاً با این اسامی جایگزین کن:
-  provinceListings Listing[] @relation("ProvinceListings")
-  cityListings     Listing[] @relation("CityListings")
+  provinceListings Listing[]    @relation("ProvinceListings")
+  cityListings     Listing[]    @relation("CityListings")
 
-  createdAt DateTime @default(now())
+  createdAt        DateTime     @default(now())
 }
 
 ////////////////////
@@ -571,26 +686,18 @@ model Location {
 ////////////////////
 
 model Conversation {
-  id String @id @default(cuid())
-
-  // آگهی مربوطه
+  id        String    @id @default(cuid())
   listingId String
-  listing   Listing @relation(fields: [listingId], references: [id])
+  listing   Listing   @relation(fields: [listingId], references: [id])
+  buyerId   String
+  buyer     User      @relation("BuyerConversations", fields: [buyerId], references: [id])
+  sellerId  String
+  seller    User      @relation("SellerConversations", fields: [sellerId], references: [id])
+  messages  Message[]
 
-  // خریدار (شروع کننده چت)
-  buyerId String
-  buyer   User   @relation("BuyerConversations", fields: [buyerId], references: [id])
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
-  // فروشنده (صاحب آگهی)
-  sellerId String
-  seller   User   @relation("SellerConversations", fields: [sellerId], references: [id])
-
-  messages Message[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // این خط خیلی مهمه: هر خریدار برای هر آگهی فقط یک چت داشته باشه
   @@unique([listingId, buyerId])
   @@index([buyerId])
   @@index([sellerId])
@@ -600,89 +707,122 @@ model Message {
   id             String       @id @default(cuid())
   conversationId String
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-
-  senderId String
-  sender   User   @relation(fields: [senderId], references: [id])
-
-  content   String
-  isRead    Boolean  @default(false)
-  createdAt DateTime @default(now())
+  senderId       String
+  sender         User         @relation(fields: [senderId], references: [id])
+  content        String
+  isRead         Boolean      @default(false)
+  createdAt      DateTime     @default(now())
 
   @@index([conversationId])
 }
 
-enum OrderType {
-  DIRECT
-  AUCTION
-  EXCHANGE
-}
-enum OrderStatus {
-  PENDING     // در انتظار پرداخت
-  PAID        // پرداخت شده (پول در حساب واسط طبقه است)
-  SHIPPED     // ارسال شده توسط فروشنده
-  DELIVERED   // تحویل شده به خریدار (شروع مهلت تست)
-  COMPLETED   // تایید نهایی خریدار و واریز پول به فروشنده
-  DISPUTED    // ثبت شکایت / مغایرت کالا
-  CANCELLED   // لغو شده (استرداد وجه به خریدار)
-}
+////////////////////
+/// ORDER & FINANCE
+////////////////////
+
 model Order {
-  id        String  @id @default(cuid())
-  listingId String  @unique
-  listing   Listing @relation(fields: [listingId], references: [id])
-  reviews   Review[]
+  id                String      @id @default(cuid())
+  listingId         String      @unique
+  listing           Listing     @relation(fields: [listingId], references: [id])
+  reviews           Review[]
 
-  buyerId   String
-  buyer     User    @relation("BuyerOrders", fields: [buyerId], references: [id])
+// کدهای رهگیری ارسال شده از سمت انبار طبقه به کاربران
+  hubToBuyerTrackingCode  String?
+  hubToSellerTrackingCode String?
 
-  sellerId  String
-  seller    User    @relation("SellerOrders", fields: [sellerId], references: [id])
+  // وضعیت تایید دریافت توسط طرفین (چون تو معاوضه هر دو باید تایید کنن)
+  buyerConfirmedDelivery  Boolean @default(false)
+  sellerConfirmedDelivery Boolean @default(false)
 
-  type      OrderType
+  buyerId           String
+  buyer             User        @relation("BuyerOrders", fields: [buyerId], references: [id])
 
-  // بخش مالی و کمیسیون
-  finalPrice    Decimal
-  platformFee   Decimal @default(0)
-  sellerRevenue Decimal
+paymentMethod    PaymentMethod @default(GATEWAY)
 
-  // برای معاوضه: آیدی پیشنهادی که قبول شده
-  exchangeOfferId String?
+  sellerId          String
+  seller            User        @relation("SellerOrders", fields: [sellerId], references: [id])
 
-  // -----------------------------------------------------------------
-  // بخش اول: اطلاعات ارسال به خریدار (آدرسی که فروشنده باید به آن بفرستد)
-  // -----------------------------------------------------------------
+  type              OrderType
+
+  // --- بخش مالی و کمیسیون ---
+  finalPrice        Decimal
+  shippingCost      Decimal     @default(0)
+  totalAmount       Decimal
+  platformFee       Decimal     @default(0)
+  sellerRevenue     Decimal
+
+  exchangeOfferId   String?
+
+  // --- اطلاعات ارسال به خریدار ---
   shippingAddress    String?
   shippingPostalCode String?
   shippingPhone      String?
-  trackingCode       String?    // کدی که فروشنده (صاحب آگهی) ثبت می‌کند
+  trackingCode       String?
 
-  // -----------------------------------------------------------------
-  // بخش دوم: اطلاعات ارسال به فروشنده (آدرسی که خریدار باید به آن بفرستد)
-  // مخصوص معاوضه: چون هر دو طرف باید کالا ارسال کنند
-  // -----------------------------------------------------------------
+  // --- اطلاعات ارسال به فروشنده (مخصوص معاوضه) ---
   sellerShippingAddress    String?
   sellerShippingPostalCode String?
   sellerShippingPhone      String?
-  sellerTrackingCode       String?    // کدی که پیشنهاددهنده (خریدار) ثبت می‌کند
+  sellerTrackingCode       String?
 
-  // وضعیت سفارش و ترکینگ
-  status    OrderStatus @default(PENDING) // پیش‌فرض را PENDING بگذار برای هندل کردن درگاه
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  // --- کارشناسی فنی (جدید) ---
+  requiresVerification Boolean  @default(false) // آیا خریدار تاییدیه فنی خواسته؟
+  verificationFee      Decimal  @default(0)     // مبلغ کارشناسی در زمان ثبت سفارش
+  platformAddress      String?  // اسنپ‌شات آدرس طبقه در لحظه سفارش
+
+  status            OrderStatus @default(PENDING)
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  shippingDeadline  DateTime? // مهلت ارسال کالا
+  cancelReason      String?   // دلیل لغو (اگر خودکار لغو شد)
+
+  // --- مستندات تصویری (جدید) ---
+  packagingVideo       String?   // ویدیوی بسته‌بندی فروشنده هنگام ارسال
+  buyerPackagingVideo  String?   // ویدیوی بسته‌بندی خریدار در معاوضه (هنگام ارسال کالای خود به هاب)
+  unboxingVideo        String?   // ویدیوی بازگشایی خریدار در زمان اعلام مغایرت
+  sellerUnboxingVideo  String?   // ویدیوی بازگشایی فروشنده در معاوضه (هنگام دریافت کالای طرف مقابل)
+
+  // --- مدیریت شکایت/اختلاف ---
+  disputeReason        String?   // متن شکایت خریدار
+  disputedAt           DateTime? // زمان ثبت شکایت
+  disputeResolution    String?   // توضیح ادمین در زمان حل شکایت
+  disputeResolvedAt    DateTime? // زمان حل شکایت
+  disputeResolvedBy    String?   // آی‌دی ادمین حل‌کننده
+  disputeOutcome       DisputeOutcome? // نتیجه (سود به خریدار/فروشنده/تقسیم/بدون)
 
   @@index([buyerId, status])
   @@index([sellerId, status])
+  @@index([status, disputedAt])
 }
-// 2. موتور قوانین محاسبه کارمزد (داینامیک برای پنل ادمین)
+
+enum DisputeOutcome {
+  REFUND_BUYER      // بازگشت کامل به خریدار
+  RELEASE_SELLER    // آزاد کردن کامل برای فروشنده
+  PARTIAL_REFUND    // تقسیم/بازگشت جزئی
+  CANCEL            // لغو بدون تسویه خاص
+}
+
+// 👈 جدول تنظیمات سیستم برای ادمین
+model SystemSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+}
+
 model FeeRule {
   id          String      @id @default(cuid())
   listingType ListingType
-  categoryId  String?     // اگر null باشد، روی همه دسته‌ها اعمال می‌شود
+  categoryId  String?
   minPrice    Decimal     @default(0)
-  maxPrice    Decimal?    // اگر null باشد، سقف ندارد
-  feePercent  Float       @default(0) // درصد کارمزد (مثلا 7)
-  feeFixed    Decimal     @default(0) // مبلغ ثابت کارمزد
+  maxPrice    Decimal?
+  feePercent  Float       @default(0)
+  feeFixed    Decimal     @default(0)
+  feeCap      Decimal?    // سقف نهایی کارمزد
   isActive    Boolean     @default(true)
-
+auctionDepositPercent Float    @default(5.0)
   category    Category?   @relation(fields: [categoryId], references: [id])
 
   createdAt   DateTime    @default(now())
@@ -690,12 +830,13 @@ model FeeRule {
 
   @@index([listingType, categoryId, isActive])
 }
+
 model Review {
   id          String   @id @default(cuid())
   orderId     String
   reviewerId  String
   revieweeId  String
-  rating      Int      // بین ۱ تا ۵
+  rating      Int
   comment     String?
   createdAt   DateTime @default(now())
 
@@ -703,6 +844,18 @@ model Review {
   reviewer    User     @relation("GivenReviews", fields: [reviewerId], references: [id])
   reviewee    User     @relation("ReceivedReviews", fields: [revieweeId], references: [id])
 
-  // جلوگیری از ثبت چند نظر توسط یک نفر برای یک سفارش
   @@unique([orderId, reviewerId])
+}
+
+model Faq {
+  id        String   @id @default(cuid())
+  question  String
+  answer    String
+  category  String?
+  order     Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, order])
 }

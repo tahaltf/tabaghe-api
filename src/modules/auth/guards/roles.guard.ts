@@ -1,34 +1,34 @@
-import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import type { Request } from 'express';
 import { UserRole } from '@prisma/client';
+import { AuthenticatedUser } from '../../../shared/contracts/auth';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
-    constructor(private reflector: Reflector) {}
+  constructor(private readonly reflector: Reflector) {}
 
-    canActivate(context: ExecutionContext): boolean {
-        // ۱. دریافت نقش‌های مورد نیاز از دکوراتور @Roles
-        const requiredRoles = this.reflector.getAllAndOverride<UserRole[]>(ROLES_KEY, [
-            context.getHandler(),
-            context.getClass(),
-        ]);
+  canActivate(context: ExecutionContext): boolean {
+    const requiredRoles = this.reflector.getAllAndOverride<UserRole[] | undefined>(
+      ROLES_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    if (!requiredRoles || requiredRoles.length === 0) return true;
 
-        // اگر متد دکوراتور Roles نداشت، یعنی دسترسی برای همه لاگین شده‌ها آزاد است
-        if (!requiredRoles) {
-            return true;
-        }
+    const req = context
+      .switchToHttp()
+      .getRequest<Request & { user?: AuthenticatedUser }>();
 
-        // ۲. دریافت اطلاعات کاربر از Request (که توسط JwtAuthGuard پر شده)
-        const { user } = context.switchToHttp().getRequest();
-
-        // ۳. بررسی مطابقت نقش کاربر با نقش‌های مورد نیاز
-        const hasRole = requiredRoles.some((role) => user.role === role);
-
-        if (!hasRole) {
-            throw new ForbiddenException('شما دسترسی ادمین برای انجام این عملیات را ندارید');
-        }
-
-        return true;
+    const user = req.user;
+    if (!user || !requiredRoles.includes(user.role)) {
+      throw new ForbiddenException('شما دسترسی لازم برای انجام این عملیات را ندارید');
     }
+    return true;
+  }
 }

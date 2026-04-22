@@ -16,7 +16,6 @@ export class QuotaService {
     listingType: ListingType,
     listingId: string,
   ) {
-      return
     if (listingType === ListingType.DIRECT) {
       // پاس دادن tx به متد دریافت لیمیت برای جلوگیری از ارور undefined
       const freeLimit = await this.getFreeDirectLimit(tx);
@@ -62,17 +61,10 @@ export class QuotaService {
   private async getFreeDirectLimit(
     tx: Prisma.TransactionClient,
   ): Promise<number> {
-    try {
-      // استفاده از tx به جای this.prisma
-      const setting = await (tx as any).appSetting.findUnique({
-        where: { key: 'FREE_DIRECT_QUOTA' },
-      });
-
-      return setting ? Number(setting.value) : 2;
-    } catch (error) {
-      // اگر جدول appSetting وجود نداشت یا مشکلی بود، پیش‌فرض ۲ را برگردان
-      return 2;
-    }
+    const setting = await tx.systemSetting.findUnique({
+      where: { key: 'FREE_DIRECT_QUOTA' },
+    });
+    return setting ? Number(setting.value) : 2;
   }
 
   private async getRemainingFreeDirect(

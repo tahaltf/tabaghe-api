@@ -1,10 +1,31 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe, VersioningType } from '@nestjs/common';
+import {
+  BadRequestException,
+  ValidationError,
+  ValidationPipe,
+  VersioningType,
+} from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { json, urlencoded } from 'express';
 import helmet from 'helmet';
 import { join } from 'path';
+
+function flattenValidationErrors(errors: ValidationError[], parent = ''): string[] {
+  const out: string[] = [];
+  for (const err of errors) {
+    const prop = parent ? `${parent}.${err.property}` : err.property;
+    if (err.constraints) {
+      for (const msg of Object.values(err.constraints)) {
+        out.push(`${prop} ${msg}`);
+      }
+    }
+    if (err.children && err.children.length) {
+      out.push(...flattenValidationErrors(err.children, prop));
+    }
+  }
+  return out;
+}
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -23,15 +44,22 @@ async function bootstrap() {
     defaultVersion: '1', // خروجی: /api/v1/...
   });
 
+  const corsOrigins = (process.env.FRONTEND_ORIGINS || '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+
   // ۳. تنظیمات CORS هماهنگ با Angular
   app.enableCors({
-    origin: [
-      'https://app.tabagheh.com',
-      'http://app.tabagheh.com',
-      'http://tabagheh.com',
-      'https://tabagheh.com',
-      'http://localhost:4200',
-    ],
+    origin: corsOrigins.length
+      ? corsOrigins
+      : [
+          'https://app.tabagheh.com',
+          'http://app.tabagheh.com',
+          'http://tabagheh.com',
+          'https://tabagheh.com',
+          'http://localhost:4200',
+        ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,
   });
@@ -43,9 +71,16 @@ async function bootstrap() {
   // ۵. پایپ اعتبارسنجی گلوبال (قلب تپنده امنیت DTOهای ما)
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist: true, // حذف خودکار فیلدهایی که در DTO تعریف نشده‌اند
-      forbidNonWhitelisted: true, // پرتاب خطا اگر فیلد اضافه‌ای فرستاده شد
-      transform: true, // تبدیل خودکار تایپ‌ها (مثلاً String به Number در Query Paramها)
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      transformOptions: { enableImplicitConversion: true },
+      exceptionFactory: (errors: ValidationError[]) =>
+        new BadRequestException({
+          message: flattenValidationErrors(errors),
+          error: 'ValidationError',
+          statusCode: 400,
+        }),
     }),
   );
 

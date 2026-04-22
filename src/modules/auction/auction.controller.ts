@@ -10,6 +10,7 @@ import {
     BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { AuctionService } from './auction.service';
 import { Throttle } from '@nestjs/throttler';
 import { IdempotencyService } from '../../common/idempotency.service';
@@ -45,16 +46,18 @@ export class AuctionController {
     }
 
     // -----------------------------------
-    // Get Auction State (Public)
+    // Get Auction State (Public, اما viewer رو در صورت لاگین بودن خوانده می‌شه)
     // -----------------------------------
+    @UseGuards(OptionalJwtAuthGuard)
     @Get(':listingId')
-    getState(@Param('listingId') listingId: string) {
-        return this.auctionService.getAuctionState(listingId);
+    getState(@Param('listingId') listingId: string, @Req() req: any) {
+        return this.auctionService.getAuctionState(listingId, req?.user?.id);
     }
 
     // -----------------------------------
-    // Get Auction Bids (Public, Semi-safe)
+    // Get Auction Bids (Public, اما پیشنهادهای خود کاربر با فلگ `mine`)
     // -----------------------------------
+    @UseGuards(OptionalJwtAuthGuard)
     @Throttle({
         default: {
             limit: 30,
@@ -62,8 +65,8 @@ export class AuctionController {
         },
     })
     @Get(':listingId/bids')
-    getBids(@Param('listingId') listingId: string) {
-        return this.auctionService.getAuctionBids(listingId);
+    getBids(@Param('listingId') listingId: string, @Req() req: any) {
+        return this.auctionService.getAuctionBids(listingId, req?.user?.id);
     }
 
     // -----------------------------------

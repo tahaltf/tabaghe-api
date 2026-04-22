@@ -442,10 +442,10 @@ export class AuctionService {
   // -----------------------------------
   // Read APIs
   // -----------------------------------
-  async getAuctionState(listingId: string) {
+  async getAuctionState(listingId: string, viewerUserId?: string) {
     const auction = await this.prisma.listingAuction.findUnique({
       where: { listingId },
-      include: { listing: { select: { title: true } } },
+      include: { listing: { select: { title: true, authorId: true } } },
     });
 
     if (!auction) throw new NotFoundException('Auction not found');
@@ -458,15 +458,18 @@ export class AuctionService {
         ? Math.max(0, auction.endDatetime.getTime() - Date.now())
         : 0;
 
+    const isOwner = !!viewerUserId && viewerUserId === auction.listing.authorId;
+    const isHighestBidder = !!viewerUserId && viewerUserId === auction.highestBidderId;
+    // ID برندگان فقط به خود کاربر (اگر برنده/دومه) و مالک آگهی نمایش داده میشه.
+    // برای کاربران عمومی، فقط اطلاع از وجود/مبلغ میدیم نه هویت.
     return {
       listingId,
       title: auction.listing.title,
       auctionStatus: auction.status,
       basePrice: auction.basePrice,
       highestBid: auction.highestBidAmount,
-      highestBidderId: auction.highestBidderId,
-      secondBidderId: auction.secondBidderId,
-      thirdBidderId: auction.thirdBidderId,
+      highestBidderId: isOwner || isHighestBidder ? auction.highestBidderId : null,
+      isHighestBidder,
       bidCount,
       buyNowEnabled: auction.buyNowEnabled,
       buyNowPrice: auction.buyNowPrice,
@@ -477,12 +480,85 @@ export class AuctionService {
     };
   }
 
-  async getAuctionBids(listingId: string) {
-    return this.prisma.auctionBid.findMany({
+  async getAuctionBids(listingId: string, viewerUserId?: string) {
+    const auction = await this.prisma.listingAuction.findUnique({
+      where: { listingId },
+      select: { listing: { select: { authorId: true } } },
+    });
+    const isOwner = !!auction && !!viewerUserId && auction.listing.authorId === viewerUserId;
+
+    const rows = await this.prisma.auctionBid.findMany({
       where: { listingId },
       orderBy: { createdAt: 'desc' },
-      select: { amount: true, bidderId: true, createdAt: true, status: true },
+      take: 50,
+      select: {
+        amount: true,
+        bidderId: true,
+        createdAt: true,
+        status: true,
+        bidder: { select: { firstName: true, lastName: true, avatar: true } },
+      },
     });
+
+    return rows.map((b) => ({
+      amount: b.amount,
+      createdAt: b.createdAt,
+      status: b.status,
+      // شناسه‌ی دقیق فقط به مالک و خود پیشنهاددهنده برمیگرده.
+      bidderId: isOwner || b.bidderId === viewerUserId ? b.bidderId : null,
+      isMine: b.bidderId === viewerUserId,
+      bidder: {
+        firstName: b.bidder?.firstName ?? null,
+        // نمایش مخفف نام خانوادگی برای رعایت حریم خصوصی.
+        lastName: b.bidder?.lastName ? `${b.bidder.lastName.charAt(0)}.` : null,
+        avatar: b.bidder?.avatar ?? null,
+      },
+    }));
+  }
+
+  async getAuctionCheckoutData(listingId: string, userId: string) {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      include: {
+        auction: {
+          include: {
+            bids: {
+              where: { bidderId: userId },
+              orderBy: { amount: 'desc' },
+              take: 1,
+            },
+          },
+        },
+        author: { select: { id: true, firstName: true, lastName: true } },
+      },
+    });
+
+    if (!listing || !listing.auction) {
+      throw new NotFoundException('آگهی مزایده یافت نشد');
+    }
+
+    const userBid = listing.auction.bids[0];
+    if (!userBid) {
+      throw new ForbiddenException('شما هیچ پیشنهادی در این مزایده ندارید');
+    }
+
+    const bidAmount = new Decimal(userBid.amount);
+    const GUARANTEE_PERCENTAGE = new Decimal('0.10');
+    const blockedAmount = bidAmount.mul(GUARANTEE_PERCENTAGE);
+    const payableAmount = bidAmount.minus(blockedAmount);
+
+    return {
+      listing: {
+        id: listing.id,
+        title: listing.title,
+        thumbnail: listing.thumbnail,
+        shippingPayer: listing.shippingPayer,
+        author: listing.author,
+      },
+      bidAmount: bidAmount.toNumber(),
+      blockedAmount: blockedAmount.toNumber(),
+      payableAmount: payableAmount.toNumber(),
+    };
   }
 
   // -----------------------------------

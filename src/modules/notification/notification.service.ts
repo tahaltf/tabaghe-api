@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { NotificationType } from '@prisma/client';
+import { NotificationType, Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 
@@ -18,13 +18,15 @@ export class NotificationService {
         type: NotificationType;
         title: string;
         message: string;
-        meta?: Record<string, any>;
+        meta?: Record<string, unknown>;
     }) {
         const { userId, type, title, message, meta } = params;
+        const metaValue =
+          meta === undefined ? undefined : (meta as Prisma.InputJsonValue);
 
         // ۱. ثبت نوتیفیکیشن در دیتابیس (برای نمایش در پنل کاربری)
         const notification = await this.prisma.notification.create({
-            data: { userId, type, title, message, meta },
+            data: { userId, type, title, message, meta: metaValue },
         });
 
         // ۲. ارسال پیامک به صورت پس‌زمینه (آسنکرون)
@@ -35,7 +37,7 @@ export class NotificationService {
         return notification;
     }
 
-    private async processSms(userId: string, type: NotificationType, meta?: Record<string, any>) {
+    private async processSms(userId: string, type: NotificationType, meta?: Record<string, unknown>) {
         const apiKey = this.configService.get<string>('SMS_IR_API_KEY');
         if (!apiKey) {
             this.logger.warn('SMS_IR_API_KEY تنظیم نشده است.');
@@ -52,9 +54,11 @@ export class NotificationService {
 
         // دریافت عنوان آگهی برای شخصی‌سازی پیامک
         let listingTitle = 'یک آگهی';
-        if (meta && meta.listingId) {
+        const listingId =
+          meta && typeof meta.listingId === 'string' ? meta.listingId : undefined;
+        if (listingId) {
             const listing = await this.prisma.listing.findUnique({
-                where: { id: meta.listingId },
+                where: { id: listingId },
                 select: { title: true }
             });
             if (listing) listingTitle = listing.title;
@@ -98,8 +102,96 @@ export class NotificationService {
               },
             );
             this.logger.log(`پیامک ${type} برای شماره ${user.phone} ارسال شد.`);
-        } catch (error: any) {
-            this.logger.error(`خطا در ارسال پیامک به ${user.phone}:`, error?.response?.data || error.message);
+        } catch (error: unknown) {
+            const err = error as { response?: { data?: unknown }; message?: string };
+            this.logger.error(`خطا در ارسال پیامک به ${user.phone}:`, err?.response?.data || err?.message);
         }
+    }
+
+    listForUser(userId: string) {
+      return this.prisma.notification.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    async listForUserPaginated(
+      userId: string,
+      opts: { page: number; pageSize: number; onlyUnread?: boolean },
+    ) {
+      const page = Math.max(1, opts.page || 1);
+      const pageSize = Math.min(100, Math.max(1, opts.pageSize || 20));
+      const where = {
+        userId,
+        ...(opts.onlyUnread ? { isRead: false } : {}),
+      };
+      const [items, total] = await Promise.all([
+        this.prisma.notification.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+        this.prisma.notification.count({ where }),
+      ]);
+      return {
+        items,
+        pagination: {
+          page,
+          pageSize,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / pageSize)),
+        },
+      };
+    }
+
+    unreadCount(userId: string) {
+      return this.prisma.notification.count({
+        where: { userId, isRead: false },
+      });
+    }
+
+    async broadcast(params: {
+      title: string;
+      message: string;
+      userIds?: string[]; // undefined => همه کاربران
+    }) {
+      const { title, message, userIds } = params;
+      let recipients: { id: string }[];
+      if (userIds && userIds.length > 0) {
+        recipients = await this.prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true },
+        });
+      } else {
+        recipients = await this.prisma.user.findMany({ select: { id: true } });
+      }
+      if (recipients.length === 0) return { created: 0 };
+      await this.prisma.notification.createMany({
+        data: recipients.map((u) => ({
+          userId: u.id,
+          type: NotificationType.ADMIN_ANNOUNCEMENT,
+          title,
+          message,
+        })),
+      });
+      return { created: recipients.length };
+    }
+
+    async markAsRead(userId: string, id: string) {
+      const notification = await this.prisma.notification.findUnique({ where: { id } });
+      if (!notification) return null;
+      if (notification.userId !== userId) return false;
+      return this.prisma.notification.update({
+        where: { id },
+        data: { isRead: true },
+      });
+    }
+
+    markAllAsRead(userId: string) {
+      return this.prisma.notification.updateMany({
+        where: { userId, isRead: false },
+        data: { isRead: true },
+      });
     }
 }

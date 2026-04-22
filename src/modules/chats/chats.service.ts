@@ -71,7 +71,9 @@ export class ChatsService {
   }
 
   // بقیه متدها (getMyConversations, getMessages, sendMessage) بدون تغییر باقی بمانند
-  async getMyConversations(userId: string) {
+  async getMyConversations(userId: string, page = 1, pageSize = 30) {
+    const take = Math.min(50, Math.max(5, pageSize));
+    const skip = Math.max(0, (page - 1) * take);
     return this.prisma.conversation.findMany({
       where: {
         OR: [{ buyerId: userId }, { sellerId: userId }],
@@ -83,10 +85,21 @@ export class ChatsService {
         messages: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
       orderBy: { updatedAt: 'desc' },
+      skip,
+      take,
     });
   }
 
-  async getMessages(chatId: string, userId: string) {
+  /**
+   * پیام‌های یک مکالمه رو صفحه‌بندی‌شده برمی‌گردونه. به صورت پیش‌فرض
+   * ۱۰۰ پیام آخر. برای بارگیری پیام‌های قدیمی‌تر، از `before` (تاریخ پیام مرزی)
+   * استفاده میشه. ترتیب نهایی صعودی (قدیم به جدید) حفظ شده.
+   */
+  async getMessages(
+    chatId: string,
+    userId: string,
+    options: { limit?: number; before?: string } = {},
+  ) {
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: chatId },
     });
@@ -94,10 +107,22 @@ export class ChatsService {
     if (conversation.buyerId !== userId && conversation.sellerId !== userId) {
       throw new ForbiddenException('شما دسترسی به این مکالمه را ندارید');
     }
-    return this.prisma.message.findMany({
-      where: { conversationId: chatId },
-      orderBy: { createdAt: 'asc' },
+
+    const limit = Math.min(200, Math.max(10, options.limit ?? 100));
+    const where: any = { conversationId: chatId };
+    if (options.before) {
+      const beforeDate = new Date(options.before);
+      if (!isNaN(beforeDate.getTime())) {
+        where.createdAt = { lt: beforeDate };
+      }
+    }
+
+    const recent = await this.prisma.message.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: limit,
     });
+    return recent.reverse();
   }
 
   async sendMessage(chatId: string, senderId: string, content: string) {

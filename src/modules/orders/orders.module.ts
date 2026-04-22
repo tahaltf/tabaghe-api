@@ -1,13 +1,24 @@
-import { Module } from '@nestjs/common';
-import { OrdersService } from './orders.service';
+﻿import { Module } from '@nestjs/common';
+import { WalletModule } from '../wallet/wallet.module';
+import { FeesModule } from '../fees/fees.module';
+
+import { OrdersAdminController } from './orders-admin.controller';
 import { OrdersController } from './orders.controller';
-import { WalletModule } from "../wallet/wallet.module";
-import { FeesModule } from "../fees/fees.module";
+import { OrdersAdminService } from './orders-admin.service';
+import { OrdersCommandService } from './orders-command.service';
+import { OrdersQueryService } from './orders-query.service';
+import { OrdersService } from './orders.service';
+import { OrdersStateMachineService } from './orders-state-machine.service';
 
 @Module({
-  controllers: [OrdersController],
-  providers: [OrdersService],
-  imports:[WalletModule , FeesModule]
-
+  imports: [WalletModule, FeesModule],
+  controllers: [OrdersController, OrdersAdminController],
+  providers: [
+    OrdersService,
+    OrdersStateMachineService,
+    OrdersQueryService,
+    OrdersCommandService,
+    OrdersAdminService,
+  ],
 })
 export class OrdersModule {}

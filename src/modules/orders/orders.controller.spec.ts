@@ -1,15 +1,39 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { OrdersController } from './orders.controller';
-import { OrdersService } from './orders.service';
+import { OrdersCommandService } from './orders-command.service';
+import { OrdersQueryService } from './orders-query.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { IsVerifiedGuard } from '../auth/guards/is-verified.guard';
 
 describe('OrdersController', () => {
   let controller: OrdersController;
 
+  const commandMock = {
+    createOrder: jest.fn(),
+    updateTrackingCode: jest.fn(),
+    confirmOrder: jest.fn(),
+    disputeOrder: jest.fn(),
+  };
+
+  const queryMock = {
+    getOrdersByType: jest.fn(),
+    getMyRequests: jest.fn(),
+    getOrderById: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [OrdersController],
-      providers: [OrdersService],
-    }).compile();
+      providers: [
+        { provide: OrdersCommandService, useValue: commandMock },
+        { provide: OrdersQueryService, useValue: queryMock },
+      ],
+    })
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: () => true })
+      .overrideGuard(IsVerifiedGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<OrdersController>(OrdersController);
   });

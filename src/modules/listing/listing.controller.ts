@@ -2,235 +2,177 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
   Post,
   Query,
-  Req,
+  UploadedFiles,
   UseGuards,
   UseInterceptors,
-  UploadedFiles,
-  BadRequestException,
-  ForbiddenException,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname } from 'path';
-import { existsSync, mkdirSync } from 'fs';
-import { ListingService } from './listing.service';
+import { IsNumber, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+
+import { listingImagesMulterOptions } from '../../common/upload/listing-images-upload.config';
+import { AuthenticatedUser } from '../../shared/contracts/auth';
 import { AuctionService } from '../auction/auction.service';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { IsVerifiedGuard } from '../auth/guards/is-verified.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { Roles } from '../auth/decorators/roles.decorator';
-import { RolesGuard } from '../auth/guards/roles.guard';
-import { UserRole, ListingStatus } from '@prisma/client';
-import { CurrentUser } from "../auth/decorators/current-user.decorator";
-import { v4 as uuidv4 } from 'uuid';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
+import { CreateListingDto } from './dto/create-listing.dto';
+import { DeleteListingDto } from './dto/delete-listing.dto';
+import { ListListingsDto } from './dto/list-listings.dto';
+import { UpdateListingDto } from './dto/update-listing.dto';
+import { ListingCommandService } from './services/listing-command.service';
+import { ListingQueryService } from './services/listing-query.service';
+import { ListingSavedService } from './services/listing-saved.service';
+
+class PlaceBidDto {
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  amount!: number;
+}
 
 @Controller('listings')
 export class ListingController {
   constructor(
-    private readonly listingService: ListingService,
-    private readonly auctionService: AuctionService
+    private readonly queryService: ListingQueryService,
+    private readonly commandService: ListingCommandService,
+    private readonly savedService: ListingSavedService,
+    private readonly auctionService: AuctionService,
   ) {}
 
   @Get()
-  findAll(@Query() query: any) {
-    const page = parseInt(query.page) || 1;
-    const limit = parseInt(query.limit) || 10;
-    return this.listingService.findAll(query, page, limit);
+  findAll(@Query() query: ListListingsDto) {
+    return this.queryService.findAll(query);
   }
 
   @UseGuards(JwtAuthGuard)
   @Get('my-listings')
-  findMyListings(@Req() req: any) {
-    return this.listingService.findAllByUser(req.user.id);
+  findMyListings(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.queryService.findAllByUser(user.id, {
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
   }
 
   @UseGuards(JwtAuthGuard)
   @Get('saved')
-  async getSavedListings(@Req() req: any) {
-    return this.listingService.getSavedListings(req.user.id);
-  }
-
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
-  @Get('admin/all')
-  findAllAdmin(@Query('status') status?: ListingStatus) {
-    return this.listingService.findAllForAdmin(status);
+  getSavedListings(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.savedService.listForUser(user.id, {
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
   }
 
   @Get(':id/availability')
-  checkAvailability(@Param('id') id: string) {
-    return this.listingService.checkAvailability(id);
+  async checkAvailability(@Param('id') id: string) {
+    const available = await this.queryService.checkAvailability(id);
+    return { available };
   }
 
   @UseGuards(JwtAuthGuard)
   @Get(':id/is-saved')
-  async checkIsSaved(@Param('id') id: string, @Req() req: any) {
-    return this.listingService.isListingSaved(req.user.id, id);
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Get('exchange-offer/:id')
-  getExchangeOffer(@Param('id') id: string, @Req() req: any) {
-    return this.listingService.getExchangeOffer(id, req.user.id);
+  checkIsSaved(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.savedService.isSaved(user.id, id);
   }
 
   @UseGuards(JwtAuthGuard)
   @Get(':id/auction-checkout')
-  getAuctionCheckout(@Param('id') id: string, @Req() req: any) {
-    return this.listingService.getAuctionCheckoutData(id, req.user.id);
+  getAuctionCheckout(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.auctionService.getAuctionCheckoutData(id, user.id);
   }
 
+  @UseGuards(OptionalJwtAuthGuard)
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.listingService.findOne(id);
+  findOne(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser | null,
+  ) {
+    return this.queryService.findOne(id, user?.id, user?.role);
   }
 
   @UseGuards(JwtAuthGuard)
   @Post(':id/save')
-  async toggleSave(@Param('id') id: string, @Req() req: any) {
-    return this.listingService.toggleSave(req.user.id, id);
+  toggleSave(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.savedService.toggle(user.id, id);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, IsVerifiedGuard)
   @Post(':id/bid')
-  async placeBid( // 👈 کلمه async برای بررسی صاحب آگهی اضافه شد
-    @Req() req: any,
+  async placeBid(
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
-    @Body('amount') amount: number,
+    @Body() body: PlaceBidDto,
   ) {
-    if (!amount || amount <= 0) {
-      throw new BadRequestException('مبلغ پیشنهادی معتبر نیست');
-    }
-
-    // 🛡️ بررسی امنیتی: صاحب آگهی حق شرکت در مزایده خود را ندارد
-    const listing = await this.listingService.findOne(id);
-    if (listing.authorId === req.user.id) {
+    const listing = await this.queryService.findOne(id);
+    if (listing.authorId === user.id) {
       throw new ForbiddenException('شما نمی‌توانید در مزایده آگهی خودتان شرکت کنید');
     }
-
-    return this.auctionService.placeBid(req.user.id, id, amount);
+    return this.auctionService.placeBid(user.id, id, body.amount);
   }
 
-  @UseGuards(JwtAuthGuard)
-  @Post('exchange-offer')
-  @UseInterceptors(FilesInterceptor('images', 5, {
-    storage: diskStorage({
-      destination: (req, file, cb) => {
-        const uploadPath = './uploads/listings';
-        if (!existsSync(uploadPath)) mkdirSync(uploadPath, { recursive: true });
-        cb(null, uploadPath);
-      },
-      filename: (req, file, callback) => {
-        const uniqueSuffix = uuidv4();
-        const ext = extname(file.originalname);
-        callback(null, `${uniqueSuffix}${ext}`);
-      },
-    }),
-    fileFilter: (req, file, callback) => {
-      if (!file.mimetype.match(/\/(jpg|jpeg|png|gif|webp)$/)) {
-        return callback(new BadRequestException('فرمت عکس نامعتبر است'), false);
-      }
-      callback(null, true);
-    }
-  }))
-  async createExchangeOffer(
-    @CurrentUser() user: any,
-    @Body() dto: any,
-    @UploadedFiles() files: Array<Express.Multer.File>
-  ) {
-    return this.listingService.createExchangeOffer(user.id, dto, files);
-  }
-
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, IsVerifiedGuard)
   @Post()
-  @UseInterceptors(
-    FilesInterceptor('images', 10, { // ✅ هماهنگ با 'images' فرانت
-      storage: diskStorage({
-        destination: (req, file, cb) => {
-          const uploadPath = './uploads/listings';
-          if (!existsSync(uploadPath)) mkdirSync(uploadPath, { recursive: true });
-          cb(null, uploadPath);
-        },
-        filename: (req, file, cb) => {
-          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-          cb(null, `${uniqueSuffix}${extname(file.originalname)}`);
-        },
-      }),
-      fileFilter: (req, file, cb) => {
-        if (!file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) {
-          return cb(new BadRequestException('فرمت عکس نامعتبر است'), false);
-        }
-        cb(null, true);
-      },
-    }),
-  )
-  async create(
-    @Req() req: any,
-    @Body() dto: any,
+  @UseInterceptors(FilesInterceptor('images', 10, listingImagesMulterOptions))
+  create(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateListingDto,
     @UploadedFiles() files: Array<Express.Multer.File>,
   ) {
-    const fileNames = files ? files.map((file) => file.filename) : [];
-    const finalDto = {
+    const fileNames = files?.map((f) => f.filename) ?? [];
+    const finalDto: CreateListingDto = {
       ...dto,
       gallery: fileNames,
-      thumbnail: fileNames.length > 0 ? fileNames[0] : null,
+      thumbnail: fileNames[0] ?? dto.thumbnail,
     };
-
-    return this.listingService.create(req.user.id, finalDto);
+    return this.commandService.create(user.id, finalDto);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, IsVerifiedGuard)
   @Patch(':id')
-  @UseInterceptors(
-    FilesInterceptor('images', 10, { // ✅ هماهنگ با 'images' فرانت
-      storage: diskStorage({
-        destination: (req, file, cb) => {
-          const uploadPath = './uploads/listings';
-          if (!existsSync(uploadPath)) mkdirSync(uploadPath, { recursive: true });
-          cb(null, uploadPath);
-        },
-        filename: (req, file, cb) => {
-          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-          cb(null, `${uniqueSuffix}${extname(file.originalname)}`);
-        },
-      }),
-    }),
-  )
+  @UseInterceptors(FilesInterceptor('images', 10, listingImagesMulterOptions))
   update(
-    @Req() req: any,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
-    @Body() dto: any,
+    @Body() dto: UpdateListingDto,
     @UploadedFiles() files?: Array<Express.Multer.File>,
   ) {
-    if (files && files.length > 0) {
-      const fileNames = files.map((file) => file.filename);
-      dto.gallery = fileNames;
-      dto.thumbnail = fileNames[0];
+    const payload: UpdateListingDto = { ...dto };
+    if (files?.length) {
+      const fileNames = files.map((f) => f.filename);
+      payload.gallery = fileNames;
+      payload.thumbnail = fileNames[0];
     }
-
-    return this.listingService.update(req.user.id, id, dto);
+    return this.commandService.update(user.id, id, payload);
   }
 
   @UseGuards(JwtAuthGuard)
   @Delete(':id')
-  delete(@Req() req: any, @Param('id') id: string, @Body() dto: any) {
-    return this.listingService.delete(req.user.id, id, dto);
-  }
-
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
-  @Patch(':id/approve')
-  approve(@Param('id') id: string, @Req() req: any) {
-    return this.listingService.approve(id, req.user.role);
-  }
-
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
-  @Patch(':id/reject')
-  reject(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
-    return this.listingService.reject(id, req.user.role, dto);
+  delete(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: DeleteListingDto,
+  ) {
+    return this.commandService.softDelete(user.id, id, dto);
   }
 }

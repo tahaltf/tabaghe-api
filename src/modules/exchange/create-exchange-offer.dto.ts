@@ -9,10 +9,8 @@ export class CreateExchangeOfferDto {
     @IsString()
     description?: string;
 
-    // 👈 فیلد images رو از DTO ولیدیشن حذف کن یا IsOptional بذار
-    // چون عکس‌ها در پارامتر @UploadedFiles() هندل می‌شن نه در بدنه DTO
     @IsOptional()
-    images?: any;
+    images?: string[];
 
     @Transform(({ value }) => Number(value)) // تبدیل رشته به عدد
     @IsNumber()

@@ -4,86 +4,149 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service'; // مسیر را در صورت نیاز اصلاح کنید
-import { ListingType, OrderStatus, OrderType } from '@prisma/client';
+import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { ListingType, OrderStatus, OrderType, ListingStatus, Prisma } from '@prisma/client';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { WalletService } from "../wallet/wallet.service";
-import { FeeCalculatorService } from '../fees/fee-calculator.service'; // 👈 ایمپورت موتور کارمزد اضافه شد
+import { FeeCalculatorService } from '../fees/fee-calculator.service';
 import Decimal from 'decimal.js';
+import { ConfigService } from "@nestjs/config";
+import { OrdersStateMachineService } from './orders-state-machine.service';
 
 @Injectable()
 export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly walletService: WalletService,
-    private readonly feeCalculator: FeeCalculatorService, // 👈 تزریق موتور کارمزد اضافه شد
+    private readonly feeCalculator: FeeCalculatorService,
+    private readonly configService: ConfigService,
+    private readonly stateMachine: OrdersStateMachineService,
   ) {}
 
   // =================================================================
-  // 1. FETCH ORDERS BY TYPE (خرید یا فروش) - استفاده شده در تب‌های جدید ✅
+  // 1. دریافت سفارش‌ها
   // =================================================================
-  async getOrdersByType(userId: string, type: 'BUY' | 'SELL') {
+  async getOrdersByType(
+    userId: string,
+    type: 'BUY' | 'SELL',
+    options: { page?: number; pageSize?: number } = {},
+  ) {
+    const page = Math.max(1, options.page ?? 1);
+    const pageSize = Math.min(50, Math.max(1, options.pageSize ?? 20));
+    const skip = (page - 1) * pageSize;
+
     const whereClause =
       type === 'BUY' ? { buyerId: userId } : { sellerId: userId };
 
-    return this.prisma.order.findMany({
-      where: whereClause,
-      include: {
-        listing: {
-          select: {
-            id: true,
-            title: true,
-            thumbnail: true,
-            status: true,
-            type: true,
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.order.findMany({
+        where: whereClause,
+        skip,
+        take: pageSize,
+        select: {
+          id: true,
+          status: true,
+          type: true,
+          totalAmount: true,
+          createdAt: true,
+          updatedAt: true,
+          paymentMethod: true,
+          requiresVerification: true,
+          trackingCode: true,
+          listing: {
+            select: {
+              id: true,
+              title: true,
+              thumbnail: true,
+              status: true,
+              type: true,
+            },
           },
+          seller:
+            type === 'BUY'
+              ? { select: { id: true, firstName: true, lastName: true, avatar: true } }
+              : undefined,
+          buyer:
+            type === 'SELL'
+              ? { select: { id: true, firstName: true, lastName: true, avatar: true } }
+              : undefined,
         },
-        seller:
-          type === 'BUY'
-            ? {
-              select: { firstName: true, lastName: true, avatar: true },
-            }
-            : undefined,
-        buyer:
-          type === 'SELL'
-            ? {
-              select: { firstName: true, lastName: true, avatar: true },
-            }
-            : undefined,
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.order.count({ where: whereClause }),
+    ]);
+
+    return {
+      items,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
       },
-      orderBy: { createdAt: 'desc' },
-    });
+    };
   }
 
   // =================================================================
-  // 2. FETCH REQUESTS (درخواست‌های معاوضه و مزایده) ✅
+  // 2. دریافت درخواست‌ها
   // =================================================================
-  async getMyRequests(userId: string) {
-    const exchangeOffers = await this.prisma.exchangeOffer.findMany({
-      where: { offererId: userId },
-      include: {
-        listing: {
-          select: { id: true, title: true, thumbnail: true, status: true }
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+  async getMyRequests(
+    userId: string,
+    options: { page?: number; pageSize?: number } = {},
+  ) {
+    const page = Math.max(1, options.page ?? 1);
+    const pageSize = Math.min(50, Math.max(1, options.pageSize ?? 20));
+    const skip = (page - 1) * pageSize;
 
-    const rawBids = await this.prisma.auctionBid.findMany({
-      where: { bidderId: userId },
-      distinct: ['listingId'],
-      include: {
-        auction: {
-          include: {
-            listing: {
-              select: { id: true, title: true, thumbnail: true, status: true },
+    const [exchangeOffers, rawBids] = await Promise.all([
+      this.prisma.exchangeOffer.findMany({
+        where: { offererId: userId },
+        skip,
+        take: pageSize,
+        select: {
+          id: true,
+          status: true,
+          title: true,
+          description: true,
+          images: true,
+          extraPayment: true,
+          isPayerMe: true,
+          createdAt: true,
+          listing: {
+            select: { id: true, title: true, thumbnail: true, status: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.auctionBid.findMany({
+        where: { bidderId: userId },
+        distinct: ['listingId'],
+        skip,
+        take: pageSize,
+        select: {
+          id: true,
+          amount: true,
+          createdAt: true,
+          listingId: true,
+          auction: {
+            select: {
+              listingId: true,
+              basePrice: true,
+              highestBidAmount: true,
+              endDatetime: true,
+              status: true,
+              listing: {
+                select: { id: true, title: true, thumbnail: true, status: true },
+              },
             },
           },
         },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
 
+    // رتبه‌ی دقیق کاربر در هر مزایده. محدود به pageSize (≤50) پس تعداد
+    // کوئری قابل کنترله و مشکل مقیاس‌پذیری ندارد.
     const auctionBids = await Promise.all(
       rawBids.map(async (bid) => {
         const higherBidsCount = await this.prisma.auctionBid.count({
@@ -92,11 +155,7 @@ export class OrdersService {
             amount: { gt: bid.amount },
           },
         });
-
-        return {
-          ...bid,
-          myRank: higherBidsCount + 1,
-        };
+        return { ...bid, myRank: higherBidsCount + 1 };
       }),
     );
 
@@ -104,236 +163,191 @@ export class OrdersService {
   }
 
   // =================================================================
-  // 3. COMPLETE EXCHANGE ORDER (تکمیل خرید معاوضه) - جدید و ایمن ✅
-  // =================================================================
-  async completeExchangeOrder(userId: string, offerId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      const offer = await tx.exchangeOffer.findUnique({
-        where: { id: offerId },
-        include: { listing: true },
-      });
-
-      if (!offer) throw new NotFoundException('پیشنهاد یافت نشد');
-      if (offer.offererId !== userId)
-        throw new ForbiddenException('شما صاحب این پیشنهاد نیستید');
-      if (offer.status !== 'ACCEPTED')
-        throw new BadRequestException('این پیشنهاد تایید نشده است');
-
-      if (offer.listing.status === 'SOLD') {
-        throw new BadRequestException(
-          'متاسفانه این کالا لحظاتی پیش توسط کاربر دیگری خریداری شد.',
-        );
-      }
-
-      const extraPay = Number(offer.extraPayment);
-      let sellerRevenue: number | string = 0;
-
-      if (extraPay > 0) {
-        const platformFee = await this.feeCalculator.calculateFee(
-          ListingType.EXCHANGE,
-          offer.listing.categoryId,
-          extraPay
-        );
-
-        sellerRevenue = new Decimal(extraPay).minus(platformFee).toString();
-
-        await this.walletService.transferToEscrow(
-          userId,
-          offer.listing.authorId,
-          extraPay,
-          platformFee,
-          offer.listingId,
-          tx,
-        );
-      }
-
-      const order = await tx.order.create({
-        data: {
-          buyer: { connect: { id: userId } },
-          seller: { connect: { id: offer.listing.authorId } },
-          listing: { connect: { id: offer.listingId } },
-          type: OrderType.EXCHANGE,
-          finalPrice: extraPay > 0 ? extraPay : 0,
-          sellerRevenue: sellerRevenue,
-          status: extraPay > 0 ? OrderStatus.PAID : OrderStatus.DELIVERED,
-        },
-      });
-
-      await tx.listing.update({
-        where: { id: offer.listingId },
-        data: { status: 'SOLD' },
-      });
-
-      return order;
-    });
-  }
-
-  // =================================================================
-  // 4. CREATE DIRECT ORDER (خرید مستقیم) - بدون تغییر ساختار
-  // =================================================================
-  async createDirectOrder(buyerId: string, listingId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      const listing = await tx.listing.findUnique({
-        where: { id: listingId },
-        include: { direct: true },
-      });
-
-      if (!listing || listing.type !== ListingType.DIRECT || !listing.direct) {
-        throw new BadRequestException('این آگهی برای خرید مستقیم نیست');
-      }
-
-      if (listing.status !== 'APPROVED') {
-        throw new BadRequestException('آگهی فعال نیست یا قبلاً فروخته شده');
-      }
-
-      const price = Number(listing.direct.price);
-
-      const platformFee = await this.feeCalculator.calculateFee(
-        ListingType.DIRECT,
-        listing.categoryId,
-        price
-      );
-
-      const sellerRevenue = new Decimal(price).minus(platformFee).toString();
-
-      await this.walletService.transferToEscrow(
-        buyerId,
-        listing.authorId,
-        price,
-        platformFee,
-        listingId,
-        tx,
-      );
-
-      const order = await tx.order.create({
-        data: {
-          buyer: { connect: { id: buyerId } },
-          seller: { connect: { id: listing.authorId } },
-          listing: { connect: { id: listingId } },
-          type: OrderType.DIRECT,
-          finalPrice: price,
-          sellerRevenue: sellerRevenue,
-          status: OrderStatus.PAID,
-        },
-      });
-
-      await tx.listing.update({
-        where: { id: listingId },
-        data: { status: 'SOLD' },
-      });
-
-      return order;
-    });
-  }
-
-  // =================================================================
-  // 5. CONFIRM ORDER (آزادسازی پول توسط خریدار) - بدون تغییر
-  // =================================================================
-  async confirmOrder(buyerId: string, orderId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      const order = await tx.order.findUnique({ where: { id: orderId } });
-
-      if (!order) throw new NotFoundException('سفارش یافت نشد');
-      if (order.buyerId !== buyerId)
-        throw new BadRequestException('شما خریدار این سفارش نیستید');
-      if (order.status === OrderStatus.DELIVERED)
-        throw new BadRequestException('این سفارش قبلاً تایید شده است');
-
-      await this.walletService.releaseEscrow(
-        order.sellerId,
-        order.finalPrice,
-        order.listingId,
-        tx,
-      );
-
-      return tx.order.update({
-        where: { id: orderId },
-        data: { status: OrderStatus.DELIVERED },
-      });
-    });
-  }
-
-  // =================================================================
-  // 6. LEGACY / OLD METHODS (برای اطمینان از عدم شکستن کدهای قدیمی)
-  // =================================================================
-  async getMyOrders(userId: string) {
-    return this.getOrdersByType(userId, 'BUY');
-  }
-
-  // =================================================================
-  // 7. CRON JOBS (تایید خودکار بعد از 24 ساعت) - بدون تغییر
-  // =================================================================
-  @Cron(CronExpression.EVERY_HOUR)
-  async autoConfirmOrders() {
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
-    const expiredOrders = await this.prisma.order.findMany({
-      where: {
-        status: OrderStatus.PAID,
-        createdAt: { lte: oneDayAgo },
-      },
-    });
-
-    if (expiredOrders.length > 0) {
-      console.log(`Checking auto-confirm orders: Found ${expiredOrders.length}`);
-    }
-
-    for (const order of expiredOrders) {
-      try {
-        await this.prisma.$transaction(async (tx) => {
-          await this.walletService.releaseEscrow(
-            order.sellerId,
-            order.finalPrice,
-            order.listingId,
-            tx,
-          );
-
-          await tx.order.update({
-            where: { id: order.id },
-            data: { status: OrderStatus.DELIVERED },
-          });
-        });
-      } catch (error) {
-        console.error(`Failed to auto-confirm order ${order.id}`, error);
-      }
-    }
-  }
-
-  // =================================================================
-  // 8. متد جامع ثبت سفارش
+  // 3. متد اصلی ثبت سفارش (نام اصلاح شد به handleUniversalOrder) ✅
   // =================================================================
   async handleUniversalOrder(userId: string, dto: any) {
-    const { addressId, paymentMethod, orderType, exchangeRequestId } = dto;
+    const {
+      addressId,
+      paymentMethod,
+      orderType,
+      exchangeOfferId,
+      exchangeRequestId,
+      requiresVerification
+    } = dto;
+
+    const finalExchangeId = exchangeOfferId || exchangeRequestId;
     let listingId = dto.listingId;
     let paymentUrl = null;
 
     const order = await this.prisma.$transaction(async (tx) => {
       let finalPrice = 0;
+      let shippingCost = 0;
       let sellerId = '';
       let buyerId = userId;
       let categoryId = '';
+      let verificationFee = 0;
+      let platformAddress = null;
+      let sellerRequestedVerification = false;
 
+      const feeSetting = await tx.systemSetting.findUnique({ where: { key: 'VERIFICATION_FEE' } });
+      const shippingSetting = await tx.systemSetting.findUnique({ where: { key: 'SHIPPING_COST' } });
+      const addressSetting = await tx.systemSetting.findUnique({ where: { key: 'PLATFORM_ADDRESS' } });
+      const hubAddress = addressSetting ? addressSetting.value : 'تهران، دفتر مرکزی پردازش و کارشناسی طبقه';
+      const hubFee = feeSetting ? Number(feeSetting.value) : 250000;
+      const shippingFee = shippingSetting ? Number(shippingSetting.value) : 50000;
+
+      // -----------------------------------------------------
+      // سناریو ۱: معاوضه (پشتیبانی از پرداخت دوطرفه)
+      // -----------------------------------------------------
       if (orderType === 'EXCHANGE') {
         const offer = await tx.exchangeOffer.findUnique({
-          where: { id: exchangeRequestId },
+          where: { id: finalExchangeId },
           include: { listing: { include: { direct: true } } }
         });
-        if (!offer || offer.status !== 'ACCEPTED') throw new BadRequestException('درخواست معاوضه معتبر نیست');
+
+        if (!offer) throw new NotFoundException('درخواست معاوضه یافت نشد');
+        if (offer.status !== 'ACCEPTED') throw new BadRequestException('این معاوضه هنوز تایید نشده است');
 
         listingId = offer.listingId;
         categoryId = offer.listing.categoryId;
 
-        if (userId === offer.offererId) {
-          finalPrice = offer.isPayerMe ? Number(offer.extraPayment) : 0;
-          sellerId = offer.listing.authorId;
-        } else if (userId === offer.listing.authorId) {
-          finalPrice = !offer.isPayerMe ? Number(offer.extraPayment) : 0;
-          sellerId = offer.offererId;
-        } else {
+        // تشخیص اینکه چه کسی الان در حال پرداخت است
+        const isBuyer = userId === offer.offererId;
+        const isSeller = userId === offer.listing.authorId;
+
+        if (!isBuyer && !isSeller) {
           throw new ForbiddenException('شما طرفین این معامله نیستید');
         }
 
-      } else if (orderType === 'AUCTION') {
+        // 💰 محاسبه سهم پرداختی شخص فعلی
+        if (isBuyer) {
+          finalPrice = offer.isPayerMe ? Number(offer.extraPayment) : 0;
+        } else {
+          finalPrice = !offer.isPayerMe ? Number(offer.extraPayment) : 0;
+        }
+
+        // هزینه پستی ثابت برای هاب (یا صفر، بسته به سیاست شما)
+        shippingCost = 0; // معمولاً در معاوضه هر کسی هزینه ارسال خودش به هاب رو درب پست میده
+        verificationFee = hubFee;
+        platformAddress = hubAddress;
+
+        const totalPayable = finalPrice + shippingCost + verificationFee;
+
+        // 💳 کسر از کیف پول شخص فعلی و انتقال به حساب امانی
+        if (paymentMethod === 'WALLET' && totalPayable > 0) {
+          const wallet = await tx.wallet.findUnique({ where: { userId } });
+          if (!wallet || Number(wallet.balanceAvailable) < totalPayable) {
+            throw new BadRequestException('موجودی کیف پول شما کافی نیست');
+          }
+
+          const otherUserId = isBuyer ? offer.listing.authorId : offer.offererId;
+          const platformCommission = await this.feeCalculator.calculateFee(ListingType.EXCHANGE, categoryId, finalPrice);
+          const totalPlatformCut = Number(platformCommission) + shippingCost + verificationFee;
+
+          await this.walletService.transferToEscrow(
+            userId,
+            otherUserId,
+            totalPayable,
+            totalPlatformCut, // 👈 این متغیر درست محاسبه و پاس داده شد
+            listingId,
+            tx
+          );
+        }
+
+        // پردازش آدرس شخصی که الان داره چک‌اوت میکنه
+        let currentAddressStr = null;
+        let currentPhone = null;
+        let currentPostal = null;
+        if (addressId) {
+          const fetchedAddress = await tx.address.findUnique({ where: { id: addressId } });
+          if (fetchedAddress) {
+            currentAddressStr = `${fetchedAddress.province}، ${fetchedAddress.city}، ${fetchedAddress.fullAddress}`;
+            currentPhone = fetchedAddress.phone;
+            currentPostal = fetchedAddress.postalCode;
+          }
+        }
+
+        // 🔍 بررسی اینکه آیا طرف مقابل قبلاً سفارش را ایجاد کرده است یا نه؟
+        const existingExchangeOrder = await tx.order.findFirst({
+          where: { exchangeOfferId: finalExchangeId }
+        });
+
+        if (existingExchangeOrder) {
+          const updateData: any = {};
+
+          if (isBuyer) {
+            if (existingExchangeOrder.shippingAddress) throw new BadRequestException('شما قبلاً پرداخت خود را انجام داده‌اید');
+            updateData.shippingAddress = currentAddressStr;
+            updateData.shippingPhone = currentPhone;
+            updateData.shippingPostalCode = currentPostal;
+          } else {
+            if (existingExchangeOrder.sellerShippingAddress) throw new BadRequestException('شما قبلاً پرداخت خود را انجام داده‌اید');
+            updateData.sellerShippingAddress = currentAddressStr;
+            updateData.sellerShippingPhone = currentPhone;
+            updateData.sellerShippingPostalCode = currentPostal;
+          }
+
+          updateData.totalAmount = Number(existingExchangeOrder.totalAmount) + totalPayable;
+          updateData.paymentMethod = paymentMethod;
+          return await tx.order.update({ where: { id: existingExchangeOrder.id }, data: updateData });
+
+        }
+
+
+        else {
+          // ✨ نفر اولی است که چک‌اوت می‌کند، پس سفارش را می‌سازیم
+
+          // 🎯 حل مشکل کارمزد: همیشه کل مبلغ سرک (مابه‌التفاوت) را ملاک محاسبه قرار می‌دهیم
+          const totalExchangeExtraPayment = Number(offer.extraPayment || 0);
+
+          // محاسبه کارمزد روی کل مبلغ سرک
+          const platformCommission = await this.feeCalculator.calculateFee(ListingType.EXCHANGE, categoryId, totalExchangeExtraPayment);
+
+          // دریافتی نهایی (در صورت وجود مابه‌التفاوت) منهای کارمزد شما
+          const sellerRev = new Decimal(totalExchangeExtraPayment).minus(platformCommission).toString();
+
+          const orderPayload: any = {
+            buyer: { connect: { id: offer.offererId } },
+            seller: { connect: { id: offer.listing.authorId } },
+            listing: { connect: { id: listingId } },
+            type: OrderType.EXCHANGE,
+            exchangeOfferId: finalExchangeId,
+            status: 'AWAITING_SHIPMENT_TO_HUB',
+
+            // 👈 اینجا کل مبلغ مابه‌التفاوت رو به عنوان قیمت پایه معامله ثبت می‌کنیم
+            finalPrice: totalExchangeExtraPayment,
+
+            shippingCost: shippingCost,
+            totalAmount: totalPayable, // پولی که شخص اول در همین لحظه پرداخت کرده
+            requiresVerification: true,
+            verificationFee: verificationFee,
+            platformAddress: hubAddress,
+
+            platformFee: platformCommission, // 👈 کارمزد درست و حسابی شما!
+            sellerRevenue: sellerRev,
+            paymentMethod: paymentMethod,
+          };
+
+          if (isBuyer) {
+            orderPayload.shippingAddress = currentAddressStr;
+            orderPayload.shippingPhone = currentPhone;
+            orderPayload.shippingPostalCode = currentPostal;
+          } else {
+            orderPayload.sellerShippingAddress = currentAddressStr;
+            orderPayload.sellerShippingPhone = currentPhone;
+            orderPayload.sellerShippingPostalCode = currentPostal;
+          }
+
+          const createdOrder = await tx.order.create({ data: orderPayload });
+          await tx.listing.update({ where: { id: listingId }, data: { status: ListingStatus.SOLD } });
+          return createdOrder;
+        }
+
+      }
+        // -----------------------------------------------------
+        // سناریو ۲: مزایده
+      // -----------------------------------------------------
+      else if (orderType === 'AUCTION') {
         const listing = await tx.listing.findUnique({
           where: { id: listingId },
           include: { auction: { include: { bids: { where: { bidderId: userId }, orderBy: { amount: 'desc' }, take: 1 } } } }
@@ -343,11 +357,18 @@ export class OrdersService {
         const userBid = Number(listing.auction.bids[0].amount);
         const guaranteeBlocked = userBid * 0.10;
         finalPrice = userBid - guaranteeBlocked;
+
         sellerId = listing.authorId;
         categoryId = listing.categoryId;
-        if (sellerId === userId) throw new ForbiddenException('شما نمی‌توانید آگهی خودتان را سفارش دهید.');
+        if (sellerId === userId) throw new ForbiddenException('شما نمی‌توانید آگهی خودتان را بخرید.');
 
-      } else {
+        shippingCost = listing.shippingPayer === 'BUYER_PREPAID' ? shippingFee : 0;
+        sellerRequestedVerification = listing.sellerRequiresVerification || false;
+      }
+        // -----------------------------------------------------
+        // سناریو ۳: خرید مستقیم
+      // -----------------------------------------------------
+      else {
         const listing = await tx.listing.findUnique({
           where: { id: listingId },
           include: { direct: true }
@@ -357,40 +378,78 @@ export class OrdersService {
         finalPrice = Number(listing.direct?.price || 0);
         sellerId = listing.authorId;
         categoryId = listing.categoryId;
-        if (sellerId === userId) throw new ForbiddenException('شما نمی‌توانید آگهی خودتان را سفارش دهید.');
+        if (sellerId === userId) throw new ForbiddenException('شما نمی‌توانید آگهی خودتان را بخرید.');
+
+        shippingCost = listing.shippingPayer === 'BUYER_PREPAID' ? shippingFee : 0;
+        sellerRequestedVerification = listing.sellerRequiresVerification || false;
       }
 
-      if (!listingId) throw new BadRequestException('آیدی آگهی یافت نشد.');
-
+      // --- بررسی و حذف سفارش‌های معلق قبلی ---
       const existingOrder = await tx.order.findFirst({
         where: { listingId: listingId }
       });
 
       if (existingOrder) {
-        if (existingOrder.status !== OrderStatus.PENDING) {
-          throw new BadRequestException('این آگهی قبلاً به فروش رسیده است.');
+        if (existingOrder.status === OrderStatus.PENDING || existingOrder.status === OrderStatus.CANCELLED) {
+          await tx.order.delete({ where: { id: existingOrder.id } });
+        } else {
+          throw new BadRequestException('این کالا در حال حاضر به فروش رسیده و در جریان است.');
         }
-        await tx.order.delete({ where: { id: existingOrder.id } });
       }
+
+      // 👇 منطق هوشمند کارشناسی
+      const isHubRequired = requiresVerification || sellerRequestedVerification;
+      let feeChargedToBuyer = 0;
+      let feeChargedToSeller = 0;
+
+      if (isHubRequired && orderType !== 'EXCHANGE') {
+        verificationFee = hubFee;
+        platformAddress = hubAddress;
+
+        if (sellerRequestedVerification) {
+          feeChargedToSeller = hubFee;
+        } else if (requiresVerification) {
+          feeChargedToBuyer = hubFee;
+        }
+      }
+
+      // مبلغ کل پرداختی خریدار
+      const totalPayable = finalPrice + shippingCost + feeChargedToBuyer;
 
       const platformFee = await this.feeCalculator.calculateFee(
         orderType === 'AUCTION' ? ListingType.AUCTION : (orderType === 'EXCHANGE' ? ListingType.EXCHANGE : ListingType.DIRECT),
         categoryId,
         finalPrice
       );
-      const sellerRevenue = new Decimal(finalPrice).minus(platformFee).toString();
 
-      if (paymentMethod === 'WALLET' && finalPrice > 0) {
+      // 🎯 لاجیک طلایی واریزی فروشنده
+      const sellerRevenue = new Decimal(finalPrice)
+        .minus(platformFee)
+        .plus(shippingCost)
+        .minus(feeChargedToSeller)
+        .toString();
+
+      // 👇 متغیر جدید برای سیستم امانی (مجموع کارمزد پلتفرم + هزینه کارشناسی)
+      const totalPlatformCut = Number(platformFee) + feeChargedToSeller + feeChargedToBuyer;
+
+      if (paymentMethod === 'WALLET' && totalPayable > 0) {
         const wallet = await tx.wallet.findUnique({ where: { userId } });
-        if (!wallet || Number(wallet.balanceAvailable) < finalPrice) {
-          throw new BadRequestException('موجودی کیف پول شما کافی نیست');
+        if (!wallet || Number(wallet.balanceAvailable) < totalPayable) {
+          throw new BadRequestException('موجودی کیف پول کافی نیست');
         }
-        await this.walletService.transferToEscrow(buyerId, sellerId, finalPrice, platformFee, listingId, tx);
+
+        // 🎯 سیستم امانی با محاسبه دقیق فراخوانی شد
+        await this.walletService.transferToEscrow(buyerId, sellerId, totalPayable, totalPlatformCut, listingId, tx);
       }
 
       let orderStatus: OrderStatus = OrderStatus.PENDING;
-      if (paymentMethod === 'WALLET' || finalPrice === 0) {
-        orderStatus = OrderStatus.PAID;
+
+      if (paymentMethod === 'WALLET' || totalPayable === 0) {
+        if (orderType === 'EXCHANGE' || isHubRequired) {
+          orderStatus = 'AWAITING_SHIPMENT_TO_HUB' as OrderStatus;
+        } else {
+          orderStatus = OrderStatus.PAID;
+        }
       }
 
       const orderPayload: any = {
@@ -399,12 +458,24 @@ export class OrdersService {
         listing: { connect: { id: listingId } },
         type: orderType as any,
         finalPrice: finalPrice,
+        shippingCost: shippingCost,
+        totalAmount: totalPayable,
         sellerRevenue: sellerRevenue,
         platformFee: platformFee,
         status: orderStatus,
+        paymentMethod: paymentMethod,
+        requiresVerification: Boolean(isHubRequired || orderType === 'EXCHANGE'),
+        verificationFee: verificationFee,
+        platformAddress: platformAddress,
       };
 
-      if (exchangeRequestId) orderPayload.exchangeOfferId = exchangeRequestId;
+      if (finalExchangeId) orderPayload.exchangeOfferId = finalExchangeId;
+
+      if (orderStatus !== OrderStatus.PENDING) {
+        const deadline = new Date();
+        deadline.setHours(deadline.getHours() + 72);
+        orderPayload.shippingDeadline = deadline;
+      }
 
       if (addressId) {
         const fetchedAddress = await tx.address.findUnique({ where: { id: addressId } });
@@ -417,14 +488,14 @@ export class OrdersService {
 
       const createdOrder = await tx.order.create({ data: orderPayload });
 
-      if (orderStatus === OrderStatus.PAID) {
-        await tx.listing.update({ where: { id: listingId }, data: { status: 'SOLD' } });
+      if (orderStatus !== OrderStatus.PENDING) {
+        await tx.listing.update({ where: { id: listingId }, data: { status: ListingStatus.SOLD } });
       }
 
       return createdOrder;
     });
 
-    if (paymentMethod === 'GATEWAY' && Number(order.finalPrice) > 0) {
+    if (paymentMethod === 'GATEWAY' && Number(order.totalAmount) > 0) {
       paymentUrl = `https://sandbox.zarinpal.com/pg/StartPay/mock-token-for-order-${order.id}`;
     }
 
@@ -432,112 +503,303 @@ export class OrdersService {
       ...order,
       paymentUrl: paymentUrl
     };
-  }
-
+  }  // 4. ثبت کد رهگیری
   // =================================================================
-  // 9. متد جدید: ثبت کد رهگیری پستی توسط فروشنده
-  // =================================================================
-// =================================================================
-  // 9. ثبت کد رهگیری (هوشمند و دوطرفه برای معاوضه)
-  // =================================================================
-  async updateTrackingCode(userId: string, orderId: string, trackingCode: string) {
-    // ۱. ولیدیشن سخت‌گیرانه ۲۴ رقم عدد
+  async updateTrackingCode(userId: string, orderId: string, trackingCode: string, videoPath?: string) {
     if (!/^\d{24}$/.test(trackingCode)) {
-      throw new BadRequestException('کد رهگیری باید دقیقاً ۲۴ رقم و فقط شامل اعداد باشد.');
+      throw new BadRequestException('کد رهگیری باید دقیقاً ۲۴ رقم باشد.');
+    }
+
+    // ویدیوی بسته‌بندی برای هرگونه ارسال (فروش/معاوضه) الزامی است
+    if (!videoPath) {
+      throw new BadRequestException(
+        'ویدیوی بسته‌بندی کالا الزامی است. لطفاً هنگام بسته‌بندی از کالا فیلم بگیرید.',
+      );
     }
 
     const order = await this.prisma.order.findUnique({
-      where: { id: orderId }
+      where: { id: orderId },
+      include: { listing: true },
     });
 
     if (!order) throw new NotFoundException('سفارش یافت نشد');
-    if (order.status !== OrderStatus.PAID && order.status !== OrderStatus.SHIPPED) {
-      throw new BadRequestException('فقط برای سفارش‌های پرداخت شده امکان ثبت کد رهگیری وجود دارد');
-    }
 
-    const isOriginalSeller = order.sellerId === userId;
-    const isExchangeBuyer = order.type === OrderType.EXCHANGE && order.buyerId === userId;
+    const isSeller = order.sellerId === userId;
+    const isBuyer = order.buyerId === userId;
 
-    if (!isOriginalSeller && !isExchangeBuyer) {
-      throw new ForbiddenException('شما مجاز به ثبت کد رهگیری برای این سفارش نیستید');
-    }
+    if (!isSeller && !isBuyer) throw new ForbiddenException('دسترسی غیرمجاز');
 
-    // ۲. به‌روزرسانی فیلد مربوطه بر اساس نقش کاربر
-    const updateData: any = {};
+    const updateData: Prisma.OrderUpdateInput = {};
 
-    if (isOriginalSeller) {
+    // منطق هوشمند: آیا کالا باید به هاب برود یا مستقیم به خریدار؟
+    const needsHub = order.type === OrderType.EXCHANGE ||
+      order.requiresVerification ||
+      order.listing?.sellerRequiresVerification;
+
+    updateData.status = needsHub ? OrderStatus.SHIPPED_TO_HUB : OrderStatus.SHIPPED;
+
+    // جایگذاری صحیح کد رهگیری و ویدیو بر اساس شخص ارسال‌کننده
+    if (isSeller) {
+      if (order.trackingCode) {
+        throw new BadRequestException('شما قبلاً کد رهگیری این ارسال را ثبت کرده‌اید');
+      }
       updateData.trackingCode = trackingCode;
-    } else if (isExchangeBuyer) {
+      updateData.packagingVideo = videoPath;
+    } else if (order.type === OrderType.EXCHANGE && isBuyer) {
+      if (order.sellerTrackingCode) {
+        throw new BadRequestException('شما قبلاً کد رهگیری این ارسال را ثبت کرده‌اید');
+      }
       updateData.sellerTrackingCode = trackingCode;
+      updateData.buyerPackagingVideo = videoPath;
+    } else {
+      throw new ForbiddenException('شما مجاز به ثبت اطلاعات ارسال برای این سفارش نیستید');
     }
-
-    // ۳. تغییر وضعیت سفارش به SHIPPED (فقط اگر هر دو کد در معاوضه ثبت شده باشند یا در فروش مستقیم کد اول ثبت شود)
-    // فعلاً با ثبت هر کدام وضعیت را SHIPPED می‌کنیم، اما در فرانت هر دو را نشان می‌دهیم
-    updateData.status = OrderStatus.SHIPPED;
 
     return this.prisma.order.update({
       where: { id: orderId },
-      data: updateData
+      data: updateData,
     });
   }
-// =================================================================
-  // متد نهایی کردن معاوضه توسط صاحب آگهی (فروشنده)
   // =================================================================
-  async finalizeExchange(sellerId: string, offerId: string, sellerAddressId: string) {
+  // 5. تایید نهایی سفارش
+  // =================================================================
+  async confirmOrder(userId: string, orderId: string) {
     return this.prisma.$transaction(async (tx) => {
-      // ۱. پیدا کردن پیشنهاد و آگهی
-      const offer = await tx.exchangeOffer.findUnique({
-        where: { id: offerId },
-        include: { listing: true }
-      });
+      const order = await tx.order.findUnique({ where: { id: orderId } });
 
-      if (!offer || offer.listing.authorId !== sellerId) {
-        throw new NotFoundException('پیشنهاد یافت نشد یا دسترسی غیرمجاز است');
+      if (!order) throw new NotFoundException('سفارش یافت نشد');
+      if (order.buyerId !== userId) throw new BadRequestException('شما خریدار این سفارش نیستید');
+
+      // اجازه نمیدیم سفارشی که قبلا تکمیل شده دوباره تایید بشه
+    if (order.status === OrderStatus.COMPLETED) throw new BadRequestException('این سفارش قبلاً تسویه شده است');
+      this.stateMachine.assertTransition(order.status, OrderStatus.COMPLETED, 'confirm-order');
+
+      // 🎯 حل مشکل کیف پول: واریز درآمد خالص (بدون کارمزد پلتفرم) به فروشنده
+      const amountToRelease = Number(order.sellerRevenue);
+
+      // فقط در صورتی که پولی برای آزاد کردن وجود داشته باشه (مثلاً تو معاوضه‌های بدون سرک صفر هست)
+      if (amountToRelease > 0) {
+        await this.walletService.releaseEscrow(
+          order.sellerId,
+          amountToRelease, // 👈 اینجا مبلغ خالص پاس داده شد
+          order.listingId,
+          tx,
+        );
       }
 
-      // ۲. گرفتن آدرس منتخب فروشنده
-      const address = await tx.address.findUnique({ where: { id: sellerAddressId } });
-      if (!address) throw new BadRequestException('آدرس فروشنده انتخاب نشده است');
+      await tx.user.update({
+        where: { id: order.sellerId },
+        data: { trustScore: { increment: 2 } }
+      });
 
-      const sellerAddrStr = `${address.province}، ${address.city}، ${address.fullAddress}`;
+      // 🎯 تغییر وضعیت به تکمیل شده (تسویه نهایی)
+      return tx.order.update({
+        where: { id: orderId },
+        data: { status: OrderStatus.COMPLETED },
+      });
+    });
+  }
+  // =================================================================
+  // 6. دریافت جزئیات سفارش
+  // =================================================================
+  async getOrderById(userId: string, orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        listing: {
+          select: {
+            id: true,
+            title: true,
+            thumbnail: true,
+            type: true,
+            status: true,
+            condition: true,
+            shippingPayer: true,
+            sellerRequiresVerification: true,
+          },
+        },
+        // phone رو بعداً بر اساس شرایط اضافه/حذف میکنیم.
+        buyer: { select: { id: true, firstName: true, lastName: true, avatar: true, phone: true } },
+        seller: { select: { id: true, firstName: true, lastName: true, avatar: true, phone: true } },
+      },
+    });
 
-      // ۳. ایجاد سفارش (Order)
-      // توجه: در اینجا خریدار (Buyer) همان پیشنهاددهنده (offererId) است
-      const order = await tx.order.create({
+    if (!order) throw new NotFoundException('سفارش یافت نشد');
+    if (order.buyerId !== userId && order.sellerId !== userId) {
+      throw new ForbiddenException('عدم دسترسی');
+    }
+
+    if (order.type === 'EXCHANGE' && order.exchangeOfferId) {
+      const exchangeOffer = await this.prisma.exchangeOffer.findUnique({
+        where: { id: order.exchangeOfferId },
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          images: true,
+          extraPayment: true,
+          isPayerMe: true,
+          status: true,
+          createdAt: true,
+        },
+      });
+      (order as any).exchangeOffer = exchangeOffer;
+    }
+
+    const needsHub = order.requiresVerification || order.type === 'EXCHANGE';
+    const isSellerView = order.sellerId === userId;
+    const isBuyerView = order.buyerId === userId;
+
+    // شماره تلفن طرف مقابل فقط بعد از SHIPPED/DELIVERED (یعنی نیاز واقعی
+    // ارتباط هست) قابل مشاهده‌ست. قبل از اون، شماره حذف میشه.
+    const contactReleased =
+      order.status === 'SHIPPED' || order.status === 'DELIVERED' ||
+      order.status === 'COMPLETED' || order.status === 'DISPUTED';
+
+    const stripPhone = (u: { phone?: string | null } | null) =>
+      u ? { ...u, phone: contactReleased ? u.phone : null } : u;
+
+    if (order.buyer) order.buyer = stripPhone(order.buyer) as typeof order.buyer;
+    if (order.seller) order.seller = stripPhone(order.seller) as typeof order.seller;
+
+    // حالت هاب (کالا قبل از ارسال به خریدار باید به طبقه ارسال بشه).
+    // در این حالت آدرس واقعی خریدار به فروشنده نمایش داده نمیشه و کلاً
+    // اطلاعات طرف مقابل ماسک می‌مونه.
+    if (needsHub && isSellerView) {
+      const hubAddress = order.platformAddress || 'تهران، دفتر مرکزی پردازش و کارشناسی طبقه';
+      const maskedOrder: any = {
+        ...order,
+        buyer: order.buyer
+          ? { id: order.buyer.id, firstName: 'خریدار', lastName: '', avatar: null, phone: null }
+          : null,
+      };
+      maskedOrder.shippingAddress = {
+        fullAddress: hubAddress,
+        city: 'تهران',
+        province: 'تهران',
+        postalCode: '1111111111',
+        phone: '021-00000000',
+      };
+      maskedOrder.isMaskedForVerification = true;
+      return maskedOrder;
+    }
+
+    // اقتصاد داخلی پلتفرم نباید به خریدار لو بره.
+    if (isBuyerView) {
+      const cloned: any = { ...order };
+      cloned.platformFee = undefined;
+      cloned.sellerRevenue = undefined;
+      cloned.sellerShippingCost = undefined;
+      return cloned;
+    }
+
+    return order;
+  }  // =================================================================
+  // 7. ثبت شکایت (Dispute) ✅ اصلاح شده برای حل ارور includes
+  // =================================================================
+  async disputeOrder(buyerId: string, orderId: string, reason: string, videoPath?: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({ where: { id: orderId }, include: { listing: true } });
+
+      if (!order) throw new NotFoundException('سفارش یافت نشد');
+      if (order.buyerId !== buyerId) throw new BadRequestException('شما خریدار نیستید');
+
+      // ✅ اصلاح شده: استفاده از شرط صریح به جای includes
+      if (order.status !== OrderStatus.SHIPPED && order.status !== OrderStatus.DELIVERED) {
+        throw new BadRequestException('وضعیت سفارش برای شکایت مناسب نیست');
+      }
+
+      this.stateMachine.assertTransition(order.status, OrderStatus.DISPUTED, 'dispute-order');
+      await tx.order.update({
+        where: { id: orderId },
         data: {
-          listingId: offer.listingId,
-          buyerId: offer.offererId,
-          sellerId: sellerId,
-          type: OrderType.EXCHANGE,
-          exchangeOfferId: offer.id,
-          finalPrice: offer.isPayerMe ? 0 : Number(offer.extraPayment), // اگر پرداخت با من نیست، یعنی فروشنده پول می‌گیرد
-          platformFee: 0, // در فاز تست صفر
-          sellerRevenue: offer.isPayerMe ? 0 : Number(offer.extraPayment),
-          status: OrderStatus.PAID, // فرض بر این است که معاوضه بدون مابه‌تفاوت نقدی است یا قبلاً توافق شده
+          status: OrderStatus.DISPUTED,
+          unboxingVideo: videoPath,
+          disputeReason: reason,
+          disputedAt: new Date(),
+        },
+      });
 
-          // آدرس فروشنده (برای ارسال کالای معاوضه‌ای به او)
-          sellerShippingAddress: sellerAddrStr,
-          sellerShippingPhone: address.phone,
-          sellerShippingPostalCode: address.postalCode,
+      const apiUrl = this.configService.get<string>('API_URL') || 'https://tabagheh.com';
+      const videoLink = videoPath ? `\n🎥 ویدیو: ${apiUrl}/uploads/orders/${videoPath}` : '';
 
-          // آدرس خریدار (باید از قبل در پروفایلش داشته باشد یا در مرحله بعد آپدیت شود)
-          // فعلاً برای تست اولین آدرس خریدار را می‌گیریم
-          shippingAddress: 'در انتظار تکمیل توسط خریدار',
+      const ticketMessage = `🚨 **اعلام مغایرت سفارش**\nکالا: ${order.listing.title}\nعلت: ${reason}\n${videoLink}`;
+
+      await tx.ticket.create({
+        data: {
+          userId: buyerId,
+          subject: `شکایت سفارش #${order.id.slice(-6)}`,
+          status: 'OPEN',
+          messages: {
+            create: { senderRole: 'USER', message: ticketMessage }
+          }
         }
       });
 
-      // ۴. آپدیت وضعیت پیشنهاد و آگهی
-      await tx.exchangeOffer.update({
-        where: { id: offerId },
-        data: { status: 'ACCEPTED' }
-      });
-
-      await tx.listing.update({
-        where: { id: offer.listingId },
-        data: { status: 'SOLD' }
-      });
-
-      return order;
+      return { success: true, message: 'شکایت شما ثبت شد و مبلغ مسدود ماند.' };
     });
+  }
+
+  // =================================================================
+  // 8. جاب‌های خودکار
+  // =================================================================
+
+  @Cron(CronExpression.EVERY_HOUR)
+  async autoCancelExpiredOrders() {
+    const now = new Date();
+    const expiredOrders = await this.prisma.order.findMany({
+      where: {
+        status: OrderStatus.PAID,
+        shippingDeadline: { lt: now },
+      },
+    });
+
+    for (const order of expiredOrders) {
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          if (Number(order.totalAmount) > 0) {
+            await tx.wallet.update({
+              where: { userId: order.buyerId },
+              data: { balanceAvailable: { increment: order.totalAmount } }
+            });
+          }
+          await tx.user.update({
+            where: { id: order.sellerId },
+            data: { trustScore: { decrement: 15 } }
+          });
+          this.stateMachine.assertTransition(order.status, OrderStatus.CANCELLED, 'auto-cancel-expired');
+          await tx.order.update({
+            where: { id: order.id },
+            data: { status: OrderStatus.CANCELLED, cancelReason: 'عدم ارسال در مهلت مقرر' },
+          });
+          await tx.listing.update({
+            where: { id: order.listingId },
+            data: { status: ListingStatus.APPROVED },
+          });
+        });
+      } catch (error) {
+        console.error(`Error auto-canceling order ${order.id}:`, error);
+      }
+    }
+  }
+
+  @Cron(CronExpression.EVERY_HOUR)
+  async autoConfirmOrders() {
+    const fourDaysAgo = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000);
+    const pendingOrders = await this.prisma.order.findMany({
+      where: {
+        status: OrderStatus.SHIPPED,
+        updatedAt: { lte: fourDaysAgo },
+      },
+    });
+
+    for (const order of pendingOrders) {
+      try {
+        await this.confirmOrder(order.buyerId, order.id);
+        console.log(`Auto-confirmed order ${order.id}`);
+      } catch (error) {
+        console.error(`Error auto-confirming order ${order.id}:`, error);
+      }
+    }
   }
 }

@@ -19,4 +19,29 @@ export class CommonController {
   async categories() {
     return this.commonService.getCategories();
   }
+
+  @Get('repair-categories')
+  async repairCategories() {
+    return this.commonService.getRepairCategories();
+  }
+
+  @Get('site-settings')
+  async siteSettings() {
+    return this.commonService.getPublicSiteSettings();
+  }
+
+  @Get('terms')
+  async terms() {
+    return this.commonService.getTermsAndConditions();
+  }
+
+  @Get('about')
+  async about() {
+    return this.commonService.getAboutUs();
+  }
+
+  @Get('faqs')
+  async faqs() {
+    return this.commonService.getFaqs();
+  }
 }

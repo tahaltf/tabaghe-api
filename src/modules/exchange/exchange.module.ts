@@ -7,6 +7,7 @@ import { WalletModule } from "../wallet/wallet.module";
 @Module({
     imports: [PrismaModule , WalletModule],
     controllers: [ExchangeController],
+    exports: [ExchangeService], // 👈 این خط حتماً باید باشه
     providers: [ExchangeService],
 })
 export class ExchangeModule {}

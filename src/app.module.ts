@@ -2,7 +2,7 @@ import { MiddlewareConsumer, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
@@ -12,6 +12,8 @@ import { PrismaModule } from './infrastructure/prisma/prisma.module';
 
 // Common / Shared
 import { RequestLoggerMiddleware } from './common/middleware/request-logger.middleware';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { ResponseEnvelopeInterceptor } from './common/interceptors/response-envelope.interceptor';
 import { CommonModuleModule } from './common-module/common-module.module'; // بعداً اسم این پوشه رو به common تغییر میدیم
 
 // Business Modules
@@ -31,6 +33,10 @@ import { OrdersModule } from './modules/orders/orders.module';
 import { AddressModule } from './modules/address/address.module';
 import { HealthModule } from './modules/health/health.module';
 import { ReviewsModule } from "./modules/reviews/reviews.module"; // 👈 باید ماژول هلث داشته باشی، نه فقط کنترلر
+import { AdminModule } from './modules/admin/admin.module';
+
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
 
 @Module({
   imports: [
@@ -73,12 +79,22 @@ import { ReviewsModule } from "./modules/reviews/reviews.module"; // 👈 بای
     OrdersModule,
     AddressModule,
     ReviewsModule,
+    AdminModule,
   ],
-  controllers: [], // 👈 باید کاملاً خالی باشد. کنترلرها متعلق به ماژول‌های خودشان هستند
+  controllers: [AppController],
   providers: [
+    AppService,
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard, // 👈 فعال‌سازی واقعی محدودیت ریکوئست‌ها
+    },
+    {
+      provide: APP_FILTER,
+      useClass: AllExceptionsFilter,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: ResponseEnvelopeInterceptor,
     },
   ],
 })

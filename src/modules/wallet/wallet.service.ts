@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import {
   WalletTransactionType,
@@ -6,6 +6,13 @@ import {
   Prisma,
 } from '@prisma/client';
 import Decimal from 'decimal.js';
+
+/**
+ * Marker stored inside `WalletTransaction.meta.kind` to distinguish user-initiated
+ * top-up requests (DEPOSIT + PENDING, awaiting admin approval) from escrow
+ * deposits credited to sellers when a buyer pays.
+ */
+const MANUAL_DEPOSIT_KIND = 'manual-deposit';
 
 @Injectable()
 export class WalletService {
@@ -28,9 +35,40 @@ export class WalletService {
       where: { walletId: wallet.id },
       orderBy: { createdAt: 'desc' },
       take: 20,
+      select: {
+        id: true,
+        type: true,
+        status: true,
+        amount: true,
+        referenceId: true,
+        createdAt: true,
+        meta: true,
+      },
     });
 
-    return { ...wallet, transactions };
+    // meta شامل فیلدهای داخلی (مثل adminNote، ipAddress، receipt، ...)
+    // است. برای کاربر فقط کلیدهای عمومی/مفید رو نگه میداریم.
+    const ALLOWED_META_KEYS = new Set([
+      'kind',
+      'orderId',
+      'listingId',
+      'auctionId',
+      'refundReason',
+      'receiptImageUrl',
+    ]);
+
+    const safeTxns = transactions.map((t) => {
+      let safeMeta: Record<string, unknown> | null = null;
+      if (t.meta && typeof t.meta === 'object' && !Array.isArray(t.meta)) {
+        safeMeta = {};
+        for (const [k, v] of Object.entries(t.meta as Record<string, unknown>)) {
+          if (ALLOWED_META_KEYS.has(k)) safeMeta[k] = v;
+        }
+      }
+      return { ...t, meta: safeMeta };
+    });
+
+    return { ...wallet, transactions: safeTxns };
   }
 
   // =================================================================
@@ -352,6 +390,188 @@ export class WalletService {
     ]);
   }
 
+  // ==========================================================
+  // MANUAL (CARD-TO-CARD / BANK-TRANSFER) DEPOSIT REQUESTS
+  // ==========================================================
+
+  /**
+   * User-initiated wallet charge request. The wallet balance is NOT
+   * credited here – the transaction is created in PENDING state and
+   * must be approved by an admin after reviewing the receipt image.
+   */
+  async requestDeposit(
+    userId: string,
+    dto: {
+      amount: number | string;
+      receiptImage?: string | null;
+      trackingCode?: string | null;
+      description?: string | null;
+    },
+  ) {
+    const amountDec = new Decimal(dto.amount);
+    if (amountDec.lte(0)) throw new BadRequestException('مبلغ نامعتبر است');
+    if (amountDec.lt(10000)) {
+      throw new BadRequestException('حداقل مبلغ شارژ ۱۰,۰۰۰ تومان است');
+    }
+
+    const wallet = await this.getWalletByUserId(userId);
+
+    return this.prisma.walletTransaction.create({
+      data: {
+        walletId: wallet.id,
+        amount: amountDec.toNumber(),
+        type: WalletTransactionType.DEPOSIT,
+        status: WalletTransactionStatus.PENDING,
+        meta: {
+          kind: MANUAL_DEPOSIT_KIND,
+          description: dto.description ?? 'درخواست شارژ کیف پول',
+          receiptImage: dto.receiptImage ?? null,
+          trackingCode: dto.trackingCode ?? null,
+        },
+      },
+    });
+  }
+
+  async getDepositRequestsAdmin(params: {
+    status?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL';
+    page?: number;
+    pageSize?: number;
+    search?: string;
+  } = {}) {
+    const page = Math.max(1, params.page ?? 1);
+    const pageSize = Math.min(100, Math.max(5, params.pageSize ?? 20));
+    const statusFilter = this.resolveStatusFilter(params.status);
+
+    const where: Prisma.WalletTransactionWhereInput = {
+      type: WalletTransactionType.DEPOSIT,
+      ...statusFilter,
+      meta: { path: ['kind'], equals: MANUAL_DEPOSIT_KIND },
+    };
+
+    if (params.search) {
+      const q = params.search.trim();
+      where.wallet = {
+        user: {
+          OR: [
+            { phone: { contains: q } },
+            { firstName: { contains: q, mode: 'insensitive' } },
+            { lastName: { contains: q, mode: 'insensitive' } },
+          ],
+        },
+      };
+    }
+
+    const [items, total] = await Promise.all([
+      this.prisma.walletTransaction.findMany({
+        where,
+        include: {
+          wallet: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  phone: true,
+                  firstName: true,
+                  lastName: true,
+                  avatar: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.walletTransaction.count({ where }),
+    ]);
+
+    return {
+      items,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      },
+    };
+  }
+
+  async processDeposit(
+    transactionId: string,
+    action: 'APPROVE' | 'REJECT',
+    adminNote?: string,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const transaction = await tx.walletTransaction.findUnique({
+        where: { id: transactionId },
+      });
+      if (!transaction) throw new NotFoundException('تراکنش یافت نشد');
+
+      const meta = (transaction.meta ?? {}) as Record<string, unknown>;
+      if (
+        transaction.type !== WalletTransactionType.DEPOSIT ||
+        meta.kind !== MANUAL_DEPOSIT_KIND
+      ) {
+        throw new BadRequestException('این تراکنش یک درخواست شارژ دستی نیست');
+      }
+      if (transaction.status !== WalletTransactionStatus.PENDING) {
+        throw new BadRequestException('این درخواست قبلاً پردازش شده است');
+      }
+
+      const amountDec = new Decimal(transaction.amount);
+
+      if (action === 'APPROVE') {
+        await tx.wallet.update({
+          where: { id: transaction.walletId },
+          data: { balanceAvailable: { increment: amountDec.toString() } },
+        });
+        await tx.walletTransaction.update({
+          where: { id: transactionId },
+          data: {
+            status: WalletTransactionStatus.SUCCESS,
+            meta: {
+              ...meta,
+              adminNote: adminNote ?? null,
+              approvedAt: new Date().toISOString(),
+            },
+          },
+        });
+        return { message: 'درخواست شارژ تایید و مبلغ به کیف پول اضافه شد' };
+      }
+
+      await tx.walletTransaction.update({
+        where: { id: transactionId },
+        data: {
+          status: WalletTransactionStatus.FAILED,
+          meta: {
+            ...meta,
+            adminNote: adminNote ?? null,
+            rejectionReason: adminNote ?? 'رد توسط ادمین',
+            rejectedAt: new Date().toISOString(),
+          },
+        },
+      });
+      return { message: 'درخواست شارژ رد شد' };
+    });
+  }
+
+  private resolveStatusFilter(
+    status?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL',
+  ): Pick<Prisma.WalletTransactionWhereInput, 'status'> {
+    switch (status) {
+      case 'APPROVED':
+        return { status: WalletTransactionStatus.SUCCESS };
+      case 'REJECTED':
+        return { status: WalletTransactionStatus.FAILED };
+      case 'ALL':
+        return {};
+      case 'PENDING':
+      default:
+        return { status: WalletTransactionStatus.PENDING };
+    }
+  }
+
   async requestWithdraw(userId: string, dto: any) {
     const amountDec = new Decimal(dto.amount);
     const wallet = await this.getWalletByUserId(userId);
@@ -381,23 +601,98 @@ export class WalletService {
     });
   }
 
-  async getWithdrawRequestsAdmin() {
-    return this.prisma.walletTransaction.findMany({
-      where: {
-        type: WalletTransactionType.WITHDRAW_REQUEST,
-        status: WalletTransactionStatus.PENDING,
-      },
-      include: {
-        wallet: {
-          include: {
-            user: {
-              select: { firstName: true, lastName: true, phone: true },
+  async getWithdrawRequestsAdmin(params: {
+    status?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL';
+    page?: number;
+    pageSize?: number;
+    search?: string;
+  } = {}) {
+    const page = Math.max(1, params.page ?? 1);
+    const pageSize = Math.min(100, Math.max(5, params.pageSize ?? 20));
+    const statusCfg = this.resolveWithdrawFilter(params.status);
+
+    const where: Prisma.WalletTransactionWhereInput = {
+      ...statusCfg,
+    };
+
+    if (params.search) {
+      const q = params.search.trim();
+      where.wallet = {
+        user: {
+          OR: [
+            { phone: { contains: q } },
+            { firstName: { contains: q, mode: 'insensitive' } },
+            { lastName: { contains: q, mode: 'insensitive' } },
+          ],
+        },
+      };
+    }
+
+    const [items, total] = await Promise.all([
+      this.prisma.walletTransaction.findMany({
+        where,
+        include: {
+          wallet: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  phone: true,
+                  firstName: true,
+                  lastName: true,
+                  avatar: true,
+                  shabaNumber: true,
+                },
+              },
             },
           },
         },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.walletTransaction.count({ where }),
+    ]);
+
+    return {
+      items,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
       },
-      orderBy: { createdAt: 'desc' },
-    });
+    };
+  }
+
+  private resolveWithdrawFilter(
+    status?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL',
+  ): Pick<Prisma.WalletTransactionWhereInput, 'type' | 'status' | 'OR'> {
+    switch (status) {
+      case 'APPROVED':
+        return {
+          type: WalletTransactionType.WITHDRAW_PAID,
+          status: WalletTransactionStatus.SUCCESS,
+        };
+      case 'REJECTED':
+        return {
+          type: WalletTransactionType.WITHDRAW_REQUEST,
+          status: WalletTransactionStatus.FAILED,
+        };
+      case 'ALL':
+        return {
+          OR: [
+            { type: WalletTransactionType.WITHDRAW_REQUEST },
+            { type: WalletTransactionType.WITHDRAW_PAID },
+          ],
+        };
+      case 'PENDING':
+      default:
+        return {
+          type: WalletTransactionType.WITHDRAW_REQUEST,
+          status: WalletTransactionStatus.PENDING,
+        };
+    }
   }
 
   async processWithdraw(
