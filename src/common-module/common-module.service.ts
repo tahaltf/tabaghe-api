@@ -88,6 +88,10 @@ export class CommonService {
       'PLATFORM_LONGITUDE',
       'VERIFICATION_FEE',
       'SHIPPING_COST',
+      'BANK_CARD_NUMBER',
+      'BANK_ACCOUNT_HOLDER',
+      'BANK_SHABA',
+      'MANUAL_CARD_TRANSFER_MAX',
     ];
 
     const rows = await this.prisma.systemSetting.findMany({
@@ -108,6 +112,12 @@ export class CommonService {
       platformLongitude: map.PLATFORM_LONGITUDE ? Number(map.PLATFORM_LONGITUDE) : null,
       verificationFee: map.VERIFICATION_FEE ? Number(map.VERIFICATION_FEE) : 0,
       shippingCost: map.SHIPPING_COST ? Number(map.SHIPPING_COST) : 0,
+      bankCardNumber: map.BANK_CARD_NUMBER || null,
+      bankAccountHolder: map.BANK_ACCOUNT_HOLDER || null,
+      bankShaba: map.BANK_SHABA || null,
+      manualCardTransferMax: map.MANUAL_CARD_TRANSFER_MAX
+        ? Number(map.MANUAL_CARD_TRANSFER_MAX)
+        : 10000000,
     };
   }
 
