@@ -1,10 +1,12 @@
 import {
+  IsEnum,
   IsDateString,
   IsOptional,
   IsString,
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { PaymentMethod } from '@prisma/client';
 
 /**
  * Body fields for submitting / editing a repair request.
@@ -45,6 +47,10 @@ export class SubmitRepairDto {
 export class SelectRepairSlotDto {
   @IsDateString()
   selectedDeliveryTime!: string;
+
+  @IsOptional()
+  @IsString()
+  selectedDeliveryMethod?: 'SHIP' | 'IN_PERSON';
 }
 
 export class ShipRepairDto {
@@ -65,4 +71,9 @@ export class ConfirmRepairResultDto {
   @IsString()
   @MaxLength(500)
   note?: string;
+}
+
+export class RepairPayDto {
+  @IsEnum(PaymentMethod)
+  paymentMethod!: PaymentMethod;
 }

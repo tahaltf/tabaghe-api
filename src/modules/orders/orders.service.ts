@@ -10,8 +10,9 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { WalletService } from "../wallet/wallet.service";
 import { FeeCalculatorService } from '../fees/fee-calculator.service';
 import Decimal from 'decimal.js';
-import { ConfigService } from "@nestjs/config";
 import { OrdersStateMachineService } from './orders-state-machine.service';
+import { AppSettingsService } from '../../shared/settings/app-settings.service';
+import { PaymentsService } from '../payments/payments.service';
 
 @Injectable()
 export class OrdersService {
@@ -19,8 +20,9 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly walletService: WalletService,
     private readonly feeCalculator: FeeCalculatorService,
-    private readonly configService: ConfigService,
+    private readonly appSettings: AppSettingsService,
     private readonly stateMachine: OrdersStateMachineService,
+    private readonly paymentsService: PaymentsService,
   ) {}
 
   // =================================================================
@@ -450,6 +452,8 @@ export class OrdersService {
         } else {
           orderStatus = OrderStatus.PAID;
         }
+      } else if (paymentMethod === 'GATEWAY' && totalPayable > 0) {
+        orderStatus = OrderStatus.AWAITING_PAYMENT;
       }
 
       const orderPayload: any = {
@@ -471,7 +475,10 @@ export class OrdersService {
 
       if (finalExchangeId) orderPayload.exchangeOfferId = finalExchangeId;
 
-      if (orderStatus !== OrderStatus.PENDING) {
+      if (
+        orderStatus !== OrderStatus.PENDING &&
+        orderStatus !== OrderStatus.AWAITING_PAYMENT
+      ) {
         const deadline = new Date();
         deadline.setHours(deadline.getHours() + 72);
         orderPayload.shippingDeadline = deadline;
@@ -488,7 +495,10 @@ export class OrdersService {
 
       const createdOrder = await tx.order.create({ data: orderPayload });
 
-      if (orderStatus !== OrderStatus.PENDING) {
+      if (
+        orderStatus !== OrderStatus.PENDING &&
+        orderStatus !== OrderStatus.AWAITING_PAYMENT
+      ) {
         await tx.listing.update({ where: { id: listingId }, data: { status: ListingStatus.SOLD } });
       }
 
@@ -496,7 +506,8 @@ export class OrdersService {
     });
 
     if (paymentMethod === 'GATEWAY' && Number(order.totalAmount) > 0) {
-      paymentUrl = `https://sandbox.zarinpal.com/pg/StartPay/mock-token-for-order-${order.id}`;
+      const initiated = await this.paymentsService.initiateOrderPayment(order.id, userId);
+      paymentUrl = initiated.paymentUrl;
     }
 
     return {
@@ -720,7 +731,7 @@ export class OrdersService {
         },
       });
 
-      const apiUrl = this.configService.get<string>('API_URL') || 'https://tabagheh.com';
+      const apiUrl = this.appSettings.getApiUrl();
       const videoLink = videoPath ? `\n🎥 ویدیو: ${apiUrl}/uploads/orders/${videoPath}` : '';
 
       const ticketMessage = `🚨 **اعلام مغایرت سفارش**\nکالا: ${order.listing.title}\nعلت: ${reason}\n${videoLink}`;

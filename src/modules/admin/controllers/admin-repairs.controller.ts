@@ -84,4 +84,9 @@ export class AdminRepairsController {
   cancel(@Param('id') id: string, @Body('reason') reason?: string) {
     return this.service.cancel(id, reason);
   }
+
+  @Patch(':id/complete')
+  complete(@Param('id') id: string) {
+    return this.service.complete(id);
+  }
 }

@@ -1,6 +1,7 @@
 ﻿import { Module } from '@nestjs/common';
 import { WalletModule } from '../wallet/wallet.module';
 import { FeesModule } from '../fees/fees.module';
+import { PaymentsModule } from '../payments/payments.module';
 
 import { OrdersAdminController } from './orders-admin.controller';
 import { OrdersController } from './orders.controller';
@@ -11,7 +12,7 @@ import { OrdersService } from './orders.service';
 import { OrdersStateMachineService } from './orders-state-machine.service';
 
 @Module({
-  imports: [WalletModule, FeesModule],
+  imports: [WalletModule, FeesModule, PaymentsModule],
   controllers: [OrdersController, OrdersAdminController],
   providers: [
     OrdersService,

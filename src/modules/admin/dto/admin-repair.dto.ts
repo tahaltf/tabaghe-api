@@ -22,6 +22,14 @@ export class RepairSlotDto {
 
   @Matches(/^\d{2}:\d{2}$/, { message: 'زمان پایان معتبر نیست (HH:mm)' })
   to!: string;
+
+  @IsOptional()
+  allowInPersonPickup?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  pickupAddress?: string;
 }
 
 export class AdminApproveRepairDto {

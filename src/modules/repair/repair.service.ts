@@ -4,16 +4,24 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { NotificationType, Prisma, RepairRequestStatus } from '@prisma/client';
+import {
+  NotificationType,
+  Prisma,
+  RepairRequestStatus,
+  WalletTransactionStatus,
+  WalletTransactionType,
+} from '@prisma/client';
 import { existsSync, unlink } from 'fs';
 import { join } from 'path';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
+import { PaymentsService } from '../payments/payments.service';
 import {
   ConfirmRepairResultDto,
   SelectRepairSlotDto,
   ShipRepairDto,
   SubmitRepairDto,
+  RepairPayDto,
 } from './dto/repair.dto';
 
 const PROCESS_CWD_UPLOADS = join(process.cwd(), 'uploads');
@@ -23,6 +31,7 @@ export class RepairService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationService,
+    private readonly paymentsService: PaymentsService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -315,6 +324,7 @@ export class RepairService {
     // (we compare against the start time only for simplicity, clients should send
     // the precise "from" date-time of the slot).
     const slots = (repair.availableSlots as Array<{ date: string; from: string; to: string }> | null) ?? [];
+    const selectedMethod = dto.selectedDeliveryMethod === 'IN_PERSON' ? 'IN_PERSON' : 'SHIP';
     if (slots.length) {
       const within = slots.some((s) => {
         const fromIso = `${s.date}T${s.from}:00`;
@@ -326,11 +336,24 @@ export class RepairService {
       if (!within) throw new BadRequestException('زمان انتخابی خارج از بازه‌های پیشنهادی است');
     }
 
+    const selectedIdx = slots.findIndex((s) => {
+      const fromIso = `${s.date}T${s.from}:00`;
+      return new Date(fromIso).getTime() === selected.getTime();
+    });
+    const pickedSlot = selectedIdx >= 0 ? (slots[selectedIdx] as any) : null;
+    if (selectedMethod === 'IN_PERSON' && !pickedSlot?.allowInPersonPickup) {
+      throw new BadRequestException('تحویل حضوری برای این بازه فعال نیست');
+    }
+
     const updated = await this.prisma.repairRequest.update({
       where: { id: repairId },
       data: {
         selectedDeliveryTime: selected,
-        status: RepairRequestStatus.DELIVERY_TIME_SELECTED,
+        status:
+          selectedMethod === 'IN_PERSON'
+            ? RepairRequestStatus.AWAITING_DELIVERY
+            : RepairRequestStatus.DELIVERY_TIME_SELECTED,
+        shippingTrackingCode: selectedMethod === 'IN_PERSON' ? 'IN_PERSON_PICKUP' : null,
       },
     });
 
@@ -338,8 +361,10 @@ export class RepairService {
       userId,
       updated.trackingCode,
       'زمان ارسال انتخاب شد',
-      'زمان ارسال کالای شما ثبت شد. لطفاً در موعد مقرر کالا را ارسال کنید.',
-      { repairId, status: updated.status },
+      selectedMethod === 'IN_PERSON'
+        ? 'زمان تحویل حضوری شما ثبت شد. لطفاً در زمان انتخابی، کالا را حضوری به مرکز طبقه تحویل دهید.'
+        : 'زمان ارسال کالای شما ثبت شد. لطفاً در موعد مقرر کالا را ارسال کنید.',
+      { repairId, status: updated.status, deliveryMethod: selectedMethod },
     );
 
     return updated;
@@ -418,21 +443,77 @@ export class RepairService {
       return cancelled;
     }
 
+    const estimated = Number(repair.estimatedCost ?? 0);
     const approved = await this.prisma.repairRequest.update({
       where: { id: repairId },
       data: {
         userCostApproved: true,
-        status: RepairRequestStatus.IN_PROGRESS,
+        status: estimated > 0 ? RepairRequestStatus.RESULT_READY : RepairRequestStatus.IN_PROGRESS,
       },
     });
     await this.notifyOwner(
       userId,
       approved.trackingCode,
-      'تعمیر کالای شما آغاز شد',
-      'تایید هزینه کارشناسی ثبت شد. عملیات تعمیر در حال انجام است.',
+      estimated > 0 ? 'تایید هزینه ثبت شد' : 'تعمیر کالای شما آغاز شد',
+      estimated > 0
+        ? 'تایید شما ثبت شد. لطفاً پرداخت را تکمیل کنید تا عملیات تعمیر شروع شود.'
+        : 'تایید هزینه کارشناسی ثبت شد. عملیات تعمیر در حال انجام است.',
       { repairId, status: approved.status },
     );
     return approved;
+  }
+
+  async payForRepair(userId: string, repairId: string, dto: RepairPayDto) {
+    const repair = await this.ensureOwnership(userId, repairId);
+    if (repair.status !== RepairRequestStatus.RESULT_READY || !repair.userCostApproved) {
+      throw new BadRequestException('ابتدا باید نتیجه کارشناسی را تایید کنید');
+    }
+    const amount = Number(repair.estimatedCost ?? 0);
+    if (amount <= 0) {
+      return this.prisma.repairRequest.update({
+        where: { id: repairId },
+        data: { status: RepairRequestStatus.IN_PROGRESS },
+      });
+    }
+
+    if (dto.paymentMethod === 'WALLET') {
+      const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
+      if (!wallet || Number(wallet.balanceAvailable) < amount) {
+        throw new BadRequestException('موجودی کیف پول کافی نیست');
+      }
+      await this.prisma.$transaction([
+        this.prisma.wallet.update({
+          where: { userId },
+          data: { balanceAvailable: { decrement: amount } },
+        }),
+        this.prisma.walletTransaction.create({
+          data: {
+            walletId: wallet.id,
+            type: WalletTransactionType.SETTLEMENT,
+            status: WalletTransactionStatus.SUCCESS,
+            amount,
+            referenceId: repairId,
+            meta: { kind: 'repair-payment', repairId },
+          },
+        }),
+        this.prisma.repairRequest.update({
+          where: { id: repairId },
+          data: { status: RepairRequestStatus.IN_PROGRESS },
+        }),
+      ]);
+      return { paid: true, method: 'WALLET', paymentUrl: null };
+    }
+
+    const initiated = await this.paymentsService.initiateRepairPayment(
+      repairId,
+      userId,
+    );
+    return {
+      paid: true,
+      method: 'GATEWAY',
+      paymentUrl: initiated.paymentUrl,
+      message: 'لینک پرداخت صادر شد. شروع تعمیر بعد از پرداخت موفق انجام می‌شود.',
+    };
   }
 
   // ---------------------------------------------------------------------------

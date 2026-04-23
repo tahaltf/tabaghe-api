@@ -334,6 +334,58 @@ export class WalletService {
     });
   }
 
+  /**
+   * Credits seller escrow from an external gateway payment (no buyer wallet debit).
+   * Used only after gateway verification succeeds.
+   */
+  async creditExternalPaymentToEscrow(
+    sellerId: string,
+    amount: number | string | Decimal,
+    platformFee: number | string | Decimal,
+    refId: string,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const prisma = tx || this.prisma;
+    const amountDec = new Decimal(amount);
+    const feeDec = new Decimal(platformFee);
+    const sellerRevenue = amountDec.minus(feeDec);
+
+    if (amountDec.lte(0)) {
+      throw new BadRequestException('مبلغ پرداخت نامعتبر است');
+    }
+    if (sellerRevenue.lt(0)) {
+      throw new BadRequestException('کارمزد از مبلغ پرداخت بیشتر است');
+    }
+
+    let sellerWallet = await prisma.wallet.findUnique({
+      where: { userId: sellerId },
+    });
+    if (!sellerWallet) {
+      sellerWallet = await prisma.wallet.create({
+        data: { userId: sellerId, balanceAvailable: 0, balanceBlocked: 0 },
+      });
+    }
+
+    await prisma.wallet.update({
+      where: { userId: sellerId },
+      data: { balanceBlocked: { increment: sellerRevenue.toString() } },
+    });
+
+    await prisma.walletTransaction.create({
+      data: {
+        walletId: sellerWallet.id,
+        amount: sellerRevenue.toNumber(),
+        type: WalletTransactionType.DEPOSIT,
+        status: WalletTransactionStatus.PENDING,
+        referenceId: refId,
+        meta: {
+          kind: 'gateway-escrow',
+          description: 'دریافت وجه سفارش از درگاه (بلوکه)',
+        },
+      },
+    });
+  }
+
   async releaseEscrow(
     sellerId: string,
     amount: number | string | Decimal,

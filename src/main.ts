@@ -48,16 +48,14 @@ async function bootstrap() {
     .split(',')
     .map((x) => x.trim())
     .filter(Boolean);
+  const frontendAppUrl = (process.env.FRONTEND_APP_URL || 'https://app.tabagheh.com').trim();
 
   // ۳. تنظیمات CORS هماهنگ با Angular
   app.enableCors({
     origin: corsOrigins.length
       ? corsOrigins
       : [
-          'https://app.tabagheh.com',
-          'http://app.tabagheh.com',
-          'http://tabagheh.com',
-          'https://tabagheh.com',
+          frontendAppUrl,
           'http://localhost:4200',
         ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',

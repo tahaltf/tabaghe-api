@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NotificationType, Prisma } from '@prisma/client';
-import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
+import { AppSettingsService } from '../../shared/settings/app-settings.service';
 
 @Injectable()
 export class NotificationService {
@@ -10,7 +10,7 @@ export class NotificationService {
 
     constructor(
       private readonly prisma: PrismaService,
-      private readonly configService: ConfigService,
+      private readonly appSettings: AppSettingsService,
     ) {}
 
     async create(params: {
@@ -38,7 +38,7 @@ export class NotificationService {
     }
 
     private async processSms(userId: string, type: NotificationType, meta?: Record<string, unknown>) {
-        const apiKey = this.configService.get<string>('SMS_IR_API_KEY');
+        const apiKey = this.appSettings.getSmsApiKey();
         if (!apiKey) {
             this.logger.warn('SMS_IR_API_KEY تنظیم نشده است.');
             return;

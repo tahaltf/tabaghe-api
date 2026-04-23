@@ -19,6 +19,7 @@ import { AuthenticatedUser } from '../../shared/contracts/auth';
 import { RepairService } from './repair.service';
 import {
   ConfirmRepairResultDto,
+  RepairPayDto,
   SelectRepairSlotDto,
   ShipRepairDto,
   SubmitRepairDto,
@@ -121,6 +122,15 @@ export class RepairController {
     @Body() dto: ConfirmRepairResultDto,
   ) {
     return this.service.respondToResult(user.id, id, dto);
+  }
+
+  @Patch(':id/pay')
+  pay(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: RepairPayDto,
+  ) {
+    return this.service.payForRepair(user.id, id, dto);
   }
 
   @Patch(':id/confirm-return')

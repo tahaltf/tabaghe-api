@@ -31,7 +31,7 @@ const ALLOWED_ADMIN_TRANSITIONS: Record<RepairRequestStatus, RepairRequestStatus
   PENDING_REVIEW: [RepairRequestStatus.APPROVED, RepairRequestStatus.REJECTED],
   REJECTED: [],
   APPROVED: [RepairRequestStatus.CANCELLED],
-  DELIVERY_TIME_SELECTED: [RepairRequestStatus.CANCELLED],
+  DELIVERY_TIME_SELECTED: [RepairRequestStatus.RECEIVED_AT_HUB, RepairRequestStatus.CANCELLED],
   AWAITING_DELIVERY: [RepairRequestStatus.RECEIVED_AT_HUB, RepairRequestStatus.CANCELLED],
   RECEIVED_AT_HUB: [RepairRequestStatus.UNDER_INSPECTION, RepairRequestStatus.CANCELLED],
   UNDER_INSPECTION: [RepairRequestStatus.RESULT_READY, RepairRequestStatus.CANCELLED],
@@ -203,6 +203,16 @@ export class AdminRepairsService {
       extra: { rejectionReason: reason ?? 'لغو توسط ادمین' },
       title: 'درخواست تعمیر لغو شد',
       message: reason ?? 'درخواست شما توسط تیم پشتیبانی لغو شد.',
+    });
+  }
+
+  async complete(id: string): Promise<AdminRepairItem> {
+    return this.transitionAndNotify({
+      id,
+      next: RepairRequestStatus.COMPLETED,
+      extra: {},
+      title: 'فرایند تعمیر تکمیل شد',
+      message: 'فرایند تعمیر توسط ادمین تکمیل شد.',
     });
   }
 

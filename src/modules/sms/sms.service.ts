@@ -1,17 +1,17 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
+import { AppSettingsService } from '../../shared/settings/app-settings.service';
 
 @Injectable()
 export class SmsService {
-  constructor(private configService: ConfigService) {}
+  constructor(private readonly appSettings: AppSettingsService) {}
 
   async sendByTemplate(
     phone: string,
     templateId: number,
     parameters: Array<{ name: string; value: string }>,
   ) {
-    const apiKey = this.configService.get<string>('SMS_IR_API_KEY');
+    const apiKey = this.appSettings.getSmsApiKey();
     const url = 'https://api.sms.ir/v1/send/verify';
 
     try {

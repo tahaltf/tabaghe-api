@@ -15,6 +15,7 @@ import { RequestLoggerMiddleware } from './common/middleware/request-logger.midd
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { ResponseEnvelopeInterceptor } from './common/interceptors/response-envelope.interceptor';
 import { CommonModuleModule } from './common-module/common-module.module'; // بعداً اسم این پوشه رو به common تغییر میدیم
+import { SettingsModule } from './shared/settings/settings.module';
 
 // Business Modules
 import { WalletModule } from './modules/wallet/wallet.module';
@@ -34,6 +35,7 @@ import { AddressModule } from './modules/address/address.module';
 import { HealthModule } from './modules/health/health.module';
 import { ReviewsModule } from "./modules/reviews/reviews.module"; // 👈 باید ماژول هلث داشته باشی، نه فقط کنترلر
 import { AdminModule } from './modules/admin/admin.module';
+import { PaymentsModule } from './modules/payments/payments.module';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -61,6 +63,7 @@ import { AppService } from './app.service';
 
     // 3. Shared/Common
     CommonModuleModule,
+    SettingsModule,
 
     // 4. Business Domains
     HealthModule, // کنترلر Health باید داخل این ماژول رجیستر شده باشد
@@ -80,6 +83,7 @@ import { AppService } from './app.service';
     AddressModule,
     ReviewsModule,
     AdminModule,
+    PaymentsModule,
   ],
   controllers: [AppController],
   providers: [
