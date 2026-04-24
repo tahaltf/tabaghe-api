@@ -1,15 +1,19 @@
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   AuthenticatedUser,
   JwtPayload,
 } from '../../shared/contracts/auth';
+import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(configService: ConfigService) {
+  constructor(
+    configService: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
@@ -18,13 +22,20 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  validate(payload: JwtPayload): AuthenticatedUser {
+  async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { id: true, phone: true, role: true, status: true, isVerified: true, isActive: true },
+    });
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('حساب کاربری غیرفعال است');
+    }
     return {
-      id: payload.sub,
-      phone: payload.phone,
-      role: payload.role,
-      status: payload.status,
-      isVerified: payload.isVerified,
+      id: user.id,
+      phone: user.phone,
+      role: user.role,
+      status: user.status,
+      isVerified: user.isVerified,
     };
   }
 }

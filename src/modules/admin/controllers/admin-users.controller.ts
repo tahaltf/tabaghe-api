@@ -13,10 +13,14 @@ import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
+import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { AdminUsersQueryService } from '../services/admin-users-query.service';
 import { AdminUserListQueryDto } from '../dto/admin-query.dto';
 import { TokenService } from '../../auth/services/token.service';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { AdminSetUserPasswordDto } from '../dto/admin-user-password.dto';
+import { AdminSetUserActivationDto } from '../dto/admin-user-activation.dto';
+import { AuthenticatedUser } from '../../../shared/contracts/auth';
 
 @Controller('admin/users')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -29,18 +33,36 @@ export class AdminUsersQueryController {
   ) {}
 
   @Get()
-  list(@Query() query: AdminUserListQueryDto) {
-    return this.service.list(query);
+  list(@CurrentUser() actor: AuthenticatedUser, @Query() query: AdminUserListQueryDto) {
+    return this.service.list(actor, query);
   }
 
   @Get(':id')
-  detail(@Param('id') id: string) {
-    return this.service.detail(id);
+  detail(@CurrentUser() actor: AuthenticatedUser, @Param('id') id: string) {
+    return this.service.detail(actor, id);
   }
 
   @Patch(':id/toggle-role')
-  toggleRole(@Param('id') id: string) {
-    return this.service.toggleRole(id);
+  toggleRole(@CurrentUser() actor: AuthenticatedUser, @Param('id') id: string) {
+    return this.service.toggleRole(actor, id);
+  }
+
+  @Patch(':id/password')
+  setPassword(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: AdminSetUserPasswordDto,
+  ) {
+    return this.service.setUserPassword(actor, id, dto.password);
+  }
+
+  @Patch(':id/activation')
+  setActivation(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: AdminSetUserActivationDto,
+  ) {
+    return this.service.setUserActivation(actor, id, dto.isActive);
   }
 
   /**

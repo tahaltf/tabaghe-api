@@ -26,7 +26,15 @@ export class RolesGuard implements CanActivate {
       .getRequest<Request & { user?: AuthenticatedUser }>();
 
     const user = req.user;
-    if (!user || !requiredRoles.includes(user.role)) {
+    if (!user) {
+      throw new ForbiddenException('شما دسترسی لازم برای انجام این عملیات را ندارید');
+    }
+
+    const isSuperAdmin =
+      user.role === UserRole.GODADMIN &&
+      requiredRoles.includes(UserRole.ADMIN);
+
+    if (!isSuperAdmin && !requiredRoles.includes(user.role)) {
       throw new ForbiddenException('شما دسترسی لازم برای انجام این عملیات را ندارید');
     }
     return true;

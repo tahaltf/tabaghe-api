@@ -2,6 +2,7 @@ import { Body, Controller, Post, HttpCode, HttpStatus } from '@nestjs/common';
 import { AuthService } from './auth.service'; // تغییر نام از Auth به AuthService
 import { RequestOtpDto, VerifyOtpDto } from './dto/otp.dto';
 import { RefreshDto } from './dto/refresh.dto';
+import { PasswordLoginDto } from './dto/password-login.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -23,6 +24,12 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async verify(@Body() dto: VerifyOtpDto) {
     return this.authService.verifyOtp(dto.phone, dto.code);
+  }
+
+  @Post('login-password')
+  @HttpCode(HttpStatus.OK)
+  async loginWithPassword(@Body() dto: PasswordLoginDto) {
+    return this.authService.loginWithPassword(dto.username, dto.password);
   }
 
   @Post('refresh')

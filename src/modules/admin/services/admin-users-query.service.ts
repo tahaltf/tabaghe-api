@@ -1,11 +1,13 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, UserRole, UserStatus } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import {
   buildPaginationMeta,
   PaginatedResult,
 } from '../../../shared/contracts/pagination';
 import { AdminUserListQueryDto } from '../dto/admin-query.dto';
+import { AuthenticatedUser } from '../../../shared/contracts/auth';
 
 const USER_LIST_SELECT = {
   id: true,
@@ -15,6 +17,7 @@ const USER_LIST_SELECT = {
   lastName: true,
   status: true,
   role: true,
+  isActive: true,
   isVerified: true,
   createdAt: true,
   lastLoginAt: true,
@@ -42,12 +45,16 @@ const USER_DETAIL_INCLUDE = {
 
 export type AdminUserListItem = Prisma.UserGetPayload<{ select: typeof USER_LIST_SELECT }>;
 export type AdminUserDetail = Prisma.UserGetPayload<{ include: typeof USER_DETAIL_INCLUDE }>;
+const ADMIN_DEFAULT_PASSWORD = '@Ab123456789@';
 
 @Injectable()
 export class AdminUsersQueryService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(query: AdminUserListQueryDto): Promise<PaginatedResult<AdminUserListItem>> {
+  async list(
+    actor: AuthenticatedUser,
+    query: AdminUserListQueryDto,
+  ): Promise<PaginatedResult<AdminUserListItem>> {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
     const skip = (page - 1) * pageSize;
@@ -55,6 +62,9 @@ export class AdminUsersQueryService {
     const where: Prisma.UserWhereInput = {};
     if (query.status) where.status = query.status;
     if (query.role) where.role = query.role;
+    if (actor.role === UserRole.ADMIN) {
+      where.role = UserRole.USER;
+    }
     if (query.search) {
       const s = query.search.trim();
       where.OR = [
@@ -82,27 +92,93 @@ export class AdminUsersQueryService {
     return { items, pagination: buildPaginationMeta(page, pageSize, total) };
   }
 
-  async detail(userId: string): Promise<AdminUserDetail> {
+  async detail(actor: AuthenticatedUser, userId: string): Promise<AdminUserDetail> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: USER_DETAIL_INCLUDE,
     });
     if (!user) throw new NotFoundException('کاربر یافت نشد');
+    this.assertCanManageTarget(actor, user.role);
     return user;
   }
 
-  async toggleRole(userId: string): Promise<{ id: string; role: UserRole }> {
+  async toggleRole(
+    actor: AuthenticatedUser,
+    userId: string,
+  ): Promise<{ id: string; role: UserRole }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true, passwordHash: true },
+    });
+    if (!user) throw new NotFoundException('کاربر یافت نشد');
+    this.assertCanManageTarget(actor, user.role);
+    const nextRole = user.role === UserRole.USER ? UserRole.ADMIN : UserRole.USER;
+    const shouldSetDefaultAdminPassword =
+      nextRole === UserRole.ADMIN && !user.passwordHash;
+
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        role: nextRole,
+        ...(shouldSetDefaultAdminPassword
+          ? { passwordHash: await bcrypt.hash(ADMIN_DEFAULT_PASSWORD, 10) }
+          : {}),
+      },
+      select: { id: true, role: true },
+    });
+  }
+
+  async setUserPassword(
+    actor: AuthenticatedUser,
+    userId: string,
+    password: string,
+  ): Promise<{ id: string }> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, role: true },
     });
     if (!user) throw new NotFoundException('کاربر یافت نشد');
-    const nextRole = user.role === UserRole.ADMIN ? UserRole.USER : UserRole.ADMIN;
-    return this.prisma.user.update({
+    this.assertCanManageTarget(actor, user.role);
+
+    const hash = await bcrypt.hash(password, 10);
+    const updated = await this.prisma.user.update({
       where: { id: userId },
-      data: { role: nextRole },
+      data: { passwordHash: hash },
+      select: { id: true },
+    });
+    return updated;
+  }
+
+  async setUserActivation(
+    actor: AuthenticatedUser,
+    userId: string,
+    isActive: boolean,
+  ): Promise<{ id: string; isActive: boolean }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
       select: { id: true, role: true },
     });
+    if (!user) throw new NotFoundException('کاربر یافت نشد');
+    if (actor.role !== UserRole.GODADMIN) {
+      throw new ForbiddenException('فقط گاد ادمین می‌تواند وضعیت حساب را تغییر دهد');
+    }
+    if (user.role === UserRole.USER) {
+      throw new ForbiddenException('این عملیات فقط برای حساب‌های ادمین است');
+    }
+    if (actor.id === userId && !isActive) {
+      throw new ForbiddenException('امکان غیرفعال‌کردن حساب خودتان وجود ندارد');
+    }
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { isActive },
+      select: { id: true, isActive: true },
+    });
+  }
+
+  private assertCanManageTarget(actor: AuthenticatedUser, targetRole: UserRole): void {
+    if (actor.role === UserRole.GODADMIN) return;
+    if (actor.role === UserRole.ADMIN && targetRole === UserRole.USER) return;
+    throw new ForbiddenException('شما اجازه مدیریت این حساب را ندارید');
   }
 
   private buildOrderBy(
