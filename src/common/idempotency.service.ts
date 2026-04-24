@@ -19,7 +19,7 @@ export class IdempotencyService {
 
         if (existing) {
             if (existing.userId !== userId) {
-                throw new BadRequestException('Idempotency key mismatch');
+                throw new BadRequestException('کلید یکتایی (Idempotency) با درخواست قبلی هم‌خوان نیست');
             }
             return existing.response as T;
         }

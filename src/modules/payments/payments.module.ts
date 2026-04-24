@@ -3,9 +3,10 @@ import { WalletModule } from '../wallet/wallet.module';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { ZibalGateway } from './gateways/zibal.gateway';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
-  imports: [WalletModule],
+  imports: [WalletModule, NotificationModule],
   controllers: [PaymentsController],
   providers: [PaymentsService, ZibalGateway],
   exports: [PaymentsService],

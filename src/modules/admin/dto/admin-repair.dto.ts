@@ -30,6 +30,11 @@ export class RepairSlotDto {
   @IsString()
   @MaxLength(500)
   pickupAddress?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{10}$/, { message: 'کد پستی باید ۱۰ رقم باشد' })
+  pickupPostalCode?: string;
 }
 
 export class AdminApproveRepairDto {
@@ -71,4 +76,9 @@ export class AdminShipBackDto {
   @MinLength(3)
   @MaxLength(60)
   trackingCode!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  note?: string;
 }

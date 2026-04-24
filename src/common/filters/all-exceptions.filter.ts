@@ -72,7 +72,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const status = isHttp ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
     const isProd = process.env.NODE_ENV === 'production';
 
-    let message = 'Request failed';
+    let message = 'درخواست ناموفق بود';
     let fieldErrors: Record<string, string[]> | undefined;
 
     if (isHttp) {
@@ -93,7 +93,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     }
 
     if (status === HttpStatus.INTERNAL_SERVER_ERROR) {
-      message = isProd ? 'Internal server error' : message || 'Internal server error';
+      message = isProd ? 'خطای داخلی سرور' : message || 'خطای داخلی سرور';
       this.logger.error(
         `Unhandled exception on ${req.method} ${req.url}`,
         exception instanceof Error ? exception.stack : String(exception),

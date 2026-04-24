@@ -81,9 +81,17 @@ export class CommonService {
   async getPublicSiteSettings() {
     const PUBLIC_KEYS = [
       'HOMEPAGE_BANNER',
+      'MEDIA_FALLBACK_LOGO',
+      'USER_APP_LOGO',
+      'CRITICAL_ALERT_ENABLED',
+      'CRITICAL_ALERT_LABEL',
+      'CRITICAL_ALERT_TEXT',
+      'CRITICAL_ALERT_BG_COLOR',
+      'CRITICAL_ALERT_TEXT_COLOR',
       'SUPPORT_PHONE',
       'SUPPORT_EMAIL',
       'PLATFORM_ADDRESS',
+      'PLATFORM_ADDRESSES',
       'PLATFORM_LATITUDE',
       'PLATFORM_LONGITUDE',
       'VERIFICATION_FEE',
@@ -103,11 +111,39 @@ export class CommonService {
     for (const key of PUBLIC_KEYS) map[key] = '';
     for (const row of rows) map[row.key] = row.value;
 
+    let platformAddresses: Array<{ id: string; label: string; address: string; postalCode: string }> = [];
+    try {
+      const parsed = JSON.parse(map.PLATFORM_ADDRESSES || '[]');
+      if (Array.isArray(parsed)) {
+        platformAddresses = parsed
+          .map((x, idx) => ({
+            id: typeof x?.id === 'string' && x.id.trim() ? x.id.trim() : `addr-${idx + 1}`,
+            label: typeof x?.label === 'string' ? x.label.trim() : '',
+            address: typeof x?.address === 'string' ? x.address.trim() : '',
+            postalCode: typeof x?.postalCode === 'string' ? x.postalCode.replace(/[^\d]/g, '') : '',
+          }))
+          .filter((x) => x.address);
+      }
+    } catch {
+      platformAddresses = [];
+    }
+
+    const fallbackAddress = map.PLATFORM_ADDRESS || null;
+    const primaryAddress = platformAddresses[0]?.address || fallbackAddress;
+
     return {
       homepageBanner: map.HOMEPAGE_BANNER || null,
+      mediaFallbackLogo: map.MEDIA_FALLBACK_LOGO || null,
+      userAppLogo: map.USER_APP_LOGO || null,
+      criticalAlertEnabled: map.CRITICAL_ALERT_ENABLED === 'true',
+      criticalAlertLabel: map.CRITICAL_ALERT_LABEL || null,
+      criticalAlertText: map.CRITICAL_ALERT_TEXT || null,
+      criticalAlertBgColor: map.CRITICAL_ALERT_BG_COLOR || '#ef4444',
+      criticalAlertTextColor: map.CRITICAL_ALERT_TEXT_COLOR || '#ffffff',
       supportPhone: map.SUPPORT_PHONE || null,
       supportEmail: map.SUPPORT_EMAIL || null,
-      platformAddress: map.PLATFORM_ADDRESS || null,
+      platformAddress: primaryAddress,
+      platformAddresses,
       platformLatitude: map.PLATFORM_LATITUDE ? Number(map.PLATFORM_LATITUDE) : null,
       platformLongitude: map.PLATFORM_LONGITUDE ? Number(map.PLATFORM_LONGITUDE) : null,
       verificationFee: map.VERIFICATION_FEE ? Number(map.VERIFICATION_FEE) : 0,

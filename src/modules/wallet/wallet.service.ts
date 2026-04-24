@@ -4,8 +4,10 @@ import {
   WalletTransactionType,
   WalletTransactionStatus,
   Prisma,
+  NotificationType,
 } from '@prisma/client';
 import Decimal from 'decimal.js';
+import { NotificationService } from '../notification/notification.service';
 
 /**
  * Marker stored inside `WalletTransaction.meta.kind` to distinguish user-initiated
@@ -13,10 +15,14 @@ import Decimal from 'decimal.js';
  * deposits credited to sellers when a buyer pays.
  */
 const MANUAL_DEPOSIT_KIND = 'manual-deposit';
+const GATEWAY_TOPUP_KIND = 'gateway-topup';
 
 @Injectable()
 export class WalletService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+  ) {}
 
   // =================================================================
   // CORE & FETCH METHODS
@@ -32,7 +38,16 @@ export class WalletService {
     }
 
     const transactions = await this.prisma.walletTransaction.findMany({
-      where: { walletId: wallet.id },
+      where: {
+        walletId: wallet.id,
+        NOT: {
+          AND: [
+            { type: WalletTransactionType.DEPOSIT },
+            { meta: { path: ['kind'], equals: GATEWAY_TOPUP_KIND } },
+            { status: { not: WalletTransactionStatus.SUCCESS } },
+          ],
+        },
+      },
       orderBy: { createdAt: 'desc' },
       take: 20,
       select: {
@@ -50,11 +65,16 @@ export class WalletService {
     // است. برای کاربر فقط کلیدهای عمومی/مفید رو نگه میداریم.
     const ALLOWED_META_KEYS = new Set([
       'kind',
+      'description',
       'orderId',
       'listingId',
       'auctionId',
       'refundReason',
       'receiptImageUrl',
+      'rejectionReason',
+      'adminNote',
+      'repairTrackingCode',
+      'paymentSource',
     ]);
 
     const safeTxns = transactions.map((t) => {
@@ -468,7 +488,7 @@ export class WalletService {
 
     const wallet = await this.getWalletByUserId(userId);
 
-    return this.prisma.walletTransaction.create({
+    const created = await this.prisma.walletTransaction.create({
       data: {
         walletId: wallet.id,
         amount: amountDec.toNumber(),
@@ -476,12 +496,28 @@ export class WalletService {
         status: WalletTransactionStatus.PENDING,
         meta: {
           kind: MANUAL_DEPOSIT_KIND,
+          paymentSource: 'MANUAL_TRANSFER',
           description: dto.description ?? 'درخواست شارژ کیف پول',
           receiptImage: dto.receiptImage ?? null,
           trackingCode: dto.trackingCode ?? null,
         },
       },
     });
+
+    await this.notificationService.create({
+      userId,
+      type: NotificationType.SYSTEM,
+      title: 'درخواست شارژ دستی ثبت شد',
+      message:
+        'درخواست شما ثبت شد و پس از بررسی ادمین، نتیجه از همین بخش اطلاع‌رسانی می‌شود.',
+      meta: {
+        transactionId: created.id,
+        amount: amountDec.toNumber(),
+        kind: MANUAL_DEPOSIT_KIND,
+      },
+    });
+
+    return created;
   }
 
   async getDepositRequestsAdmin(params: {
@@ -589,6 +625,24 @@ export class WalletService {
             },
           },
         });
+        const txWithUser = await tx.walletTransaction.findUnique({
+          where: { id: transactionId },
+          select: { wallet: { select: { userId: true } } },
+        });
+        if (txWithUser?.wallet?.userId) {
+          await this.notificationService.create({
+            userId: txWithUser.wallet.userId,
+            type: NotificationType.SYSTEM,
+            title: 'شارژ کیف پول تایید شد',
+            message:
+              'درخواست شارژ دستی شما تایید شد و مبلغ به موجودی قابل برداشت اضافه شد.',
+            meta: {
+              transactionId,
+              amount: amountDec.toNumber(),
+            },
+          });
+        }
+
         return { message: 'درخواست شارژ تایید و مبلغ به کیف پول اضافه شد' };
       }
 
@@ -604,6 +658,26 @@ export class WalletService {
           },
         },
       });
+
+      const txWithUser = await tx.walletTransaction.findUnique({
+        where: { id: transactionId },
+        select: { wallet: { select: { userId: true } } },
+      });
+      if (txWithUser?.wallet?.userId) {
+        await this.notificationService.create({
+          userId: txWithUser.wallet.userId,
+          type: NotificationType.SYSTEM,
+          title: 'درخواست شارژ دستی رد شد',
+          message: adminNote
+            ? `درخواست شارژ شما رد شد. دلیل: ${adminNote}`
+            : 'درخواست شارژ شما توسط ادمین رد شد.',
+          meta: {
+            transactionId,
+            amount: amountDec.toNumber(),
+            rejectionReason: adminNote ?? 'رد توسط ادمین',
+          },
+        });
+      }
       return { message: 'درخواست شارژ رد شد' };
     });
   }

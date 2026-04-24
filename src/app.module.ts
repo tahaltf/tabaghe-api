@@ -1,3 +1,4 @@
+import { existsSync } from 'fs';
 import { MiddlewareConsumer, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -6,6 +7,17 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
+
+function loadEnvFilePaths(): string[] {
+  const root = process.cwd();
+  const nodeEnv = process.env.NODE_ENV || 'development';
+  const paths = [
+    join(root, `.env.${nodeEnv}`),
+    join(root, `.env.${nodeEnv}.local`),
+    join(root, '.env'),
+  ];
+  return paths.filter((p) => existsSync(p));
+}
 
 // Infrastructure
 import { PrismaModule } from './infrastructure/prisma/prisma.module';
@@ -43,7 +55,10 @@ import { AppService } from './app.service';
 @Module({
   imports: [
     // 1. Global Configurations
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: loadEnvFilePaths(),
+    }),
     ServeStaticModule.forRoot({
       rootPath: join(process.cwd(), 'uploads'),
       serveRoot: '/uploads',

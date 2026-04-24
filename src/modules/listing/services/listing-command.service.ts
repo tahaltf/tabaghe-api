@@ -27,6 +27,7 @@ export class ListingCommandService {
   ) {}
 
   async create(userId: string, dto: CreateListingDto): Promise<Listing> {
+    this.validateListingPayload(dto, false);
     const auctionEndDate = this.resolveAuctionEndDate(dto);
 
     return this.prisma.$transaction(async (tx) => {
@@ -101,6 +102,7 @@ export class ListingCommandService {
     });
 
     const currentType = dto.type ?? listing.type;
+    this.validateListingPayload(dto, true, currentType);
     const auctionEndDate =
       currentType === ListingType.AUCTION && dto.auction?.endDatetime
         ? new Date(dto.auction.endDatetime)
@@ -170,6 +172,65 @@ export class ListingCommandService {
       throw new BadRequestException('زمان پایان مزایده نمی‌تواند در گذشته باشد');
     }
     return end;
+  }
+
+  private validateListingPayload(
+    dto: CreateListingDto | UpdateListingDto,
+    isUpdate: boolean,
+    resolvedType?: ListingType,
+  ): void {
+    const type = resolvedType ?? dto.type;
+    if (!type) {
+      throw new BadRequestException('نوع آگهی مشخص نیست. لطفاً نوع آگهی را انتخاب کنید.');
+    }
+
+    const missing: string[] = [];
+    const hasText = (v: unknown) => typeof v === 'string' && v.trim().length > 0;
+
+    if (!isUpdate || dto.title !== undefined) {
+      if (!hasText(dto.title)) missing.push('عنوان آگهی');
+    }
+    if (!isUpdate || dto.categoryId !== undefined) {
+      if (!hasText(dto.categoryId)) missing.push('دسته‌بندی');
+    }
+    if (!isUpdate || dto.provinceId !== undefined) {
+      if (!hasText(dto.provinceId)) missing.push('استان');
+    }
+    if (!isUpdate || dto.cityId !== undefined) {
+      if (!hasText(dto.cityId)) missing.push('شهر');
+    }
+
+    if (type === ListingType.DIRECT) {
+      const price = dto.direct?.price;
+      if (price === undefined || Number(price) <= 0) {
+        missing.push('قیمت فروش (باید بیشتر از صفر باشد)');
+      }
+    }
+
+    if (type === ListingType.EXCHANGE || (type === ListingType.DIRECT && dto.direct?.allowExchange)) {
+      if (!hasText(dto.exchange?.desiredTitle)) {
+        missing.push('نام کالای درخواستی برای معاوضه');
+      }
+      if (!hasText(dto.exchange?.desiredCategoryId)) {
+        missing.push('دسته‌بندی کالای درخواستی برای معاوضه');
+      }
+    }
+
+    if (type === ListingType.AUCTION) {
+      const basePrice = dto.auction?.basePrice;
+      if (basePrice === undefined || Number(basePrice) <= 0) {
+        missing.push('قیمت پایه مزایده (باید بیشتر از صفر باشد)');
+      }
+      if (!dto.auction?.endDatetime) {
+        missing.push('زمان پایان مزایده');
+      }
+    }
+
+    if (missing.length) {
+      throw new BadRequestException(
+        `برای ثبت آگهی، این موارد را تکمیل کنید: ${missing.join('، ')}`,
+      );
+    }
   }
 
   private shouldCreateExchange(dto: CreateListingDto): boolean {

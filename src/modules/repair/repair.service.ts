@@ -25,6 +25,8 @@ import {
 } from './dto/repair.dto';
 
 const PROCESS_CWD_UPLOADS = join(process.cwd(), 'uploads');
+const USER_SHIPPING_NOTE_MARK = '[USER_SHIPPING_NOTE]';
+const ADMIN_RETURN_NOTE_MARK = '[ADMIN_RETURN_NOTE]';
 
 @Injectable()
 export class RepairService {
@@ -141,6 +143,36 @@ export class RepairService {
     } catch {
       /* non-fatal */
     }
+  }
+
+  private appendTaggedNote(base: string | null | undefined, marker: string, text?: string | null): string | null {
+    const current = (base ?? '').trim();
+    const note = (text ?? '').trim();
+    if (!note) return current || null;
+    const cleaned = current
+      .split('\n')
+      .filter((line) => !line.trim().startsWith(marker))
+      .join('\n')
+      .trim();
+    return [cleaned, `${marker} ${note}`].filter(Boolean).join('\n\n').trim();
+  }
+
+  private extractTaggedNote(text: string | null | undefined, marker: string): string | null {
+    const raw = (text ?? '').split('\n').find((line) => line.trim().startsWith(marker));
+    if (!raw) return null;
+    return raw.trim().slice(marker.length).trim() || null;
+  }
+
+  private stripTaggedNotes(text: string | null | undefined): string | null {
+    const cleaned = (text ?? '')
+      .split('\n')
+      .filter((line) => {
+        const t = line.trim();
+        return !t.startsWith(USER_SHIPPING_NOTE_MARK) && !t.startsWith(ADMIN_RETURN_NOTE_MARK);
+      })
+      .join('\n')
+      .trim();
+    return cleaned || null;
   }
 
   // ---------------------------------------------------------------------------
@@ -304,7 +336,48 @@ export class RepairService {
     });
     if (!repair) throw new NotFoundException('درخواست تعمیر یافت نشد');
     if (repair.userId !== userId) throw new ForbiddenException('عدم دسترسی');
-    return repair;
+    const paymentTx = await this.prisma.walletTransaction.findFirst({
+      where: {
+        referenceId: repair.id,
+        type: WalletTransactionType.SETTLEMENT,
+        status: WalletTransactionStatus.SUCCESS,
+        OR: [
+          { meta: { path: ['kind'], equals: 'repair-payment' } },
+          { meta: { path: ['repairId'], equals: repair.id } },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        amount: true,
+        createdAt: true,
+        meta: true,
+      },
+    });
+
+    const paymentMeta =
+      paymentTx?.meta && typeof paymentTx.meta === 'object' && !Array.isArray(paymentTx.meta)
+        ? (paymentTx.meta as Record<string, unknown>)
+        : null;
+
+    const userShippingNote = this.extractTaggedNote(repair.adminNote, USER_SHIPPING_NOTE_MARK);
+    const adminReturnNote = this.extractTaggedNote(repair.adminNote, ADMIN_RETURN_NOTE_MARK);
+
+    return {
+      ...repair,
+      adminNote: this.stripTaggedNotes(repair.adminNote),
+      userShippingNote,
+      adminReturnNote,
+      repairPayment: paymentTx
+        ? {
+            amount: Number(paymentTx.amount),
+            paidAt: paymentTx.createdAt,
+            paymentSource:
+              paymentMeta?.paymentSource === 'GATEWAY' ? 'GATEWAY' : 'WALLET',
+            refId: paymentMeta?.refId ? String(paymentMeta.refId) : null,
+            authority: paymentMeta?.authority ? String(paymentMeta.authority) : null,
+          }
+        : null,
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -395,6 +468,7 @@ export class RepairService {
       data: {
         shippingTrackingCode: dto.trackingCode,
         shippingVideo: video.filename,
+        adminNote: this.appendTaggedNote(repair.adminNote, USER_SHIPPING_NOTE_MARK, dto.note),
         status: RepairRequestStatus.AWAITING_DELIVERY,
       },
     });
@@ -493,7 +567,13 @@ export class RepairService {
             status: WalletTransactionStatus.SUCCESS,
             amount,
             referenceId: repairId,
-            meta: { kind: 'repair-payment', repairId },
+            meta: {
+              kind: 'repair-payment',
+              repairId,
+              repairTrackingCode: repair.trackingCode,
+              paymentSource: 'WALLET',
+              description: 'پرداخت هزینه تعمیرات',
+            },
           },
         }),
         this.prisma.repairRequest.update({

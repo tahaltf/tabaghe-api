@@ -58,6 +58,11 @@ export class ShipRepairDto {
   @MinLength(3)
   @MaxLength(60)
   trackingCode!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  note?: string;
 }
 
 export class ConfirmRepairResultDto {

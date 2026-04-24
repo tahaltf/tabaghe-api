@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import {
   ListingStatus,
+  NotificationType,
   OrderStatus,
   Prisma,
   RepairRequestStatus,
@@ -16,6 +17,7 @@ import { WalletService } from '../wallet/wallet.service';
 import { AppSettingsService } from '../../shared/settings/app-settings.service';
 import { PaymentGateway } from './gateways/payment-gateway.interface';
 import { ZibalGateway } from './gateways/zibal.gateway';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class PaymentsService {
@@ -26,6 +28,7 @@ export class PaymentsService {
     private readonly walletService: WalletService,
     private readonly appSettings: AppSettingsService,
     private readonly zibalGateway: ZibalGateway,
+    private readonly notificationService: NotificationService,
   ) {}
 
   private getGateway(): PaymentGateway {
@@ -34,7 +37,11 @@ export class PaymentsService {
     return this.zibalGateway;
   }
 
-  async initiateOrderPayment(orderId: string, userId: string) {
+  async initiateOrderPayment(
+    orderId: string,
+    userId: string,
+    callbackBaseUrl?: string,
+  ) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: { buyer: { select: { phone: true } } },
@@ -51,7 +58,8 @@ export class PaymentsService {
     }
 
     const gateway = this.getGateway();
-    const callbackBase = this.appSettings.getPaymentGatewayConfig().callbackUrl;
+    const callbackBase =
+      callbackBaseUrl ?? this.appSettings.getPaymentGatewayConfig().callbackUrl;
     const callbackUrl = `${callbackBase}?kind=ORDER&orderId=${order.id}`;
     const requested = await gateway.requestPayment({
       amount: Number(order.totalAmount),
@@ -76,7 +84,11 @@ export class PaymentsService {
     };
   }
 
-  async initiateRepairPayment(repairId: string, userId: string) {
+  async initiateRepairPayment(
+    repairId: string,
+    userId: string,
+    callbackBaseUrl?: string,
+  ) {
     const repair = await this.prisma.repairRequest.findUnique({
       where: { id: repairId },
       include: { user: { select: { phone: true } } },
@@ -94,7 +106,8 @@ export class PaymentsService {
     }
 
     const gateway = this.getGateway();
-    const callbackBase = this.appSettings.getPaymentGatewayConfig().callbackUrl;
+    const callbackBase =
+      callbackBaseUrl ?? this.appSettings.getPaymentGatewayConfig().callbackUrl;
     const callbackUrl = `${callbackBase}?kind=REPAIR&repairId=${repair.id}`;
     const requested = await gateway.requestPayment({
       amount,
@@ -112,7 +125,11 @@ export class PaymentsService {
     };
   }
 
-  async initiateWalletTopup(userId: string, amountRaw: number) {
+  async initiateWalletTopup(
+    userId: string,
+    amountRaw: number,
+    callbackBaseUrl?: string,
+  ) {
     const amount = Number(amountRaw ?? 0);
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new BadRequestException('مبلغ شارژ نامعتبر است');
@@ -130,7 +147,8 @@ export class PaymentsService {
     ]);
 
     const gateway = this.getGateway();
-    const callbackBase = this.appSettings.getPaymentGatewayConfig().callbackUrl;
+    const callbackBase =
+      callbackBaseUrl ?? this.appSettings.getPaymentGatewayConfig().callbackUrl;
     const callbackUrl = `${callbackBase}?kind=WALLET`;
     const requested = await gateway.requestPayment({
       amount,
@@ -149,6 +167,7 @@ export class PaymentsService {
         meta: {
           kind: PaymentsService.WALLET_TOPUP_KIND,
           authority: requested.authority,
+          paymentSource: 'GATEWAY',
           description: 'شارژ آنلاین کیف پول (در انتظار تایید درگاه)',
         },
       },
@@ -342,9 +361,47 @@ export class PaymentsService {
       };
     }
 
-    await this.prisma.repairRequest.update({
-      where: { id: repair.id },
-      data: { status: RepairRequestStatus.IN_PROGRESS },
+    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      const locked = await tx.repairRequest.findUnique({ where: { id: repair.id } });
+      if (!locked) throw new NotFoundException('درخواست تعمیر پیدا نشد');
+      if (locked.status === RepairRequestStatus.IN_PROGRESS) return;
+      if (locked.status !== RepairRequestStatus.RESULT_READY || !locked.userCostApproved) {
+        throw new BadRequestException('وضعیت پرداخت تعمیر نامعتبر است');
+      }
+
+      await tx.repairRequest.update({
+        where: { id: locked.id },
+        data: { status: RepairRequestStatus.IN_PROGRESS },
+      });
+
+      const wallet = await tx.wallet.upsert({
+        where: { userId: locked.userId },
+        create: {
+          userId: locked.userId,
+          balanceAvailable: 0,
+          balanceBlocked: 0,
+        },
+        update: {},
+      });
+
+      await tx.walletTransaction.create({
+        data: {
+          walletId: wallet.id,
+          type: WalletTransactionType.SETTLEMENT,
+          status: WalletTransactionStatus.SUCCESS,
+          amount: expectedAmount,
+          referenceId: locked.id,
+          meta: {
+            kind: 'repair-payment',
+            repairId: locked.id,
+            repairTrackingCode: locked.trackingCode,
+            paymentSource: 'GATEWAY',
+            authority,
+            refId: verified.refId ?? null,
+            description: 'پرداخت هزینه تعمیرات',
+          },
+        },
+      });
     });
 
     return {
@@ -443,11 +500,11 @@ export class PaymentsService {
       };
     }
 
-    await this.prisma.$transaction(async (tx) => {
+    const finalized = await this.prisma.$transaction(async (tx) => {
       const locked = await tx.walletTransaction.findUnique({
         where: { id: transaction.id },
       });
-      if (!locked || locked.status !== WalletTransactionStatus.PENDING) return;
+      if (!locked || locked.status !== WalletTransactionStatus.PENDING) return null;
 
       await tx.wallet.update({
         where: { id: locked.walletId },
@@ -465,7 +522,32 @@ export class PaymentsService {
           },
         },
       });
+
+      const wallet = await tx.wallet.findUnique({
+        where: { id: locked.walletId },
+        select: { userId: true },
+      });
+      return {
+        userId: wallet?.userId ?? null,
+        amount: Number(locked.amount),
+        transactionId: locked.id,
+      };
     });
+
+    if (finalized?.userId) {
+      await this.notificationService.create({
+        userId: finalized.userId,
+        type: NotificationType.SYSTEM,
+        title: 'شارژ کیف پول موفق',
+        message: 'پرداخت آنلاین شما با موفقیت انجام شد و کیف پول شارژ شد.',
+        meta: {
+          transactionId: finalized.transactionId,
+          amount: finalized.amount,
+          refId: verified.refId ?? null,
+          authority,
+        },
+      });
+    }
 
     return {
       result: 'PAID',

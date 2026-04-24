@@ -156,7 +156,7 @@ export class AuctionService {
         where: { listingId },
       });
 
-      if (!auction) throw new NotFoundException('Auction not found');
+      if (!auction) throw new NotFoundException('مزایده یافت نشد');
       if (auction.status === AuctionStatus.FINISHED) return null;
 
       if (!auction.highestBidderId) {
@@ -208,7 +208,7 @@ export class AuctionService {
         include: { listing: true },
       });
 
-      if (!auction) throw new NotFoundException('Auction not found');
+      if (!auction) throw new NotFoundException('مزایده یافت نشد');
 
       if (userId && auction.highestBidderId !== userId) {
         throw new ForbiddenException('شما برنده فعلی مزایده نیستید');
@@ -372,11 +372,11 @@ export class AuctionService {
         include: { listing: true },
       });
 
-      if (!auction) throw new NotFoundException('Auction not found');
+      if (!auction) throw new NotFoundException('مزایده یافت نشد');
       if (auction.status !== AuctionStatus.ACTIVE)
-        throw new ForbiddenException('Auction not active');
+        throw new ForbiddenException('مزایده فعال نیست');
       if (!auction.buyNowEnabled || !auction.buyNowPrice)
-        throw new BadRequestException('Buy Now not available');
+        throw new BadRequestException('خرید فوری برای این مزایده فعال نیست');
 
       const amount = new Decimal(auction.buyNowPrice);
 
@@ -448,7 +448,7 @@ export class AuctionService {
       include: { listing: { select: { title: true, authorId: true } } },
     });
 
-    if (!auction) throw new NotFoundException('Auction not found');
+    if (!auction) throw new NotFoundException('مزایده یافت نشد');
 
     const bidCount = await this.prisma.auctionBid.count({
       where: { listingId },
@@ -574,7 +574,7 @@ export class AuctionService {
       const auction = await tx.listingAuction.findUnique({
         where: { listingId },
       });
-      if (!auction) throw new NotFoundException();
+      if (!auction) throw new NotFoundException('مزایده یافت نشد');
 
       const bidders = [
         auction.highestBidderId,

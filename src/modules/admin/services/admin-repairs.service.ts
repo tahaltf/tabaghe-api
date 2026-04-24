@@ -21,6 +21,8 @@ import { NotificationService } from '../../notification/notification.service';
 const REPAIR_INCLUDE = {
   user: { select: { id: true, phone: true, firstName: true, lastName: true } },
 } satisfies Prisma.RepairRequestInclude;
+const USER_SHIPPING_NOTE_MARK = '[USER_SHIPPING_NOTE]';
+const ADMIN_RETURN_NOTE_MARK = '[ADMIN_RETURN_NOTE]';
 
 export type AdminRepairItem = Prisma.RepairRequestGetPayload<{
   include: typeof REPAIR_INCLUDE;
@@ -49,6 +51,36 @@ export class AdminRepairsService {
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationService,
   ) {}
+
+  private appendTaggedNote(base: string | null | undefined, marker: string, text?: string | null): string | null {
+    const current = (base ?? '').trim();
+    const note = (text ?? '').trim();
+    if (!note) return current || null;
+    const cleaned = current
+      .split('\n')
+      .filter((line) => !line.trim().startsWith(marker))
+      .join('\n')
+      .trim();
+    return [cleaned, `${marker} ${note}`].filter(Boolean).join('\n\n').trim();
+  }
+
+  private extractTaggedNote(text: string | null | undefined, marker: string): string | null {
+    const raw = (text ?? '').split('\n').find((line) => line.trim().startsWith(marker));
+    if (!raw) return null;
+    return raw.trim().slice(marker.length).trim() || null;
+  }
+
+  private stripTaggedNotes(text: string | null | undefined): string | null {
+    const cleaned = (text ?? '')
+      .split('\n')
+      .filter((line) => {
+        const t = line.trim();
+        return !t.startsWith(USER_SHIPPING_NOTE_MARK) && !t.startsWith(ADMIN_RETURN_NOTE_MARK);
+      })
+      .join('\n')
+      .trim();
+    return cleaned || null;
+  }
 
   // ---------------------------------------------------------------------------
   // Queries
@@ -92,7 +124,12 @@ export class AdminRepairsService {
       include: REPAIR_INCLUDE,
     });
     if (!repair) throw new NotFoundException('درخواست تعمیر یافت نشد');
-    return repair;
+    return {
+      ...repair,
+      adminNote: this.stripTaggedNotes(repair.adminNote),
+      userShippingNote: this.extractTaggedNote(repair.adminNote, USER_SHIPPING_NOTE_MARK),
+      adminReturnNote: this.extractTaggedNote(repair.adminNote, ADMIN_RETURN_NOTE_MARK),
+    } as AdminRepairItem;
   }
 
   // ---------------------------------------------------------------------------
@@ -184,12 +221,17 @@ export class AdminRepairsService {
     if (!video) {
       throw new BadRequestException('ویدیوی بسته‌بندی برای ارسال برگشتی الزامی است');
     }
+    const existing = await this.prisma.repairRequest.findUnique({
+      where: { id },
+      select: { adminNote: true },
+    });
     return this.transitionAndNotify({
       id,
       next: RepairRequestStatus.SHIPPED_BACK,
       extra: {
         returnTrackingCode: dto.trackingCode,
         returnVideo: video.filename,
+        adminNote: this.appendTaggedNote(existing?.adminNote, ADMIN_RETURN_NOTE_MARK, dto.note),
       },
       title: 'کالا برای شما ارسال شد',
       message: `کالای شما با کد رهگیری ${dto.trackingCode} ارسال شد.`,

@@ -4,12 +4,22 @@ import { join } from 'path';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { BulkUpsertSettingsDto, UpsertSettingDto } from '../dto/admin-setting.dto';
 import { BANNER_UPLOAD_PATH } from '../../../common/upload/banner-upload.config';
+import { BRAND_LOGO_UPLOAD_PATH } from '../../../common/upload/brand-logo-upload.config';
 
 export const SETTING_KEYS = {
   HOMEPAGE_BANNER: 'HOMEPAGE_BANNER',
+  MEDIA_FALLBACK_LOGO: 'MEDIA_FALLBACK_LOGO',
+  USER_APP_LOGO: 'USER_APP_LOGO',
+  ADMIN_PANEL_LOGO: 'ADMIN_PANEL_LOGO',
+  CRITICAL_ALERT_ENABLED: 'CRITICAL_ALERT_ENABLED',
+  CRITICAL_ALERT_LABEL: 'CRITICAL_ALERT_LABEL',
+  CRITICAL_ALERT_TEXT: 'CRITICAL_ALERT_TEXT',
+  CRITICAL_ALERT_BG_COLOR: 'CRITICAL_ALERT_BG_COLOR',
+  CRITICAL_ALERT_TEXT_COLOR: 'CRITICAL_ALERT_TEXT_COLOR',
   VERIFICATION_FEE: 'VERIFICATION_FEE',
   SHIPPING_COST: 'SHIPPING_COST',
   PLATFORM_ADDRESS: 'PLATFORM_ADDRESS',
+  PLATFORM_ADDRESSES: 'PLATFORM_ADDRESSES',
   SUPPORT_PHONE: 'SUPPORT_PHONE',
   SUPPORT_EMAIL: 'SUPPORT_EMAIL',
   BANK_CARD_NUMBER: 'BANK_CARD_NUMBER',
@@ -27,9 +37,18 @@ export type SettingKey = keyof typeof SETTING_KEYS;
 
 const KNOWN_DESCRIPTIONS: Record<string, string> = {
   HOMEPAGE_BANNER: 'نام فایل تصویر بنر بالای صفحه اصلی',
+  MEDIA_FALLBACK_LOGO: 'لوگوی جایگزین وقتی تصویر آگهی/بندانگشتی لود نمی‌شود',
+  USER_APP_LOGO: 'لوگوی سمت کاربر (هدر و داشبورد کاربر)',
+  ADMIN_PANEL_LOGO: 'لوگوی پنل مدیریت',
+  CRITICAL_ALERT_ENABLED: 'وضعیت نمایش اعلان بحرانی سراسری (true/false)',
+  CRITICAL_ALERT_LABEL: 'متن لیبل اعلان بحرانی سراسری',
+  CRITICAL_ALERT_TEXT: 'متن اعلان بحرانی سراسری',
+  CRITICAL_ALERT_BG_COLOR: 'رنگ پس‌زمینه اعلان بحرانی (hex)',
+  CRITICAL_ALERT_TEXT_COLOR: 'رنگ متن اعلان بحرانی (hex)',
   VERIFICATION_FEE: 'مبلغ کارشناسی هر کالا (تومان)',
   SHIPPING_COST: 'هزینه ارسال پیش‌فرض (تومان)',
   PLATFORM_ADDRESS: 'آدرس دفتر / هاب طبقه',
+  PLATFORM_ADDRESSES: 'لیست آدرس‌های هاب طبقه با کد پستی (JSON)',
   SUPPORT_PHONE: 'شماره پشتیبانی',
   SUPPORT_EMAIL: 'ایمیل پشتیبانی',
   BANK_CARD_NUMBER: 'شماره کارت بانکی واریز',
@@ -98,6 +117,14 @@ export class AdminSettingsService {
     if (key === SETTING_KEYS.HOMEPAGE_BANNER && existing.value) {
       this.deleteBannerFile(existing.value);
     }
+    if (
+      (key === SETTING_KEYS.MEDIA_FALLBACK_LOGO ||
+        key === SETTING_KEYS.USER_APP_LOGO ||
+        key === SETTING_KEYS.ADMIN_PANEL_LOGO) &&
+      existing.value
+    ) {
+      this.deleteBrandLogoFile(existing.value);
+    }
 
     await this.prisma.systemSetting.delete({ where: { key } });
     return { key };
@@ -119,6 +146,60 @@ export class AdminSettingsService {
       value: filename,
       description: KNOWN_DESCRIPTIONS.HOMEPAGE_BANNER,
     });
+  }
+
+  async setMediaFallbackLogo(filename: string) {
+    if (!filename) throw new BadRequestException('فایل لوگو نامعتبر است');
+
+    const previous = await this.prisma.systemSetting.findUnique({
+      where: { key: SETTING_KEYS.MEDIA_FALLBACK_LOGO },
+    });
+
+    if (previous?.value && previous.value !== filename) {
+      this.deleteBrandLogoFile(previous.value);
+    }
+
+    return this.upsert({
+      key: SETTING_KEYS.MEDIA_FALLBACK_LOGO,
+      value: filename,
+      description: KNOWN_DESCRIPTIONS.MEDIA_FALLBACK_LOGO,
+    });
+  }
+
+  async setUserAppLogo(filename: string) {
+    if (!filename) throw new BadRequestException('فایل لوگوی کاربر نامعتبر است');
+    return this.setBrandLogoByKey(SETTING_KEYS.USER_APP_LOGO, filename);
+  }
+
+  async setAdminPanelLogo(filename: string) {
+    if (!filename) throw new BadRequestException('فایل لوگوی ادمین نامعتبر است');
+    return this.setBrandLogoByKey(SETTING_KEYS.ADMIN_PANEL_LOGO, filename);
+  }
+
+  async removeMediaFallbackLogo() {
+    const existing = await this.prisma.systemSetting.findUnique({
+      where: { key: SETTING_KEYS.MEDIA_FALLBACK_LOGO },
+    });
+    if (existing?.value) this.deleteBrandLogoFile(existing.value);
+
+    await this.prisma.systemSetting.upsert({
+      where: { key: SETTING_KEYS.MEDIA_FALLBACK_LOGO },
+      update: { value: '' },
+      create: {
+        key: SETTING_KEYS.MEDIA_FALLBACK_LOGO,
+        value: '',
+        description: KNOWN_DESCRIPTIONS.MEDIA_FALLBACK_LOGO,
+      },
+    });
+    return { ok: true };
+  }
+
+  async removeUserAppLogo() {
+    return this.clearBrandLogoByKey(SETTING_KEYS.USER_APP_LOGO);
+  }
+
+  async removeAdminPanelLogo() {
+    return this.clearBrandLogoByKey(SETTING_KEYS.ADMIN_PANEL_LOGO);
   }
 
   async removeBanner() {
@@ -150,5 +231,47 @@ export class AdminSettingsService {
     } catch {
       // non-fatal
     }
+  }
+
+  private deleteBrandLogoFile(filename: string) {
+    try {
+      const safeName = filename.split(/[\\/]/).pop();
+      if (!safeName) return;
+      const fullPath = join(process.cwd(), BRAND_LOGO_UPLOAD_PATH.replace(/^\.\//, ''), safeName);
+      if (existsSync(fullPath)) {
+        unlink(fullPath, () => undefined);
+      }
+    } catch {
+      // non-fatal
+    }
+  }
+
+  private async setBrandLogoByKey(key: string, filename: string) {
+    const previous = await this.prisma.systemSetting.findUnique({ where: { key } });
+    if (previous?.value && previous.value !== filename) {
+      this.deleteBrandLogoFile(previous.value);
+    }
+
+    return this.upsert({
+      key,
+      value: filename,
+      description: KNOWN_DESCRIPTIONS[key],
+    });
+  }
+
+  private async clearBrandLogoByKey(key: string) {
+    const existing = await this.prisma.systemSetting.findUnique({ where: { key } });
+    if (existing?.value) this.deleteBrandLogoFile(existing.value);
+
+    await this.prisma.systemSetting.upsert({
+      where: { key },
+      update: { value: '' },
+      create: {
+        key,
+        value: '',
+        description: KNOWN_DESCRIPTIONS[key] ?? null,
+      },
+    });
+    return { ok: true };
   }
 }

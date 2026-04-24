@@ -31,6 +31,7 @@ services:
       - DATABASE_PORT=5432
       - DATABASE_USER=tabagheh_maindb
       - NODE_ENV=production
+      # با NODE_ENV=production فقط .env.production و .env بارگذاری می‌شوند نه .env.development
     networks:
       - tabagheh_net
 

@@ -86,7 +86,7 @@ export class AuctionController {
         @Headers('idempotency-key') key: string,
     ) {
         if (!key) {
-            throw new BadRequestException('Idempotency-Key header required');
+            throw new BadRequestException('هدر Idempotency-Key الزامی است');
         }
 
         return this.idempotencyService.execute({
@@ -115,7 +115,7 @@ export class AuctionController {
         @Headers('idempotency-key') key: string,
     ) {
         if (!key) {
-            throw new BadRequestException('Idempotency-Key header required');
+            throw new BadRequestException('هدر Idempotency-Key الزامی است');
         }
 
         return this.idempotencyService.execute({

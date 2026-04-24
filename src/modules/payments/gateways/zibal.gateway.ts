@@ -43,9 +43,15 @@ export class ZibalGateway implements PaymentGateway {
       mobile: payload.mobile,
     };
 
-    const { data } = await axios.post<ZibalRequestResponse>(cfg.requestUrl, body, {
-      timeout: 15_000,
-    });
+    let data: ZibalRequestResponse;
+    try {
+      const res = await axios.post<ZibalRequestResponse>(cfg.requestUrl, body, {
+        timeout: 15_000,
+      });
+      data = res.data;
+    } catch (err) {
+      this.rethrowZibalHttpError(err, 'request');
+    }
 
     if (!data || data.result !== 100 || !data.trackId) {
       throw new BadGatewayException(
@@ -72,11 +78,17 @@ export class ZibalGateway implements PaymentGateway {
       trackId: payload.authority,
     };
 
-    const { data } = await axios.post<ZibalVerifyResponse>(
-      'https://gateway.zibal.ir/v1/verify',
-      body,
-      { timeout: 15_000 },
-    );
+    let data: ZibalVerifyResponse;
+    try {
+      const res = await axios.post<ZibalVerifyResponse>(
+        'https://gateway.zibal.ir/v1/verify',
+        body,
+        { timeout: 15_000 },
+      );
+      data = res.data;
+    } catch (err) {
+      this.rethrowZibalHttpError(err, 'verify');
+    }
 
     const paidAmount = this.parseVerifiedAmount(data?.amount);
     const amountMatches =
@@ -88,6 +100,41 @@ export class ZibalGateway implements PaymentGateway {
       message: !amountMatches ? 'مبلغ تایید شده با سفارش یکسان نیست' : data?.message,
       raw: data,
     };
+  }
+
+  private rethrowZibalHttpError(err: unknown, context: 'request' | 'verify'): never {
+    const syscall = err as NodeJS.ErrnoException & {
+      cause?: { code?: string };
+    };
+    const code = syscall?.code ?? syscall?.cause?.code;
+    if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') {
+      throw new BadGatewayException(
+        'سرور نمی‌تواند نام دامنهٔ درگاه زیبال را پیدا کند (ENOTFOUND). اینترنت، DNS یا فیلترینگ را بررسی کنید؛ باید به gateway.zibal.ir دسترسی باشد.',
+      );
+    }
+    if (code === 'ECONNREFUSED' || code === 'ETIMEDOUT') {
+      throw new BadGatewayException(
+        'اتصال به سرور زیبال برقرار نشد (timeout یا رد اتصال). فایروال یا پروکسی را بررسی کنید.',
+      );
+    }
+    const ax = err as {
+      message?: string;
+      response?: { data?: unknown };
+    };
+    const body = ax.response?.data;
+    if (body && typeof body === 'object' && body !== null && 'message' in body) {
+      const m = (body as { message?: unknown }).message;
+      if (typeof m === 'string' && m.trim()) {
+        throw new BadGatewayException(m);
+      }
+    }
+    if (typeof ax.message === 'string' && ax.message.trim()) {
+      throw new BadGatewayException(
+        ax.message ||
+          (context === 'verify' ? 'خطا در تأیید تراکنش زیبال' : 'خطا در درخواست زیبال'),
+      );
+    }
+    throw err instanceof Error ? err : new BadGatewayException('خطای ناشناخته در ارتباط با زیبال');
   }
 
   /** Zibal may return `amount` as number or numeric string (ریال). */

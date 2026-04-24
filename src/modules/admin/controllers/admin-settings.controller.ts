@@ -19,6 +19,7 @@ import { Roles } from '../../auth/decorators/roles.decorator';
 import { AdminSettingsService } from '../services/admin-settings.service';
 import { BulkUpsertSettingsDto, UpsertSettingDto } from '../dto/admin-setting.dto';
 import { bannerMulterOptions } from '../../../common/upload/banner-upload.config';
+import { brandLogoMulterOptions } from '../../../common/upload/brand-logo-upload.config';
 
 @Controller('admin/settings')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -56,6 +57,42 @@ export class AdminSettingsController {
   @Delete('banner')
   removeBanner() {
     return this.service.removeBanner();
+  }
+
+  @Post('media-fallback-logo')
+  @UseInterceptors(FileInterceptor('file', brandLogoMulterOptions))
+  async uploadMediaFallbackLogo(@UploadedFile() file?: Express.Multer.File) {
+    if (!file) throw new BadRequestException('فایلی ارسال نشده است');
+    return this.service.setMediaFallbackLogo(file.filename);
+  }
+
+  @Delete('media-fallback-logo')
+  removeMediaFallbackLogo() {
+    return this.service.removeMediaFallbackLogo();
+  }
+
+  @Post('user-logo')
+  @UseInterceptors(FileInterceptor('file', brandLogoMulterOptions))
+  async uploadUserLogo(@UploadedFile() file?: Express.Multer.File) {
+    if (!file) throw new BadRequestException('فایلی ارسال نشده است');
+    return this.service.setUserAppLogo(file.filename);
+  }
+
+  @Delete('user-logo')
+  removeUserLogo() {
+    return this.service.removeUserAppLogo();
+  }
+
+  @Post('admin-logo')
+  @UseInterceptors(FileInterceptor('file', brandLogoMulterOptions))
+  async uploadAdminLogo(@UploadedFile() file?: Express.Multer.File) {
+    if (!file) throw new BadRequestException('فایلی ارسال نشده است');
+    return this.service.setAdminPanelLogo(file.filename);
+  }
+
+  @Delete('admin-logo')
+  removeAdminLogo() {
+    return this.service.removeAdminPanelLogo();
   }
 
   @Delete(':key')

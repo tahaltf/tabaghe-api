@@ -48,7 +48,7 @@ export class QuotaService {
         action: QuotaAction.RELEASE,
         reason: ledger.reason,
         planPurchaseId: ledger.planPurchaseId,
-        note: 'Released due to admin rejection',
+        note: 'آزادسازی سهمیه پس از رد آگهی توسط ادمین',
       },
     });
   }
@@ -107,7 +107,7 @@ export class QuotaService {
         listingType,
         action: QuotaAction.COMMIT,
         reason: QuotaReason.FREE_DIRECT,
-        note: 'Free direct listing quota',
+        note: 'سهمیه رایگان آگهی ثابت',
       },
     });
   }
@@ -160,13 +160,15 @@ export class QuotaService {
             action: QuotaAction.COMMIT,
             reason: QuotaReason.PLAN,
             planPurchaseId: purchase.id,
-            note: 'Consumed from plan',
+            note: 'کسر از پلن فعال',
           },
         });
         return;
       }
     }
 
-    throw new ForbiddenException('No quota available for this listing type');
+    throw new ForbiddenException(
+      'سهمیه‌ای برای این نوع آگهی باقی نمانده است. پلن مناسب را تهیه کنید.',
+    );
   }
 }

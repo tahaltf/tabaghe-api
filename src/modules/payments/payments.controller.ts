@@ -82,6 +82,7 @@ export class PaymentsController {
       return res.redirect(302, target.toString());
     }
   }
+
 }
 
 function paymentCallbackErrorMessage(err: unknown): string {

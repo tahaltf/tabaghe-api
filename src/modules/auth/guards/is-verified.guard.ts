@@ -37,7 +37,7 @@ export class IsVerifiedGuard implements CanActivate {
       );
       throw new ForbiddenException({
         statusCode: 403,
-        error: 'Forbidden',
+        error: 'عدم دسترسی',
         message:
           'حساب کاربری شما هنوز تایید نشده است. لطفاً پروفایل خود را تکمیل کنید.',
         code: 'PROFILE_INCOMPLETE',

@@ -11,19 +11,128 @@ import { json, urlencoded } from 'express';
 import helmet from 'helmet';
 import { join } from 'path';
 
-function flattenValidationErrors(errors: ValidationError[], parent = ''): string[] {
-  const out: string[] = [];
+/** ترجمهٔ پیام‌های پیش‌فرض class-validator برای نمایش به کاربر نهایی */
+function translateValidationConstraintMessage(raw: string): string {
+  let m = raw.trim();
+  const fullLine = [
+    [
+      /^property ([a-zA-Z0-9_.]+) should not exist$/i,
+      (_: string, g1: string) => `فیلد «${g1}» در این درخواست مجاز نیست`,
+    ],
+    [
+      /^nested property (.+) must be either object or array$/i,
+      (_: string, g1: string) => `فیلد تو در تو «${g1}» باید شی یا آرایه باشد`,
+    ],
+    [
+      /^each value in nested property (.+) must be either object or array$/i,
+      (_: string, g1: string) => `هر مقدار در فیلد تو در تو «${g1}» باید شی یا آرایه باشد`,
+    ],
+  ] as const;
+  for (const [re, repl] of fullLine) {
+    const match = re.exec(m);
+    if (match) return repl(match[0], match[1]);
+  }
+
+  const phrasePairs: Array<[RegExp, string]> = [
+    [/must be longer than or equal to (\d+) characters/gi, 'طول باید حداقل $1 کاراکتر باشد'],
+    [/must be shorter than or equal to (\d+) characters/gi, 'طول باید حداکثر $1 کاراکتر باشد'],
+    [/must be a number conforming to the specified constraints/gi, 'باید عدد معتبر باشد'],
+    [/must be an integer number/gi, 'باید عدد صحیح باشد'],
+    [/must be a positive number/gi, 'باید عدد مثبت باشد'],
+    [/must be a negative number/gi, 'باید عدد منفی باشد'],
+    [/must be a boolean value/gi, 'باید مقدار صحیح یا غلط باشد'],
+    [/must be a string/gi, 'باید متن باشد'],
+    [/must be a number/gi, 'باید عدد باشد'],
+    [/must be an email/gi, 'باید ایمیل معتبر باشد'],
+    [/must be a UUID/gi, 'باید شناسه یکتا (UUID) معتبر باشد'],
+    [/must be a URL address/gi, 'باید آدرس اینترنتی معتبر باشد'],
+    [/must be a Date instance/gi, 'باید تاریخ معتبر باشد'],
+    [/should not be empty/gi, 'نباید خالی باشد'],
+    [/must not be less than ([0-9.]+)/gi, 'نباید کمتر از $1 باشد'],
+    [/must not be greater than ([0-9.]+)/gi, 'نباید بیشتر از $1 باشد'],
+    [/must match \/(.*)\/ regular expression/gi, 'با قالب درخواستی مطابقت ندارد'],
+    [/is not valid phone number/gi, 'شماره تلفن معتبر نیست'],
+    [/is not a valid phone number/gi, 'شماره تلفن معتبر نیست'],
+  ];
+  for (const [re, fa] of phrasePairs) {
+    m = m.replace(re, fa);
+  }
+  return m;
+}
+
+/** برچسب خوانا برای فیلدهای رایج؛ وقتی کلاینت فیلدی نامجاز می‌فرستد (forbidNonWhitelisted). */
+const FORBIDDEN_FIELD_LABELS: Record<string, string> = {
+  // آگهی ثابت
+  'direct.price': 'قیمت در بخش «آگهی ثابت»',
+  'direct.allowExchange': 'گزینهٔ معاوضه در بخش «آگهی ثابت»',
+  'direct.shippingMethods': 'روش‌های ارسال در بخش «آگهی ثابت»',
+  // معاوضه
+  'exchange.desiredCategoryId': 'دستهٔ کالای موردنظر در بخش «معاوضه»',
+  'exchange.desiredTitle': 'عنوان کالای موردنظر در بخش «معاوضه»',
+  'exchange.desiredDescription': 'توضیح کالای موردنظر در بخش «معاوضه»',
+  'exchange.ownValue': 'ارزش کالای خودتان در بخش «معاوضه»',
+  'exchange.extraPaymentAmount': 'مبلغ پرداخت اضافی در بخش «معاوضه»',
+  'exchange.acceptOtherItems': 'پذیرش سایر کالاها در بخش «معاوضه»',
+  'exchange.allowDirectSale': 'امکان فروش مستقیم در بخش «معاوضه»',
+  'exchange.directPrice': 'قیمت فروش مستقیم در بخش «معاوضه»',
+  // مزایده
+  'auction.basePrice': 'قیمت پایه در بخش «مزایده»',
+  'auction.minBidIncrement': 'حداقل افزایش پیشنهاد در بخش «مزایده»',
+  'auction.endDatetime': 'زمان پایان در بخش «مزایده»',
+  'auction.buyNowEnabled': 'فعال‌سازی خرید فوری در بخش «مزایده»',
+  'auction.buyNowPrice': 'قیمت خرید فوری در بخش «مزایده»',
+};
+
+const WHITELIST_VIOLATION_RE = /^property [a-zA-Z0-9_.]+ should not exist$/i;
+
+function labelForForbiddenPath(propPath: string): string {
+  return FORBIDDEN_FIELD_LABELS[propPath] ?? `«${propPath}»`;
+}
+
+/** چند خطای forbidNonWhitelisted را یکی می‌کند تا همان جملهٔ طولانی تکرار نشود. */
+function mergeWhitelistViolationMessages(paths: string[]): string | null {
+  const unique = [...new Set(paths)];
+  if (unique.length === 0) return null;
+  const labels = unique.map(labelForForbiddenPath);
+  if (labels.length === 1) {
+    return `${labels[0]} را در این درخواست نفرستید؛ با نوع آگهی یا این عملیات هم‌خوان نیست.`;
+  }
+  return `این موارد را با هم نفرستید: ${labels.join('، ')}. همگی با نوع آگهی یا این عملیات هم‌خوان نیستند.`;
+}
+
+function collectValidationMessages(
+  errors: ValidationError[],
+  parent = '',
+): { whitelistPaths: string[]; otherLines: string[] } {
+  const whitelistPaths: string[] = [];
+  const otherLines: string[] = [];
   for (const err of errors) {
     const prop = parent ? `${parent}.${err.property}` : err.property;
     if (err.constraints) {
       for (const msg of Object.values(err.constraints)) {
-        out.push(`${prop} ${msg}`);
+        const raw = msg.trim();
+        if (WHITELIST_VIOLATION_RE.test(raw)) {
+          whitelistPaths.push(prop);
+        } else {
+          otherLines.push(`${prop} ${translateValidationConstraintMessage(msg)}`);
+        }
       }
     }
-    if (err.children && err.children.length) {
-      out.push(...flattenValidationErrors(err.children, prop));
+    if (err.children?.length) {
+      const nested = collectValidationMessages(err.children, prop);
+      whitelistPaths.push(...nested.whitelistPaths);
+      otherLines.push(...nested.otherLines);
     }
   }
+  return { whitelistPaths, otherLines };
+}
+
+function flattenValidationErrors(errors: ValidationError[]): string[] {
+  const { whitelistPaths, otherLines } = collectValidationMessages(errors);
+  const merged = mergeWhitelistViolationMessages(whitelistPaths);
+  const out: string[] = [];
+  if (merged) out.push(merged);
+  out.push(...otherLines);
   return out;
 }
 
@@ -76,7 +185,7 @@ async function bootstrap() {
       exceptionFactory: (errors: ValidationError[]) =>
         new BadRequestException({
           message: flattenValidationErrors(errors),
-          error: 'ValidationError',
+          error: 'خطای اعتبارسنجی',
           statusCode: 400,
         }),
     }),
