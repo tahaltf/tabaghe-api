@@ -154,14 +154,45 @@ export class AdminOrdersCommandService {
       },
     });
 
-    await this.notifyParties(
-      existing.buyerId,
-      existing.sellerId,
-      id,
-      OrderStatus.SHIPPED_TO_BUYER,
+    const buyerNote =
       dto.note ??
-        'مرسوله از هاب ارسال شد و کد رهگیری برای طرفین ثبت گردید.',
-    );
+      (existing.type === 'EXCHANGE'
+        ? 'مرسوله‌های خروجی از هاب ارسال شد و کد رهگیری شما ثبت گردید.'
+        : 'مرسوله از هاب به مقصد شما ارسال شد و کد رهگیری ثبت گردید.');
+    const sellerNote =
+      dto.note ??
+      (existing.type === 'EXCHANGE'
+        ? 'مرسوله‌های خروجی از هاب ارسال شد و کد رهگیری‌ها ثبت گردید.'
+        : 'مرسوله از هاب برای خریدار ارسال شد و کد رهگیری ثبت گردید.');
+
+    await this.prisma.notification.createMany({
+      data: [
+        {
+          userId: existing.buyerId,
+          type: NotificationType.ORDER_STATUS_CHANGED,
+          title: 'وضعیت سفارش تغییر کرد',
+          message: `وضعیت سفارش به «ارسال به خریدار» تغییر یافت. توضیح: ${buyerNote}`,
+          meta: {
+            orderId: id,
+            status: OrderStatus.SHIPPED_TO_BUYER,
+            note: buyerNote,
+            audience: 'BUYER',
+          } as Prisma.InputJsonValue,
+        },
+        {
+          userId: existing.sellerId,
+          type: NotificationType.ORDER_STATUS_CHANGED,
+          title: 'وضعیت سفارش تغییر کرد',
+          message: `وضعیت سفارش به «ارسال به خریدار» تغییر یافت. توضیح: ${sellerNote}`,
+          meta: {
+            orderId: id,
+            status: OrderStatus.SHIPPED_TO_BUYER,
+            note: sellerNote,
+            audience: 'SELLER',
+          } as Prisma.InputJsonValue,
+        },
+      ],
+    });
     return updated;
   }
 

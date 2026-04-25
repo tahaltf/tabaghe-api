@@ -3,7 +3,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { DisputeOutcome, ListingStatus, OrderStatus, Prisma } from '@prisma/client';
+import {
+  DisputeOutcome,
+  ListingStatus,
+  OrderStatus,
+  Prisma,
+  TicketStatus,
+  UserRole,
+} from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import {
   buildPaginationMeta,
@@ -315,6 +322,45 @@ export class AdminDisputesService {
           disputeOutcome: dto.outcome,
         },
       });
+
+      const outcomeLabel =
+        dto.outcome === DisputeOutcome.REFUND_BUYER
+          ? 'بازگشت کامل وجه به خریدار'
+          : dto.outcome === DisputeOutcome.RELEASE_SELLER
+            ? 'آزادسازی وجه برای فروشنده'
+            : dto.outcome === DisputeOutcome.PARTIAL_REFUND
+              ? 'بازگشت بخشی از وجه'
+              : 'لغو سفارش';
+      const adminReply = [
+        `نتیجه رسیدگی سفارش #${id.slice(-6)} اعلام شد.`,
+        `تصمیم: ${outcomeLabel}`,
+        `توضیح ادمین: ${dto.resolution}`,
+      ].join('\n');
+
+      const relatedTickets = await tx.ticket.findMany({
+        where: {
+          userId: { in: [order.buyerId, order.sellerId] },
+          OR: [
+            { subject: { contains: `[ORDER:${id}]`, mode: 'insensitive' } },
+            { subject: { contains: id.slice(-6), mode: 'insensitive' } },
+          ],
+        },
+        select: { id: true },
+      });
+
+      if (relatedTickets.length > 0) {
+        await tx.ticketMessage.createMany({
+          data: relatedTickets.map((t) => ({
+            ticketId: t.id,
+            senderRole: UserRole.ADMIN,
+            message: adminReply,
+          })),
+        });
+        await tx.ticket.updateMany({
+          where: { id: { in: relatedTickets.map((t) => t.id) } },
+          data: { status: TicketStatus.ANSWERED },
+        });
+      }
 
       try {
         await Promise.all([

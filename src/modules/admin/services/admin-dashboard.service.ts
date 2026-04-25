@@ -62,6 +62,14 @@ export interface AdminDashboardStats {
     inHub: number;
     completed: number;
     disputed: number;
+    verificationFlow: {
+      awaitingShipmentToHub: number;
+      shippedToHub: number;
+      receivedAtHub: number;
+      checkingAtHub: number;
+      verifiedAtHub: number;
+      shippedToBuyer: number;
+    };
   };
   revenue: {
     totalCommission: number;
@@ -125,6 +133,12 @@ export class AdminDashboardService {
       ordersHub,
       ordersCompleted,
       ordersDisputed,
+      ordersAwaitingShipmentToHub,
+      ordersShippedToHub,
+      ordersReceivedAtHub,
+      ordersCheckingAtHub,
+      ordersVerifiedAtHub,
+      ordersShippedToBuyer,
       commissionAgg,
       salesAgg,
       walletAgg,
@@ -157,6 +171,12 @@ export class AdminDashboardService {
       this.prisma.order.count({ where: { status: { in: HUB_ACTIVE } } }),
       this.prisma.order.count({ where: { status: OrderStatus.COMPLETED } }),
       this.prisma.order.count({ where: { status: OrderStatus.DISPUTED } }),
+      this.prisma.order.count({ where: { status: OrderStatus.AWAITING_SHIPMENT_TO_HUB } }),
+      this.prisma.order.count({ where: { status: OrderStatus.SHIPPED_TO_HUB } }),
+      this.prisma.order.count({ where: { status: OrderStatus.RECEIVED_AT_HUB } }),
+      this.prisma.order.count({ where: { status: OrderStatus.CHECKING_AT_HUB } }),
+      this.prisma.order.count({ where: { status: OrderStatus.VERIFIED_AT_HUB } }),
+      this.prisma.order.count({ where: { status: OrderStatus.SHIPPED_TO_BUYER } }),
 
       this.prisma.order.aggregate({
         where: { status: { in: REALIZED_ORDER_STATUSES } },
@@ -278,6 +298,14 @@ export class AdminDashboardService {
         inHub: ordersHub,
         completed: ordersCompleted,
         disputed: ordersDisputed,
+        verificationFlow: {
+          awaitingShipmentToHub: ordersAwaitingShipmentToHub,
+          shippedToHub: ordersShippedToHub,
+          receivedAtHub: ordersReceivedAtHub,
+          checkingAtHub: ordersCheckingAtHub,
+          verifiedAtHub: ordersVerifiedAtHub,
+          shippedToBuyer: ordersShippedToBuyer,
+        },
       },
       revenue: {
         totalCommission: commission.toNumber(),

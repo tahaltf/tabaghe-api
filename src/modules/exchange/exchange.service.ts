@@ -122,6 +122,8 @@ export class ExchangeService {
                 orderBy: { createdAt: 'desc' },
                 select: {
                     id: true,
+                    listingId: true,
+                    offererId: true,
                     status: true,
                     title: true,
                     description: true,

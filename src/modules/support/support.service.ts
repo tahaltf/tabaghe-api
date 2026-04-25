@@ -2,12 +2,17 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { NotificationType, UserRole } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CreateTicketDto } from "./dto/create-ticket.dto";
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class SupportService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notification: NotificationService,
+  ) {}
 
   async createTicket(userId: string, dto: CreateTicketDto) {
     return this.prisma.ticket.create({
@@ -91,6 +96,27 @@ export class SupportService {
       where: { id: ticketId },
       data: { status: 'OPEN' },
     });
+
+    try {
+      const admins = await this.prisma.user.findMany({
+        where: { role: { in: [UserRole.ADMIN, UserRole.GODADMIN] } },
+        select: { id: true },
+      });
+      if (admins.length > 0) {
+        await this.prisma.notification.createMany({
+          data: admins.map((a) => ({
+            userId: a.id,
+            type: NotificationType.TICKET_REPLY,
+            title: 'پیام جدید تیکت پشتیبانی',
+            message: `کاربر برای تیکت «${ticket.subject}» پیام جدید ارسال کرده است.`,
+            meta: { ticketId: ticket.id, userId },
+          })),
+        });
+      }
+    } catch {
+      // ignore notification errors to avoid breaking ticket messaging
+    }
+
     return created;
   }
 }

@@ -310,6 +310,13 @@ export class PaymentsService {
       });
     });
 
+    await this.notifyOrderPurchasedAndSold({
+      id: order.id,
+      buyerId: order.buyerId,
+      sellerId: order.sellerId,
+      listingId: order.listingId,
+    });
+
     return {
       result: 'PAID',
       ok: true,
@@ -575,5 +582,45 @@ export class PaymentsService {
   private isGatewayCallbackSuccess(successFlag: string): boolean {
     const normalized = successFlag.trim().toLowerCase();
     return normalized === '1' || normalized === 'true';
+  }
+
+  private async notifyOrderPurchasedAndSold(order: {
+    id: string;
+    buyerId: string;
+    sellerId: string;
+    listingId: string;
+  }): Promise<void> {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: order.listingId },
+      select: { title: true },
+    });
+    const listingTitle = listing?.title ?? 'کالا';
+
+    await Promise.all([
+      this.notificationService.create({
+        userId: order.buyerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'خرید شما ثبت شد',
+        message: `خرید شما برای «${listingTitle}» با موفقیت ثبت شد.`,
+        meta: {
+          orderId: order.id,
+          listingId: order.listingId,
+          role: 'BUYER',
+          status: 'PAID',
+        },
+      }),
+      this.notificationService.create({
+        userId: order.sellerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'کالای شما فروخته شد',
+        message: `کالای «${listingTitle}» با موفقیت فروخته شد.`,
+        meta: {
+          orderId: order.id,
+          listingId: order.listingId,
+          role: 'SELLER',
+          status: 'SOLD',
+        },
+      }),
+    ]);
   }
 }

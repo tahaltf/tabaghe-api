@@ -13,6 +13,7 @@ import {
   OrderStatus,
   OrderType,
   ListingStatus,
+  NotificationType,
   Prisma,
   WalletTransactionStatus,
   WalletTransactionType,
@@ -24,6 +25,7 @@ import Decimal from 'decimal.js';
 import { OrdersStateMachineService } from './orders-state-machine.service';
 import { AppSettingsService } from '../../shared/settings/app-settings.service';
 import { PaymentsService } from '../payments/payments.service';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class OrdersService {
@@ -38,6 +40,7 @@ export class OrdersService {
     private readonly appSettings: AppSettingsService,
     private readonly stateMachine: OrdersStateMachineService,
     private readonly paymentsService: PaymentsService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   // =================================================================
@@ -130,7 +133,7 @@ export class OrdersService {
           isPayerMe: true,
           createdAt: true,
           listing: {
-            select: { id: true, title: true, thumbnail: true, status: true },
+            select: { id: true, title: true, thumbnail: true, gallery: true, status: true },
           },
         },
         orderBy: { createdAt: 'desc' },
@@ -650,6 +653,14 @@ export class OrdersService {
       paymentUrl = initiated.paymentUrl;
     }
 
+    const shouldNotifyPurchase =
+      order.type !== OrderType.EXCHANGE &&
+      order.status !== OrderStatus.PENDING &&
+      order.status !== OrderStatus.AWAITING_PAYMENT;
+    if (shouldNotifyPurchase) {
+      await this.notifyOrderPurchasedAndSold(order);
+    }
+
     return {
       ...order,
       paymentUrl: paymentUrl
@@ -920,7 +931,11 @@ export class OrdersService {
       }
 
       // ✅ اصلاح شده: استفاده از شرط صریح به جای includes
-      if (order.status !== OrderStatus.SHIPPED && order.status !== OrderStatus.DELIVERED) {
+      if (
+        order.status !== OrderStatus.SHIPPED &&
+        order.status !== OrderStatus.DELIVERED &&
+        order.status !== OrderStatus.SHIPPED_TO_BUYER
+      ) {
         throw new BadRequestException('وضعیت سفارش برای شکایت مناسب نیست');
       }
 
@@ -940,7 +955,7 @@ export class OrdersService {
 
       const ticketMessage = `🚨 **اعلام مغایرت سفارش**\nکالا: ${order.listing.title}\nعلت: ${reason}\n${videoLink}`;
 
-      await tx.ticket.create({
+      const createdTicket = await tx.ticket.create({
         data: {
           userId: buyerId,
           subject: `شکایت سفارش #${order.id.slice(-6)}`,
@@ -948,10 +963,41 @@ export class OrdersService {
           messages: {
             create: { senderRole: 'USER', message: ticketMessage }
           }
-        }
+        },
+        select: { id: true },
       });
 
-      return { success: true, message: 'شکایت شما ثبت شد و مبلغ مسدود ماند.' };
+      await tx.notification.createMany({
+        data: [
+          {
+            userId: buyerId,
+            type: NotificationType.ORDER_STATUS_CHANGED,
+            title: 'شکایت شما ثبت شد',
+            message: `شکایت سفارش #${order.id.slice(-6)} ثبت شد و برای پشتیبانی ارسال گردید.`,
+            meta: {
+              orderId: order.id,
+              ticketId: createdTicket.id,
+              status: OrderStatus.DISPUTED,
+            } as Prisma.InputJsonValue,
+          },
+          {
+            userId: order.sellerId,
+            type: NotificationType.ORDER_STATUS_CHANGED,
+            title: 'برای سفارش شما شکایت ثبت شد',
+            message: `خریدار برای سفارش #${order.id.slice(-6)} شکایت ثبت کرده است.`,
+            meta: {
+              orderId: order.id,
+              status: OrderStatus.DISPUTED,
+            } as Prisma.InputJsonValue,
+          },
+        ],
+      });
+
+      return {
+        success: true,
+        message: 'شکایت شما ثبت شد و مبلغ مسدود ماند.',
+        ticketId: createdTicket.id,
+      };
     });
   }
 
@@ -1149,5 +1195,45 @@ export class OrdersService {
         },
       },
     });
+  }
+
+  private async notifyOrderPurchasedAndSold(order: {
+    id: string;
+    buyerId: string;
+    sellerId: string;
+    listingId: string;
+  }): Promise<void> {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: order.listingId },
+      select: { title: true },
+    });
+    const listingTitle = listing?.title ?? 'کالا';
+
+    await Promise.all([
+      this.notificationService.create({
+        userId: order.buyerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'خرید شما ثبت شد',
+        message: `خرید شما برای «${listingTitle}» با موفقیت ثبت شد.`,
+        meta: {
+          orderId: order.id,
+          listingId: order.listingId,
+          role: 'BUYER',
+          status: 'PAID',
+        },
+      }),
+      this.notificationService.create({
+        userId: order.sellerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'کالای شما فروخته شد',
+        message: `کالای «${listingTitle}» با موفقیت فروخته شد.`,
+        meta: {
+          orderId: order.id,
+          listingId: order.listingId,
+          role: 'SELLER',
+          status: 'SOLD',
+        },
+      }),
+    ]);
   }
 }

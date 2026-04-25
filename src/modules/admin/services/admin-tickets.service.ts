@@ -3,8 +3,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, TicketStatus, UserRole } from '@prisma/client';
+import { NotificationType, Prisma, TicketStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { NotificationService } from '../../notification/notification.service';
 import {
   buildPaginationMeta,
   PaginatedResult,
@@ -32,7 +33,10 @@ export type AdminTicketDetail = Prisma.TicketGetPayload<{ include: typeof TICKET
 
 @Injectable()
 export class AdminTicketsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notification: NotificationService,
+  ) {}
 
   async list(
     query: AdminTicketListQueryDto,
@@ -95,6 +99,19 @@ export class AdminTicketsService {
         data: { status: TicketStatus.ANSWERED },
       }),
     ]);
+
+    try {
+      await this.notification.create({
+        userId: ticket.userId,
+        type: NotificationType.TICKET_REPLY,
+        title: 'پاسخ جدید پشتیبانی',
+        message: `برای تیکت «${ticket.subject}» پاسخ جدید ثبت شد.`,
+        meta: { ticketId: ticket.id },
+      });
+    } catch {
+      // ignore notification errors to avoid breaking reply flow
+    }
+
     return this.detail(id);
   }
 

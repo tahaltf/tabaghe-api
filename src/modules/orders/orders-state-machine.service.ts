@@ -11,7 +11,7 @@ const TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   [OrderStatus.CHECKING_AT_HUB]: [OrderStatus.VERIFIED_AT_HUB, OrderStatus.REJECTED_AT_HUB],
   [OrderStatus.VERIFIED_AT_HUB]: [OrderStatus.SHIPPED_TO_BUYER],
   [OrderStatus.REJECTED_AT_HUB]: [OrderStatus.CANCELLED],
-  [OrderStatus.SHIPPED_TO_BUYER]: [OrderStatus.SHIPPED, OrderStatus.DELIVERED],
+  [OrderStatus.SHIPPED_TO_BUYER]: [OrderStatus.SHIPPED, OrderStatus.DELIVERED, OrderStatus.DISPUTED],
   [OrderStatus.SHIPPED]: [OrderStatus.DELIVERED, OrderStatus.DISPUTED, OrderStatus.COMPLETED],
   [OrderStatus.DELIVERED]: [OrderStatus.DISPUTED, OrderStatus.COMPLETED],
   [OrderStatus.DISPUTED]: [OrderStatus.COMPLETED, OrderStatus.CANCELLED],
