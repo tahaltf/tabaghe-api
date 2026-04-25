@@ -128,8 +128,7 @@ export class CommonService {
       platformAddresses = [];
     }
 
-    const fallbackAddress = map.PLATFORM_ADDRESS || null;
-    const primaryAddress = platformAddresses[0]?.address || fallbackAddress;
+    const primaryAddress = map.PLATFORM_ADDRESS || platformAddresses[0]?.address || null;
 
     return {
       homepageBanner: map.HOMEPAGE_BANNER || null,

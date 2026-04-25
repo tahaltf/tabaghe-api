@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { DisputeOutcome, OrderStatus, Prisma } from '@prisma/client';
+import { DisputeOutcome, ListingStatus, OrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import {
   buildPaginationMeta,
@@ -172,10 +172,26 @@ export class AdminDisputesService {
 
       switch (dto.outcome) {
         case DisputeOutcome.REFUND_BUYER: {
+          if (sellerRevenue > 0) {
+            await tx.wallet.upsert({
+              where: { userId: order.sellerId },
+              create: {
+                userId: order.sellerId,
+                balanceAvailable: 0,
+                balanceBlocked: 0,
+              },
+              update: { balanceBlocked: { decrement: sellerRevenue } },
+            });
+          }
           if (total > 0) {
-            await tx.wallet.update({
+            await tx.wallet.upsert({
               where: { userId: order.buyerId },
-              data: { balanceAvailable: { increment: total } },
+              create: {
+                userId: order.buyerId,
+                balanceAvailable: total,
+                balanceBlocked: 0,
+              },
+              update: { balanceAvailable: { increment: total } },
             });
           }
           await tx.user.update({
@@ -186,13 +202,22 @@ export class AdminDisputesService {
             where: { id },
             data: { status: OrderStatus.CANCELLED },
           });
+          await tx.listing.update({
+            where: { id: order.listingId },
+            data: { status: ListingStatus.APPROVED },
+          });
           break;
         }
         case DisputeOutcome.RELEASE_SELLER: {
           if (sellerRevenue > 0) {
-            await tx.wallet.update({
+            await tx.wallet.upsert({
               where: { userId: order.sellerId },
-              data: {
+              create: {
+                userId: order.sellerId,
+                balanceAvailable: sellerRevenue,
+                balanceBlocked: 0,
+              },
+              update: {
                 balanceBlocked: { decrement: sellerRevenue },
                 balanceAvailable: { increment: sellerRevenue },
               },
@@ -211,16 +236,26 @@ export class AdminDisputesService {
         case DisputeOutcome.PARTIAL_REFUND: {
           const refund = Math.max(0, Math.min(total, dto.refundToBuyer ?? 0));
           if (refund > 0) {
-            await tx.wallet.update({
+            await tx.wallet.upsert({
               where: { userId: order.buyerId },
-              data: { balanceAvailable: { increment: refund } },
+              create: {
+                userId: order.buyerId,
+                balanceAvailable: refund,
+                balanceBlocked: 0,
+              },
+              update: { balanceAvailable: { increment: refund } },
             });
           }
           const remainForSeller = Math.max(0, sellerRevenue - refund);
           if (remainForSeller > 0) {
-            await tx.wallet.update({
+            await tx.wallet.upsert({
               where: { userId: order.sellerId },
-              data: {
+              create: {
+                userId: order.sellerId,
+                balanceAvailable: remainForSeller,
+                balanceBlocked: 0,
+              },
+              update: {
                 balanceBlocked: { decrement: remainForSeller },
                 balanceAvailable: { increment: remainForSeller },
               },
@@ -230,12 +265,42 @@ export class AdminDisputesService {
             where: { id },
             data: { status: OrderStatus.CANCELLED },
           });
+          await tx.listing.update({
+            where: { id: order.listingId },
+            data: { status: ListingStatus.APPROVED },
+          });
           break;
         }
         case DisputeOutcome.CANCEL: {
+          if (sellerRevenue > 0) {
+            await tx.wallet.upsert({
+              where: { userId: order.sellerId },
+              create: {
+                userId: order.sellerId,
+                balanceAvailable: 0,
+                balanceBlocked: 0,
+              },
+              update: { balanceBlocked: { decrement: sellerRevenue } },
+            });
+          }
+          if (total > 0) {
+            await tx.wallet.upsert({
+              where: { userId: order.buyerId },
+              create: {
+                userId: order.buyerId,
+                balanceAvailable: total,
+                balanceBlocked: 0,
+              },
+              update: { balanceAvailable: { increment: total } },
+            });
+          }
           await tx.order.update({
             where: { id },
             data: { status: OrderStatus.CANCELLED },
+          });
+          await tx.listing.update({
+            where: { id: order.listingId },
+            data: { status: ListingStatus.APPROVED },
           });
           break;
         }

@@ -76,6 +76,16 @@ export class ConfirmRepairResultDto {
   @IsString()
   @MaxLength(500)
   note?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  returnAddressId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  returnAddressText?: string;
 }
 
 export class RepairPayDto {

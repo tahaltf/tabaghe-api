@@ -20,6 +20,8 @@ import { AdminNotificationsController } from './controllers/admin-notifications.
 import { AdminDisputesController } from './controllers/admin-disputes.controller';
 import { AdminFaqController } from './controllers/admin-faq.controller';
 import { AdminSmsController } from './controllers/admin-sms.controller';
+import { AdminLogsController } from './controllers/admin-logs.controller';
+import { AdminPlatformWalletController } from './controllers/admin-platform-wallet.controller';
 
 // Services
 import { AdminDashboardService } from './services/admin-dashboard.service';
@@ -38,6 +40,8 @@ import { AdminTicketsService } from './services/admin-tickets.service';
 import { AdminDisputesService } from './services/admin-disputes.service';
 import { AdminFaqService } from './services/admin-faq.service';
 import { AdminSmsService } from './services/admin-sms.service';
+import { AdminLogsService } from './services/admin-logs.service';
+import { AdminPlatformWalletService } from './services/admin-platform-wallet.service';
 import { SmsService } from '../sms/sms.service';
 
 @Module({
@@ -59,6 +63,8 @@ import { SmsService } from '../sms/sms.service';
     AdminDisputesController,
     AdminFaqController,
     AdminSmsController,
+    AdminLogsController,
+    AdminPlatformWalletController,
   ],
   providers: [
     AdminDashboardService,
@@ -77,6 +83,8 @@ import { SmsService } from '../sms/sms.service';
     AdminDisputesService,
     AdminFaqService,
     AdminSmsService,
+    AdminLogsService,
+    AdminPlatformWalletService,
     SmsService,
   ],
 })

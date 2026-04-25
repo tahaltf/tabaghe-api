@@ -5,7 +5,18 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { ListingType, OrderStatus, OrderType, ListingStatus, Prisma } from '@prisma/client';
+import {
+  AuctionBidStatus,
+  AuctionSettlementStatus,
+  AuctionStatus,
+  ListingType,
+  OrderStatus,
+  OrderType,
+  ListingStatus,
+  Prisma,
+  WalletTransactionStatus,
+  WalletTransactionType,
+} from '@prisma/client';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { WalletService } from "../wallet/wallet.service";
 import { FeeCalculatorService } from '../fees/fee-calculator.service';
@@ -16,6 +27,10 @@ import { PaymentsService } from '../payments/payments.service';
 
 @Injectable()
 export class OrdersService {
+  private static readonly DEFAULT_SELLER_SHIP_DEADLINE_DAYS = 3;
+  private static readonly DEFAULT_BUYER_CONFIRM_DEADLINE_DAYS = 4;
+  private static readonly DEFAULT_EXCHANGE_NO_SHIPMENT_COMPENSATION = 0;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly walletService: WalletService,
@@ -190,13 +205,22 @@ export class OrdersService {
       let verificationFee = 0;
       let platformAddress = null;
       let sellerRequestedVerification = false;
+      let auctionBlockedDeposit = 0;
+      let auctionWinnerBidId: string | null = null;
 
       const feeSetting = await tx.systemSetting.findUnique({ where: { key: 'VERIFICATION_FEE' } });
       const shippingSetting = await tx.systemSetting.findUnique({ where: { key: 'SHIPPING_COST' } });
+      const sellerShipDeadlineSetting = await tx.systemSetting.findUnique({
+        where: { key: 'SELLER_SHIP_DEADLINE_DAYS' },
+      });
       const addressSetting = await tx.systemSetting.findUnique({ where: { key: 'PLATFORM_ADDRESS' } });
       const hubAddress = addressSetting ? addressSetting.value : 'تهران، دفتر مرکزی پردازش و کارشناسی طبقه';
       const hubFee = feeSetting ? Number(feeSetting.value) : 250000;
       const shippingFee = shippingSetting ? Number(shippingSetting.value) : 50000;
+      const sellerShipDeadlineDays = this.parsePositiveIntSetting(
+        sellerShipDeadlineSetting?.value,
+        OrdersService.DEFAULT_SELLER_SHIP_DEADLINE_DAYS,
+      );
 
       // -----------------------------------------------------
       // سناریو ۱: معاوضه (پشتیبانی از پرداخت دوطرفه)
@@ -352,13 +376,34 @@ export class OrdersService {
       else if (orderType === 'AUCTION') {
         const listing = await tx.listing.findUnique({
           where: { id: listingId },
-          include: { auction: { include: { bids: { where: { bidderId: userId }, orderBy: { amount: 'desc' }, take: 1 } } } }
+          include: {
+            auction: {
+              include: {
+                bids: {
+                  where: { bidderId: userId, status: AuctionBidStatus.ACTIVE },
+                  orderBy: { amount: 'desc' },
+                  take: 1,
+                },
+              },
+            },
+          },
         });
         if (!listing || !listing.auction || !listing.auction.bids[0]) throw new BadRequestException('اطلاعات مزایده یافت نشد');
+        if (listing.auction.status !== AuctionStatus.FINISHED) {
+          throw new BadRequestException('این مزایده هنوز نهایی نشده است');
+        }
+        if (listing.auction.settlementStatus !== AuctionSettlementStatus.PENDING) {
+          throw new BadRequestException('وضعیت تسویه این مزایده قابل پرداخت نیست');
+        }
+        if (listing.auction.highestBidderId !== userId) {
+          throw new ForbiddenException('فقط برنده فعلی مزایده می‌تواند پرداخت و سفارش را نهایی کند');
+        }
 
-        const userBid = Number(listing.auction.bids[0].amount);
-        const guaranteeBlocked = userBid * 0.10;
-        finalPrice = userBid - guaranteeBlocked;
+        const winnerBidAmount = Number(listing.auction.bids[0].amount);
+        const guaranteeBlocked = Number(listing.auction.bids[0].blockedAmount || 0);
+        auctionWinnerBidId = listing.auction.bids[0].id;
+        finalPrice = winnerBidAmount;
+        auctionBlockedDeposit = Math.max(0, guaranteeBlocked);
 
         sellerId = listing.authorId;
         categoryId = listing.categoryId;
@@ -416,7 +461,11 @@ export class OrdersService {
       }
 
       // مبلغ کل پرداختی خریدار
-      const totalPayable = finalPrice + shippingCost + feeChargedToBuyer;
+      const totalPayable = (
+        orderType === 'AUCTION'
+          ? Math.max(0, finalPrice - auctionBlockedDeposit) + shippingCost + feeChargedToBuyer
+          : finalPrice + shippingCost + feeChargedToBuyer
+      );
 
       const platformFee = await this.feeCalculator.calculateFee(
         orderType === 'AUCTION' ? ListingType.AUCTION : (orderType === 'EXCHANGE' ? ListingType.EXCHANGE : ListingType.DIRECT),
@@ -440,8 +489,93 @@ export class OrdersService {
           throw new BadRequestException('موجودی کیف پول کافی نیست');
         }
 
-        // 🎯 سیستم امانی با محاسبه دقیق فراخوانی شد
-        await this.walletService.transferToEscrow(buyerId, sellerId, totalPayable, totalPlatformCut, listingId, tx);
+        if (orderType === 'AUCTION') {
+          await this.walletService.payAuctionFinal(
+            buyerId,
+            sellerId,
+            finalPrice,
+            auctionBlockedDeposit,
+            platformFee,
+            listingId,
+            tx,
+          );
+
+          if (shippingCost > 0) {
+            await this.walletService.payFromAvailable(
+              buyerId,
+              shippingCost,
+              `${listingId}:shipping`,
+              tx,
+            );
+
+            const sellerWallet = await tx.wallet.upsert({
+              where: { userId: sellerId },
+              create: {
+                userId: sellerId,
+                balanceAvailable: 0,
+                balanceBlocked: shippingCost,
+              },
+              update: {
+                balanceBlocked: { increment: shippingCost },
+              },
+            });
+
+            await tx.walletTransaction.create({
+              data: {
+                walletId: sellerWallet.id,
+                amount: shippingCost,
+                type: WalletTransactionType.DEPOSIT,
+                status: WalletTransactionStatus.PENDING,
+                referenceId: listingId,
+                meta: { description: 'هزینه ارسال مزایده (بلوکه)' },
+              },
+            });
+          }
+
+          if (feeChargedToBuyer > 0) {
+            await this.walletService.payFromAvailable(
+              buyerId,
+              feeChargedToBuyer,
+              `${listingId}:verification`,
+              tx,
+            );
+          }
+
+          const otherActiveBids = await tx.auctionBid.findMany({
+            where: {
+              listingId,
+              status: AuctionBidStatus.ACTIVE,
+              bidderId: { not: buyerId },
+            },
+          });
+          for (const bid of otherActiveBids) {
+            const blocked = Number(bid.blockedAmount || 0);
+            if (blocked > 0) {
+              await this.walletService.unblockAmount(bid.bidderId, blocked, listingId, tx);
+            }
+            await tx.auctionBid.update({
+              where: { id: bid.id },
+              data: { status: AuctionBidStatus.LOST, blockedAmount: 0 },
+            });
+          }
+
+          if (auctionWinnerBidId) {
+            await tx.auctionBid.update({
+              where: { id: auctionWinnerBidId },
+              data: { status: AuctionBidStatus.WON, blockedAmount: 0 },
+            });
+          }
+        } else {
+          // 🎯 سیستم امانی با محاسبه دقیق فراخوانی شد
+          await this.walletService.transferToEscrow(
+            buyerId,
+            sellerId,
+            totalPayable,
+            totalPlatformCut,
+            listingId,
+            tx,
+          );
+        }
       }
 
       let orderStatus: OrderStatus = OrderStatus.PENDING;
@@ -480,7 +614,7 @@ export class OrdersService {
         orderStatus !== OrderStatus.AWAITING_PAYMENT
       ) {
         const deadline = new Date();
-        deadline.setHours(deadline.getHours() + 72);
+        deadline.setDate(deadline.getDate() + sellerShipDeadlineDays);
         orderPayload.shippingDeadline = deadline;
       }
 
@@ -499,6 +633,12 @@ export class OrdersService {
         orderStatus !== OrderStatus.PENDING &&
         orderStatus !== OrderStatus.AWAITING_PAYMENT
       ) {
+        if (orderType === 'AUCTION') {
+          await tx.listingAuction.update({
+            where: { listingId },
+            data: { settlementStatus: AuctionSettlementStatus.PAID },
+          });
+        }
         await tx.listing.update({ where: { id: listingId }, data: { status: ListingStatus.SOLD } });
       }
 
@@ -579,6 +719,52 @@ export class OrdersService {
       const order = await tx.order.findUnique({ where: { id: orderId } });
 
       if (!order) throw new NotFoundException('سفارش یافت نشد');
+      if (order.type === OrderType.EXCHANGE) {
+        const isBuyer = order.buyerId === userId;
+        const isSeller = order.sellerId === userId;
+        if (!isBuyer && !isSeller) {
+          throw new BadRequestException('شما طرفین این سفارش نیستید');
+        }
+        if (order.status === OrderStatus.COMPLETED) {
+          throw new BadRequestException('این سفارش قبلاً تسویه شده است');
+        }
+        this.stateMachine.assertTransition(order.status, OrderStatus.COMPLETED, 'confirm-order-exchange');
+
+        const updateData: Prisma.OrderUpdateInput = {};
+        if (isBuyer && !order.buyerConfirmedDelivery) {
+          updateData.buyerConfirmedDelivery = true;
+        }
+        if (isSeller && !order.sellerConfirmedDelivery) {
+          updateData.sellerConfirmedDelivery = true;
+        }
+        const afterAck = await tx.order.update({
+          where: { id: orderId },
+          data: updateData,
+        });
+
+        const bothConfirmed =
+          (afterAck.buyerConfirmedDelivery || isBuyer) &&
+          (afterAck.sellerConfirmedDelivery || isSeller);
+        if (!bothConfirmed) {
+          return afterAck;
+        }
+
+        const amountToRelease = Number(order.sellerRevenue);
+        if (amountToRelease > 0) {
+          await this.walletService.releaseEscrow(
+            order.sellerId,
+            amountToRelease,
+            order.listingId,
+            tx,
+          );
+        }
+
+        return tx.order.update({
+          where: { id: orderId },
+          data: { status: OrderStatus.COMPLETED },
+        });
+      }
+
       if (order.buyerId !== userId) throw new BadRequestException('شما خریدار این سفارش نیستید');
 
       // اجازه نمیدیم سفارشی که قبلا تکمیل شده دوباره تایید بشه
@@ -657,6 +843,21 @@ export class OrdersService {
       (order as any).exchangeOffer = exchangeOffer;
     }
 
+    if (order.status === OrderStatus.REJECTED_AT_HUB) {
+      const relatedTicket = await this.prisma.ticket.findFirst({
+        where: {
+          userId,
+          OR: [
+            { subject: { contains: `[ORDER:${orderId}]` } },
+            { subject: { contains: orderId.slice(-6) } },
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+      (order as any).supportTicketId = relatedTicket?.id ?? null;
+    }
+
     const needsHub = order.requiresVerification || order.type === 'EXCHANGE';
     const isSellerView = order.sellerId === userId;
     const isBuyerView = order.buyerId === userId;
@@ -714,6 +915,9 @@ export class OrdersService {
 
       if (!order) throw new NotFoundException('سفارش یافت نشد');
       if (order.buyerId !== buyerId) throw new BadRequestException('شما خریدار نیستید');
+      if (order.type === OrderType.EXCHANGE) {
+        throw new BadRequestException('برای معاملات معاوضه امکان ثبت شکایت در این مرحله وجود ندارد');
+      }
 
       // ✅ اصلاح شده: استفاده از شرط صریح به جای includes
       if (order.status !== OrderStatus.SHIPPED && order.status !== OrderStatus.DELIVERED) {
@@ -758,9 +962,10 @@ export class OrdersService {
   @Cron(CronExpression.EVERY_HOUR)
   async autoCancelExpiredOrders() {
     const now = new Date();
+    const exchangeCompensation = await this.getExchangeNoShipmentCompensation();
     const expiredOrders = await this.prisma.order.findMany({
       where: {
-        status: OrderStatus.PAID,
+        status: { in: [OrderStatus.PAID, OrderStatus.AWAITING_SHIPMENT_TO_HUB] },
         shippingDeadline: { lt: now },
       },
     });
@@ -768,12 +973,51 @@ export class OrdersService {
     for (const order of expiredOrders) {
       try {
         await this.prisma.$transaction(async (tx) => {
-          if (Number(order.totalAmount) > 0) {
-            await tx.wallet.update({
-              where: { userId: order.buyerId },
-              data: { balanceAvailable: { increment: order.totalAmount } }
+          const sellerSent = Boolean(order.trackingCode);
+          const buyerSentForExchange = order.type === OrderType.EXCHANGE && Boolean(order.sellerTrackingCode);
+
+          if (Number(order.sellerRevenue) > 0) {
+            await tx.wallet.upsert({
+              where: { userId: order.sellerId },
+              create: {
+                userId: order.sellerId,
+                balanceAvailable: 0,
+                balanceBlocked: 0,
+              },
+              update: { balanceBlocked: { decrement: order.sellerRevenue } },
             });
           }
+
+          if (Number(order.totalAmount) > 0) {
+            await tx.wallet.upsert({
+              where: { userId: order.buyerId },
+              create: {
+                userId: order.buyerId,
+                balanceAvailable: order.totalAmount,
+                balanceBlocked: 0,
+              },
+              update: { balanceAvailable: { increment: order.totalAmount } },
+            });
+          }
+
+          if (order.type === OrderType.EXCHANGE && exchangeCompensation > 0) {
+            if (sellerSent && !buyerSentForExchange) {
+              await this.creditExchangeCompensation(
+                tx,
+                order.sellerId,
+                exchangeCompensation,
+                order.id,
+              );
+            } else if (buyerSentForExchange && !sellerSent) {
+              await this.creditExchangeCompensation(
+                tx,
+                order.buyerId,
+                exchangeCompensation,
+                order.id,
+              );
+            }
+          }
+
           await tx.user.update({
             where: { id: order.sellerId },
             data: { trustScore: { decrement: 15 } }
@@ -796,21 +1040,114 @@ export class OrdersService {
 
   @Cron(CronExpression.EVERY_HOUR)
   async autoConfirmOrders() {
-    const fourDaysAgo = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000);
+    const buyerConfirmDeadlineDays = await this.getBuyerConfirmDeadlineDays();
+    const threshold = new Date(
+      Date.now() - buyerConfirmDeadlineDays * 24 * 60 * 60 * 1000,
+    );
     const pendingOrders = await this.prisma.order.findMany({
       where: {
-        status: OrderStatus.SHIPPED,
-        updatedAt: { lte: fourDaysAgo },
+        status: { in: [OrderStatus.SHIPPED, OrderStatus.DELIVERED] },
+        updatedAt: { lte: threshold },
       },
     });
 
     for (const order of pendingOrders) {
       try {
-        await this.confirmOrder(order.buyerId, order.id);
+        if (order.type === OrderType.EXCHANGE) {
+          await this.prisma.$transaction(async (tx) => {
+            const locked = await tx.order.findUnique({ where: { id: order.id } });
+            if (!locked) return;
+            if (locked.status === OrderStatus.COMPLETED || locked.status === OrderStatus.CANCELLED) return;
+
+            const amountToRelease = Number(locked.sellerRevenue);
+            if (amountToRelease > 0) {
+              await this.walletService.releaseEscrow(
+                locked.sellerId,
+                amountToRelease,
+                locked.listingId,
+                tx,
+              );
+            }
+            await tx.order.update({
+              where: { id: locked.id },
+              data: {
+                buyerConfirmedDelivery: true,
+                sellerConfirmedDelivery: true,
+                status: OrderStatus.COMPLETED,
+              },
+            });
+          });
+        } else {
+          await this.confirmOrder(order.buyerId, order.id);
+        }
         console.log(`Auto-confirmed order ${order.id}`);
       } catch (error) {
         console.error(`Error auto-confirming order ${order.id}:`, error);
       }
     }
+  }
+
+  private parsePositiveIntSetting(
+    value: string | null | undefined,
+    fallback: number,
+  ): number {
+    const parsed = Number(value ?? '');
+    if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+    return Math.floor(parsed);
+  }
+
+  private async getBuyerConfirmDeadlineDays(): Promise<number> {
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'BUYER_CONFIRM_DEADLINE_DAYS' },
+      select: { value: true },
+    });
+    return this.parsePositiveIntSetting(
+      setting?.value,
+      OrdersService.DEFAULT_BUYER_CONFIRM_DEADLINE_DAYS,
+    );
+  }
+
+  private async getExchangeNoShipmentCompensation(): Promise<number> {
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'EXCHANGE_NO_SHIPMENT_COMPENSATION' },
+      select: { value: true },
+    });
+    const parsed = this.parsePositiveIntSetting(
+      setting?.value,
+      OrdersService.DEFAULT_EXCHANGE_NO_SHIPMENT_COMPENSATION,
+    );
+    return Math.max(0, parsed);
+  }
+
+  private async creditExchangeCompensation(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    amount: number,
+    orderId: string,
+  ): Promise<void> {
+    await tx.wallet.upsert({
+      where: { userId },
+      create: {
+        userId,
+        balanceAvailable: amount,
+        balanceBlocked: 0,
+      },
+      update: {
+        balanceAvailable: { increment: amount },
+      },
+    });
+    await tx.walletTransaction.create({
+      data: {
+        wallet: { connect: { userId } },
+        amount,
+        type: WalletTransactionType.DEPOSIT,
+        status: WalletTransactionStatus.SUCCESS,
+        referenceId: orderId,
+        meta: {
+          kind: 'exchange-compensation',
+          description: 'به پاس عذرخواهی بابت عدم ارسال طرف مقابل',
+        },
+      },
+    });
   }
 }

@@ -7,9 +7,11 @@ import {
   UploadedFile,
   UseGuards,
   UseInterceptors,
+  Req,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Express } from 'express';
+import type { Request } from 'express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AuthenticatedUser } from '../../shared/contracts/auth';
@@ -57,5 +59,17 @@ export class UsersController {
     @UploadedFile() file?: Express.Multer.File,
   ): Promise<MyProfile> {
     return this.usersService.updateSettings(user.id, dto, file?.filename);
+  }
+
+  @Patch('accept-terms')
+  acceptTerms(
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ): Promise<MyProfile> {
+    return this.usersService.acceptTerms(
+      user.id,
+      req.ip,
+      String(req.headers['user-agent'] ?? ''),
+    );
   }
 }

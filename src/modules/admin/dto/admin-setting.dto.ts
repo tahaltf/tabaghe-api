@@ -17,7 +17,6 @@ export class UpsertSettingDto {
   key!: string;
 
   @IsString()
-  @MaxLength(2000)
   value!: string;
 
   @IsOptional()

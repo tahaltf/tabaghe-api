@@ -13,6 +13,7 @@ import {
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CompleteProfileDto } from './dto/complete-profile.dto';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
+import { appendJsonLog } from '../../common/logging/app-log.util';
 
 const MY_PROFILE_SELECT = {
   id: true,
@@ -194,5 +195,22 @@ export class UsersService {
     if (value === undefined) return undefined;
     if (typeof value === 'boolean') return value;
     return String(value).toLowerCase() === 'true';
+  }
+
+  async acceptTerms(userId: string, ip?: string, userAgent?: string): Promise<MyProfile> {
+    const now = new Date();
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: { termsAcceptedAt: now },
+      select: MY_PROFILE_SELECT,
+    });
+    appendJsonLog('terms-consent.log', {
+      at: now.toISOString(),
+      userId,
+      ip: ip ?? null,
+      userAgent: userAgent ?? null,
+      event: 'TERMS_ACCEPTED',
+    });
+    return updated;
   }
 }

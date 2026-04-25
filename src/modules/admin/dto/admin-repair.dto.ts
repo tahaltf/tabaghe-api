@@ -69,6 +69,12 @@ export class AdminSetResultDto {
   @Min(0)
   @Type(() => Number)
   estimatedCost?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  internalProfit?: number;
 }
 
 export class AdminShipBackDto {

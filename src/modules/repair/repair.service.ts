@@ -27,6 +27,7 @@ import {
 const PROCESS_CWD_UPLOADS = join(process.cwd(), 'uploads');
 const USER_SHIPPING_NOTE_MARK = '[USER_SHIPPING_NOTE]';
 const ADMIN_RETURN_NOTE_MARK = '[ADMIN_RETURN_NOTE]';
+const INTERNAL_PROFIT_MARK = '[INTERNAL_PROFIT]';
 
 @Injectable()
 export class RepairService {
@@ -168,7 +169,9 @@ export class RepairService {
       .split('\n')
       .filter((line) => {
         const t = line.trim();
-        return !t.startsWith(USER_SHIPPING_NOTE_MARK) && !t.startsWith(ADMIN_RETURN_NOTE_MARK);
+        return !t.startsWith(USER_SHIPPING_NOTE_MARK)
+          && !t.startsWith(ADMIN_RETURN_NOTE_MARK)
+          && !t.startsWith(INTERNAL_PROFIT_MARK);
       })
       .join('\n')
       .trim();
@@ -499,12 +502,38 @@ export class RepairService {
     }
 
     if (dto.decision === 'REJECT') {
+      const reason = (dto.note ?? '').trim();
+      if (reason.length < 3) {
+        throw new BadRequestException('برای رد هزینه، نوشتن دلیل الزامی است');
+      }
+      const addresses = await this.prisma.address.findMany({
+        where: { userId },
+        select: { id: true, fullAddress: true, postalCode: true },
+      });
+      let returnAddress = '';
+      if (addresses.length) {
+        if (!dto.returnAddressId) {
+          throw new BadRequestException('لطفاً یک آدرس برای بازگشت کالا انتخاب کنید');
+        }
+        const selected = addresses.find((x) => x.id === dto.returnAddressId);
+        if (!selected) {
+          throw new BadRequestException('آدرس انتخابی معتبر نیست');
+        }
+        returnAddress = selected.fullAddress;
+      } else {
+        const manual = (dto.returnAddressText ?? '').trim();
+        if (manual.length < 10) {
+          throw new BadRequestException('آدرس بازگشت کالا الزامی است');
+        }
+        returnAddress = manual;
+      }
+
       const cancelled = await this.prisma.repairRequest.update({
         where: { id: repairId },
         data: {
           status: RepairRequestStatus.CANCELLED,
           userCostApproved: false,
-          rejectionReason: dto.note || 'عدم موافقت کاربر با هزینه کارشناسی',
+          rejectionReason: `عدم موافقت با هزینه: ${reason}\nآدرس برگشت: ${returnAddress}`,
         },
       });
       await this.notifyOwner(

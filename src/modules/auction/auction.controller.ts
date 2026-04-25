@@ -45,6 +45,12 @@ export class AuctionController {
         );
     }
 
+    @UseGuards(JwtAuthGuard)
+    @Post(':listingId/cancel-bid')
+    cancelBid(@Req() req: any, @Param('listingId') listingId: string) {
+        return this.auctionService.cancelBid(req.user.id, listingId);
+    }
+
     // -----------------------------------
     // Get Auction State (Public, اما viewer رو در صورت لاگین بودن خوانده می‌شه)
     // -----------------------------------

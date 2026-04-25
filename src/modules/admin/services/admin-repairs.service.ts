@@ -23,6 +23,7 @@ const REPAIR_INCLUDE = {
 } satisfies Prisma.RepairRequestInclude;
 const USER_SHIPPING_NOTE_MARK = '[USER_SHIPPING_NOTE]';
 const ADMIN_RETURN_NOTE_MARK = '[ADMIN_RETURN_NOTE]';
+const INTERNAL_PROFIT_MARK = '[INTERNAL_PROFIT]';
 
 export type AdminRepairItem = Prisma.RepairRequestGetPayload<{
   include: typeof REPAIR_INCLUDE;
@@ -75,7 +76,9 @@ export class AdminRepairsService {
       .split('\n')
       .filter((line) => {
         const t = line.trim();
-        return !t.startsWith(USER_SHIPPING_NOTE_MARK) && !t.startsWith(ADMIN_RETURN_NOTE_MARK);
+        return !t.startsWith(USER_SHIPPING_NOTE_MARK)
+          && !t.startsWith(ADMIN_RETURN_NOTE_MARK)
+          && !t.startsWith(INTERNAL_PROFIT_MARK);
       })
       .join('\n')
       .trim();
@@ -188,12 +191,21 @@ export class AdminRepairsService {
   }
 
   async setResult(id: string, dto: AdminSetResultDto): Promise<AdminRepairItem> {
+    const existing = await this.prisma.repairRequest.findUnique({
+      where: { id },
+      select: { adminNote: true },
+    });
     return this.transitionAndNotify({
       id,
       next: RepairRequestStatus.RESULT_READY,
       extra: {
         inspectionResult: dto.inspectionResult,
         estimatedCost: dto.estimatedCost ?? null,
+        adminNote: this.appendTaggedNote(
+          existing?.adminNote,
+          INTERNAL_PROFIT_MARK,
+          dto.internalProfit !== undefined ? String(dto.internalProfit) : null,
+        ),
       },
       title: 'نتیجه کارشناسی اعلام شد',
       message:

@@ -1,10 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import {
+  ListingType,
   ListingStatus,
   OrderStatus,
   RepairRequestStatus,
   TicketStatus,
   UserStatus,
+  WalletTransactionStatus,
+  WalletTransactionType,
 } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
@@ -49,6 +52,9 @@ export interface AdminDashboardStats {
     pending: number;
     rejected: number;
     sold: number;
+    direct: number;
+    auction: number;
+    exchange: number;
   };
   orders: {
     total: number;
@@ -80,6 +86,8 @@ export interface AdminDashboardStats {
   }>;
 }
 
+export type DashboardWindow = 'day' | 'week' | 'year';
+
 const HUB_ACTIVE: OrderStatus[] = [
   OrderStatus.AWAITING_SHIPMENT_TO_HUB,
   OrderStatus.SHIPPED_TO_HUB,
@@ -109,6 +117,9 @@ export class AdminDashboardService {
       listingsPending,
       listingsRejected,
       listingsSold,
+      listingsDirect,
+      listingsAuction,
+      listingsExchange,
       ordersTotal,
       ordersPending,
       ordersHub,
@@ -137,6 +148,9 @@ export class AdminDashboardService {
       this.prisma.listing.count({ where: { status: ListingStatus.PENDING } }),
       this.prisma.listing.count({ where: { status: ListingStatus.REJECTED } }),
       this.prisma.listing.count({ where: { status: ListingStatus.SOLD } }),
+      this.prisma.listing.count({ where: { type: ListingType.DIRECT } }),
+      this.prisma.listing.count({ where: { type: ListingType.AUCTION } }),
+      this.prisma.listing.count({ where: { type: ListingType.EXCHANGE } }),
 
       this.prisma.order.count(),
       this.prisma.order.count({ where: { status: OrderStatus.PENDING } }),
@@ -254,6 +268,9 @@ export class AdminDashboardService {
         pending: listingsPending,
         rejected: listingsRejected,
         sold: listingsSold,
+        direct: listingsDirect,
+        auction: listingsAuction,
+        exchange: listingsExchange,
       },
       orders: {
         total: ordersTotal,
@@ -271,6 +288,59 @@ export class AdminDashboardService {
       repair: { pending: repairPending, active: repairActive },
       tickets: { open: ticketsOpen, answered: ticketsAnswered },
       recentActivity,
+    };
+  }
+
+  async getKpisByWindow(window: DashboardWindow = 'week') {
+    const since =
+      window === 'day'
+        ? sinceDaysAgo(1, new Date())
+        : window === 'year'
+          ? sinceDaysAgo(365, new Date())
+          : sinceDaysAgo(7, new Date());
+
+    const [
+      ordersCount,
+      usersActiveCount,
+      repairsCount,
+      walletAgg,
+      profitAgg,
+      verificationAgg,
+      penaltiesAgg,
+    ] = await Promise.all([
+      this.prisma.order.count({ where: { createdAt: { gte: since } } }),
+      this.prisma.user.count({ where: { lastLoginAt: { gte: since } } }),
+      this.prisma.repairRequest.count({ where: { createdAt: { gte: since } } }),
+      this.prisma.wallet.aggregate({ _sum: { balanceAvailable: true, balanceBlocked: true } }),
+      this.prisma.order.aggregate({
+        where: { status: { in: REALIZED_ORDER_STATUSES }, createdAt: { gte: since } },
+        _sum: { platformFee: true },
+      }),
+      this.prisma.order.aggregate({
+        where: { requiresVerification: true, status: { in: REALIZED_ORDER_STATUSES }, createdAt: { gte: since } },
+        _sum: { verificationFee: true },
+      }),
+      this.prisma.walletTransaction.aggregate({
+        where: { type: WalletTransactionType.PENALTY, status: WalletTransactionStatus.SUCCESS, createdAt: { gte: since } },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    const platformBalance = new Decimal(walletAgg._sum.balanceAvailable ?? 0).plus(walletAgg._sum.balanceBlocked ?? 0);
+    const blocked = new Decimal(walletAgg._sum.balanceBlocked ?? 0);
+    const profit = new Decimal(profitAgg._sum.platformFee ?? 0)
+      .plus(verificationAgg._sum.verificationFee ?? 0)
+      .plus(penaltiesAgg._sum.amount ?? 0);
+
+    return {
+      window,
+      since,
+      ordersCount,
+      platformBalance: platformBalance.toNumber(),
+      platformProfit: profit.toNumber(),
+      blockedBalance: blocked.toNumber(),
+      activeUsers: usersActiveCount,
+      repairRequests: repairsCount,
     };
   }
 

@@ -212,6 +212,16 @@ export class PaymentsService {
     return this.processOrderCallback({ orderId, authority, successFlag });
   }
 
+  private async getSellerShipDeadlineDays(tx: Prisma.TransactionClient): Promise<number> {
+    const setting = await tx.systemSetting.findUnique({
+      where: { key: 'SELLER_SHIP_DEADLINE_DAYS' },
+      select: { value: true },
+    });
+    const parsed = Number(setting?.value ?? '');
+    if (!Number.isFinite(parsed) || parsed <= 0) return 3;
+    return Math.floor(parsed);
+  }
+
   private async processOrderCallback(params: {
     orderId: string;
     authority: string;
@@ -282,8 +292,9 @@ export class PaymentsService {
           ? OrderStatus.AWAITING_SHIPMENT_TO_HUB
           : OrderStatus.PAID;
 
+      const sellerShipDeadlineDays = await this.getSellerShipDeadlineDays(tx);
       const deadline = new Date();
-      deadline.setHours(deadline.getHours() + 72);
+      deadline.setDate(deadline.getDate() + sellerShipDeadlineDays);
 
       await tx.order.update({
         where: { id: locked.id },

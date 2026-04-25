@@ -12,6 +12,7 @@ import {
   buildErrorEnvelope,
 } from '../../shared/contracts/api-response';
 import { ApiErrorCode } from '../../shared/contracts/enums';
+import { appendJsonLog } from '../logging/app-log.util';
 
 interface NestHttpExceptionResponse {
   message?: string | string[];
@@ -99,6 +100,19 @@ export class AllExceptionsFilter implements ExceptionFilter {
         exception instanceof Error ? exception.stack : String(exception),
       );
     }
+
+    appendJsonLog('app-errors.log', {
+      at: new Date().toISOString(),
+      status,
+      method: req.method,
+      path: req.originalUrl || req.url,
+      ip: req.ip,
+      message,
+      debug:
+        exception instanceof Error
+          ? `${exception.name}: ${exception.message}`
+          : String(exception),
+    });
 
     const errorDetails: ApiErrorDetails = {
       code: mapStatusToCode(status),

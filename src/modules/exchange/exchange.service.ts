@@ -33,14 +33,18 @@ export class ExchangeService {
 
         const listing = await this.prisma.listing.findUnique({
             where: { id: listingId },
+            include: { direct: true },
         });
 
         if (!listing) {
             throw new NotFoundException('آگهی یافت نشد');
         }
 
-        if (listing.type !== ListingType.EXCHANGE) {
-            throw new BadRequestException('این آگهی برای معاوضه نیست');
+        const canExchange =
+          listing.type === ListingType.EXCHANGE ||
+          (listing.type === ListingType.DIRECT && Boolean(listing.direct?.allowExchange));
+        if (!canExchange) {
+            throw new BadRequestException('این آگهی امکان معاوضه ندارد');
         }
 
         // 🛡️ 2. جلوگیری از پیشنهاد به خود
