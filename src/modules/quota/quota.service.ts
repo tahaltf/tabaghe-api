@@ -16,18 +16,8 @@ export class QuotaService {
     listingType: ListingType,
     listingId: string,
   ) {
-    if (listingType === ListingType.DIRECT) {
-      // پاس دادن tx به متد دریافت لیمیت برای جلوگیری از ارور undefined
-      const freeLimit = await this.getFreeDirectLimit(tx);
-      const freeLeft = await this.getRemainingFreeDirect(tx, userId, freeLimit);
-
-      if (freeLeft > 0) {
-        await this.commitFreeDirect(tx, userId, listingType, listingId);
-        return;
-      }
-    }
-
-    await this.consumeFromPlan(tx, userId, listingType, listingId);
+    // فعلا فروش پلن/سهمیه غیرفعال است؛ محدودیت ثبت آگهی اعمال نشود.
+    return;
   }
 
   async releaseOnReject(tx: Prisma.TransactionClient, listingId: string) {

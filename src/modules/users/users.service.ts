@@ -110,7 +110,8 @@ export class UsersService {
       balanceBlocked: wallet?.balanceBlocked ?? 0,
       balanceAvailable: wallet?.balanceAvailable ?? 0,
       activeListings,
-      remainingQuota: Math.max(0, 10 - activeListings),
+      // سهمیه آگهی فعلا در محصول غیرفعال است.
+      remainingQuota: 0,
     };
   }
 
