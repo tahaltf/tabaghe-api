@@ -226,6 +226,7 @@ export class PaymentsService {
       return {
         result: 'ALREADY_PROCESSED',
         ok: true,
+        kind: 'ORDER',
         orderId: order.id,
         authority,
       };
@@ -235,6 +236,7 @@ export class PaymentsService {
       return {
         result: 'CANCELLED_BY_USER',
         ok: false,
+        kind: 'ORDER',
         orderId: order.id,
         authority,
       };
@@ -249,6 +251,7 @@ export class PaymentsService {
       return {
         result: 'VERIFY_FAILED',
         ok: false,
+        kind: 'ORDER',
         orderId: order.id,
         authority,
         message: verified.message,

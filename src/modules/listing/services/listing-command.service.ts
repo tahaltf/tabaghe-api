@@ -40,7 +40,8 @@ export class ListingCommandService {
           description: dto.description ?? '',
           shippingPayer: dto.shippingPayer,
           exchangePayer: dto.exchangePayer ?? ExchangePayer.NONE,
-          sellerRequiresVerification: dto.sellerRequiresVerification ?? false,
+          // فقط مقدار صریح true؛ هر چیز دیگر (undefined، "false"، 0، …) = false
+          sellerRequiresVerification: dto.sellerRequiresVerification === true,
           thumbnail: dto.thumbnail,
           gallery: dto.gallery ?? [],
           author: { connect: { id: userId } },
@@ -117,7 +118,9 @@ export class ListingCommandService {
         shippingPayer: dto.shippingPayer,
         exchangePayer: dto.exchangePayer ?? listing.exchangePayer,
         sellerRequiresVerification:
-          dto.sellerRequiresVerification ?? listing.sellerRequiresVerification,
+          dto.sellerRequiresVerification === undefined
+            ? listing.sellerRequiresVerification
+            : dto.sellerRequiresVerification === true,
         thumbnail: dto.thumbnail,
         gallery: dto.gallery,
         type: currentType,

@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Get,
@@ -47,8 +46,7 @@ export class UsersController {
     @UploadedFile() file: Express.Multer.File | undefined,
     @Body() dto: CompleteProfileDto,
   ): Promise<MyProfile> {
-    if (!file) throw new BadRequestException('تصویر کارت ملی الزامی است');
-    return this.usersService.completeProfile(user.id, dto, file.filename);
+    return this.usersService.completeProfile(user.id, dto, file?.filename);
   }
 
   @Patch('settings')

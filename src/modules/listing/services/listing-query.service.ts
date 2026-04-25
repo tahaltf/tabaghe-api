@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { ListingStatus, Prisma, UserRole } from '@prisma/client';
+import { ListingStatus, OrderStatus, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import {
   buildPaginationMeta,
@@ -122,15 +122,31 @@ export class ListingQueryService {
   ): Promise<ListingDetail> {
     const listing = await this.prisma.listing.findUnique({
       where: { id },
-      include: DETAIL_INCLUDE,
+      include: {
+        ...DETAIL_INCLUDE,
+        order: { select: { status: true, buyerId: true } },
+      },
     });
 
     if (!listing) throw new NotFoundException('آگهی یافت نشد');
 
+    const isStaff =
+      viewerRole === UserRole.ADMIN || viewerRole === UserRole.GODADMIN;
+
+    if (listing.order) {
+      const os = listing.order.status;
+      if (os === OrderStatus.PENDING || os === OrderStatus.AWAITING_PAYMENT) {
+        const isBuyer = viewerId && listing.order.buyerId === viewerId;
+        const isSeller = viewerId && listing.authorId === viewerId;
+        if (!isBuyer && !isSeller && !isStaff) {
+          throw new NotFoundException('این آگهی در حال حاضر در دسترس نیست.');
+        }
+      }
+    }
+
     if (listing.status !== ListingStatus.APPROVED) {
       const isOwner = viewerId && listing.authorId === viewerId;
-      const isAdmin = viewerRole === UserRole.ADMIN;
-      if (!isOwner && !isAdmin) {
+      if (!isOwner && !isStaff) {
         throw new NotFoundException('این آگهی هنوز منتشر نشده یا در دسترس نیست.');
       }
     }
@@ -138,8 +154,7 @@ export class ListingQueryService {
     // فقط مالک و ادمین phone صاحب آگهی رو ببینن. بقیه باید از طریق
     // چت داخل‌سایتی ارتباط بگیرن.
     const isOwner = viewerId && listing.authorId === viewerId;
-    const isAdmin = viewerRole === UserRole.ADMIN;
-    if (isOwner || isAdmin) {
+    if (isOwner || isStaff) {
       const ownerPhone = await this.prisma.user.findUnique({
         where: { id: listing.authorId },
         select: { phone: true },
@@ -148,7 +163,10 @@ export class ListingQueryService {
         ownerPhone?.phone ?? null;
     }
 
-    return listing;
+    const { order: _omitOrder, ...listingWithoutOrder } = listing as typeof listing & {
+      order?: { status: OrderStatus; buyerId: string } | null;
+    };
+    return listingWithoutOrder as ListingDetail;
   }
 
   async findAllByUser(
@@ -177,9 +195,17 @@ export class ListingQueryService {
   async checkAvailability(listingId: string): Promise<boolean> {
     const listing = await this.prisma.listing.findUnique({
       where: { id: listingId },
-      select: { status: true },
+      select: {
+        status: true,
+        order: { select: { status: true } },
+      },
     });
-    return listing?.status === ListingStatus.APPROVED;
+    if (!listing || listing.status !== ListingStatus.APPROVED) return false;
+    const os = listing.order?.status;
+    if (os === OrderStatus.PENDING || os === OrderStatus.AWAITING_PAYMENT) {
+      return false;
+    }
+    return true;
   }
 
   getHubAddress() {
@@ -197,6 +223,13 @@ export class ListingQueryService {
   private buildPublicWhere(query: ListListingsDto): Prisma.ListingWhereInput {
     const where: Prisma.ListingWhereInput = {
       status: ListingStatus.APPROVED,
+      NOT: {
+        order: {
+          status: {
+            in: [OrderStatus.PENDING, OrderStatus.AWAITING_PAYMENT],
+          },
+        },
+      },
     };
 
     if (query.provinceId) where.provinceId = query.provinceId;

@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { Listing, ListingStatus, Prisma } from '@prisma/client';
+import { Listing, ListingStatus, NotificationType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { QuotaService } from '../../quota/quota.service';
 import { RejectListingDto } from '../dto/reject-listing.dto';
+import { NotificationService } from '../../notification/notification.service';
 
 const ADMIN_LISTING_INCLUDE = {
   direct: true,
@@ -30,6 +31,7 @@ export class ListingAdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly quotaService: QuotaService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   listAll(status?: ListingStatus): Promise<AdminListing[]> {
@@ -40,11 +42,21 @@ export class ListingAdminService {
     });
   }
 
-  approve(listingId: string): Promise<Listing> {
-    return this.prisma.listing.update({
+  async approve(listingId: string): Promise<Listing> {
+    const updated = await this.prisma.listing.update({
       where: { id: listingId },
       data: { status: ListingStatus.APPROVED, approvedAt: new Date() },
     });
+
+    await this.notificationService.create({
+      userId: updated.authorId,
+      type: NotificationType.LISTING_APPROVED,
+      title: 'آگهی شما تایید شد',
+      message: `آگهی «${updated.title}» توسط ادمین تایید و منتشر شد.`,
+      meta: { listingId: updated.id },
+    });
+
+    return updated;
   }
 
   reject(listingId: string, dto: RejectListingDto): Promise<Listing> {
@@ -58,6 +70,15 @@ export class ListingAdminService {
         },
       });
       await this.quotaService.releaseOnReject(tx, listingId);
+
+      await this.notificationService.create({
+        userId: updated.authorId,
+        type: NotificationType.LISTING_REJECTED,
+        title: 'آگهی شما رد شد',
+        message: `آگهی «${updated.title}» رد شد. دلیل رد: ${dto.rejectionReason}`,
+        meta: { listingId: updated.id, reason: dto.rejectionReason },
+      });
+
       return updated;
     });
   }

@@ -17,8 +17,30 @@ import {
   ShippingPayer,
 } from '@prisma/client';
 
-const toBoolean = ({ value }: { value: unknown }): boolean =>
-  value === true || value === 'true' || value === 1 || value === '1';
+/**
+ * multipart / query: فقط true صریح؛ بقیه false.
+ * نکته: با `enableImplicitConversion` اول `Boolean("false") === true` اعمال می‌شود و بعد
+ * به این تابع می‌رسد؛ پس باید مقدار خام را از `obj[key]` بخوانیم نه از `value`.
+ */
+const toBoolean = ({
+  value,
+  key,
+  obj,
+}: {
+  value: unknown;
+  key: string;
+  obj: unknown;
+}): boolean => {
+  let raw: unknown = value;
+  if (obj && typeof obj === 'object' && !Array.isArray(obj) && !(obj instanceof Date)) {
+    const o = obj as Record<string, unknown>;
+    if (Object.prototype.hasOwnProperty.call(o, key)) {
+      raw = o[key];
+    }
+  }
+  if (raw === true || raw === 'true' || raw === 1 || raw === '1') return true;
+  return false;
+};
 
 /**
  * وقتی از multipart/form-data استفاده می‌کنیم، بخش‌های nested به‌صورت JSON string

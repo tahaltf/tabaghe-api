@@ -116,8 +116,14 @@ export class UsersService {
   async completeProfile(
     userId: string,
     dto: CompleteProfileDto,
-    nationalCardImageFilename: string,
+    nationalCardImageFilename?: string,
   ): Promise<MyProfile> {
+    const currentUser = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { nationalCardImage: true },
+    });
+    if (!currentUser) throw new NotFoundException('کاربر یافت نشد');
+
     const duplicate = await this.prisma.user.findFirst({
       where: { nationalCode: dto.nationalCode, NOT: { id: userId } },
       select: { id: true },
@@ -131,6 +137,10 @@ export class UsersService {
       throw new BadRequestException('شماره شبا باید ۲۴ رقم باشد.');
     }
 
+    if (!nationalCardImageFilename && !currentUser.nationalCardImage) {
+      throw new BadRequestException('تصویر کارت ملی الزامی است');
+    }
+
     return this.prisma.user.update({
       where: { id: userId },
       data: {
@@ -138,7 +148,7 @@ export class UsersService {
         lastName: dto.lastName,
         nationalCode: dto.nationalCode,
         shabaNumber: cleanShaba,
-        nationalCardImage: nationalCardImageFilename,
+        ...(nationalCardImageFilename ? { nationalCardImage: nationalCardImageFilename } : {}),
         status: UserStatus.PENDING,
       },
       select: MY_PROFILE_SELECT,

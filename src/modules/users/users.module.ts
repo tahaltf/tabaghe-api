@@ -3,8 +3,10 @@ import { UsersController } from './users.controller';
 import { AdminUsersController } from './admin-users.controller';
 import { UsersService } from './users.service';
 import { AdminUsersService } from './admin-users.service';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
+  imports: [NotificationModule],
   controllers: [UsersController, AdminUsersController],
   providers: [UsersService, AdminUsersService],
   exports: [UsersService],

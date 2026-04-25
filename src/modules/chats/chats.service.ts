@@ -126,18 +126,28 @@ export class ChatsService {
   }
 
   async sendMessage(chatId: string, senderId: string, content: string) {
+    const normalizedChatId = chatId?.trim();
+    const normalizedContent = content?.trim();
+
+    if (!normalizedChatId) {
+      throw new BadRequestException('شناسه مکالمه نامعتبر است');
+    }
+    if (!normalizedContent) {
+      throw new BadRequestException('متن پیام نمی‌تواند خالی باشد');
+    }
+
     const conversation = await this.prisma.conversation.findUnique({
-      where: { id: chatId },
+      where: { id: normalizedChatId },
     });
     if (!conversation) throw new NotFoundException('مکالمه یافت نشد');
     if (conversation.buyerId !== senderId && conversation.sellerId !== senderId) {
       throw new ForbiddenException('شما عضو این مکالمه نیستید');
     }
     const message = await this.prisma.message.create({
-      data: { conversationId: chatId, senderId: senderId, content: content },
+      data: { conversationId: normalizedChatId, senderId: senderId, content: normalizedContent },
     });
     await this.prisma.conversation.update({
-      where: { id: chatId },
+      where: { id: normalizedChatId },
       data: { updatedAt: new Date() },
     });
     return message;

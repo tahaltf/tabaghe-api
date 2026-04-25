@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ListingStatus, Prisma } from '@prisma/client';
+import { ListingStatus, OrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import {
   buildPaginationMeta,
@@ -82,6 +82,16 @@ export class ListingSearchService {
       where.status = dto.status;
     } else {
       where.status = ListingStatus.APPROVED;
+    }
+
+    if (where.status === ListingStatus.APPROVED) {
+      where.NOT = {
+        order: {
+          status: {
+            in: [OrderStatus.PENDING, OrderStatus.AWAITING_PAYMENT],
+          },
+        },
+      };
     }
 
     if (dto.priceMin !== undefined || dto.priceMax !== undefined) {

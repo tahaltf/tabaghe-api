@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, UserStatus } from '@prisma/client';
+import { NotificationType, Prisma, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { NotificationService } from '../notification/notification.service';
 
 const KYC_REQUEST_SELECT = {
   id: true,
@@ -18,7 +19,10 @@ export type KycRequest = Prisma.UserGetPayload<{ select: typeof KYC_REQUEST_SELE
 
 @Injectable()
 export class AdminUsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+  ) {}
 
   listPendingKyc(): Promise<KycRequest[]> {
     return this.prisma.user.findMany({
@@ -28,8 +32,10 @@ export class AdminUsersService {
     });
   }
 
-  approve(targetUserId: string): Promise<{ id: string; status: UserStatus; isVerified: boolean }> {
-    return this.prisma.user.update({
+  async approve(
+    targetUserId: string,
+  ): Promise<{ id: string; status: UserStatus; isVerified: boolean }> {
+    const updatedUser = await this.prisma.user.update({
       where: { id: targetUserId },
       data: {
         status: UserStatus.APPROVED,
@@ -39,13 +45,24 @@ export class AdminUsersService {
       },
       select: { id: true, status: true, isVerified: true },
     });
+
+    await this.notificationService.create({
+      userId: targetUserId,
+      type: NotificationType.KYC_APPROVED,
+      title: 'احراز هویت تایید شد',
+      message:
+        'مدارک هویتی شما توسط ادمین تایید شد و اکنون حساب کاربری شما فعال است.',
+    });
+
+    return updatedUser;
   }
 
   reject(
     targetUserId: string,
     reason: string,
   ): Promise<{ id: string; status: UserStatus; isVerified: boolean }> {
-    return this.prisma.user.update({
+    return this.prisma.$transaction(async (tx) => {
+      const updatedUser = await tx.user.update({
       where: { id: targetUserId },
       data: {
         status: UserStatus.REJECTED,
@@ -54,6 +71,17 @@ export class AdminUsersService {
         kycReviewedAt: new Date(),
       },
       select: { id: true, status: true, isVerified: true },
+    });
+
+      await this.notificationService.create({
+        userId: targetUserId,
+        type: NotificationType.KYC_REJECTED,
+        title: 'احراز هویت رد شد',
+        message: `مدارک هویتی شما رد شد. دلیل رد: ${reason}`,
+        meta: { reason },
+      });
+
+      return updatedUser;
     });
   }
 }
