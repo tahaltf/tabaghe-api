@@ -14,6 +14,10 @@ export class OrdersCommandService {
     return this.ordersService.updateTrackingCode(userId, orderId, trackingCode, videoPath);
   }
 
+  submitReturnTrackingCode(userId: string, orderId: string, trackingCode: string, videoPath?: string) {
+    return this.ordersService.submitReturnTrackingCode(userId, orderId, trackingCode, videoPath);
+  }
+
   confirmOrder(userId: string, orderId: string) {
     return this.ordersService.confirmOrder(userId, orderId);
   }

@@ -24,6 +24,18 @@ export class WalletService {
     private readonly notificationService: NotificationService,
   ) {}
 
+  /** عنوان آگهی برای توضیح تراکنش‌های امانی سفارش */
+  private async listingTitleForWalletTx(
+    prisma: Prisma.TransactionClient | PrismaService,
+    listingId: string,
+  ): Promise<string | undefined> {
+    const listing = await prisma.listing.findUnique({
+      where: { id: listingId },
+      select: { title: true },
+    });
+    return listing?.title ?? undefined;
+  }
+
   // =================================================================
   // CORE & FETCH METHODS
   // =================================================================
@@ -65,9 +77,11 @@ export class WalletService {
     // است. برای کاربر فقط کلیدهای عمومی/مفید رو نگه میداریم.
     const ALLOWED_META_KEYS = new Set([
       'kind',
+      'phase',
       'description',
       'orderId',
       'listingId',
+      'listingTitle',
       'auctionId',
       'refundReason',
       'receiptImageUrl',
@@ -236,6 +250,8 @@ export class WalletService {
       });
     }
 
+    const auctionListingTitle = await this.listingTitleForWalletTx(prisma, refId);
+
     if (remainderDec.gt(0)) {
       await prisma.wallet.update({
         where: { userId: buyerId },
@@ -249,7 +265,15 @@ export class WalletService {
           type: WalletTransactionType.SETTLEMENT,
           status: WalletTransactionStatus.SUCCESS,
           referenceId: refId,
-          meta: { description: 'پرداخت مابه‌تفاوت مزایده' },
+          meta: {
+            kind: 'auction-escrow',
+            phase: 'buyer_remainder',
+            listingId: refId,
+            ...(auctionListingTitle ? { listingTitle: auctionListingTitle } : {}),
+            description: auctionListingTitle
+              ? `پرداخت مابه‌التفاوت مزایده از کیف پول — «${auctionListingTitle}». این مبلغ برای تکمیل خرید از ودیعه قبلی کسر شد.`
+              : 'پرداخت مابه‌التفاوت مزایده از کیف پول؛ برای تکمیل خرید پس از برنده شدن.',
+          },
         },
       });
     }
@@ -277,7 +301,13 @@ export class WalletService {
         status: WalletTransactionStatus.PENDING, // وضعیت پندینگ برای اسکرو
         referenceId: refId,
         meta: {
-          description: 'دریافت وجه فروش مزایده (در انتظار تایید خریدار)',
+          kind: 'auction-escrow',
+          phase: 'seller_blocked',
+          listingId: refId,
+          ...(auctionListingTitle ? { listingTitle: auctionListingTitle } : {}),
+          description: auctionListingTitle
+            ? `درآمد فروش مزایده بلوکه است تا خریدار دریافت کالا را تأیید کند — «${auctionListingTitle}». پس از تأیید، به موجودی قابل برداشت منتقل می‌شود.`
+            : 'درآمد فروش مزایده بلوکه است تا خریدار دریافت را تأیید کند؛ سپس آزاد می‌شود.',
         },
       },
     });
@@ -300,6 +330,8 @@ export class WalletService {
     const amountDec = new Decimal(amount);
     const feeDec = new Decimal(platformFee);
     const sellerRevenue = amountDec.minus(feeDec);
+    const listingTitle = await this.listingTitleForWalletTx(prisma, refId);
+    const titleQuoted = listingTitle ? `«${listingTitle}»` : 'این آگهی';
 
     const buyerWallet = await prisma.wallet.findUnique({
       where: { userId: buyerId },
@@ -324,7 +356,14 @@ export class WalletService {
         type: WalletTransactionType.SETTLEMENT,
         status: WalletTransactionStatus.SUCCESS,
         referenceId: refId,
-        meta: { description: 'پرداخت سفارش (بلوکه نزد فروشنده)' },
+        meta: {
+          kind: 'order-escrow',
+          phase: 'buyer_paid',
+          listingId: refId,
+          ...(listingTitle ? { listingTitle } : {}),
+          paymentSource: 'WALLET',
+          description: `پرداخت خرید از کیف پول؛ معادل سهم فروشنده (${sellerRevenue.toFixed(0)} تومان خالص پس از کارمزد) به‌صورت امانی برای فروشنده بلوکه شد — ${titleQuoted}. تا تأیید دریافت توسط خریدار آزاد نمی‌شود.`,
+        },
       },
     });
 
@@ -349,7 +388,13 @@ export class WalletService {
         type: WalletTransactionType.DEPOSIT,
         status: WalletTransactionStatus.PENDING,
         referenceId: refId,
-        meta: { description: 'دریافت وجه سفارش (بلوکه)' },
+        meta: {
+          kind: 'order-escrow',
+          phase: 'seller_blocked',
+          listingId: refId,
+          ...(listingTitle ? { listingTitle } : {}),
+          description: `درآمد فروش ${titleQuoted} الان در «موجودی بلوکه‌شده» است تا خریدار دریافت کالا را تأیید کند. پس از تأیید، همین مبلغ به موجودی قابل برداشت منتقل می‌شود.`,
+        },
       },
     });
   }
@@ -386,6 +431,9 @@ export class WalletService {
       });
     }
 
+    const listingTitle = await this.listingTitleForWalletTx(prisma, refId);
+    const titleQuoted = listingTitle ? `«${listingTitle}»` : 'این آگهی';
+
     await prisma.wallet.update({
       where: { userId: sellerId },
       data: { balanceBlocked: { increment: sellerRevenue.toString() } },
@@ -399,8 +447,12 @@ export class WalletService {
         status: WalletTransactionStatus.PENDING,
         referenceId: refId,
         meta: {
-          kind: 'gateway-escrow',
-          description: 'دریافت وجه سفارش از درگاه (بلوکه)',
+          kind: 'order-escrow',
+          phase: 'seller_blocked',
+          listingId: refId,
+          ...(listingTitle ? { listingTitle } : {}),
+          paymentSource: 'GATEWAY',
+          description: `پرداخت خریدار از درگاه ثبت شد؛ سهم شما (${sellerRevenue.toFixed(0)} تومان خالص پس از کارمزد) برای ${titleQuoted} در «موجودی بلوکه‌شده» است تا خریدار دریافت را تأیید کند.`,
         },
       },
     });
@@ -409,12 +461,15 @@ export class WalletService {
   async releaseEscrow(
     sellerId: string,
     amount: number | string | Decimal,
-    refId: string,
+    listingId: string,
     tx?: Prisma.TransactionClient,
+    opts?: { orderId?: string },
   ) {
     const prisma = tx || this.prisma;
     const amountDec = new Decimal(amount);
     const wallet = await this.getWalletByUserId(sellerId);
+    const listingTitle = await this.listingTitleForWalletTx(prisma, listingId);
+    const titleQuoted = listingTitle ? `«${listingTitle}»` : 'این آگهی';
 
     await prisma.wallet.update({
       where: { userId: sellerId },
@@ -430,8 +485,15 @@ export class WalletService {
         amount: amountDec.toNumber(),
         type: WalletTransactionType.UNBLOCK,
         status: WalletTransactionStatus.SUCCESS,
-        referenceId: refId,
-        meta: { description: 'آزادسازی وجه سفارش پس از تایید خریدار' },
+        referenceId: listingId,
+        meta: {
+          kind: 'order-escrow',
+          phase: 'seller_released',
+          listingId,
+          ...(listingTitle ? { listingTitle } : {}),
+          ...(opts?.orderId ? { orderId: opts.orderId } : {}),
+          description: `آزادسازی درآمد فروش برای ${titleQuoted}: مبلغ از «بلوکه‌شده» به موجودی قابل برداشت منتقل شد چون خریدار دریافت کالا را تأیید کرد.`,
+        },
       },
     });
   }

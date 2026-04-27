@@ -16,6 +16,7 @@ import { AdminOrdersCommandService } from '../services/admin-orders-command.serv
 import { AdminOrderListQueryDto } from '../dto/admin-query.dto';
 import {
   ResolveOrderEscrowDto,
+  SetParticipantShippingDto,
   SetHubShippingCodesDto,
   UpdateOrderStatusDto,
   UpdateTrackingCodeDto,
@@ -51,6 +52,14 @@ export class AdminOrdersQueryController {
     @Body() dto: UpdateTrackingCodeDto,
   ) {
     return this.command.setTrackingCode(id, dto.trackingCode);
+  }
+
+  @Patch(':id/participant-shipping')
+  setParticipantShipping(
+    @Param('id') id: string,
+    @Body() dto: SetParticipantShippingDto,
+  ) {
+    return this.command.setParticipantShipping(id, dto);
   }
 
   @Patch(':id/hub-shipping')

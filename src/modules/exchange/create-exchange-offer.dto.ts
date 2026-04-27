@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsNumber, IsBoolean } from 'class-validator';
+import { IsOptional, IsString, IsNumber, IsBoolean, IsIn } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class CreateExchangeOfferDto {
@@ -17,8 +17,19 @@ export class CreateExchangeOfferDto {
     @IsOptional()
     extraPayment?: number;
 
-    @Transform(({ value }) => value === 'true') // تبدیل رشته به بولیین
+    @Transform(({ value }) => {
+        if (value === true || value === 1 || value === '1') return true;
+        if (value === false || value === 0 || value === '0') return false;
+        if (typeof value === 'string') return value.toLowerCase() === 'true';
+        return false;
+    })
     @IsBoolean()
     @IsOptional()
     isPayerMe?: boolean;
+
+    // نقش پرداخت‌کننده به‌صورت صریح (به‌جای اتکا به بولین مبهم)
+    @IsOptional()
+    @IsString()
+    @IsIn(['OFFERER', 'OWNER'])
+    payerRole?: 'OFFERER' | 'OWNER';
 }

@@ -39,4 +39,12 @@ export class ChatsController {
     const conversationId = body.conversationId ?? body.chatId;
     return this.chatsService.sendMessage(conversationId ?? '', user.id, body.content ?? '');
   }
+
+  @Post('conversations/:id/read')
+  async markRead(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') chatId: string,
+  ) {
+    return this.chatsService.markConversationRead(chatId, user.id);
+  }
 }

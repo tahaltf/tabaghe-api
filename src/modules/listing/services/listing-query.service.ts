@@ -135,7 +135,10 @@ export class ListingQueryService {
 
     if (listing.order) {
       const os = listing.order.status;
-      if (os === OrderStatus.PENDING || os === OrderStatus.AWAITING_PAYMENT) {
+      const isExchangePending =
+        listing.type === 'EXCHANGE' &&
+        (os === OrderStatus.PENDING || os === OrderStatus.AWAITING_PAYMENT);
+      if (!isExchangePending && (os === OrderStatus.PENDING || os === OrderStatus.AWAITING_PAYMENT)) {
         const isBuyer = viewerId && listing.order.buyerId === viewerId;
         const isSeller = viewerId && listing.authorId === viewerId;
         if (!isBuyer && !isSeller && !isStaff) {
@@ -196,13 +199,17 @@ export class ListingQueryService {
     const listing = await this.prisma.listing.findUnique({
       where: { id: listingId },
       select: {
+        type: true,
         status: true,
         order: { select: { status: true } },
       },
     });
     if (!listing || listing.status !== ListingStatus.APPROVED) return false;
     const os = listing.order?.status;
-    if (os === OrderStatus.PENDING || os === OrderStatus.AWAITING_PAYMENT) {
+    const isExchangePending =
+      listing.type === 'EXCHANGE' &&
+      (os === OrderStatus.PENDING || os === OrderStatus.AWAITING_PAYMENT);
+    if (!isExchangePending && (os === OrderStatus.PENDING || os === OrderStatus.AWAITING_PAYMENT)) {
       return false;
     }
     return true;
@@ -225,9 +232,16 @@ export class ListingQueryService {
       status: ListingStatus.APPROVED,
       NOT: {
         order: {
-          status: {
-            in: [OrderStatus.PENDING, OrderStatus.AWAITING_PAYMENT],
-          },
+          AND: [
+            {
+              status: {
+                in: [OrderStatus.PENDING, OrderStatus.AWAITING_PAYMENT],
+              },
+            },
+            {
+              type: { not: 'EXCHANGE' },
+            },
+          ],
         },
       },
     };

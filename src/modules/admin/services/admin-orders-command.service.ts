@@ -9,7 +9,7 @@ import {
   WalletTransactionType,
 } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
-import { AdminEscrowAction, SetHubShippingCodesDto } from '../dto/admin-order.dto';
+import { AdminEscrowAction, SetHubShippingCodesDto, SetParticipantShippingDto } from '../dto/admin-order.dto';
 import { AppSettingsService } from '../../../shared/settings/app-settings.service';
 
 @Injectable()
@@ -223,18 +223,94 @@ export class AdminOrdersCommandService {
     return order;
   }
 
+  async setParticipantShipping(id: string, dto: SetParticipantShippingDto) {
+    const existing = await this.prisma.order.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        type: true,
+        buyerId: true,
+        sellerId: true,
+        trackingCode: true,
+        sellerTrackingCode: true,
+      },
+    });
+    if (!existing) throw new NotFoundException('سفارش یافت نشد');
+    if (!dto.sellerTrackingCode && !dto.buyerTrackingCode) {
+      throw new BadRequestException('حداقل یک کد رهگیری باید ثبت شود');
+    }
+    if (existing.type !== 'EXCHANGE' && dto.buyerTrackingCode) {
+      throw new BadRequestException('کد رهگیری خریدار فقط برای سفارش‌های معاوضه قابل ثبت است');
+    }
+
+    const updated = await this.prisma.order.update({
+      where: { id },
+      data: {
+        trackingCode: dto.sellerTrackingCode ?? existing.trackingCode,
+        sellerTrackingCode:
+          existing.type === 'EXCHANGE'
+            ? (dto.buyerTrackingCode ?? existing.sellerTrackingCode)
+            : existing.sellerTrackingCode,
+      },
+    });
+
+    const buyerMsgParts = [
+      dto.sellerTrackingCode ? `کد رهگیری ارسال فروشنده: ${dto.sellerTrackingCode}` : null,
+      existing.type === 'EXCHANGE' && dto.buyerTrackingCode ? `کد رهگیری ارسال شما: ${dto.buyerTrackingCode}` : null,
+      dto.buyerNote ? `توضیح برای شما: ${dto.buyerNote}` : null,
+    ].filter(Boolean);
+    const sellerMsgParts = [
+      dto.sellerTrackingCode ? `کد رهگیری ارسال شما: ${dto.sellerTrackingCode}` : null,
+      existing.type === 'EXCHANGE' && dto.buyerTrackingCode ? `کد رهگیری ارسال خریدار: ${dto.buyerTrackingCode}` : null,
+      dto.sellerNote ? `توضیح برای شما: ${dto.sellerNote}` : null,
+    ].filter(Boolean);
+
+    await this.prisma.notification.createMany({
+      data: [
+        {
+          userId: existing.buyerId,
+          type: NotificationType.ORDER_STATUS_CHANGED,
+          title: 'به‌روزرسانی اطلاعات ارسال',
+          message: buyerMsgParts.length ? buyerMsgParts.join(' | ') : 'اطلاعات ارسال سفارش به‌روزرسانی شد.',
+          meta: {
+            orderId: id,
+            sellerTrackingCode: dto.sellerTrackingCode ?? null,
+            buyerTrackingCode: dto.buyerTrackingCode ?? null,
+            buyerNote: dto.buyerNote ?? null,
+          } as Prisma.InputJsonValue,
+        },
+        {
+          userId: existing.sellerId,
+          type: NotificationType.ORDER_STATUS_CHANGED,
+          title: 'به‌روزرسانی اطلاعات ارسال',
+          message: sellerMsgParts.length ? sellerMsgParts.join(' | ') : 'اطلاعات ارسال سفارش به‌روزرسانی شد.',
+          meta: {
+            orderId: id,
+            sellerTrackingCode: dto.sellerTrackingCode ?? null,
+            buyerTrackingCode: dto.buyerTrackingCode ?? null,
+            sellerNote: dto.sellerNote ?? null,
+          } as Prisma.InputJsonValue,
+        },
+      ],
+    });
+
+    return updated;
+  }
+
   async resolveEscrow(id: string, action: AdminEscrowAction, note?: string) {
     return this.prisma.$transaction(async (tx) => {
       const order = await tx.order.findUnique({
         where: { id },
         select: {
           id: true,
+          type: true,
           buyerId: true,
           sellerId: true,
           listingId: true,
           status: true,
           sellerRevenue: true,
           totalAmount: true,
+          verificationFee: true,
         },
       });
       if (!order) throw new NotFoundException('سفارش یافت نشد');
@@ -248,29 +324,66 @@ export class AdminOrdersCommandService {
       const sellerRevenue = Number(order.sellerRevenue);
       const totalAmount = Number(order.totalAmount);
 
+      if (
+        action === AdminEscrowAction.REFUND_TO_BUYER &&
+        order.status === OrderStatus.RETURN_REQUESTED
+      ) {
+        throw new BadRequestException('ابتدا خریدار باید کد رهگیری مرجوعی را ثبت کند');
+      }
+
+      if (
+        action === AdminEscrowAction.REFUND_TO_BUYER &&
+        (order.status === OrderStatus.DELIVERED || order.status === OrderStatus.DISPUTED)
+      ) {
+        const updated = await tx.order.update({
+          where: { id: order.id },
+          data: {
+            status: OrderStatus.RETURN_REQUESTED,
+            cancelReason: note ?? 'مرجوعی کالا توسط خریدار در انتظار ثبت است',
+          },
+        });
+        await this.notifyParties(
+          order.buyerId,
+          order.sellerId,
+          order.id,
+          OrderStatus.RETURN_REQUESTED,
+          note ?? 'خریدار باید کالا را مرجوع و کد رهگیری را ثبت کند',
+        );
+        return updated;
+      }
+
       if (action === AdminEscrowAction.RELEASE_TO_SELLER) {
-        if (sellerRevenue > 0) {
+        // در معاوضه، هنگام برگشت وجه به فروشنده در کنسلی/اختلاف،
+        // هزینه کارشناسی غیرقابل‌عودت است و کارمزد معامله نباید کسر شود.
+        const refundableToSeller =
+          order.type === 'EXCHANGE'
+            ? Math.max(0, totalAmount - Number(order.verificationFee || 0))
+            : sellerRevenue;
+        if (refundableToSeller > 0) {
           await tx.wallet.upsert({
             where: { userId: order.sellerId },
             create: {
               userId: order.sellerId,
-              balanceAvailable: sellerRevenue,
+              balanceAvailable: refundableToSeller,
               balanceBlocked: 0,
             },
             update: {
-              balanceBlocked: { decrement: sellerRevenue },
-              balanceAvailable: { increment: sellerRevenue },
+              balanceBlocked: { decrement: refundableToSeller },
+              balanceAvailable: { increment: refundableToSeller },
             },
           });
           await tx.walletTransaction.create({
             data: {
               wallet: { connect: { userId: order.sellerId } },
-              amount: sellerRevenue,
+              amount: refundableToSeller,
               type: WalletTransactionType.UNBLOCK,
               status: WalletTransactionStatus.SUCCESS,
               referenceId: order.id,
               meta: {
-                description: 'آزادسازی دستی وجه بلوکه سفارش توسط ادمین',
+                description:
+                  order.type === 'EXCHANGE'
+                    ? 'برگشت وجه به فروشنده (بدون عودت کارشناسی) توسط ادمین'
+                    : 'آزادسازی دستی وجه بلوکه سفارش توسط ادمین',
                 adminNote: note ?? null,
               },
             },
@@ -329,7 +442,12 @@ export class AdminOrdersCommandService {
 
       const updated = await tx.order.update({
         where: { id: order.id },
-        data: { status: OrderStatus.CANCELLED, cancelReason: note ?? 'لغو دستی توسط ادمین' },
+        data: {
+          status: OrderStatus.CANCELLED,
+          cancelReason: note ?? 'لغو دستی توسط ادمین',
+          returnConfirmedAt:
+            order.status === OrderStatus.RETURN_SHIPPED ? new Date() : undefined,
+        },
       });
       await tx.listing.update({
         where: { id: order.listingId },
@@ -382,6 +500,8 @@ const STATUS_LABELS: Partial<Record<OrderStatus, string>> = {
   SHIPPED_TO_BUYER: 'ارسال به خریدار',
   SHIPPED: 'ارسال شد',
   DELIVERED: 'تحویل داده شد',
+  RETURN_REQUESTED: 'در انتظار ثبت مرجوعی خریدار',
+  RETURN_SHIPPED: 'مرجوعی توسط خریدار ارسال شد',
   COMPLETED: 'تکمیل شد',
   DISPUTED: 'اختلاف',
   CANCELLED: 'لغو شد',

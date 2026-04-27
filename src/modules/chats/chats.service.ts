@@ -152,4 +152,25 @@ export class ChatsService {
     });
     return message;
   }
+
+  async markConversationRead(chatId: string, userId: string) {
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: chatId },
+    });
+    if (!conversation) throw new NotFoundException('مکالمه یافت نشد');
+    if (conversation.buyerId !== userId && conversation.sellerId !== userId) {
+      throw new ForbiddenException('شما عضو این مکالمه نیستید');
+    }
+
+    await this.prisma.message.updateMany({
+      where: {
+        conversationId: chatId,
+        senderId: { not: userId },
+        isRead: false,
+      },
+      data: { isRead: true },
+    });
+
+    return { ok: true };
+  }
 }

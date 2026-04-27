@@ -41,32 +41,52 @@ export class PaymentsService {
     orderId: string,
     userId: string,
     callbackBaseUrl?: string,
+    returnUrl?: string,
   ) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: { buyer: { select: { phone: true } } },
+      include: {
+        buyer: { select: { phone: true } },
+        seller: { select: { phone: true } },
+      },
     });
     if (!order) throw new NotFoundException('سفارش یافت نشد');
-    if (order.buyerId !== userId) {
+    const isExchange = order.type === 'EXCHANGE';
+    const isOrderBuyer = order.buyerId === userId;
+    const isOrderSeller = order.sellerId === userId;
+    if (!isExchange && !isOrderBuyer) {
       throw new BadRequestException('فقط خریدار می‌تواند پرداخت را آغاز کند');
+    }
+    if (isExchange && !isOrderBuyer && !isOrderSeller) {
+      throw new BadRequestException('فقط طرفین معاوضه می‌توانند پرداخت را آغاز کنند');
     }
     if (order.status !== OrderStatus.AWAITING_PAYMENT && order.status !== OrderStatus.PENDING) {
       throw new BadRequestException('این سفارش در وضعیت قابل پرداخت نیست');
     }
-    if (Number(order.totalAmount) <= 0) {
+
+    let payableAmount = Number(order.totalAmount);
+    if (isExchange) {
+      payableAmount = await this.getExchangeParticipantDue(order.id, userId);
+    }
+    if (payableAmount <= 0) {
       throw new BadRequestException('مبلغ سفارش برای پرداخت درگاه معتبر نیست');
     }
 
     const gateway = this.getGateway();
     const callbackBase =
       callbackBaseUrl ?? this.appSettings.getPaymentGatewayConfig().callbackUrl;
-    const callbackUrl = `${callbackBase}?kind=ORDER&orderId=${order.id}`;
+    const callback = new URL(callbackBase);
+    callback.searchParams.set('kind', 'ORDER');
+    callback.searchParams.set('orderId', order.id);
+    callback.searchParams.set('payerId', userId);
+    if (returnUrl) callback.searchParams.set('returnUrl', returnUrl);
+    const callbackUrl = callback.toString();
     const requested = await gateway.requestPayment({
-      amount: Number(order.totalAmount),
+      amount: payableAmount,
       callbackUrl,
       orderId: order.id,
       description: `پرداخت سفارش ${order.id}`,
-      mobile: order.buyer?.phone ?? undefined,
+      mobile: isOrderBuyer ? (order.buyer?.phone ?? undefined) : (order.seller?.phone ?? undefined),
     });
 
     if (order.status === OrderStatus.PENDING) {
@@ -88,6 +108,7 @@ export class PaymentsService {
     repairId: string,
     userId: string,
     callbackBaseUrl?: string,
+    returnUrl?: string,
   ) {
     const repair = await this.prisma.repairRequest.findUnique({
       where: { id: repairId },
@@ -108,7 +129,11 @@ export class PaymentsService {
     const gateway = this.getGateway();
     const callbackBase =
       callbackBaseUrl ?? this.appSettings.getPaymentGatewayConfig().callbackUrl;
-    const callbackUrl = `${callbackBase}?kind=REPAIR&repairId=${repair.id}`;
+    const callback = new URL(callbackBase);
+    callback.searchParams.set('kind', 'REPAIR');
+    callback.searchParams.set('repairId', repair.id);
+    if (returnUrl) callback.searchParams.set('returnUrl', returnUrl);
+    const callbackUrl = callback.toString();
     const requested = await gateway.requestPayment({
       amount,
       callbackUrl,
@@ -129,6 +154,7 @@ export class PaymentsService {
     userId: string,
     amountRaw: number,
     callbackBaseUrl?: string,
+    returnUrl?: string,
   ) {
     const amount = Number(amountRaw ?? 0);
     if (!Number.isFinite(amount) || amount <= 0) {
@@ -149,7 +175,10 @@ export class PaymentsService {
     const gateway = this.getGateway();
     const callbackBase =
       callbackBaseUrl ?? this.appSettings.getPaymentGatewayConfig().callbackUrl;
-    const callbackUrl = `${callbackBase}?kind=WALLET`;
+    const callback = new URL(callbackBase);
+    callback.searchParams.set('kind', 'WALLET');
+    if (returnUrl) callback.searchParams.set('returnUrl', returnUrl);
+    const callbackUrl = callback.toString();
     const requested = await gateway.requestPayment({
       amount,
       callbackUrl,
@@ -186,6 +215,7 @@ export class PaymentsService {
     }
     const kind = String(query.kind ?? 'ORDER').trim().toUpperCase();
     const orderId = String(query.orderId ?? '').trim();
+    const payerId = String(query.payerId ?? '').trim();
     const repairId = String(query.repairId ?? '').trim();
     const authority = String(query.trackId ?? query.authority ?? '').trim();
     const successFlag = String(query.success ?? '').trim();
@@ -209,7 +239,7 @@ export class PaymentsService {
     if (kind === 'WALLET') {
       return this.processWalletTopupCallback({ authority, successFlag });
     }
-    return this.processOrderCallback({ orderId, authority, successFlag });
+    return this.processOrderCallback({ orderId, authority, successFlag, payerId });
   }
 
   private async getSellerShipDeadlineDays(tx: Prisma.TransactionClient): Promise<number> {
@@ -226,8 +256,9 @@ export class PaymentsService {
     orderId: string;
     authority: string;
     successFlag: string;
+    payerId?: string;
   }) {
-    const { orderId, authority, successFlag } = params;
+    const { orderId, authority, successFlag, payerId } = params;
 
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException('سفارش مرتبط با پرداخت پیدا نشد');
@@ -252,9 +283,14 @@ export class PaymentsService {
       };
     }
 
+    const expectedAmount =
+      order.type === 'EXCHANGE' && payerId
+        ? await this.getExchangeParticipantDue(order.id, payerId)
+        : Number(order.totalAmount);
+
     const verified = await this.getGateway().verifyPayment({
       authority,
-      expectedAmount: Number(order.totalAmount),
+      expectedAmount,
     });
 
     if (!verified.success) {
@@ -275,19 +311,31 @@ export class PaymentsService {
         return;
       }
 
-      const totalAmount = Number(locked.totalAmount);
-      const sellerRevenue = Number(locked.sellerRevenue);
-      const platformCut = Math.max(0, totalAmount - sellerRevenue);
+      const paidAmount = expectedAmount;
+      let payeeUserId = locked.sellerId;
+      let platformCut = Math.max(0, Number(locked.totalAmount) - Number(locked.sellerRevenue));
+      if (locked.type === 'EXCHANGE' && payerId) {
+        const payerIsBuyer = payerId === locked.buyerId;
+        const payerIsSeller = payerId === locked.sellerId;
+        if (!payerIsBuyer && !payerIsSeller) {
+          throw new BadRequestException('پرداخت‌کننده این سفارش معتبر نیست');
+        }
+        // در معاوضه، پرداخت هر طرف به‌نفع طرف مقابل بلوکه می‌شود.
+        payeeUserId = payerIsBuyer ? locked.sellerId : locked.buyerId;
+        // فعلا برای پرداخت‌های تکه‌ای معاوضه، کارمزد را اینجا صفر می‌گیریم.
+        // کارمزد کل در اقتصاد نهایی سفارش لحاظ می‌شود.
+        platformCut = Number(locked.verificationFee || 0);
+      }
 
       await this.walletService.creditExternalPaymentToEscrow(
-        locked.sellerId,
-        totalAmount,
+        payeeUserId,
+        paidAmount,
         platformCut,
         locked.listingId,
         tx,
       );
 
-      const paidStatus =
+      let paidStatus: OrderStatus =
         locked.requiresVerification || locked.type === 'EXCHANGE'
           ? OrderStatus.AWAITING_SHIPMENT_TO_HUB
           : OrderStatus.PAID;
@@ -296,18 +344,43 @@ export class PaymentsService {
       const deadline = new Date();
       deadline.setDate(deadline.getDate() + sellerShipDeadlineDays);
 
+      if (locked.type === 'EXCHANGE') {
+        const offer = locked.exchangeOfferId
+          ? await tx.exchangeOffer.findUnique({
+              where: { id: locked.exchangeOfferId },
+              select: { isPayerMe: true, extraPayment: true },
+            })
+          : null;
+        const verificationFee = Number(locked.verificationFee || 0);
+        const extra = Number(offer?.extraPayment || 0);
+        const buyerShare = verificationFee + (offer?.isPayerMe ? extra : 0);
+        const sellerShare = verificationFee + (!offer?.isPayerMe ? extra : 0);
+        const expectedTotal = buyerShare + sellerShare;
+        const nextTotal = Number(locked.totalAmount || 0) + paidAmount;
+        const bothPaid = nextTotal >= expectedTotal;
+        paidStatus = bothPaid ? OrderStatus.AWAITING_SHIPMENT_TO_HUB : OrderStatus.AWAITING_PAYMENT;
+      }
+
+      const nextPaidTotal =
+        locked.type === 'EXCHANGE'
+          ? Number(locked.totalAmount || 0) + paidAmount
+          : paidAmount;
+
       await tx.order.update({
         where: { id: locked.id },
         data: {
           status: paidStatus,
+          totalAmount: nextPaidTotal,
           shippingDeadline: deadline,
         },
       });
 
-      await tx.listing.update({
-        where: { id: locked.listingId },
-        data: { status: ListingStatus.SOLD },
-      });
+      if (locked.type !== 'EXCHANGE' || paidStatus === OrderStatus.AWAITING_SHIPMENT_TO_HUB) {
+        await tx.listing.update({
+          where: { id: locked.listingId },
+          data: { status: ListingStatus.SOLD },
+        });
+      }
     });
 
     await this.notifyOrderPurchasedAndSold({
@@ -582,6 +655,34 @@ export class PaymentsService {
   private isGatewayCallbackSuccess(successFlag: string): boolean {
     const normalized = successFlag.trim().toLowerCase();
     return normalized === '1' || normalized === 'true';
+  }
+
+  private async getExchangeParticipantDue(orderId: string, payerId: string): Promise<number> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        buyerId: true,
+        sellerId: true,
+        verificationFee: true,
+        exchangeOfferId: true,
+      },
+    });
+    if (!order) throw new NotFoundException('سفارش یافت نشد');
+    if (!order.exchangeOfferId) {
+      throw new BadRequestException('شناسه پیشنهاد معاوضه برای این سفارش موجود نیست');
+    }
+    const offer = await this.prisma.exchangeOffer.findUnique({
+      where: { id: order.exchangeOfferId },
+      select: { isPayerMe: true, extraPayment: true },
+    });
+    if (!offer) throw new NotFoundException('پیشنهاد معاوضه یافت نشد');
+
+    const verification = Number(order.verificationFee || 0);
+    const extra = Number(offer.extraPayment || 0);
+    if (payerId === order.buyerId) return verification + (offer.isPayerMe ? extra : 0);
+    if (payerId === order.sellerId) return verification + (!offer.isPayerMe ? extra : 0);
+    throw new BadRequestException('پرداخت‌کننده مجاز این سفارش نیست');
   }
 
   private async notifyOrderPurchasedAndSold(order: {

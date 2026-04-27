@@ -32,6 +32,7 @@ export class OrdersService {
   private static readonly DEFAULT_SELLER_SHIP_DEADLINE_DAYS = 3;
   private static readonly DEFAULT_BUYER_CONFIRM_DEADLINE_DAYS = 4;
   private static readonly DEFAULT_EXCHANGE_NO_SHIPMENT_COMPENSATION = 0;
+  private static readonly EXCHANGE_COMPLETION_TIMEOUT_HOURS = 48;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -65,6 +66,12 @@ export class OrdersService {
         take: pageSize,
         select: {
           id: true,
+          listingId: true,
+          buyerId: true,
+          sellerId: true,
+          exchangeOfferId: true,
+          shippingAddress: true,
+          sellerShippingAddress: true,
           status: true,
           type: true,
           totalAmount: true,
@@ -73,6 +80,7 @@ export class OrdersService {
           paymentMethod: true,
           requiresVerification: true,
           trackingCode: true,
+          sellerTrackingCode: true,
           listing: {
             select: {
               id: true,
@@ -165,6 +173,30 @@ export class OrdersService {
       }),
     ]);
 
+    const offerIds = exchangeOffers.map((o) => o.id);
+    const linkedOrders = offerIds.length
+      ? await this.prisma.order.findMany({
+          where: { exchangeOfferId: { in: offerIds } },
+          select: {
+            id: true,
+            exchangeOfferId: true,
+            shippingAddress: true,
+            sellerShippingAddress: true,
+            status: true,
+          },
+        })
+      : [];
+    const orderByOfferId = new Map(linkedOrders.map((o) => [o.exchangeOfferId, o]));
+    const exchangeOffersWithPaymentState = exchangeOffers.map((offer) => {
+      const linked = orderByOfferId.get(offer.id);
+      const mySharePaid = Boolean(linked?.shippingAddress);
+      return {
+        ...offer,
+        exchangeOrderId: linked?.id ?? null,
+        mySharePaid,
+      };
+    });
+
     // رتبه‌ی دقیق کاربر در هر مزایده. محدود به pageSize (≤50) پس تعداد
     // کوئری قابل کنترله و مشکل مقیاس‌پذیری ندارد.
     const auctionBids = await Promise.all(
@@ -179,7 +211,7 @@ export class OrdersService {
       }),
     );
 
-    return { exchangeOffers, auctionBids };
+    return { exchangeOffers: exchangeOffersWithPaymentState, auctionBids };
   }
 
   // =================================================================
@@ -303,22 +335,61 @@ export class OrdersService {
 
         if (existingExchangeOrder) {
           const updateData: any = {};
+          const verificationFeePerSide = Number(existingExchangeOrder.verificationFee || 0);
+          const extraPayment = Number(offer.extraPayment || 0);
+          const buyerDue = verificationFeePerSide + (offer.isPayerMe ? extraPayment : 0);
+          const sellerDue = verificationFeePerSide + (!offer.isPayerMe ? extraPayment : 0);
+          const expectedTotal = buyerDue + sellerDue;
+          const currentTotal = Number(existingExchangeOrder.totalAmount || 0);
+          const isExchangeIncomplete = currentTotal < expectedTotal;
 
           if (isBuyer) {
-            if (existingExchangeOrder.shippingAddress) throw new BadRequestException('شما قبلاً پرداخت خود را انجام داده‌اید');
+            // اگر تسویه کامل نشده باشد، وجود آدرس به معنی پرداخت قطعی نیست
+            // (ممکن است attempt قبلی ناموفق/ناتمام بوده باشد).
+            if (existingExchangeOrder.shippingAddress && !isExchangeIncomplete) {
+              throw new BadRequestException('شما قبلاً پرداخت خود را انجام داده‌اید');
+            }
             updateData.shippingAddress = currentAddressStr;
             updateData.shippingPhone = currentPhone;
             updateData.shippingPostalCode = currentPostal;
           } else {
-            if (existingExchangeOrder.sellerShippingAddress) throw new BadRequestException('شما قبلاً پرداخت خود را انجام داده‌اید');
+            if (existingExchangeOrder.sellerShippingAddress && !isExchangeIncomplete) {
+              throw new BadRequestException('شما قبلاً پرداخت خود را انجام داده‌اید');
+            }
             updateData.sellerShippingAddress = currentAddressStr;
             updateData.sellerShippingPhone = currentPhone;
             updateData.sellerShippingPostalCode = currentPostal;
           }
 
-          updateData.totalAmount = Number(existingExchangeOrder.totalAmount) + totalPayable;
+          // در کیف پول، مبلغ همین لحظه واقعاً پرداخت می‌شود؛ در درگاه بعد از callback.
+          if (paymentMethod === 'WALLET') {
+            updateData.totalAmount = Number(existingExchangeOrder.totalAmount) + totalPayable;
+          }
+          if (isExchangeIncomplete) {
+            updateData.status = OrderStatus.AWAITING_PAYMENT;
+          }
           updateData.paymentMethod = paymentMethod;
-          return await tx.order.update({ where: { id: existingExchangeOrder.id }, data: updateData });
+          const updatedOrder = await tx.order.update({ where: { id: existingExchangeOrder.id }, data: updateData });
+
+          const bothSidesProvidedAddress =
+            !!updatedOrder.shippingAddress && !!updatedOrder.sellerShippingAddress;
+          if (bothSidesProvidedAddress && paymentMethod === 'WALLET') {
+            const deadline = new Date();
+            deadline.setDate(deadline.getDate() + sellerShipDeadlineDays);
+            await tx.order.update({
+              where: { id: updatedOrder.id },
+              data: {
+                status: OrderStatus.AWAITING_SHIPMENT_TO_HUB,
+                shippingDeadline: deadline,
+              },
+            });
+            await tx.listing.update({
+              where: { id: listingId },
+              data: { status: ListingStatus.SOLD },
+            });
+          }
+
+          return updatedOrder;
 
         }
 
@@ -341,13 +412,14 @@ export class OrdersService {
             listing: { connect: { id: listingId } },
             type: OrderType.EXCHANGE,
             exchangeOfferId: finalExchangeId,
-            status: 'AWAITING_SHIPMENT_TO_HUB',
+            // تا وقتی هر دو طرف سهم خودشان را پرداخت نکنند، ارسال باز نمی‌شود.
+            status: OrderStatus.AWAITING_PAYMENT,
 
             // 👈 اینجا کل مبلغ مابه‌التفاوت رو به عنوان قیمت پایه معامله ثبت می‌کنیم
             finalPrice: totalExchangeExtraPayment,
 
             shippingCost: shippingCost,
-            totalAmount: totalPayable, // پولی که شخص اول در همین لحظه پرداخت کرده
+            totalAmount: paymentMethod === 'WALLET' ? totalPayable : 0, // درگاه بعد از callback اضافه می‌شود
             requiresVerification: true,
             verificationFee: verificationFee,
             platformAddress: hubAddress,
@@ -368,7 +440,6 @@ export class OrdersService {
           }
 
           const createdOrder = await tx.order.create({ data: orderPayload });
-          await tx.listing.update({ where: { id: listingId }, data: { status: ListingStatus.SOLD } });
           return createdOrder;
         }
 
@@ -693,6 +764,14 @@ export class OrdersService {
 
     const updateData: Prisma.OrderUpdateInput = {};
 
+    if (
+      order.type === OrderType.EXCHANGE &&
+      (!order.shippingAddress || !order.sellerShippingAddress ||
+        !([OrderStatus.AWAITING_SHIPMENT_TO_HUB, OrderStatus.SHIPPED_TO_HUB] as OrderStatus[]).includes(order.status))
+    ) {
+      throw new BadRequestException('ارسال کالا پس از تکمیل پرداخت هر دو طرف فعال می‌شود');
+    }
+
     // منطق هوشمند: آیا کالا باید به هاب برود یا مستقیم به خریدار؟
     const needsHub = order.type === OrderType.EXCHANGE ||
       order.requiresVerification ||
@@ -720,6 +799,45 @@ export class OrdersService {
     return this.prisma.order.update({
       where: { id: orderId },
       data: updateData,
+    });
+  }
+
+  async submitReturnTrackingCode(
+    userId: string,
+    orderId: string,
+    trackingCode: string,
+    videoPath?: string,
+  ) {
+    if (!/^\d{24}$/.test(trackingCode)) {
+      throw new BadRequestException('کد رهگیری باید دقیقاً ۲۴ رقم باشد.');
+    }
+    if (!videoPath) {
+      throw new BadRequestException('ویدیوی بسته‌بندی مرجوعی الزامی است.');
+    }
+
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('سفارش یافت نشد');
+    if (order.type === OrderType.EXCHANGE) {
+      throw new BadRequestException('ثبت مرجوعی برای سفارش معاوضه در این مرحله مجاز نیست');
+    }
+    if (order.buyerId !== userId) {
+      throw new ForbiddenException('فقط خریدار می‌تواند مرجوعی را ثبت کند');
+    }
+    if (order.status !== OrderStatus.RETURN_REQUESTED) {
+      throw new BadRequestException('این سفارش در وضعیت مناسب برای ثبت مرجوعی نیست');
+    }
+    if (order.returnTrackingCode) {
+      throw new BadRequestException('کد رهگیری مرجوعی قبلاً ثبت شده است');
+    }
+
+    return this.prisma.order.update({
+      where: { id: orderId },
+      data: {
+        returnTrackingCode: trackingCode,
+        returnPackagingVideo: videoPath,
+        returnShippedAt: new Date(),
+        status: OrderStatus.RETURN_SHIPPED,
+      },
     });
   }
   // =================================================================
@@ -767,6 +885,7 @@ export class OrdersService {
             amountToRelease,
             order.listingId,
             tx,
+            { orderId: order.id },
           );
         }
 
@@ -792,6 +911,7 @@ export class OrdersService {
           amountToRelease, // 👈 اینجا مبلغ خالص پاس داده شد
           order.listingId,
           tx,
+          { orderId: order.id },
         );
       }
 
@@ -877,7 +997,8 @@ export class OrdersService {
     // ارتباط هست) قابل مشاهده‌ست. قبل از اون، شماره حذف میشه.
     const contactReleased =
       order.status === 'SHIPPED' || order.status === 'DELIVERED' ||
-      order.status === 'COMPLETED' || order.status === 'DISPUTED';
+      order.status === 'COMPLETED' || order.status === 'DISPUTED' ||
+      order.status === OrderStatus.RETURN_REQUESTED || order.status === OrderStatus.RETURN_SHIPPED;
 
     const stripPhone = (u: { phone?: string | null } | null) =>
       u ? { ...u, phone: contactReleased ? u.phone : null } : u;
@@ -1085,6 +1206,144 @@ export class OrdersService {
   }
 
   @Cron(CronExpression.EVERY_HOUR)
+  async autoCancelTimedOutExchangeCompletions() {
+    const deadline = new Date(
+      Date.now() - OrdersService.EXCHANGE_COMPLETION_TIMEOUT_HOURS * 60 * 60 * 1000,
+    );
+    const timedOutAcceptedOffers = await this.prisma.exchangeOffer.findMany({
+      where: {
+        status: 'ACCEPTED',
+        updatedAt: { lte: deadline },
+      },
+      include: {
+        listing: {
+          select: { id: true, title: true, status: true },
+        },
+      },
+    });
+
+    for (const offer of timedOutAcceptedOffers) {
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          const linkedOrder = await tx.order.findFirst({
+            where: { exchangeOfferId: offer.id },
+          });
+
+          if (linkedOrder && linkedOrder.status !== OrderStatus.AWAITING_PAYMENT && linkedOrder.status !== OrderStatus.PENDING) {
+            return;
+          }
+
+          const verificationFee = Number(linkedOrder?.verificationFee || 0);
+          const extra = Number(offer.extraPayment || 0);
+          const buyerShare = verificationFee + (offer.isPayerMe ? extra : 0);
+          const sellerShare = verificationFee + (!offer.isPayerMe ? extra : 0);
+          const buyerRefundable = Math.max(0, buyerShare - verificationFee);
+          const sellerRefundable = Math.max(0, sellerShare - verificationFee);
+
+          if (linkedOrder?.shippingAddress && buyerRefundable > 0) {
+            await tx.wallet.upsert({
+              where: { userId: linkedOrder.buyerId },
+              create: {
+                userId: linkedOrder.buyerId,
+                balanceAvailable: buyerRefundable,
+                balanceBlocked: 0,
+              },
+              update: {
+                balanceAvailable: { increment: buyerRefundable },
+              },
+            });
+            await tx.walletTransaction.create({
+              data: {
+                wallet: { connect: { userId: linkedOrder.buyerId } },
+                amount: buyerRefundable,
+                type: WalletTransactionType.DEPOSIT,
+                status: WalletTransactionStatus.SUCCESS,
+                referenceId: linkedOrder.id,
+                meta: {
+                  kind: 'exchange-timeout-refund',
+                  description:
+                    'بازگشت وجه به‌دلیل عدم تکمیل معاوضه در مهلت ۴۸ ساعته (بدون عودت کارشناسی)',
+                },
+              },
+            });
+          }
+
+          if (linkedOrder?.sellerShippingAddress && sellerRefundable > 0) {
+            await tx.wallet.upsert({
+              where: { userId: linkedOrder.sellerId },
+              create: {
+                userId: linkedOrder.sellerId,
+                balanceAvailable: sellerRefundable,
+                balanceBlocked: 0,
+              },
+              update: {
+                balanceAvailable: { increment: sellerRefundable },
+              },
+            });
+            await tx.walletTransaction.create({
+              data: {
+                wallet: { connect: { userId: linkedOrder.sellerId } },
+                amount: sellerRefundable,
+                type: WalletTransactionType.DEPOSIT,
+                status: WalletTransactionStatus.SUCCESS,
+                referenceId: linkedOrder.id,
+                meta: {
+                  kind: 'exchange-timeout-refund',
+                  description:
+                    'بازگشت وجه به‌دلیل عدم تکمیل معاوضه در مهلت ۴۸ ساعته (بدون عودت کارشناسی)',
+                },
+              },
+            });
+          }
+
+          if (linkedOrder) {
+            await tx.order.update({
+              where: { id: linkedOrder.id },
+              data: { status: OrderStatus.CANCELLED, cancelReason: 'مهلت ۴۸ ساعته تکمیل معاوضه به پایان رسید' },
+            });
+          }
+
+          await tx.exchangeOffer.update({
+            where: { id: offer.id },
+            data: { status: 'REJECTED' },
+          });
+
+          await tx.listing.update({
+            where: { id: offer.listingId },
+            data: { status: ListingStatus.APPROVED },
+          });
+
+          const rejectedOffers = await tx.exchangeOffer.findMany({
+            where: {
+              listingId: offer.listingId,
+              id: { not: offer.id },
+              status: 'REJECTED',
+            },
+            select: { offererId: true },
+          });
+          const uniqueOffererIds = [...new Set(rejectedOffers.map((x) => x.offererId))];
+          if (uniqueOffererIds.length > 0) {
+            await tx.notification.createMany({
+              data: uniqueOffererIds.map((uid) => ({
+                userId: uid,
+                type: NotificationType.SYSTEM,
+                title: 'آگهی دوباره برای معاوضه فعال شد',
+                message: `مهلت تکمیل معاوضه برای «${offer.listing?.title ?? 'این آگهی'}» تمام شد و می‌توانید دوباره درخواست ثبت کنید.`,
+                meta: {
+                  listingId: offer.listingId,
+                  reason: 'exchange-timeout',
+                } as Prisma.InputJsonValue,
+              })),
+            });
+          }
+        });
+      } catch (error) {
+        console.error(`Error auto-canceling exchange timeout for offer ${offer.id}:`, error);
+      }
+    }
+  }
+
+  @Cron(CronExpression.EVERY_HOUR)
   async autoConfirmOrders() {
     const buyerConfirmDeadlineDays = await this.getBuyerConfirmDeadlineDays();
     const threshold = new Date(
@@ -1112,6 +1371,7 @@ export class OrdersService {
                 amountToRelease,
                 locked.listingId,
                 tx,
+                { orderId: locked.id },
               );
             }
             await tx.order.update({

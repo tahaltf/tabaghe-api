@@ -20,9 +20,20 @@ const LISTING_LIST_INCLUDE = {
       isVerified: true,
     },
   },
-  direct: { select: { price: true } },
+  direct: { select: { price: true, allowExchange: true, shippingMethods: true } },
   auction: { select: { basePrice: true, buyNowPrice: true, endDatetime: true } },
-  exchange: { select: { ownValue: true, extraPaymentAmount: true } },
+  exchange: {
+    select: {
+      desiredCategoryId: true,
+      desiredTitle: true,
+      desiredDescription: true,
+      ownValue: true,
+      extraPaymentAmount: true,
+      acceptOtherItems: true,
+      allowDirectSale: true,
+      directPrice: true,
+    },
+  },
 } satisfies Prisma.ListingInclude;
 
 export type AdminListingItem = Prisma.ListingGetPayload<{ include: typeof LISTING_LIST_INCLUDE }>;
@@ -84,11 +95,7 @@ export class AdminListingsQueryService {
           },
         },
         direct: true,
-        exchange: {
-          include: {
-            // desiredCategory relation doesn't exist; include name via query
-          },
-        },
+        exchange: true,
         auction: {
           include: {
             highestBidder: { select: { id: true, firstName: true, lastName: true, phone: true } },

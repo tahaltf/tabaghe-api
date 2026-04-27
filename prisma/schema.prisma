@@ -56,6 +56,8 @@ enum OrderStatus {
 
   SHIPPED
   DELIVERED
+  RETURN_REQUESTED
+  RETURN_SHIPPED
   COMPLETED
   DISPUTED
   CANCELLED
@@ -792,6 +794,13 @@ paymentMethod    PaymentMethod @default(GATEWAY)
   disputeResolvedAt    DateTime? // زمان حل شکایت
   disputeResolvedBy    String?   // آی‌دی ادمین حل‌کننده
   disputeOutcome       DisputeOutcome? // نتیجه (سود به خریدار/فروشنده/تقسیم/بدون)
+
+  // --- مرجوعی پس از اختلاف ---
+  returnTrackingCode   String?   // کد رهگیری مرجوعی که خریدار ثبت می‌کند
+  returnPackagingVideo String?   // ویدیوی بسته‌بندی مرجوعی خریدار
+  returnShippedAt      DateTime? // زمان ثبت مرجوعی توسط خریدار
+  returnConfirmedAt    DateTime? // زمان تایید ادمین بابت ارسال مرجوعی
+  returnConfirmedBy    String?   // شناسه ادمینی که مرجوعی را تایید کرده
 
   @@index([buyerId, status])
   @@index([sellerId, status])

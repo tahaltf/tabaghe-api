@@ -102,6 +102,20 @@ export class OrdersController {
     return this.commandService.updateTrackingCode(user.id, id, trackingCode, video?.filename);
   }
 
+  @Patch(':id/return-shipping')
+  @UseInterceptors(FileInterceptor('video', videoUploadConfig))
+  submitReturnTrackingCode(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body('trackingCode') trackingCode: string,
+    @UploadedFile() video?: Express.Multer.File,
+  ) {
+    if (!trackingCode) {
+      throw new BadRequestException('لطفا کد رهگیری را وارد کنید');
+    }
+    return this.commandService.submitReturnTrackingCode(user.id, id, trackingCode, video?.filename);
+  }
+
   @Patch(':id/confirm')
   confirmOrderDelivery(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.commandService.confirmOrder(user.id, id);

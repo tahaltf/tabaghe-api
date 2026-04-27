@@ -6,10 +6,11 @@ import {
   Param,
   Post,
   Query,
+  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { PaymentsService } from './payments.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -28,8 +29,14 @@ export class PaymentsController {
   initiateOrderPayment(
     @CurrentUser() user: AuthenticatedUser,
     @Param('orderId') orderId: string,
+    @Req() req: Request,
   ) {
-    return this.paymentsService.initiateOrderPayment(orderId, user.id);
+    return this.paymentsService.initiateOrderPayment(
+      orderId,
+      user.id,
+      this.buildCallbackBase(req),
+      this.buildReturnUrl(req),
+    );
   }
 
   @Post('repairs/:repairId/initiate')
@@ -37,8 +44,14 @@ export class PaymentsController {
   initiateRepairPayment(
     @CurrentUser() user: AuthenticatedUser,
     @Param('repairId') repairId: string,
+    @Req() req: Request,
   ) {
-    return this.paymentsService.initiateRepairPayment(repairId, user.id);
+    return this.paymentsService.initiateRepairPayment(
+      repairId,
+      user.id,
+      this.buildCallbackBase(req),
+      this.buildReturnUrl(req),
+    );
   }
 
   @Post('wallet/initiate')
@@ -46,8 +59,14 @@ export class PaymentsController {
   initiateWalletTopup(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: { amount: number },
+    @Req() req: Request,
   ) {
-    return this.paymentsService.initiateWalletTopup(user.id, body.amount);
+    return this.paymentsService.initiateWalletTopup(
+      user.id,
+      body.amount,
+      this.buildCallbackBase(req),
+      this.buildReturnUrl(req),
+    );
   }
 
   @Get('callback/:gateway')
@@ -61,7 +80,7 @@ export class PaymentsController {
         gateway,
         query,
       );
-      const target = new URL(this.appSettings.getPaymentReturnUrl());
+      const target = this.resolveReturnTarget(query);
       if (result.orderId) target.searchParams.set('orderId', String(result.orderId));
       if (result.repairId) target.searchParams.set('repairId', String(result.repairId));
       if (result.kind) target.searchParams.set('kind', String(result.kind));
@@ -72,7 +91,7 @@ export class PaymentsController {
       if (result.message) target.searchParams.set('message', String(result.message));
       return res.redirect(302, target.toString());
     } catch (err: unknown) {
-      const target = new URL(this.appSettings.getPaymentReturnUrl());
+      const target = this.resolveReturnTarget(query);
       target.searchParams.set('result', 'ERROR');
       target.searchParams.set('ok', 'false');
       target.searchParams.set(
@@ -83,6 +102,34 @@ export class PaymentsController {
     }
   }
 
+  private buildCallbackBase(req: Request): string {
+    const protoHeader = req.headers['x-forwarded-proto'];
+    const hostHeader = req.headers['x-forwarded-host'];
+    const protocol = (Array.isArray(protoHeader) ? protoHeader[0] : protoHeader) || req.protocol || 'https';
+    const host = (Array.isArray(hostHeader) ? hostHeader[0] : hostHeader) || req.get('host');
+    if (!host) return this.appSettings.getPaymentGatewayConfig().callbackUrl;
+    return `${protocol}://${host}/api/v1/payments/callback/zibal`;
+  }
+
+  private buildReturnUrl(req: Request): string {
+    const origin = req.get('origin');
+    if (origin && /^https?:\/\//i.test(origin)) {
+      return `${origin.replace(/\/$/, '')}/payment-result`;
+    }
+    return this.appSettings.getPaymentReturnUrl();
+  }
+
+  private resolveReturnTarget(query: Record<string, unknown>): URL {
+    const candidate = String(query.returnUrl ?? '').trim();
+    if (candidate && /^https?:\/\//i.test(candidate)) {
+      try {
+        return new URL(candidate);
+      } catch {
+        return new URL(this.appSettings.getPaymentReturnUrl());
+      }
+    }
+    return new URL(this.appSettings.getPaymentReturnUrl());
+  }
 }
 
 function paymentCallbackErrorMessage(err: unknown): string {

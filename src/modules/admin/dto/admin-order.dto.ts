@@ -51,3 +51,27 @@ export class SetHubShippingCodesDto {
   @MaxLength(500)
   note?: string;
 }
+
+export class SetParticipantShippingDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  @MaxLength(120)
+  sellerTrackingCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  @MaxLength(120)
+  buyerTrackingCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  sellerNote?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  buyerNote?: string;
+}

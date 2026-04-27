@@ -73,8 +73,15 @@ export class ExchangeService {
                 description: dto.description,
                 images: fileNames,
                 extraPayment: Number(dto.extraPayment || 0),
-                // تبدیل String به Boolean برای جلوگیری از ارور تایپ‌اسکریپت
-                isPayerMe: String(dto.isPayerMe) === 'true',
+                // ترجیح با فیلد صریح payerRole است؛ سپس fallback روی isPayerMe
+                isPayerMe:
+                  dto.payerRole === 'OFFERER'
+                    ? true
+                    : dto.payerRole === 'OWNER'
+                      ? false
+                      : dto.isPayerMe === true ||
+                        String(dto.isPayerMe).toLowerCase() === 'true' ||
+                        String(dto.isPayerMe) === '1',
                 status: ExchangeOfferStatus.PENDING
             },
         });

@@ -179,39 +179,12 @@ export class AdminDisputesService {
 
       switch (dto.outcome) {
         case DisputeOutcome.REFUND_BUYER: {
-          if (sellerRevenue > 0) {
-            await tx.wallet.upsert({
-              where: { userId: order.sellerId },
-              create: {
-                userId: order.sellerId,
-                balanceAvailable: 0,
-                balanceBlocked: 0,
-              },
-              update: { balanceBlocked: { decrement: sellerRevenue } },
-            });
-          }
-          if (total > 0) {
-            await tx.wallet.upsert({
-              where: { userId: order.buyerId },
-              create: {
-                userId: order.buyerId,
-                balanceAvailable: total,
-                balanceBlocked: 0,
-              },
-              update: { balanceAvailable: { increment: total } },
-            });
-          }
-          await tx.user.update({
-            where: { id: order.sellerId },
-            data: { trustScore: { decrement: 20 } },
-          });
           await tx.order.update({
             where: { id },
-            data: { status: OrderStatus.CANCELLED },
-          });
-          await tx.listing.update({
-            where: { id: order.listingId },
-            data: { status: ListingStatus.APPROVED },
+            data: {
+              status: OrderStatus.RETURN_REQUESTED,
+              cancelReason: 'مرجوعی کالا توسط خریدار در انتظار ثبت است',
+            },
           });
           break;
         }
