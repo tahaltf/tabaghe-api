@@ -242,13 +242,13 @@ export class PaymentsService {
     return this.processOrderCallback({ orderId, authority, successFlag, payerId });
   }
 
-  private async getSellerShipDeadlineDays(tx: Prisma.TransactionClient): Promise<number> {
-    const setting = await tx.systemSetting.findUnique({
-      where: { key: 'SELLER_SHIP_DEADLINE_DAYS' },
-      select: { value: true },
+  private async getSellerShipDeadlineMinutes(tx: Prisma.TransactionClient): Promise<number> {
+    const setting = await tx.systemSetting.findFirst({
+      where: { key: { in: ['SELLER_SHIP_DEADLINE_MINUTES', 'SELLER_SHIP_DEADLINE_DAYS'] } },
+      orderBy: { key: 'asc' },
     });
     const parsed = Number(setting?.value ?? '');
-    if (!Number.isFinite(parsed) || parsed <= 0) return 3;
+    if (!Number.isFinite(parsed) || parsed <= 0) return 3 * 24 * 60;
     return Math.floor(parsed);
   }
 
@@ -335,14 +335,49 @@ export class PaymentsService {
         tx,
       );
 
+      const payerUserId = locked.type === 'EXCHANGE' && payerId ? payerId : locked.buyerId;
+      const payerWallet = await tx.wallet.upsert({
+        where: { userId: payerUserId },
+        create: {
+          userId: payerUserId,
+          balanceAvailable: 0,
+          balanceBlocked: 0,
+        },
+        update: {},
+      });
+      const listing = await tx.listing.findUnique({
+        where: { id: locked.listingId },
+        select: { title: true },
+      });
+      const listingTitle = listing?.title;
+      await tx.walletTransaction.create({
+        data: {
+          walletId: payerWallet.id,
+          amount: paidAmount,
+          type: WalletTransactionType.SETTLEMENT,
+          status: WalletTransactionStatus.SUCCESS,
+          referenceId: locked.listingId,
+          meta: {
+            kind: 'order-escrow',
+            phase: 'buyer_paid',
+            orderId: locked.id,
+            listingId: locked.listingId,
+            ...(listingTitle ? { listingTitle } : {}),
+            paymentSource: 'GATEWAY',
+            description: listingTitle
+              ? `پرداخت خرید برای «${listingTitle}» از درگاه ثبت شد.`
+              : 'پرداخت خرید از درگاه ثبت شد.',
+          },
+        },
+      });
+
       let paidStatus: OrderStatus =
         locked.requiresVerification || locked.type === 'EXCHANGE'
           ? OrderStatus.AWAITING_SHIPMENT_TO_HUB
           : OrderStatus.PAID;
 
-      const sellerShipDeadlineDays = await this.getSellerShipDeadlineDays(tx);
-      const deadline = new Date();
-      deadline.setDate(deadline.getDate() + sellerShipDeadlineDays);
+      const sellerShipDeadlineMinutes = await this.getSellerShipDeadlineMinutes(tx);
+      const deadline = new Date(Date.now() + sellerShipDeadlineMinutes * 60 * 1000);
 
       if (locked.type === 'EXCHANGE') {
         const offer = locked.exchangeOfferId

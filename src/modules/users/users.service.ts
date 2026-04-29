@@ -143,18 +143,32 @@ export class UsersService {
       throw new BadRequestException('تصویر کارت ملی الزامی است');
     }
 
-    return this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        firstName: dto.firstName,
-        lastName: dto.lastName,
-        nationalCode: dto.nationalCode,
-        shabaNumber: cleanShaba,
-        ...(nationalCardImageFilename ? { nationalCardImage: nationalCardImageFilename } : {}),
-        status: UserStatus.PENDING,
-      },
-      select: MY_PROFILE_SELECT,
-    });
+    try {
+      return await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          nationalCode: dto.nationalCode,
+          shabaNumber: cleanShaba,
+          ...(nationalCardImageFilename
+            ? { nationalCardImage: nationalCardImageFilename }
+            : {}),
+          status: UserStatus.PENDING,
+        },
+        select: MY_PROFILE_SELECT,
+      });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        const targetFields = Array.isArray(err.meta?.target)
+          ? err.meta?.target.map((x) => String(x))
+          : [];
+        if (targetFields.includes('nationalCode')) {
+          throw new BadRequestException('این کدملی تو سامانه وجود دارد.');
+        }
+      }
+      throw err;
+    }
   }
 
   async updateSettings(

@@ -23,6 +23,8 @@ const REPAIR_INCLUDE = {
 } satisfies Prisma.RepairRequestInclude;
 const USER_SHIPPING_NOTE_MARK = '[USER_SHIPPING_NOTE]';
 const ADMIN_RETURN_NOTE_MARK = '[ADMIN_RETURN_NOTE]';
+const ADMIN_RETURN_PICKUP_TIME_MARK = '[ADMIN_RETURN_PICKUP_TIME]';
+const ADMIN_RETURN_PICKUP_SLOTS_MARK = '[ADMIN_RETURN_PICKUP_SLOTS]';
 const INTERNAL_PROFIT_MARK = '[INTERNAL_PROFIT]';
 
 export type AdminRepairItem = Prisma.RepairRequestGetPayload<{
@@ -68,7 +70,10 @@ export class AdminRepairsService {
   private extractTaggedNote(text: string | null | undefined, marker: string): string | null {
     const raw = (text ?? '').split('\n').find((line) => line.trim().startsWith(marker));
     if (!raw) return null;
-    return raw.trim().slice(marker.length).trim() || null;
+    const extracted = raw.trim().slice(marker.length).trim();
+    if (!extracted) return null;
+    const normalized = extracted.replace(/^(note|message|text|adminNote)\s*[:=]\s*/i, '').trim();
+    return normalized || null;
   }
 
   private stripTaggedNotes(text: string | null | undefined): string | null {
@@ -78,6 +83,8 @@ export class AdminRepairsService {
         const t = line.trim();
         return !t.startsWith(USER_SHIPPING_NOTE_MARK)
           && !t.startsWith(ADMIN_RETURN_NOTE_MARK)
+          && !t.startsWith(ADMIN_RETURN_PICKUP_TIME_MARK)
+          && !t.startsWith(ADMIN_RETURN_PICKUP_SLOTS_MARK)
           && !t.startsWith(INTERNAL_PROFIT_MARK);
       })
       .join('\n')
@@ -132,6 +139,17 @@ export class AdminRepairsService {
       adminNote: this.stripTaggedNotes(repair.adminNote),
       userShippingNote: this.extractTaggedNote(repair.adminNote, USER_SHIPPING_NOTE_MARK),
       adminReturnNote: this.extractTaggedNote(repair.adminNote, ADMIN_RETURN_NOTE_MARK),
+      inPersonPickupTime: this.extractTaggedNote(repair.adminNote, ADMIN_RETURN_PICKUP_TIME_MARK),
+      inPersonPickupSlots: (() => {
+        const raw = this.extractTaggedNote(repair.adminNote, ADMIN_RETURN_PICKUP_SLOTS_MARK);
+        if (!raw) return null;
+        try {
+          const parsed = JSON.parse(raw);
+          return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : null;
+        } catch {
+          return null;
+        }
+      })(),
     } as AdminRepairItem;
   }
 
@@ -140,6 +158,11 @@ export class AdminRepairsService {
   // ---------------------------------------------------------------------------
 
   async approve(id: string, dto: AdminApproveRepairDto): Promise<AdminRepairItem> {
+    const hasSlots = Array.isArray(dto.availableSlots) && dto.availableSlots.length > 0;
+    const allowPostalDropOff = dto.allowPostalDropOff !== false;
+    if (!hasSlots && !allowPostalDropOff) {
+      throw new BadRequestException('حداقل یک زمان پیشنهادی یا گزینه ارسال پستی باید فعال باشد');
+    }
     // basic validation: each slot's from < to
     for (const slot of dto.availableSlots) {
       if (slot.from >= slot.to) {
@@ -156,7 +179,9 @@ export class AdminRepairsService {
         rejectionReason: null,
       },
       title: 'درخواست تعمیر تایید شد',
-      message: 'درخواست شما تایید شد. لطفاً از بین زمان‌های پیشنهادی، یکی را انتخاب کنید.',
+      message: hasSlots
+        ? 'درخواست شما تایید شد. لطفاً از بین زمان‌های پیشنهادی، یکی را انتخاب کنید.'
+        : 'درخواست شما تایید شد. می‌توانید کالا را به‌صورت پستی ارسال کنید.',
     });
   }
 
@@ -230,8 +255,14 @@ export class AdminRepairsService {
     dto: AdminShipBackDto,
     video?: Express.Multer.File,
   ): Promise<AdminRepairItem> {
-    if (!video) {
-      throw new BadRequestException('ویدیوی بسته‌بندی برای ارسال برگشتی الزامی است');
+    const returnMethod = dto.returnMethod === 'IN_PERSON' ? 'IN_PERSON' : 'SHIP';
+    if (returnMethod === 'SHIP' && !(dto.trackingCode ?? '').trim()) {
+      throw new BadRequestException('کد رهگیری برای ارسال پستی الزامی است');
+    }
+    if (returnMethod === 'IN_PERSON' && !dto.inPersonPickupTime) {
+      if (!dto.inPersonPickupSlots?.length) {
+        throw new BadRequestException('حداقل یک زمان تحویل حضوری باید مشخص شود');
+      }
     }
     const existing = await this.prisma.repairRequest.findUnique({
       where: { id },
@@ -241,12 +272,26 @@ export class AdminRepairsService {
       id,
       next: RepairRequestStatus.SHIPPED_BACK,
       extra: {
-        returnTrackingCode: dto.trackingCode,
-        returnVideo: video.filename,
-        adminNote: this.appendTaggedNote(existing?.adminNote, ADMIN_RETURN_NOTE_MARK, dto.note),
+        returnTrackingCode: returnMethod === 'IN_PERSON' ? 'IN_PERSON_PICKUP' : dto.trackingCode!.trim(),
+        returnVideo: returnMethod === 'IN_PERSON' ? null : video?.filename,
+        adminNote: this.appendTaggedNote(
+          this.appendTaggedNote(
+            this.appendTaggedNote(existing?.adminNote, ADMIN_RETURN_NOTE_MARK, dto.note),
+            ADMIN_RETURN_PICKUP_TIME_MARK,
+            returnMethod === 'IN_PERSON' ? dto.inPersonPickupTime : null,
+          ),
+          ADMIN_RETURN_PICKUP_SLOTS_MARK,
+          returnMethod === 'IN_PERSON' && dto.inPersonPickupSlots?.length
+            ? JSON.stringify(dto.inPersonPickupSlots)
+            : null,
+        ),
       },
-      title: 'کالا برای شما ارسال شد',
-      message: `کالای شما با کد رهگیری ${dto.trackingCode} ارسال شد.`,
+      title: returnMethod === 'IN_PERSON' ? 'زمان تحویل حضوری ثبت شد' : 'کالا برای شما ارسال شد',
+      message: returnMethod === 'IN_PERSON'
+        ? (dto.inPersonPickupSlots?.length
+          ? 'زمان‌های تحویل حضوری کالای شما ثبت شد. لطفاً یکی را انتخاب کنید.'
+          : `زمان تحویل حضوری کالای شما برای ${dto.inPersonPickupTime} ثبت شد.`)
+        : `کالای شما با کد رهگیری ${dto.trackingCode} ارسال شد.`,
     });
   }
 

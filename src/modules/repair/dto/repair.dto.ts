@@ -92,3 +92,9 @@ export class RepairPayDto {
   @IsEnum(PaymentMethod)
   paymentMethod!: PaymentMethod;
 }
+
+export class ConfirmReturnDeliveryDto {
+  @IsOptional()
+  @IsDateString()
+  selectedPickupTime?: string;
+}

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../infrastructure/prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module';
 import { NotificationModule } from '../notification/notification.module';
+import { FeesModule } from '../fees/fees.module';
 
 // Controllers
 import { AdminDashboardController } from './controllers/admin-dashboard.controller';
@@ -45,7 +46,7 @@ import { AdminPlatformWalletService } from './services/admin-platform-wallet.ser
 import { SmsService } from '../sms/sms.service';
 
 @Module({
-  imports: [PrismaModule, AuthModule, NotificationModule],
+  imports: [PrismaModule, AuthModule, NotificationModule, FeesModule],
   controllers: [
     AdminDashboardController,
     AdminUsersQueryController,

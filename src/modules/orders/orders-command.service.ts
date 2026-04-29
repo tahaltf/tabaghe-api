@@ -18,6 +18,10 @@ export class OrdersCommandService {
     return this.ordersService.submitReturnTrackingCode(userId, orderId, trackingCode, videoPath);
   }
 
+  confirmReturnReceipt(userId: string, orderId: string) {
+    return this.ordersService.confirmReturnReceipt(userId, orderId);
+  }
+
   confirmOrder(userId: string, orderId: string) {
     return this.ordersService.confirmOrder(userId, orderId);
   }

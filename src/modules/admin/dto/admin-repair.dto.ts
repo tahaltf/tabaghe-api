@@ -3,6 +3,8 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsDateString,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -39,11 +41,13 @@ export class RepairSlotDto {
 
 export class AdminApproveRepairDto {
   @IsArray()
-  @ArrayMinSize(1, { message: 'حداقل یک زمان پیشنهادی باید تعیین شود' })
   @ArrayMaxSize(8)
   @ValidateNested({ each: true })
   @Type(() => RepairSlotDto)
-  availableSlots!: RepairSlotDto[];
+  availableSlots: RepairSlotDto[] = [];
+
+  @IsOptional()
+  allowPostalDropOff?: boolean;
 
   @IsOptional()
   @IsString()
@@ -78,10 +82,27 @@ export class AdminSetResultDto {
 }
 
 export class AdminShipBackDto {
+  @IsOptional()
+  @IsString()
+  @IsIn(['SHIP', 'IN_PERSON'])
+  returnMethod?: 'SHIP' | 'IN_PERSON';
+
+  @IsOptional()
+  @IsDateString()
+  inPersonPickupTime?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(8)
+  @IsDateString({}, { each: true })
+  inPersonPickupSlots?: string[];
+
+  @IsOptional()
   @IsString()
   @MinLength(3)
   @MaxLength(60)
-  trackingCode!: string;
+  trackingCode?: string;
 
   @IsOptional()
   @IsString()

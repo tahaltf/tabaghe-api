@@ -15,6 +15,7 @@ import { Roles } from '../../auth/decorators/roles.decorator';
 import { AdminTicketsService } from '../services/admin-tickets.service';
 import { AdminTicketListQueryDto } from '../dto/admin-query.dto';
 import {
+  AdminCreateTicketDto,
   AdminReplyTicketDto,
   AdminUpdateTicketDto,
 } from '../dto/admin-ticket.dto';
@@ -33,6 +34,11 @@ export class AdminTicketsController {
   @Get(':id')
   detail(@Param('id') id: string) {
     return this.service.detail(id);
+  }
+
+  @Post('user/:userId')
+  createForUser(@Param('userId') userId: string, @Body() dto: AdminCreateTicketDto) {
+    return this.service.createForUser(userId, dto);
   }
 
   @Post(':id/reply')

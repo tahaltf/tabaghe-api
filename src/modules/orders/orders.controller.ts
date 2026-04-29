@@ -116,6 +116,14 @@ export class OrdersController {
     return this.commandService.submitReturnTrackingCode(user.id, id, trackingCode, video?.filename);
   }
 
+  @Patch(':id/confirm-return-receipt')
+  confirmReturnReceipt(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.commandService.confirmReturnReceipt(user.id, id);
+  }
+
   @Patch(':id/confirm')
   confirmOrderDelivery(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.commandService.confirmOrder(user.id, id);

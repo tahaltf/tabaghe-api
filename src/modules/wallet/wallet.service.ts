@@ -89,6 +89,8 @@ export class WalletService {
       'adminNote',
       'repairTrackingCode',
       'paymentSource',
+      'settlementKind',
+      'agreementAmount',
     ]);
 
     const safeTxns = transactions.map((t) => {
@@ -362,7 +364,7 @@ export class WalletService {
           listingId: refId,
           ...(listingTitle ? { listingTitle } : {}),
           paymentSource: 'WALLET',
-          description: `پرداخت خرید از کیف پول؛ معادل سهم فروشنده (${sellerRevenue.toFixed(0)} تومان خالص پس از کارمزد) به‌صورت امانی برای فروشنده بلوکه شد — ${titleQuoted}. تا تأیید دریافت توسط خریدار آزاد نمی‌شود.`,
+          description: `پرداخت خرید برای ${titleQuoted} از کیف پول ثبت شد.`,
         },
       },
     });
@@ -393,7 +395,7 @@ export class WalletService {
           phase: 'seller_blocked',
           listingId: refId,
           ...(listingTitle ? { listingTitle } : {}),
-          description: `درآمد فروش ${titleQuoted} الان در «موجودی بلوکه‌شده» است تا خریدار دریافت کالا را تأیید کند. پس از تأیید، همین مبلغ به موجودی قابل برداشت منتقل می‌شود.`,
+          description: `سهم فروش شما برای ${titleQuoted} به کیف پول واریز شد و تا تایید دریافت توسط خریدار، در حالت بلوکه است.`,
         },
       },
     });
@@ -452,7 +454,7 @@ export class WalletService {
           listingId: refId,
           ...(listingTitle ? { listingTitle } : {}),
           paymentSource: 'GATEWAY',
-          description: `پرداخت خریدار از درگاه ثبت شد؛ سهم شما (${sellerRevenue.toFixed(0)} تومان خالص پس از کارمزد) برای ${titleQuoted} در «موجودی بلوکه‌شده» است تا خریدار دریافت را تأیید کند.`,
+          description: `پرداخت خریدار از درگاه برای ${titleQuoted} ثبت شد و سهم فروش شما در کیف پول به‌صورت بلوکه قرار گرفت.`,
         },
       },
     });

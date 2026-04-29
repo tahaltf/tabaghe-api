@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import {
   NotificationType,
   Prisma,
@@ -17,6 +18,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { PaymentsService } from '../payments/payments.service';
 import {
+  ConfirmReturnDeliveryDto,
   ConfirmRepairResultDto,
   SelectRepairSlotDto,
   ShipRepairDto,
@@ -27,6 +29,9 @@ import {
 const PROCESS_CWD_UPLOADS = join(process.cwd(), 'uploads');
 const USER_SHIPPING_NOTE_MARK = '[USER_SHIPPING_NOTE]';
 const ADMIN_RETURN_NOTE_MARK = '[ADMIN_RETURN_NOTE]';
+const ADMIN_RETURN_PICKUP_TIME_MARK = '[ADMIN_RETURN_PICKUP_TIME]';
+const ADMIN_RETURN_PICKUP_SLOTS_MARK = '[ADMIN_RETURN_PICKUP_SLOTS]';
+const USER_RETURN_PICKUP_TIME_MARK = '[USER_RETURN_PICKUP_TIME]';
 const INTERNAL_PROFIT_MARK = '[INTERNAL_PROFIT]';
 
 @Injectable()
@@ -161,7 +166,12 @@ export class RepairService {
   private extractTaggedNote(text: string | null | undefined, marker: string): string | null {
     const raw = (text ?? '').split('\n').find((line) => line.trim().startsWith(marker));
     if (!raw) return null;
-    return raw.trim().slice(marker.length).trim() || null;
+    const extracted = raw.trim().slice(marker.length).trim();
+    if (!extracted) return null;
+    // Sometimes client payloads may prepend field labels (e.g. "note:", "message:")
+    // into text notes. Strip known key prefixes before exposing to user.
+    const normalized = extracted.replace(/^(note|message|text|adminNote)\s*[:=]\s*/i, '').trim();
+    return normalized || null;
   }
 
   private stripTaggedNotes(text: string | null | undefined): string | null {
@@ -171,6 +181,9 @@ export class RepairService {
         const t = line.trim();
         return !t.startsWith(USER_SHIPPING_NOTE_MARK)
           && !t.startsWith(ADMIN_RETURN_NOTE_MARK)
+          && !t.startsWith(ADMIN_RETURN_PICKUP_TIME_MARK)
+          && !t.startsWith(ADMIN_RETURN_PICKUP_SLOTS_MARK)
+          && !t.startsWith(USER_RETURN_PICKUP_TIME_MARK)
           && !t.startsWith(INTERNAL_PROFIT_MARK);
       })
       .join('\n')
@@ -364,12 +377,28 @@ export class RepairService {
 
     const userShippingNote = this.extractTaggedNote(repair.adminNote, USER_SHIPPING_NOTE_MARK);
     const adminReturnNote = this.extractTaggedNote(repair.adminNote, ADMIN_RETURN_NOTE_MARK);
+    const inPersonPickupTime = this.extractTaggedNote(repair.adminNote, ADMIN_RETURN_PICKUP_TIME_MARK);
+    const inPersonPickupSlotsRaw = this.extractTaggedNote(repair.adminNote, ADMIN_RETURN_PICKUP_SLOTS_MARK);
+    const inPersonPickupSlots = (() => {
+      if (!inPersonPickupSlotsRaw) return null;
+      try {
+        const parsed = JSON.parse(inPersonPickupSlotsRaw);
+        if (!Array.isArray(parsed)) return null;
+        return parsed.filter((x): x is string => typeof x === 'string' && !!x.trim());
+      } catch {
+        return null;
+      }
+    })();
+    const selectedPickupTime = this.extractTaggedNote(repair.adminNote, USER_RETURN_PICKUP_TIME_MARK);
 
     return {
       ...repair,
       adminNote: this.stripTaggedNotes(repair.adminNote),
       userShippingNote,
       adminReturnNote,
+      inPersonPickupTime,
+      inPersonPickupSlots,
+      selectedPickupTime,
       repairPayment: paymentTx
         ? {
             amount: Number(paymentTx.amount),
@@ -511,39 +540,43 @@ export class RepairService {
         select: { id: true, fullAddress: true, postalCode: true },
       });
       let returnAddress = '';
+      const manual = (dto.returnAddressText ?? '').trim();
       if (addresses.length) {
-        if (!dto.returnAddressId) {
+        if (dto.returnAddressId) {
+          const selected = addresses.find((x) => x.id === dto.returnAddressId);
+          if (!selected) {
+            throw new BadRequestException('آدرس انتخابی معتبر نیست');
+          }
+          returnAddress = selected.fullAddress;
+        } else if (manual.length >= 10) {
+          // Allow manual return address even when user has saved addresses.
+          returnAddress = manual;
+        } else {
           throw new BadRequestException('لطفاً یک آدرس برای بازگشت کالا انتخاب کنید');
         }
-        const selected = addresses.find((x) => x.id === dto.returnAddressId);
-        if (!selected) {
-          throw new BadRequestException('آدرس انتخابی معتبر نیست');
-        }
-        returnAddress = selected.fullAddress;
       } else {
-        const manual = (dto.returnAddressText ?? '').trim();
         if (manual.length < 10) {
           throw new BadRequestException('آدرس بازگشت کالا الزامی است');
         }
         returnAddress = manual;
       }
 
-      const cancelled = await this.prisma.repairRequest.update({
+      const readyForReturn = await this.prisma.repairRequest.update({
         where: { id: repairId },
         data: {
-          status: RepairRequestStatus.CANCELLED,
+          status: RepairRequestStatus.READY_TO_SHIP,
           userCostApproved: false,
           rejectionReason: `عدم موافقت با هزینه: ${reason}\nآدرس برگشت: ${returnAddress}`,
         },
       });
       await this.notifyOwner(
         userId,
-        cancelled.trackingCode,
-        'درخواست تعمیر لغو شد',
-        'درخواست شما بر اساس عدم موافقت با هزینه کارشناسی لغو شد. کالا به نشانی شما بازگردانده خواهد شد.',
-        { repairId, status: cancelled.status },
+        readyForReturn.trackingCode,
+        'عدم تایید هزینه ثبت شد',
+        'عدم موافقت شما با هزینه کارشناسی ثبت شد. تیم پشتیبانی روش برگشت کالا را ثبت و به شما اعلام می‌کند.',
+        { repairId, status: readyForReturn.status },
       );
-      return cancelled;
+      return readyForReturn;
     }
 
     const estimated = Number(repair.estimatedCost ?? 0);
@@ -629,15 +662,44 @@ export class RepairService {
   // User confirms receipt of the returned device
   // ---------------------------------------------------------------------------
 
-  async confirmReturnDelivery(userId: string, repairId: string) {
+  async confirmReturnDelivery(userId: string, repairId: string, dto?: ConfirmReturnDeliveryDto) {
     const repair = await this.ensureOwnership(userId, repairId);
     if (repair.status !== RepairRequestStatus.SHIPPED_BACK) {
       throw new BadRequestException('کالا هنوز برای شما ارسال نشده است');
     }
 
+    let nextAdminNote = repair.adminNote;
+    if (repair.returnTrackingCode === 'IN_PERSON_PICKUP') {
+      const selected = (dto?.selectedPickupTime ?? '').trim();
+      const slotsRaw = this.extractTaggedNote(repair.adminNote, ADMIN_RETURN_PICKUP_SLOTS_MARK);
+      if (slotsRaw) {
+        let slots: string[] = [];
+        try {
+          const parsed = JSON.parse(slotsRaw);
+          if (Array.isArray(parsed)) {
+            slots = parsed.filter((x): x is string => typeof x === 'string');
+          }
+        } catch {
+          slots = [];
+        }
+        if (!selected) {
+          throw new BadRequestException('لطفاً زمان تحویل حضوری را انتخاب کنید');
+        }
+        if (slots.length && !slots.includes(selected)) {
+          throw new BadRequestException('زمان انتخابی معتبر نیست');
+        }
+      } else if (!selected) {
+        throw new BadRequestException('لطفاً زمان تحویل حضوری را انتخاب کنید');
+      }
+      nextAdminNote = this.appendTaggedNote(nextAdminNote, USER_RETURN_PICKUP_TIME_MARK, selected);
+    }
+
     const updated = await this.prisma.repairRequest.update({
       where: { id: repairId },
-      data: { status: RepairRequestStatus.COMPLETED },
+      data: {
+        status: RepairRequestStatus.COMPLETED,
+        adminNote: nextAdminNote,
+      },
     });
 
     await this.notifyOwner(
@@ -673,6 +735,46 @@ export class RepairService {
       },
     });
     return updated;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Auto-complete shipped-back repairs if user doesn't confirm in 3 days
+  // ---------------------------------------------------------------------------
+  @Cron(CronExpression.EVERY_HOUR)
+  async autoCompleteReturnedRepairs(): Promise<void> {
+    const deadline = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    const candidates = await this.prisma.repairRequest.findMany({
+      where: {
+        status: RepairRequestStatus.SHIPPED_BACK,
+        updatedAt: { lte: deadline },
+      },
+      select: {
+        id: true,
+        userId: true,
+        trackingCode: true,
+      },
+      take: 200,
+      orderBy: { updatedAt: 'asc' },
+    });
+
+    for (const row of candidates) {
+      const updated = await this.prisma.repairRequest.updateMany({
+        where: {
+          id: row.id,
+          status: RepairRequestStatus.SHIPPED_BACK,
+        },
+        data: { status: RepairRequestStatus.COMPLETED },
+      });
+      if (!updated.count) continue;
+
+      await this.notifyOwner(
+        row.userId,
+        row.trackingCode,
+        'فرایند تعمیر تکمیل شد',
+        'به‌دلیل عدم ثبت تایید دریافت تا ۳ روز پس از ارسال برگشتی، درخواست به‌صورت خودکار تکمیل شد.',
+        { repairId: row.id, status: RepairRequestStatus.COMPLETED, autoCompleted: true },
+      );
+    }
   }
 }
 

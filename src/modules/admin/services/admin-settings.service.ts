@@ -18,8 +18,8 @@ export const SETTING_KEYS = {
   CRITICAL_ALERT_TEXT_COLOR: 'CRITICAL_ALERT_TEXT_COLOR',
   VERIFICATION_FEE: 'VERIFICATION_FEE',
   SHIPPING_COST: 'SHIPPING_COST',
-  SELLER_SHIP_DEADLINE_DAYS: 'SELLER_SHIP_DEADLINE_DAYS',
-  BUYER_CONFIRM_DEADLINE_DAYS: 'BUYER_CONFIRM_DEADLINE_DAYS',
+  SELLER_SHIP_DEADLINE_MINUTES: 'SELLER_SHIP_DEADLINE_MINUTES',
+  BUYER_CONFIRM_DEADLINE_MINUTES: 'BUYER_CONFIRM_DEADLINE_MINUTES',
   EXCHANGE_NO_SHIPMENT_COMPENSATION: 'EXCHANGE_NO_SHIPMENT_COMPENSATION',
   PLATFORM_ADDRESS: 'PLATFORM_ADDRESS',
   PLATFORM_ADDRESSES: 'PLATFORM_ADDRESSES',
@@ -50,8 +50,8 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   CRITICAL_ALERT_TEXT_COLOR: 'رنگ متن اعلان بحرانی (hex)',
   VERIFICATION_FEE: 'مبلغ کارشناسی هر کالا (تومان)',
   SHIPPING_COST: 'هزینه ارسال پیش‌فرض (تومان)',
-  SELLER_SHIP_DEADLINE_DAYS: 'مهلت ارسال فروشنده پس از پرداخت (روز)',
-  BUYER_CONFIRM_DEADLINE_DAYS: 'مهلت تایید/شکایت خریدار پس از ارسال (روز)',
+  SELLER_SHIP_DEADLINE_MINUTES: 'مهلت ارسال فروشنده پس از پرداخت (دقیقه)',
+  BUYER_CONFIRM_DEADLINE_MINUTES: 'مهلت تایید/شکایت خریدار پس از ارسال (دقیقه)',
   EXCHANGE_NO_SHIPMENT_COMPENSATION: 'مبلغ دلجویی برای طرف ارسال‌کننده در صورت عدم ارسال طرف مقابل (تومان)',
   PLATFORM_ADDRESS: 'آدرس دفتر / هاب طبقه',
   PLATFORM_ADDRESSES: 'لیست آدرس‌های هاب طبقه با کد پستی (JSON)',
@@ -83,12 +83,44 @@ export class AdminSettingsService {
    */
   async getSiteConfig() {
     const rows = await this.prisma.systemSetting.findMany({
-      where: { key: { in: Object.values(SETTING_KEYS) } },
+      where: {
+        key: {
+          in: [
+            ...Object.values(SETTING_KEYS),
+            'SELLER_SHIP_DEADLINE_DAYS',
+            'BUYER_CONFIRM_DEADLINE_DAYS',
+          ],
+        },
+      },
     });
 
     const byKey = new Map(rows.map((r) => [r.key, r]));
     const result: Record<string, string> = {};
     for (const key of Object.values(SETTING_KEYS)) {
+      if (key === SETTING_KEYS.SELLER_SHIP_DEADLINE_MINUTES) {
+        const minutes = byKey.get(key)?.value;
+        if (minutes) {
+          result[key] = minutes;
+          continue;
+        }
+        const legacyDays = Number(byKey.get('SELLER_SHIP_DEADLINE_DAYS')?.value ?? '');
+        result[key] = Number.isFinite(legacyDays) && legacyDays > 0
+          ? String(Math.floor(legacyDays * 24 * 60))
+          : '';
+        continue;
+      }
+      if (key === SETTING_KEYS.BUYER_CONFIRM_DEADLINE_MINUTES) {
+        const minutes = byKey.get(key)?.value;
+        if (minutes) {
+          result[key] = minutes;
+          continue;
+        }
+        const legacyDays = Number(byKey.get('BUYER_CONFIRM_DEADLINE_DAYS')?.value ?? '');
+        result[key] = Number.isFinite(legacyDays) && legacyDays > 0
+          ? String(Math.floor(legacyDays * 24 * 60))
+          : '';
+        continue;
+      }
       result[key] = byKey.get(key)?.value ?? '';
     }
     return result;

@@ -13,3 +13,15 @@ export class AdminUpdateTicketDto {
   @IsEnum(TicketStatus)
   status?: TicketStatus;
 }
+
+export class AdminCreateTicketDto {
+  @IsString()
+  @MinLength(3)
+  @MaxLength(200)
+  subject!: string;
+
+  @IsString()
+  @MinLength(3)
+  @MaxLength(2000)
+  message!: string;
+}

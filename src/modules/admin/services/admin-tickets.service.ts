@@ -12,6 +12,7 @@ import {
 } from '../../../shared/contracts/pagination';
 import { AdminTicketListQueryDto } from '../dto/admin-query.dto';
 import {
+  AdminCreateTicketDto,
   AdminReplyTicketDto,
   AdminUpdateTicketDto,
 } from '../dto/admin-ticket.dto';
@@ -78,6 +79,43 @@ export class AdminTicketsService {
     });
     if (!ticket) throw new NotFoundException('تیکت یافت نشد');
     return ticket;
+  }
+
+  async createForUser(userId: string, dto: AdminCreateTicketDto): Promise<AdminTicketDetail> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!user) throw new NotFoundException('کاربر یافت نشد');
+
+    const created = await this.prisma.ticket.create({
+      data: {
+        userId,
+        subject: dto.subject.trim(),
+        status: TicketStatus.ANSWERED,
+        messages: {
+          create: {
+            senderRole: UserRole.ADMIN,
+            message: dto.message.trim(),
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    try {
+      await this.notification.create({
+        userId,
+        type: NotificationType.TICKET_REPLY,
+        title: 'تیکت جدید از سمت پشتیبانی',
+        message: `تیکت جدیدی با عنوان «${dto.subject.trim()}» برای شما ثبت شد.`,
+        meta: { ticketId: created.id },
+      });
+    } catch {
+      // ignore notification errors
+    }
+
+    return this.detail(created.id);
   }
 
   async reply(id: string, dto: AdminReplyTicketDto): Promise<AdminTicketDetail> {

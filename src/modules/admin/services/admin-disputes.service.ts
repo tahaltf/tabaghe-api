@@ -10,6 +10,8 @@ import {
   Prisma,
   TicketStatus,
   UserRole,
+  WalletTransactionStatus,
+  WalletTransactionType,
 } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import {
@@ -158,9 +160,9 @@ export class AdminDisputesService {
   /**
    * حل شکایت توسط ادمین.
    * بسته به outcome:
-   *  - REFUND_BUYER: کل totalAmount به خریدار برگردد، سفارش CANCELLED
+   *  - REFUND_BUYER: مرجوعی اجباری؛ پس از تایید تحویل مرجوعی توسط فروشنده، بازگشت وجه انجام می‌شود
    *  - RELEASE_SELLER: مثل تایید نهایی خریدار، sellerRevenue آزاد شود و سفارش COMPLETED
-   *  - PARTIAL_REFUND: refundToBuyer به خریدار برگردد، باقی‌مانده با کسر کارمزد به فروشنده، CANCELLED
+   *  - PARTIAL_REFUND: refundToBuyer به خریدار برگردد، باقی‌مانده برای فروشنده آزاد و سفارش COMPLETED
    *  - CANCEL: بدون انتقال مالی خاص، فقط CANCELLED
    */
   async resolve(id: string, adminId: string, dto: ResolveDisputeDto) {
@@ -190,7 +192,7 @@ export class AdminDisputesService {
         }
         case DisputeOutcome.RELEASE_SELLER: {
           if (sellerRevenue > 0) {
-            await tx.wallet.upsert({
+            const sellerWallet = await tx.wallet.upsert({
               where: { userId: order.sellerId },
               create: {
                 userId: order.sellerId,
@@ -200,6 +202,23 @@ export class AdminDisputesService {
               update: {
                 balanceBlocked: { decrement: sellerRevenue },
                 balanceAvailable: { increment: sellerRevenue },
+              },
+            });
+            await tx.walletTransaction.create({
+              data: {
+                walletId: sellerWallet.id,
+                amount: sellerRevenue,
+                type: WalletTransactionType.UNBLOCK,
+                status: WalletTransactionStatus.SUCCESS,
+                referenceId: order.listingId,
+                meta: {
+                  kind: 'order-escrow',
+                  phase: 'seller_released',
+                  orderId: order.id,
+                  listingId: order.listingId,
+                  description:
+                    'آزادسازی وجه بلوکه‌شده فروشنده پس از رسیدگی به شکایت',
+                },
               },
             });
           }
@@ -216,7 +235,7 @@ export class AdminDisputesService {
         case DisputeOutcome.PARTIAL_REFUND: {
           const refund = Math.max(0, Math.min(total, dto.refundToBuyer ?? 0));
           if (refund > 0) {
-            await tx.wallet.upsert({
+            const buyerWallet = await tx.wallet.upsert({
               where: { userId: order.buyerId },
               create: {
                 userId: order.buyerId,
@@ -225,10 +244,55 @@ export class AdminDisputesService {
               },
               update: { balanceAvailable: { increment: refund } },
             });
+            await tx.walletTransaction.create({
+              data: {
+                walletId: buyerWallet.id,
+                amount: refund,
+                type: WalletTransactionType.REFUND,
+                status: WalletTransactionStatus.SUCCESS,
+                referenceId: order.listingId,
+                meta: {
+                  kind: 'order-dispute',
+                  phase: 'partial_refund_to_buyer',
+                  orderId: order.id,
+                  listingId: order.listingId,
+                  description:
+                    'بازگشت بخشی از وجه به خریدار پس از رسیدگی به شکایت',
+                },
+              },
+            });
+            await tx.wallet.upsert({
+              where: { userId: order.sellerId },
+              create: {
+                userId: order.sellerId,
+                balanceAvailable: 0,
+                balanceBlocked: 0,
+              },
+              update: {
+                balanceBlocked: { decrement: refund },
+              },
+            });
+            await tx.walletTransaction.create({
+              data: {
+                wallet: { connect: { userId: order.sellerId } },
+                amount: refund,
+                type: WalletTransactionType.PENALTY,
+                status: WalletTransactionStatus.SUCCESS,
+                referenceId: order.listingId,
+                meta: {
+                  kind: 'order-dispute',
+                  phase: 'seller_blocked_debit',
+                  orderId: order.id,
+                  listingId: order.listingId,
+                  description:
+                    'کسر از سهم بلوکه‌شده فروشنده بابت مصالحه جزئی شکایت',
+                },
+              },
+            });
           }
           const remainForSeller = Math.max(0, sellerRevenue - refund);
           if (remainForSeller > 0) {
-            await tx.wallet.upsert({
+            const sellerWallet = await tx.wallet.upsert({
               where: { userId: order.sellerId },
               create: {
                 userId: order.sellerId,
@@ -240,14 +304,27 @@ export class AdminDisputesService {
                 balanceAvailable: { increment: remainForSeller },
               },
             });
+            await tx.walletTransaction.create({
+              data: {
+                walletId: sellerWallet.id,
+                amount: remainForSeller,
+                type: WalletTransactionType.UNBLOCK,
+                status: WalletTransactionStatus.SUCCESS,
+                referenceId: order.listingId,
+                meta: {
+                  kind: 'order-escrow',
+                  phase: 'seller_released',
+                  orderId: order.id,
+                  listingId: order.listingId,
+                  description:
+                    'آزادسازی باقیمانده سهم فروشنده پس از کسر بازپرداخت خریدار',
+                },
+              },
+            });
           }
           await tx.order.update({
             where: { id },
-            data: { status: OrderStatus.CANCELLED },
-          });
-          await tx.listing.update({
-            where: { id: order.listingId },
-            data: { status: ListingStatus.APPROVED },
+            data: { status: OrderStatus.COMPLETED },
           });
           break;
         }
@@ -264,7 +341,7 @@ export class AdminDisputesService {
             });
           }
           if (total > 0) {
-            await tx.wallet.upsert({
+            const buyerWallet = await tx.wallet.upsert({
               where: { userId: order.buyerId },
               create: {
                 userId: order.buyerId,
@@ -272,6 +349,22 @@ export class AdminDisputesService {
                 balanceBlocked: 0,
               },
               update: { balanceAvailable: { increment: total } },
+            });
+            await tx.walletTransaction.create({
+              data: {
+                walletId: buyerWallet.id,
+                amount: total,
+                type: WalletTransactionType.REFUND,
+                status: WalletTransactionStatus.SUCCESS,
+                referenceId: order.listingId,
+                meta: {
+                  kind: 'order-dispute',
+                  phase: 'full_refund_to_buyer',
+                  orderId: order.id,
+                  listingId: order.listingId,
+                  description: 'بازگشت کامل وجه به خریدار پس از لغو سفارش',
+                },
+              },
             });
           }
           await tx.order.update({

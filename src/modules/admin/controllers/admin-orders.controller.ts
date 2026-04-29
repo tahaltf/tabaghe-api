@@ -43,7 +43,7 @@ export class AdminOrdersQueryController {
 
   @Patch(':id/status')
   updateStatus(@Param('id') id: string, @Body() dto: UpdateOrderStatusDto) {
-    return this.command.updateStatus(id, dto.status, dto.note);
+    return this.command.updateStatus(id, dto.status, dto.note, dto.rejectedReturnTrackingCode);
   }
 
   @Patch(':id/tracking-code')
@@ -75,6 +75,6 @@ export class AdminOrdersQueryController {
     @Param('id') id: string,
     @Body() dto: ResolveOrderEscrowDto,
   ) {
-    return this.command.resolveEscrow(id, dto.action, dto.note);
+    return this.command.resolveEscrow(id, dto);
   }
 }

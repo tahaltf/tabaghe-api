@@ -18,6 +18,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../shared/contracts/auth';
 import { RepairService } from './repair.service';
 import {
+  ConfirmReturnDeliveryDto,
   ConfirmRepairResultDto,
   RepairPayDto,
   SelectRepairSlotDto,
@@ -134,8 +135,12 @@ export class RepairController {
   }
 
   @Patch(':id/confirm-return')
-  confirmReturn(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.service.confirmReturnDelivery(user.id, id);
+  confirmReturn(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: ConfirmReturnDeliveryDto,
+  ) {
+    return this.service.confirmReturnDelivery(user.id, id, dto);
   }
 
   @Delete(':id')

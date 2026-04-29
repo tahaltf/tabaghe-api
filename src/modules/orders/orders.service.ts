@@ -29,8 +29,8 @@ import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class OrdersService {
-  private static readonly DEFAULT_SELLER_SHIP_DEADLINE_DAYS = 3;
-  private static readonly DEFAULT_BUYER_CONFIRM_DEADLINE_DAYS = 4;
+  private static readonly DEFAULT_SELLER_SHIP_DEADLINE_MINUTES = 3 * 24 * 60;
+  private static readonly DEFAULT_BUYER_CONFIRM_DEADLINE_MINUTES = 4 * 24 * 60;
   private static readonly DEFAULT_EXCHANGE_NO_SHIPMENT_COMPENSATION = 0;
   private static readonly EXCHANGE_COMPLETION_TIMEOUT_HOURS = 48;
 
@@ -245,16 +245,16 @@ export class OrdersService {
 
       const feeSetting = await tx.systemSetting.findUnique({ where: { key: 'VERIFICATION_FEE' } });
       const shippingSetting = await tx.systemSetting.findUnique({ where: { key: 'SHIPPING_COST' } });
-      const sellerShipDeadlineSetting = await tx.systemSetting.findUnique({
-        where: { key: 'SELLER_SHIP_DEADLINE_DAYS' },
+      const sellerShipDeadlineSetting = await tx.systemSetting.findFirst({
+        where: { key: { in: ['SELLER_SHIP_DEADLINE_MINUTES', 'SELLER_SHIP_DEADLINE_DAYS'] } },
       });
       const addressSetting = await tx.systemSetting.findUnique({ where: { key: 'PLATFORM_ADDRESS' } });
       const hubAddress = addressSetting ? addressSetting.value : 'تهران، دفتر مرکزی پردازش و کارشناسی طبقه';
       const hubFee = feeSetting ? Number(feeSetting.value) : 250000;
       const shippingFee = shippingSetting ? Number(shippingSetting.value) : 50000;
-      const sellerShipDeadlineDays = this.parsePositiveIntSetting(
+      const sellerShipDeadlineMinutes = this.parsePositiveIntSetting(
         sellerShipDeadlineSetting?.value,
-        OrdersService.DEFAULT_SELLER_SHIP_DEADLINE_DAYS,
+        OrdersService.DEFAULT_SELLER_SHIP_DEADLINE_MINUTES,
       );
 
       // -----------------------------------------------------
@@ -374,8 +374,7 @@ export class OrdersService {
           const bothSidesProvidedAddress =
             !!updatedOrder.shippingAddress && !!updatedOrder.sellerShippingAddress;
           if (bothSidesProvidedAddress && paymentMethod === 'WALLET') {
-            const deadline = new Date();
-            deadline.setDate(deadline.getDate() + sellerShipDeadlineDays);
+            const deadline = new Date(Date.now() + sellerShipDeadlineMinutes * 60 * 1000);
             await tx.order.update({
               where: { id: updatedOrder.id },
               data: {
@@ -687,8 +686,7 @@ export class OrdersService {
         orderStatus !== OrderStatus.PENDING &&
         orderStatus !== OrderStatus.AWAITING_PAYMENT
       ) {
-        const deadline = new Date();
-        deadline.setDate(deadline.getDate() + sellerShipDeadlineDays);
+        const deadline = new Date(Date.now() + sellerShipDeadlineMinutes * 60 * 1000);
         orderPayload.shippingDeadline = deadline;
       }
 
@@ -838,6 +836,140 @@ export class OrdersService {
         returnShippedAt: new Date(),
         status: OrderStatus.RETURN_SHIPPED,
       },
+    });
+  }
+
+  async confirmReturnReceipt(sellerId: string, orderId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: { listing: { select: { title: true, sellerRequiresVerification: true } } },
+      });
+      if (!order) throw new NotFoundException('سفارش یافت نشد');
+      if (order.sellerId !== sellerId) {
+        throw new ForbiddenException('فقط فروشنده می‌تواند دریافت مرجوعی را تایید کند');
+      }
+      if (order.type === OrderType.EXCHANGE) {
+        throw new BadRequestException('تایید مرجوعی برای سفارش معاوضه در این مرحله مجاز نیست');
+      }
+      if (order.status !== OrderStatus.RETURN_SHIPPED) {
+        throw new BadRequestException('این سفارش در وضعیت مناسب برای تایید مرجوعی نیست');
+      }
+
+      this.stateMachine.assertTransition(order.status, OrderStatus.CANCELLED, 'confirm-return-receipt');
+
+      const sellerRevenue = Number(order.sellerRevenue || 0);
+      const totalAmount = Number(order.totalAmount || 0);
+      const shippingCost = Number(order.shippingCost || 0);
+      const verificationFee = Number(order.verificationFee || 0);
+      const verificationChargedToBuyer =
+        order.requiresVerification && !order.listing?.sellerRequiresVerification
+          ? verificationFee
+          : 0;
+      const refundableToBuyer = Math.max(0, totalAmount - shippingCost - verificationChargedToBuyer);
+
+      if (sellerRevenue > 0) {
+        await tx.wallet.upsert({
+          where: { userId: order.sellerId },
+          create: {
+            userId: order.sellerId,
+            balanceAvailable: 0,
+            balanceBlocked: 0,
+          },
+          update: { balanceBlocked: { decrement: sellerRevenue } },
+        });
+        await tx.walletTransaction.create({
+          data: {
+            wallet: { connect: { userId: order.sellerId } },
+            amount: sellerRevenue,
+            type: WalletTransactionType.PENALTY,
+            status: WalletTransactionStatus.SUCCESS,
+            referenceId: order.id,
+            meta: {
+              kind: 'order-escrow',
+              phase: 'seller_blocked_debit',
+              debitReason: 'seller-confirmed-return',
+              description: 'کسر از موجودی بلوکه فروشنده پس از تایید دریافت مرجوعی',
+            },
+          },
+        });
+      }
+
+      if (refundableToBuyer > 0) {
+        await tx.wallet.upsert({
+          where: { userId: order.buyerId },
+          create: {
+            userId: order.buyerId,
+            balanceAvailable: refundableToBuyer,
+            balanceBlocked: 0,
+          },
+          update: { balanceAvailable: { increment: refundableToBuyer } },
+        });
+        await tx.walletTransaction.create({
+          data: {
+            wallet: { connect: { userId: order.buyerId } },
+            amount: refundableToBuyer,
+            type: WalletTransactionType.REFUND,
+            status: WalletTransactionStatus.SUCCESS,
+            referenceId: order.id,
+            meta: {
+              kind: 'order-escrow',
+              phase: 'buyer_refund',
+              refundReason: 'seller-confirmed-return',
+              shippingCostExcluded: shippingCost,
+              verificationFeeExcluded: verificationChargedToBuyer,
+              description: 'بازگشت وجه مرجوعی به خریدار (بدون هزینه ارسال و کارشناسی پرداخت‌شده)',
+            },
+          },
+        });
+      }
+
+      const updated = await tx.order.update({
+        where: { id: order.id },
+        data: {
+          status: OrderStatus.CANCELLED,
+          cancelReason: 'مرجوعی توسط فروشنده تحویل گرفته شد و بازگشت وجه انجام شد',
+          returnConfirmedAt: new Date(),
+          returnConfirmedBy: sellerId,
+        },
+      });
+
+      await tx.listing.update({
+        where: { id: order.listingId },
+        data: { status: ListingStatus.APPROVED },
+      });
+
+      await tx.notification.createMany({
+        data: [
+          {
+            userId: order.buyerId,
+            type: NotificationType.ORDER_STATUS_CHANGED,
+            title: 'مرجوعی تایید شد و وجه بازگشت',
+            message: `فروشنده دریافت مرجوعی سفارش #${order.id.slice(-6)} را تایید کرد و مبلغ به کیف پول شما برگشت.`,
+            meta: {
+              orderId: order.id,
+              status: OrderStatus.CANCELLED,
+              refundAmount: refundableToBuyer,
+            } as Prisma.InputJsonValue,
+          },
+          {
+            userId: order.sellerId,
+            type: NotificationType.ORDER_STATUS_CHANGED,
+            title: 'مرجوعی تایید شد',
+            message: `شما دریافت مرجوعی سفارش #${order.id.slice(-6)} را تایید کردید و پرونده بسته شد.`,
+            meta: {
+              orderId: order.id,
+              status: OrderStatus.CANCELLED,
+            } as Prisma.InputJsonValue,
+          },
+        ],
+      });
+
+      return {
+        success: true,
+        message: 'مرجوعی تایید شد و بازگشت وجه انجام شد',
+        order: updated,
+      };
     });
   }
   // =================================================================
@@ -1058,6 +1190,18 @@ export class OrdersService {
         order.status !== OrderStatus.SHIPPED_TO_BUYER
       ) {
         throw new BadRequestException('وضعیت سفارش برای شکایت مناسب نیست');
+      }
+
+      // اگر سفارش از مسیر کارشناسی با موفقیت عبور کرده باشد، ثبت شکایت در این فاز مجاز نیست.
+      const wasInspectedAndApproved =
+        Boolean(order.requiresVerification || order.listing?.sellerRequiresVerification) &&
+        [
+          OrderStatus.SHIPPED_TO_BUYER,
+          OrderStatus.SHIPPED,
+          OrderStatus.DELIVERED,
+        ].includes(order.status);
+      if (wasInspectedAndApproved) {
+        throw new BadRequestException('برای سفارش کارشناسی‌شده و ارسال‌شده، امکان ثبت شکایت وجود ندارد');
       }
 
       this.stateMachine.assertTransition(order.status, OrderStatus.DISPUTED, 'dispute-order');
@@ -1345,9 +1489,9 @@ export class OrdersService {
 
   @Cron(CronExpression.EVERY_HOUR)
   async autoConfirmOrders() {
-    const buyerConfirmDeadlineDays = await this.getBuyerConfirmDeadlineDays();
+    const buyerConfirmDeadlineMinutes = await this.getBuyerConfirmDeadlineMinutes();
     const threshold = new Date(
-      Date.now() - buyerConfirmDeadlineDays * 24 * 60 * 60 * 1000,
+      Date.now() - buyerConfirmDeadlineMinutes * 60 * 1000,
     );
     const pendingOrders = await this.prisma.order.findMany({
       where: {
@@ -1402,14 +1546,14 @@ export class OrdersService {
     return Math.floor(parsed);
   }
 
-  private async getBuyerConfirmDeadlineDays(): Promise<number> {
-    const setting = await this.prisma.systemSetting.findUnique({
-      where: { key: 'BUYER_CONFIRM_DEADLINE_DAYS' },
-      select: { value: true },
+  private async getBuyerConfirmDeadlineMinutes(): Promise<number> {
+    const setting = await this.prisma.systemSetting.findFirst({
+      where: { key: { in: ['BUYER_CONFIRM_DEADLINE_MINUTES', 'BUYER_CONFIRM_DEADLINE_DAYS'] } },
+      orderBy: { key: 'asc' },
     });
     return this.parsePositiveIntSetting(
       setting?.value,
-      OrdersService.DEFAULT_BUYER_CONFIRM_DEADLINE_DAYS,
+      OrdersService.DEFAULT_BUYER_CONFIRM_DEADLINE_MINUTES,
     );
   }
 

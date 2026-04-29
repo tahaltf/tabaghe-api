@@ -1,5 +1,7 @@
 import { IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { OrderStatus } from '@prisma/client';
+import { Type } from 'class-transformer';
+import { IsNumber, Min } from 'class-validator';
 
 export class UpdateOrderStatusDto {
   @IsEnum(OrderStatus)
@@ -9,6 +11,12 @@ export class UpdateOrderStatusDto {
   @IsString()
   @MaxLength(500)
   note?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  @MaxLength(120)
+  rejectedReturnTrackingCode?: string;
 }
 
 export class UpdateTrackingCodeDto {
@@ -21,6 +29,9 @@ export class UpdateTrackingCodeDto {
 export enum AdminEscrowAction {
   RELEASE_TO_SELLER = 'RELEASE_TO_SELLER',
   REFUND_TO_BUYER = 'REFUND_TO_BUYER',
+  PARTIAL_REFUND_AND_CONTINUE = 'PARTIAL_REFUND_AND_CONTINUE',
+  REQUEST_RETURN_FROM_BUYER = 'REQUEST_RETURN_FROM_BUYER',
+  CONFIRM_RETURN_AND_REFUND = 'CONFIRM_RETURN_AND_REFUND',
 }
 
 export class ResolveOrderEscrowDto {
@@ -31,6 +42,28 @@ export class ResolveOrderEscrowDto {
   @IsString()
   @MaxLength(500)
   note?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  refundToBuyerAmount?: number;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  @MaxLength(120)
+  returnTrackingCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(600)
+  returnAddress?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  returnPostalCode?: string;
 }
 
 export class SetHubShippingCodesDto {

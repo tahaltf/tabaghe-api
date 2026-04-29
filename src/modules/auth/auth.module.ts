@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { OtpService } from './services/otp.service';
 import { TokenService } from './services/token.service';
+import { GodadminBootstrapService } from './services/godadmin-bootstrap.service';
 import { SmsService } from '../sms/sms.service';
 
 @Module({
@@ -20,7 +21,14 @@ import { SmsService } from '../sms/sms.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, OtpService, TokenService, JwtStrategy, SmsService],
+  providers: [
+    AuthService,
+    OtpService,
+    TokenService,
+    JwtStrategy,
+    SmsService,
+    GodadminBootstrapService,
+  ],
   exports: [AuthService, TokenService],
 })
 export class AuthModule {}
