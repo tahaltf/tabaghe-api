@@ -23,6 +23,7 @@ import { AdminFaqController } from './controllers/admin-faq.controller';
 import { AdminSmsController } from './controllers/admin-sms.controller';
 import { AdminLogsController } from './controllers/admin-logs.controller';
 import { AdminPlatformWalletController } from './controllers/admin-platform-wallet.controller';
+import { AdminContactMessagesController } from './controllers/admin-contact-messages.controller';
 
 // Services
 import { AdminDashboardService } from './services/admin-dashboard.service';
@@ -66,6 +67,7 @@ import { SmsService } from '../sms/sms.service';
     AdminSmsController,
     AdminLogsController,
     AdminPlatformWalletController,
+    AdminContactMessagesController,
   ],
   providers: [
     AdminDashboardService,

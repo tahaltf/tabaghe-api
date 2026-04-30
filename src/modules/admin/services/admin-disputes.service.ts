@@ -32,6 +32,7 @@ const DISPUTE_INCLUDE = {
       type: true,
       thumbnail: true,
       gallery: true,
+      shippingPayer: true,
       category: { select: { id: true, title: true } },
     },
   },
@@ -181,11 +182,28 @@ export class AdminDisputesService {
 
       switch (dto.outcome) {
         case DisputeOutcome.REFUND_BUYER: {
+          const returnAddress = (dto.returnAddress ?? '').trim();
+          const returnPostalCode = (dto.returnPostalCode ?? '').trim();
+          if (returnAddress.length < 10) {
+            throw new BadRequestException(
+              'برای مرجوعی کالا، نشانی کامل مقصد (حداقل ۱۰ نویسه) الزامی است',
+            );
+          }
+          if (returnPostalCode.length < 5) {
+            throw new BadRequestException(
+              'برای مرجوعی کالا، کدپستی مقصد الزامی است',
+            );
+          }
+          const cancelReason = [
+            'مرجوعی کالا توسط خریدار در انتظار ثبت است',
+            `آدرس مقصد: ${returnAddress}`,
+            `کدپستی مقصد: ${returnPostalCode}`,
+          ].join('\n');
           await tx.order.update({
             where: { id },
             data: {
               status: OrderStatus.RETURN_REQUESTED,
-              cancelReason: 'مرجوعی کالا توسط خریدار در انتظار ثبت است',
+              cancelReason,
             },
           });
           break;
@@ -233,7 +251,7 @@ export class AdminDisputesService {
           break;
         }
         case DisputeOutcome.PARTIAL_REFUND: {
-          const refund = Math.max(0, Math.min(total, dto.refundToBuyer ?? 0));
+          const refund = Math.max(0, Math.min(sellerRevenue, dto.refundToBuyer ?? 0));
           if (refund > 0) {
             const buyerWallet = await tx.wallet.upsert({
               where: { userId: order.buyerId },
@@ -328,56 +346,16 @@ export class AdminDisputesService {
           });
           break;
         }
-        case DisputeOutcome.CANCEL: {
-          if (sellerRevenue > 0) {
-            await tx.wallet.upsert({
-              where: { userId: order.sellerId },
-              create: {
-                userId: order.sellerId,
-                balanceAvailable: 0,
-                balanceBlocked: 0,
-              },
-              update: { balanceBlocked: { decrement: sellerRevenue } },
-            });
-          }
-          if (total > 0) {
-            const buyerWallet = await tx.wallet.upsert({
-              where: { userId: order.buyerId },
-              create: {
-                userId: order.buyerId,
-                balanceAvailable: total,
-                balanceBlocked: 0,
-              },
-              update: { balanceAvailable: { increment: total } },
-            });
-            await tx.walletTransaction.create({
-              data: {
-                walletId: buyerWallet.id,
-                amount: total,
-                type: WalletTransactionType.REFUND,
-                status: WalletTransactionStatus.SUCCESS,
-                referenceId: order.listingId,
-                meta: {
-                  kind: 'order-dispute',
-                  phase: 'full_refund_to_buyer',
-                  orderId: order.id,
-                  listingId: order.listingId,
-                  description: 'بازگشت کامل وجه به خریدار پس از لغو سفارش',
-                },
-              },
-            });
-          }
-          await tx.order.update({
-            where: { id },
-            data: { status: OrderStatus.CANCELLED },
-          });
-          await tx.listing.update({
-            where: { id: order.listingId },
-            data: { status: ListingStatus.APPROVED },
-          });
-          break;
-        }
+        case DisputeOutcome.CANCEL:
+          throw new BadRequestException(
+            'در رسیدگی شکایت مستقیم، لغو کامل و بازگشت کامل وجه مجاز نیست. از «مرجوعی کالا» یا «بازگشت جزئی» استفاده کنید.',
+          );
       }
+
+      const disputePartialRefundToBuyer =
+        dto.outcome === DisputeOutcome.PARTIAL_REFUND
+          ? Math.max(0, Math.min(sellerRevenue, dto.refundToBuyer ?? 0))
+          : null;
 
       const resolved = await tx.order.update({
         where: { id },
@@ -386,6 +364,7 @@ export class AdminDisputesService {
           disputeResolvedAt: new Date(),
           disputeResolvedBy: adminId,
           disputeOutcome: dto.outcome,
+          disputePartialRefundToBuyer,
         },
       });
 

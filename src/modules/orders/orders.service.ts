@@ -868,6 +868,32 @@ export class OrdersService {
           : 0;
       const refundableToBuyer = Math.max(0, totalAmount - shippingCost - verificationChargedToBuyer);
 
+      /** یک بار مصرف: جلوگیری از دوبار کلیک / فراخوانی همزمان و بازپرداخت تکراری */
+      const claimed = await tx.order.updateMany({
+        where: {
+          id: order.id,
+          sellerId,
+          status: OrderStatus.RETURN_SHIPPED,
+          returnConfirmedAt: null,
+        },
+        data: {
+          status: OrderStatus.CANCELLED,
+          cancelReason: 'مرجوعی توسط فروشنده تحویل گرفته شد و بازگشت وجه انجام شد',
+          returnConfirmedAt: new Date(),
+          returnConfirmedBy: sellerId,
+        },
+      });
+      if (claimed.count === 0) {
+        const cur = await tx.order.findUnique({
+          where: { id: order.id },
+          select: { returnConfirmedAt: true, status: true },
+        });
+        if (cur?.returnConfirmedAt || cur?.status === OrderStatus.CANCELLED) {
+          throw new BadRequestException('مرجوعی قبلاً تایید شده و بازگشت وجه ثبت شده است');
+        }
+        throw new BadRequestException('این سفارش در وضعیت مناسب برای تایید مرجوعی نیست');
+      }
+
       if (sellerRevenue > 0) {
         await tx.wallet.upsert({
           where: { userId: order.sellerId },
@@ -924,15 +950,8 @@ export class OrdersService {
         });
       }
 
-      const updated = await tx.order.update({
-        where: { id: order.id },
-        data: {
-          status: OrderStatus.CANCELLED,
-          cancelReason: 'مرجوعی توسط فروشنده تحویل گرفته شد و بازگشت وجه انجام شد',
-          returnConfirmedAt: new Date(),
-          returnConfirmedBy: sellerId,
-        },
-      });
+      const updated = await tx.order.findUnique({ where: { id: order.id } });
+      if (!updated) throw new NotFoundException('سفارش یافت نشد');
 
       await tx.listing.update({
         where: { id: order.listingId },
@@ -1119,6 +1138,47 @@ export class OrdersService {
         select: { id: true },
       });
       (order as any).supportTicketId = relatedTicket?.id ?? null;
+    }
+
+    // توضیح اختیاری «ارسال از هاب» — کوئری Json در برخی دیتابیس‌ها/داده‌های قدیمی ممکن است خطا بدهد؛ در آن صورت جزئیات سفارش را همچنان برمی‌گردانیم.
+    let hubShipmentNote: string | null = null;
+    let hubShipmentNotedAt: Date | null = null;
+    try {
+      const hubShipmentNotification = await this.prisma.notification.findFirst({
+        where: {
+          userId,
+          type: NotificationType.ORDER_STATUS_CHANGED,
+          AND: [
+            {
+              meta: {
+                path: ['orderId'],
+                equals: orderId,
+              },
+            },
+            {
+              meta: {
+                path: ['status'],
+                equals: OrderStatus.SHIPPED_TO_BUYER,
+              },
+            },
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { meta: true, createdAt: true },
+      });
+      const hubShipmentNoteRaw = (hubShipmentNotification?.meta as Record<string, unknown> | null)?.['note'];
+      hubShipmentNote =
+        typeof hubShipmentNoteRaw === 'string' && hubShipmentNoteRaw.trim().length > 0
+          ? hubShipmentNoteRaw.trim()
+          : null;
+      hubShipmentNotedAt = hubShipmentNotification?.createdAt ?? null;
+    } catch {
+      hubShipmentNote = null;
+      hubShipmentNotedAt = null;
+    }
+    if (hubShipmentNote) {
+      (order as any).hubShipmentNote = hubShipmentNote;
+      (order as any).hubShipmentNotedAt = hubShipmentNotedAt;
     }
 
     const needsHub = order.requiresVerification || order.type === 'EXCHANGE';

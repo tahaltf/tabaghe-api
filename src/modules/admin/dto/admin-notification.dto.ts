@@ -1,4 +1,27 @@
-import { IsArray, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsArray, IsBoolean, IsNumber, IsOptional, IsString, MaxLength, MinLength, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+
+class SmsTemplateParameterDto {
+  @IsString()
+  @MinLength(1)
+  name!: string;
+
+  @IsString()
+  @MinLength(1)
+  value!: string;
+}
+
+class SmsTemplateConfigDto {
+  @Type(() => Number)
+  @IsNumber()
+  templateId!: number;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SmsTemplateParameterDto)
+  parameters?: SmsTemplateParameterDto[];
+}
 
 export class BroadcastNotificationDto {
   @IsString()
@@ -15,4 +38,14 @@ export class BroadcastNotificationDto {
   @IsArray()
   @IsString({ each: true })
   userIds?: string[];
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  alsoSendSms?: boolean;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SmsTemplateConfigDto)
+  smsTemplateConfig?: SmsTemplateConfigDto;
 }

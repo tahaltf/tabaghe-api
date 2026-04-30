@@ -20,6 +20,11 @@ export class AdminDisputeListQueryDto extends AdminListQueryDto {
 
 export class ResolveDisputeDto {
   @IsEnum(DisputeOutcome)
+  @IsIn([
+    DisputeOutcome.REFUND_BUYER,
+    DisputeOutcome.RELEASE_SELLER,
+    DisputeOutcome.PARTIAL_REFUND,
+  ])
   outcome!: DisputeOutcome;
 
   @IsString()
@@ -33,4 +38,15 @@ export class ResolveDisputeDto {
   @IsNumber()
   @Min(0)
   refundToBuyer?: number;
+
+  /** فقط REFUND_BUYER — آدرس مقصدی که خریدار باید کالا را به آن بفرستد (الزامی در سرویس) */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  returnAddress?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  returnPostalCode?: string;
 }

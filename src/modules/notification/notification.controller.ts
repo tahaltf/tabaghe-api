@@ -1,8 +1,11 @@
 import {
+  Body,
   Controller,
+  Delete,
   Get,
   Patch,
   Param,
+  Post,
   Query,
   UseGuards,
   NotFoundException,
@@ -52,5 +55,18 @@ export class NotificationController {
     if (updated === null) throw new NotFoundException('اعلان یافت نشد');
     if (updated === false) throw new ForbiddenException('دسترسی غیرمجاز');
     return updated;
+  }
+
+  @Post('push-subscription')
+  savePushSubscription(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: { endpoint: string; keys: { p256dh: string; auth: string } },
+  ) {
+    return this.service.savePushSubscription(user.id, body);
+  }
+
+  @Delete('push-subscription')
+  removePushSubscription(@CurrentUser() user: AuthenticatedUser) {
+    return this.service.removePushSubscription(user.id);
   }
 }

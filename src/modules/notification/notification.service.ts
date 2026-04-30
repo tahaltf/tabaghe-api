@@ -1,8 +1,21 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NotificationType, Prisma } from '@prisma/client';
-import axios from 'axios';
-import { AppSettingsService } from '../../shared/settings/app-settings.service';
+import { SmsService } from '../sms/sms.service';
+
+type SmsRule = {
+  siteNotificationEnabled?: boolean;
+  smsEnabled?: boolean;
+  siteNotificationText?: string;
+  smsTemplateConfig?: {
+    templateId: number;
+    parameters?: Array<{ name: string; value: string }>;
+  };
+};
+type PushSubscriptionPayload = {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+};
 
 @Injectable()
 export class NotificationService {
@@ -10,7 +23,7 @@ export class NotificationService {
 
     constructor(
       private readonly prisma: PrismaService,
-      private readonly appSettings: AppSettingsService,
+      private readonly smsService: SmsService,
     ) {}
 
     async create(params: {
@@ -21,12 +34,18 @@ export class NotificationService {
         meta?: Record<string, unknown>;
     }) {
         const { userId, type, title, message, meta } = params;
+        const rule = await this.getRuleForType(type);
+        if (rule && rule.siteNotificationEnabled === false) {
+          return null;
+        }
+        const resolvedTitle = title?.trim();
+        const resolvedMessage = rule?.siteNotificationText?.trim() || message;
         const metaValue =
           meta === undefined ? undefined : (meta as Prisma.InputJsonValue);
 
         // ۱. ثبت نوتیفیکیشن در دیتابیس (برای نمایش در پنل کاربری)
         const notification = await this.prisma.notification.create({
-            data: { userId, type, title, message, meta: metaValue },
+            data: { userId, type, title: resolvedTitle, message: resolvedMessage, meta: metaValue },
         });
 
         // ۲. ارسال پیامک به صورت پس‌زمینه (آسنکرون)
@@ -38,11 +57,8 @@ export class NotificationService {
     }
 
     private async processSms(userId: string, type: NotificationType, meta?: Record<string, unknown>) {
-        const apiKey = this.appSettings.getSmsApiKey();
-        if (!apiKey) {
-            this.logger.warn('SMS_IR_API_KEY تنظیم نشده است.');
-            return;
-        }
+        const rule = await this.getRuleForType(type);
+        if (rule && rule.smsEnabled === false) return;
 
         // دریافت شماره موبایل کاربر
         const user = await this.prisma.user.findUnique({
@@ -64,43 +80,40 @@ export class NotificationService {
             if (listing) listingTitle = listing.title;
         }
 
-        // تعیین Template ID و متغیرهای پیامک بر اساس نوع رویداد
-        // ⚠️ مهم: این Template ID ها رو باید در پنل sms.ir بسازی و اینجا جایگزین کنی
-        let templateId: number;
+        let templateId: number | undefined;
         let parameters: { name: string; value: string }[] = [];
 
-        switch (type) {
+        if (rule?.smsTemplateConfig?.templateId) {
+            templateId = Number(rule.smsTemplateConfig.templateId);
+            const configured = Array.isArray(rule.smsTemplateConfig.parameters) ? rule.smsTemplateConfig.parameters : [];
+            parameters = configured.map((p) => ({
+              name: String(p?.name ?? '').trim(),
+              value: String(p?.value ?? '')
+                .replace(/\{\{firstName\}\}/g, String(user.firstName ?? 'کاربر'))
+                .replace(/\{\{listingTitle\}\}/g, listingTitle),
+            })).filter((p) => p.name && p.value);
+        } else {
+          switch (type) {
             case NotificationType.AUCTION_WON:
-                // مثال الگو در sms.ir: کاربر گرامی، شما در مزایده کالا {ITEM} برنده شدید. جهت پرداخت به پلتفرم طبقه مراجعه کنید.
                 templateId = 100001; // عدد واقعی قالب را از sms.ir اینجا بگذار
                 parameters = [{ name: 'ITEM', value: listingTitle }];
                 break;
             case NotificationType.AUCTION_LOST:
-                // مثال الگو: کاربر گرامی، پیشنهاد شما در مزایده {ITEM} بالاتر زده شد.
                 templateId = 100002;
                 parameters = [{ name: 'ITEM', value: listingTitle }];
                 break;
             case NotificationType.AUCTION_PENALIZED:
-                // مثال الگو: کسر جریمه بابت عدم پرداخت مزایده {ITEM} در طبقه.
                 templateId = 100003;
                 parameters = [{ name: 'ITEM', value: listingTitle }];
                 break;
             default:
                 return; // برای تایپ‌های دیگر پیامک نمی‌دهیم
+          }
         }
 
+        if (!templateId || !Number.isFinite(templateId)) return;
         try {
-            await axios.post(
-              'https://api.sms.ir/v1/send/verify',
-              {
-                  mobile: user.phone,
-                  templateId,
-                  parameters,
-              },
-              {
-                  headers: { 'X-API-KEY': apiKey },
-              },
-            );
+            await this.smsService.sendByTemplate(user.phone, templateId, parameters);
             this.logger.log(`پیامک ${type} برای شماره ${user.phone} ارسال شد.`);
         } catch (error: unknown) {
             const err = error as { response?: { data?: unknown }; message?: string };
@@ -155,8 +168,13 @@ export class NotificationService {
       title: string;
       message: string;
       userIds?: string[]; // undefined => همه کاربران
+      alsoSendSms?: boolean;
+      smsTemplateConfig?: {
+        templateId: number;
+        parameters?: Array<{ name: string; value: string }>;
+      };
     }) {
-      const { title, message, userIds } = params;
+      const { title, message, userIds, alsoSendSms, smsTemplateConfig } = params;
       let recipients: { id: string }[];
       if (userIds && userIds.length > 0) {
         recipients = await this.prisma.user.findMany({
@@ -175,7 +193,40 @@ export class NotificationService {
           message,
         })),
       });
+      if (alsoSendSms && smsTemplateConfig?.templateId) {
+        const users = await this.prisma.user.findMany({
+          where: { id: { in: recipients.map((r) => r.id) } },
+          select: { phone: true, firstName: true },
+        });
+        await Promise.all(users.map((u) => this.smsService.sendByTemplate(
+          u.phone,
+          Number(smsTemplateConfig.templateId),
+          (smsTemplateConfig.parameters ?? []).map((p) => ({
+            name: String(p?.name ?? ''),
+            value: String(p?.value ?? '')
+              .replace(/\{\{firstName\}\}/g, String(u.firstName ?? 'کاربر'))
+              .replace(/\{\{title\}\}/g, title),
+          })),
+        ).catch((err) => {
+          this.logger.warn(`SMS broadcast failed for ${u.phone}: ${String(err?.message ?? err)}`);
+        })));
+      }
       return { created: recipients.length };
+    }
+
+    private async getRuleForType(type: NotificationType): Promise<SmsRule | null> {
+      try {
+        const row = await this.prisma.systemSetting.findUnique({
+          where: { key: 'SMS_NOTIFICATION_RULES' },
+          select: { value: true },
+        });
+        if (!row?.value) return null;
+        const parsed = JSON.parse(row.value) as Record<string, SmsRule>;
+        const rule = parsed?.[String(type)];
+        return rule && typeof rule === 'object' ? rule : null;
+      } catch {
+        return null;
+      }
     }
 
     async markAsRead(userId: string, id: string) {
@@ -193,5 +244,18 @@ export class NotificationService {
         where: { userId, isRead: false },
         data: { isRead: true },
       });
+    }
+
+    async savePushSubscription(userId: string, subscription: PushSubscriptionPayload) {
+      return this.prisma.systemSetting.upsert({
+        where: { key: `PUSH_SUB_${userId}` },
+        update: { value: JSON.stringify(subscription), description: 'Web push subscription' },
+        create: { key: `PUSH_SUB_${userId}`, value: JSON.stringify(subscription), description: 'Web push subscription' },
+      });
+    }
+
+    async removePushSubscription(userId: string) {
+      await this.prisma.systemSetting.deleteMany({ where: { key: `PUSH_SUB_${userId}` } });
+      return { ok: true };
     }
 }

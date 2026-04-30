@@ -1,4 +1,4 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { CommonService } from "./common-module.service";
 
 @Controller('common')
@@ -43,5 +43,31 @@ export class CommonController {
   @Get('faqs')
   async faqs() {
     return this.commonService.getFaqs();
+  }
+
+  @Get('introduction')
+  async introduction() {
+    return this.commonService.getIntroduction();
+  }
+
+  @Get('blog-posts')
+  async blogPosts() {
+    return this.commonService.getBlogPosts();
+  }
+
+  @Get('blog-posts/:slug')
+  async blogPost(@Param('slug') slug: string) {
+    return this.commonService.getBlogPostBySlug(slug);
+  }
+
+  @Post('contact-us')
+  async submitContact(@Body() body: {
+    name: string;
+    phone: string;
+    email?: string;
+    subject: string;
+    message: string;
+  }) {
+    return this.commonService.submitContactMessage(body);
   }
 }

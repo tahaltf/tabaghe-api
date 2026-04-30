@@ -794,6 +794,8 @@ paymentMethod    PaymentMethod @default(GATEWAY)
   disputeResolvedAt    DateTime? // زمان حل شکایت
   disputeResolvedBy    String?   // آی‌دی ادمین حل‌کننده
   disputeOutcome       DisputeOutcome? // نتیجه (سود به خریدار/فروشنده/تقسیم/بدون)
+  /** مبلغ بازگشتی به خریدار در مصالحه جزئی شکایت (PARTIAL_REFUND) — تومان */
+  disputePartialRefundToBuyer Decimal?
 
   // --- مرجوعی پس از اختلاف ---
   returnTrackingCode   String?   // کد رهگیری مرجوعی که خریدار ثبت می‌کند

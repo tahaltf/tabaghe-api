@@ -194,4 +194,53 @@ export class CommonService {
       },
     });
   }
+
+  async getIntroduction() {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { key: 'SYSTEM_INTRO_CONTENT' },
+      select: { value: true, updatedAt: true },
+    });
+    return { content: row?.value ?? '', updatedAt: row?.updatedAt ?? null };
+  }
+
+  async getBlogPosts() {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { key: 'BLOG_POSTS_JSON' },
+      select: { value: true },
+    });
+    try {
+      const parsed = JSON.parse(row?.value ?? '[]');
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((x) => x && typeof x === 'object');
+    } catch {
+      return [];
+    }
+  }
+
+  async getBlogPostBySlug(slug: string) {
+    const posts = await this.getBlogPosts();
+    return posts.find((p: any) => String(p?.slug) === slug) ?? null;
+  }
+
+  async submitContactMessage(payload: {
+    name: string;
+    phone: string;
+    email?: string;
+    subject: string;
+    message: string;
+  }) {
+    const key = `CONTACT_MESSAGE_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+    const value = JSON.stringify({
+      ...payload,
+      createdAt: new Date().toISOString(),
+    });
+    await this.prisma.systemSetting.create({
+      data: {
+        key,
+        value,
+        description: 'Public contact form submission',
+      },
+    });
+    return { ok: true };
+  }
 }

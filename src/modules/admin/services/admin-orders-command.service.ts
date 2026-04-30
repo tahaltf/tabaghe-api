@@ -512,6 +512,15 @@ export class AdminOrdersCommandService {
 
       if (
         action === AdminEscrowAction.REFUND_TO_BUYER &&
+        order.status === OrderStatus.RETURN_SHIPPED
+      ) {
+        throw new BadRequestException(
+          'این سفارش در مرحله مرجوعی ثبت‌شده است؛ برای بازگشت وجه فقط از «تایید مرجوعی و بازگشت وجه» استفاده کنید تا دوبار بازپرداخت نشود.',
+        );
+      }
+
+      if (
+        action === AdminEscrowAction.REFUND_TO_BUYER &&
         (order.status === OrderStatus.DELIVERED || order.status === OrderStatus.DISPUTED)
       ) {
         const updated = await tx.order.update({
@@ -779,14 +788,28 @@ export class AdminOrdersCommandService {
         if (order.status !== OrderStatus.RETURN_SHIPPED) {
           throw new BadRequestException('ابتدا باید خریدار کد رهگیری مرجوعی را ثبت کرده باشد');
         }
-        const updated = await tx.order.update({
-          where: { id: order.id },
+        const claimed = await tx.order.updateMany({
+          where: {
+            id: order.id,
+            status: OrderStatus.RETURN_SHIPPED,
+            returnConfirmedAt: null,
+          },
           data: {
             status: OrderStatus.CANCELLED,
             cancelReason: note ?? 'مرجوعی تایید شد و بازگشت وجه انجام شد',
             returnConfirmedAt: new Date(),
           },
         });
+        if (claimed.count === 0) {
+          const cur = await tx.order.findUnique({
+            where: { id: order.id },
+            select: { returnConfirmedAt: true, status: true },
+          });
+          if (cur?.returnConfirmedAt || cur?.status === OrderStatus.CANCELLED) {
+            throw new BadRequestException('مرجوعی قبلاً تایید شده و بازگشت وجه ثبت شده است');
+          }
+          throw new BadRequestException('این سفارش در وضعیت مناسب برای تایید مرجوعی نیست');
+        }
         if (sellerRevenue > 0) {
           await tx.wallet.upsert({
             where: { userId: order.sellerId },
@@ -839,7 +862,7 @@ export class AdminOrdersCommandService {
           OrderStatus.CANCELLED,
           note ?? 'مرجوعی تایید شد و مبلغ به خریدار بازگشت.',
         );
-        return updated;
+        return tx.order.findUniqueOrThrow({ where: { id: order.id } });
       }
 
       if (action === AdminEscrowAction.RELEASE_TO_SELLER) {
@@ -929,26 +952,37 @@ export class AdminOrdersCommandService {
           },
         });
       }
-      if (totalAmount > 0) {
+      const isInspectionReturnFlow = order.status === OrderStatus.REJECTED_AT_HUB;
+      const buyerRefundAmount = isInspectionReturnFlow
+        ? refundableToBuyerAfterReturn
+        : totalAmount;
+
+      if (buyerRefundAmount > 0) {
         await tx.wallet.upsert({
           where: { userId: order.buyerId },
           create: {
             userId: order.buyerId,
-            balanceAvailable: totalAmount,
+            balanceAvailable: buyerRefundAmount,
             balanceBlocked: 0,
           },
-          update: { balanceAvailable: { increment: totalAmount } },
+          update: { balanceAvailable: { increment: buyerRefundAmount } },
         });
         await tx.walletTransaction.create({
           data: {
             wallet: { connect: { userId: order.buyerId } },
-            amount: totalAmount,
+            amount: buyerRefundAmount,
             type: WalletTransactionType.REFUND,
             status: WalletTransactionStatus.SUCCESS,
             referenceId: order.id,
             meta: {
               refundReason: 'admin-manual-refund',
               adminNote: note ?? null,
+              ...(isInspectionReturnFlow
+                ? {
+                    shippingCostExcluded: shippingCost,
+                    verificationFeeExcluded: verificationChargedToBuyer,
+                  }
+                : {}),
             },
           },
         });
@@ -988,7 +1022,7 @@ export class AdminOrdersCommandService {
       const buyerTicketMessage = [
         `کاربر گرامی، سفارش «${order.listing?.title ?? 'کالا'}» لغو شد.`,
         `علت: ${cancelReasonForBuyer}`,
-        `مبلغ ${totalAmount.toLocaleString('fa-IR')} تومان به کیف پول شما اضافه شد.`,
+        `مبلغ ${buyerRefundAmount.toLocaleString('fa-IR')} تومان به کیف پول شما اضافه شد.`,
       ].join('\n');
       const buyerTicket = await tx.ticket.create({
         data: {

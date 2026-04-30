@@ -34,6 +34,9 @@ export const SETTING_KEYS = {
   REPAIR_ALLOWED_CATEGORY_IDS: 'REPAIR_ALLOWED_CATEGORY_IDS',
   PLATFORM_LATITUDE: 'PLATFORM_LATITUDE',
   PLATFORM_LONGITUDE: 'PLATFORM_LONGITUDE',
+  SMS_NOTIFICATION_RULES: 'SMS_NOTIFICATION_RULES',
+  SYSTEM_INTRO_CONTENT: 'SYSTEM_INTRO_CONTENT',
+  BLOG_POSTS_JSON: 'BLOG_POSTS_JSON',
 } as const;
 
 export type SettingKey = keyof typeof SETTING_KEYS;
@@ -66,6 +69,9 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   REPAIR_ALLOWED_CATEGORY_IDS: 'لیست دسته‌بندی‌های مجاز برای ثبت تعمیرات (JSON)',
   PLATFORM_LATITUDE: 'مختصات جغرافیایی عرض (Latitude) مرکز طبقه',
   PLATFORM_LONGITUDE: 'مختصات جغرافیایی طول (Longitude) مرکز طبقه',
+  SMS_NOTIFICATION_RULES: 'پالیسی نوتیف/پیامک به ازای نوع رویداد (JSON)',
+  SYSTEM_INTRO_CONTENT: 'محتوای صفحه معرفی سامانه',
+  BLOG_POSTS_JSON: 'لیست پست‌های بلاگ برای نمایش عمومی (JSON)',
 };
 
 @Injectable()
