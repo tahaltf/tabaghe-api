@@ -32,7 +32,9 @@ export class OrdersService {
   private static readonly DEFAULT_SELLER_SHIP_DEADLINE_MINUTES = 3 * 24 * 60;
   private static readonly DEFAULT_BUYER_CONFIRM_DEADLINE_MINUTES = 4 * 24 * 60;
   private static readonly DEFAULT_EXCHANGE_NO_SHIPMENT_COMPENSATION = 0;
-  private static readonly EXCHANGE_COMPLETION_TIMEOUT_HOURS = 48;
+  private static readonly EXCHANGE_NO_PAYMENT_TIMEOUT_HOURS = 24;
+  private static readonly EXCHANGE_SECOND_PAYMENT_TIMEOUT_HOURS = 48;
+  private static readonly EXCHANGE_SHIPMENT_TIMEOUT_HOURS = 48;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -794,6 +796,18 @@ export class OrdersService {
       throw new ForbiddenException('شما مجاز به ثبت اطلاعات ارسال برای این سفارش نیستید');
     }
 
+    // در معاوضه: بعد از ثبت اولین ارسال، طرف مقابل ۴۸ ساعت فرصت دارد ارسال خودش را ثبت کند.
+    if (order.type === OrderType.EXCHANGE) {
+      const sellerTrackingAfter = isSeller ? trackingCode : order.trackingCode;
+      const buyerTrackingAfter = isBuyer ? trackingCode : order.sellerTrackingCode;
+      const onlyOneSideShipped = Boolean(sellerTrackingAfter) !== Boolean(buyerTrackingAfter);
+      if (onlyOneSideShipped) {
+        updateData.shippingDeadline = new Date(
+          Date.now() + OrdersService.EXCHANGE_SHIPMENT_TIMEOUT_HOURS * 60 * 60 * 1000,
+        );
+      }
+    }
+
     return this.prisma.order.update({
       where: { id: orderId },
       data: updateData,
@@ -1123,6 +1137,39 @@ export class OrdersService {
         },
       });
       (order as any).exchangeOffer = exchangeOffer;
+      if (exchangeOffer) {
+        const verification = Number(order.verificationFee || 0);
+        const extra = Number(exchangeOffer.extraPayment || 0);
+        const buyerDue = verification + (exchangeOffer.isPayerMe ? extra : 0);
+        const sellerDue = verification + (!exchangeOffer.isPayerMe ? extra : 0);
+        const paidTotal = Number(order.totalAmount || 0);
+
+        const buyerMarkedPaid = Boolean(order.shippingAddress);
+        const sellerMarkedPaid = Boolean(order.sellerShippingAddress);
+        const bothSidesMarked = buyerMarkedPaid && sellerMarkedPaid;
+
+        const buyerPaid = bothSidesMarked
+          ? buyerDue
+          : buyerMarkedPaid
+            ? Math.min(buyerDue, paidTotal)
+            : 0;
+        const sellerPaid = bothSidesMarked
+          ? sellerDue
+          : sellerMarkedPaid
+            ? Math.min(sellerDue, paidTotal)
+            : 0;
+
+        (order as any).exchangeEscrow = {
+          buyerDue,
+          sellerDue,
+          buyerPaid,
+          sellerPaid,
+          buyerBlocked: Math.max(0, buyerDue - buyerPaid),
+          sellerBlocked: Math.max(0, sellerDue - sellerPaid),
+          totalDue: buyerDue + sellerDue,
+          totalPaid: paidTotal,
+        };
+      }
     }
 
     if (order.status === OrderStatus.REJECTED_AT_HUB) {
@@ -1346,6 +1393,7 @@ export class OrdersService {
         await this.prisma.$transaction(async (tx) => {
           const sellerSent = Boolean(order.trackingCode);
           const buyerSentForExchange = order.type === OrderType.EXCHANGE && Boolean(order.sellerTrackingCode);
+          const exchangeOnlyOneSent = order.type === OrderType.EXCHANGE && (sellerSent !== buyerSentForExchange);
 
           if (Number(order.sellerRevenue) > 0) {
             await tx.wallet.upsert({
@@ -1389,14 +1437,28 @@ export class OrdersService {
             }
           }
 
-          await tx.user.update({
-            where: { id: order.sellerId },
-            data: { trustScore: { decrement: 15 } }
-          });
+          if (order.type === OrderType.EXCHANGE && exchangeOnlyOneSent) {
+            const offenderId = sellerSent ? order.buyerId : order.sellerId;
+            await tx.user.update({
+              where: { id: offenderId },
+              data: { trustScore: { decrement: 15 } },
+            });
+          } else {
+            await tx.user.update({
+              where: { id: order.sellerId },
+              data: { trustScore: { decrement: 15 } },
+            });
+          }
           this.stateMachine.assertTransition(order.status, OrderStatus.CANCELLED, 'auto-cancel-expired');
           await tx.order.update({
             where: { id: order.id },
-            data: { status: OrderStatus.CANCELLED, cancelReason: 'عدم ارسال در مهلت مقرر' },
+            data: {
+              status: OrderStatus.CANCELLED,
+              cancelReason:
+                order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
+                  ? 'عدم ارسال یکی از طرفین در مهلت ۴۸ ساعته پس از ارسال طرف مقابل؛ مرجوعی کالای ارسال‌شده الزامی است'
+                  : 'عدم ارسال در مهلت مقرر',
+            },
           });
           await tx.listing.update({
             where: { id: order.listingId },
@@ -1411,13 +1473,10 @@ export class OrdersService {
 
   @Cron(CronExpression.EVERY_HOUR)
   async autoCancelTimedOutExchangeCompletions() {
-    const deadline = new Date(
-      Date.now() - OrdersService.EXCHANGE_COMPLETION_TIMEOUT_HOURS * 60 * 60 * 1000,
-    );
+    const now = Date.now();
     const timedOutAcceptedOffers = await this.prisma.exchangeOffer.findMany({
       where: {
         status: 'ACCEPTED',
-        updatedAt: { lte: deadline },
       },
       include: {
         listing: {
@@ -1443,6 +1502,30 @@ export class OrdersService {
           const sellerShare = verificationFee + (!offer.isPayerMe ? extra : 0);
           const buyerRefundable = Math.max(0, buyerShare - verificationFee);
           const sellerRefundable = Math.max(0, sellerShare - verificationFee);
+          const expectedTotal = buyerShare + sellerShare;
+          const currentTotal = Number(linkedOrder?.totalAmount || 0);
+
+          const buyerAddressProvided = Boolean(linkedOrder?.shippingAddress);
+          const sellerAddressProvided = Boolean(linkedOrder?.sellerShippingAddress);
+          const noOneStartedCheckout = !linkedOrder || (!buyerAddressProvided && !sellerAddressProvided && currentTotal <= 0);
+          const oneSideProgressed =
+            !!linkedOrder &&
+            (buyerAddressProvided || sellerAddressProvided || currentTotal > 0) &&
+            currentTotal < expectedTotal;
+
+          const noPaymentDeadlineMs =
+            new Date(offer.updatedAt).getTime() +
+            OrdersService.EXCHANGE_NO_PAYMENT_TIMEOUT_HOURS * 60 * 60 * 1000;
+          const secondPaymentDeadlineMs = linkedOrder
+            ? new Date(linkedOrder.updatedAt).getTime() +
+              OrdersService.EXCHANGE_SECOND_PAYMENT_TIMEOUT_HOURS * 60 * 60 * 1000
+            : 0;
+
+          const shouldCancelForNoPayment = noOneStartedCheckout && now >= noPaymentDeadlineMs;
+          const shouldCancelForSecondPaymentDelay = oneSideProgressed && now >= secondPaymentDeadlineMs;
+          if (!shouldCancelForNoPayment && !shouldCancelForSecondPaymentDelay) {
+            return;
+          }
 
           if (linkedOrder?.shippingAddress && buyerRefundable > 0) {
             await tx.wallet.upsert({
@@ -1501,9 +1584,28 @@ export class OrdersService {
           }
 
           if (linkedOrder) {
+            let payerToPenalize: string | null = null;
+            if (shouldCancelForSecondPaymentDelay) {
+              if (linkedOrder.shippingAddress && !linkedOrder.sellerShippingAddress) {
+                payerToPenalize = linkedOrder.sellerId;
+              } else if (linkedOrder.sellerShippingAddress && !linkedOrder.shippingAddress) {
+                payerToPenalize = linkedOrder.buyerId;
+              }
+            }
+            if (payerToPenalize) {
+              await tx.user.update({
+                where: { id: payerToPenalize },
+                data: { trustScore: { decrement: 10 } },
+              });
+            }
             await tx.order.update({
               where: { id: linkedOrder.id },
-              data: { status: OrderStatus.CANCELLED, cancelReason: 'مهلت ۴۸ ساعته تکمیل معاوضه به پایان رسید' },
+              data: {
+                status: OrderStatus.CANCELLED,
+                cancelReason: shouldCancelForNoPayment
+                  ? 'تا ۲۴ ساعت پس از پذیرش معاوضه هیچ پرداختی انجام نشد'
+                  : 'پس از پرداخت نفر اول، طرف مقابل در مهلت ۴۸ ساعته پرداخت را تکمیل نکرد',
+              },
             });
           }
 

@@ -32,6 +32,7 @@ export enum AdminEscrowAction {
   PARTIAL_REFUND_AND_CONTINUE = 'PARTIAL_REFUND_AND_CONTINUE',
   REQUEST_RETURN_FROM_BUYER = 'REQUEST_RETURN_FROM_BUYER',
   CONFIRM_RETURN_AND_REFUND = 'CONFIRM_RETURN_AND_REFUND',
+  CANCEL_AND_RETURN_BOTH_TO_SENDERS = 'CANCEL_AND_RETURN_BOTH_TO_SENDERS',
 }
 
 export class ResolveOrderEscrowDto {
@@ -54,6 +55,18 @@ export class ResolveOrderEscrowDto {
   @MinLength(3)
   @MaxLength(120)
   returnTrackingCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  @MaxLength(120)
+  returnTrackingCodeToBuyer?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  @MaxLength(120)
+  returnTrackingCodeToSeller?: string;
 
   @IsOptional()
   @IsString()

@@ -498,9 +498,104 @@ export class AdminOrdersCommandService {
       if (
         order.type === 'EXCHANGE' &&
         action !== AdminEscrowAction.RELEASE_TO_SELLER &&
-        action !== AdminEscrowAction.REFUND_TO_BUYER
+        action !== AdminEscrowAction.REFUND_TO_BUYER &&
+        action !== AdminEscrowAction.PARTIAL_REFUND_AND_CONTINUE &&
+        action !== AdminEscrowAction.CANCEL_AND_RETURN_BOTH_TO_SENDERS
       ) {
-        throw new BadRequestException('برای معاوضه، این نوع تصمیم مالی باید دستی انجام شود');
+        throw new BadRequestException('اقدام انتخاب‌شده برای سفارش معاوضه پشتیبانی نمی‌شود');
+      }
+
+      if (action === AdminEscrowAction.CANCEL_AND_RETURN_BOTH_TO_SENDERS) {
+        if (order.type !== 'EXCHANGE') {
+          throw new BadRequestException('این تصمیم فقط برای سفارش‌های معاوضه قابل استفاده است');
+        }
+        const returnToBuyer = (dto.returnTrackingCodeToBuyer ?? '').trim();
+        const returnToSeller = (dto.returnTrackingCodeToSeller ?? '').trim();
+        if (returnToBuyer.length < 3 || returnToSeller.length < 3) {
+          throw new BadRequestException('کد رهگیری بازگشت به هر دو طرف الزامی است');
+        }
+
+        if (sellerRevenue > 0) {
+          await tx.wallet.upsert({
+            where: { userId: order.sellerId },
+            create: {
+              userId: order.sellerId,
+              balanceAvailable: 0,
+              balanceBlocked: 0,
+            },
+            update: { balanceBlocked: { decrement: sellerRevenue } },
+          });
+          await tx.walletTransaction.create({
+            data: {
+              wallet: { connect: { userId: order.sellerId } },
+              amount: sellerRevenue,
+              type: WalletTransactionType.PENALTY,
+              status: WalletTransactionStatus.SUCCESS,
+              referenceId: order.id,
+              meta: {
+                kind: 'exchange-cancel-both-rejected',
+                description: 'لغو معاوضه پس از رد هر دو کالا؛ کسر سهم بلوکه فروشنده',
+                adminNote: note ?? null,
+              },
+            },
+          });
+        }
+        if (totalAmount > 0) {
+          await tx.wallet.upsert({
+            where: { userId: order.buyerId },
+            create: {
+              userId: order.buyerId,
+              balanceAvailable: totalAmount,
+              balanceBlocked: 0,
+            },
+            update: { balanceAvailable: { increment: totalAmount } },
+          });
+          await tx.walletTransaction.create({
+            data: {
+              wallet: { connect: { userId: order.buyerId } },
+              amount: totalAmount,
+              type: WalletTransactionType.REFUND,
+              status: WalletTransactionStatus.SUCCESS,
+              referenceId: order.id,
+              meta: {
+                kind: 'exchange-cancel-both-rejected',
+                description: 'لغو معاوضه پس از رد هر دو کالا؛ بازگشت وجه خریدار',
+                adminNote: note ?? null,
+              },
+            },
+          });
+        }
+
+        const updated = await tx.order.update({
+          where: { id: order.id },
+          data: {
+            status: OrderStatus.CANCELLED,
+            cancelReason: [
+              'هر دو کالای معاوضه در کارشناسی رد شدند؛ معامله لغو شد.',
+              `رهگیری برگشت به خریدار: ${returnToBuyer}`,
+              `رهگیری برگشت به فروشنده: ${returnToSeller}`,
+              note ? `توضیح: ${note}` : null,
+            ].filter(Boolean).join('\n'),
+            hubToBuyerTrackingCode: returnToBuyer,
+            hubToSellerTrackingCode: returnToSeller,
+            returnConfirmedAt: new Date(),
+          },
+        });
+
+        await tx.listing.update({
+          where: { id: order.listingId },
+          data: { status: ListingStatus.APPROVED },
+        });
+
+        await this.notifyParties(
+          order.buyerId,
+          order.sellerId,
+          order.id,
+          OrderStatus.CANCELLED,
+          note ?? 'هر دو کالا رد شد؛ معامله لغو و مرجوعی برای هر دو طرف ثبت شد.',
+        );
+
+        return updated;
       }
 
       if (
