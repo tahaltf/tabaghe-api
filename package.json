@@ -47,7 +47,8 @@
     "rxjs": "^7.8.1",
     "sms-ir": "^1.0.5",
     "socket.io": "^4.8.3",
-    "uuid": "^13.0.0"
+    "uuid": "^13.0.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.0.0",

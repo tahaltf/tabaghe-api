@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NotificationType, Prisma } from '@prisma/client';
 import { SmsService } from '../sms/sms.service';
+import webpush from 'web-push';
 
 type SmsRule = {
   siteNotificationEnabled?: boolean;
@@ -51,6 +52,9 @@ export class NotificationService {
         // ۲. ارسال پیامک به صورت پس‌زمینه (آسنکرون)
         this.processSms(userId, type, meta).catch(err => {
             this.logger.error('Failed to process SMS notification', err);
+        });
+        this.processPush(userId, resolvedTitle, resolvedMessage, '/dashboard/notifications').catch((err) => {
+          this.logger.error('Failed to process push notification', err);
         });
 
         return notification;
@@ -211,6 +215,11 @@ export class NotificationService {
           this.logger.warn(`SMS broadcast failed for ${u.phone}: ${String(err?.message ?? err)}`);
         })));
       }
+      await Promise.all(recipients.map((u) =>
+        this.processPush(u.id, title, message, '/dashboard/notifications').catch((err) => {
+          this.logger.warn(`Push broadcast failed for user ${u.id}: ${String(err?.message ?? err)}`);
+        }),
+      ));
       return { created: recipients.length };
     }
 
@@ -257,5 +266,45 @@ export class NotificationService {
     async removePushSubscription(userId: string) {
       await this.prisma.systemSetting.deleteMany({ where: { key: `PUSH_SUB_${userId}` } });
       return { ok: true };
+    }
+
+    private async processPush(userId: string, title: string, message: string, url: string) {
+      const setting = await this.prisma.systemSetting.findUnique({
+        where: { key: `PUSH_SUB_${userId}` },
+        select: { value: true },
+      });
+      if (!setting?.value) return;
+      let subscription: PushSubscriptionPayload | null = null;
+      try {
+        subscription = JSON.parse(setting.value) as PushSubscriptionPayload;
+      } catch {
+        subscription = null;
+      }
+      if (!subscription?.endpoint) return;
+      const vapidPublicKey = process.env.WEB_PUSH_VAPID_PUBLIC_KEY || '';
+      const vapidPrivateKey = (process.env.WEB_PUSH_VAPID_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+      const vapidSubject = process.env.WEB_PUSH_VAPID_SUBJECT || 'mailto:support@tabagheh.com';
+      if (!vapidPublicKey || !vapidPrivateKey) return;
+      await this.sendWebPush(subscription, { title, message, url }, { publicKey: vapidPublicKey, privateKey: vapidPrivateKey, subject: vapidSubject });
+    }
+
+    private async sendWebPush(
+      subscription: PushSubscriptionPayload,
+      payload: { title: string; message: string; url: string },
+      vapid: { publicKey: string; privateKey: string; subject: string },
+    ) {
+      try {
+        webpush.setVapidDetails(vapid.subject, vapid.publicKey, vapid.privateKey);
+        await webpush.sendNotification(
+          {
+            endpoint: subscription.endpoint,
+            keys: subscription.keys,
+          },
+          JSON.stringify(payload),
+          { TTL: 60, urgency: 'normal' as any },
+        );
+      } catch (err: any) {
+        this.logger.warn(`WebPush request failed: ${String(err?.message ?? err)}`);
+      }
     }
 }

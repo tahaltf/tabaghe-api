@@ -31,6 +31,19 @@ export class ListingCommandService {
     const auctionEndDate = this.resolveAuctionEndDate(dto);
 
     return this.prisma.$transaction(async (tx) => {
+      const author = await tx.user.findUnique({
+        where: { id: userId },
+        select: { id: true, rating: true },
+      });
+      if (!author) {
+        throw new NotFoundException('کاربر یافت نشد');
+      }
+      if (Number(author.rating) < 1.5) {
+        throw new ForbiddenException(
+          'با امتیاز کمتر از ۱.۵ امکان ثبت آگهی ندارید.',
+        );
+      }
+
       const listing = await tx.listing.create({
         data: {
           title: dto.title,

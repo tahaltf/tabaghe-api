@@ -10,6 +10,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { json, urlencoded } from 'express';
 import helmet from 'helmet';
 import { join } from 'path';
+import { createServer } from 'node:net';
 
 /** ترجمهٔ پیام‌های پیش‌فرض class-validator برای نمایش به کاربر نهایی */
 function translateValidationConstraintMessage(raw: string): string {
@@ -136,6 +137,27 @@ function flattenValidationErrors(errors: ValidationError[]): string[] {
   return out;
 }
 
+async function isPortFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const tester = createServer();
+    tester
+      .once('error', () => resolve(false))
+      .once('listening', () => {
+        tester.close(() => resolve(true));
+      })
+      .listen(port, '0.0.0.0');
+  });
+}
+
+async function resolveAvailablePort(startPort: number, maxAttempts: number): Promise<number> {
+  let candidate = startPort;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    if (await isPortFree(candidate)) return candidate;
+    candidate += 1;
+  }
+  throw new Error(`Could not find an available port from ${startPort} to ${candidate - 1}.`);
+}
+
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
@@ -196,9 +218,15 @@ async function bootstrap() {
     prefix: '/uploads/',
   });
 
-  // ۷. مدیریت پورت داینامیک
-  const port = process.env.PORT || 3000;
-  await app.listen(port);
-  console.log(`🚀 Tabagheh API is running on: http://localhost:${port}/api/v1`);
+  // ۷. مدیریت پورت: اگر پورت اشغال بود، خودکار روی پورت بعدی بالا بیاید
+  const preferredPort = Number(process.env.PORT || 3000);
+  const maxPortAttempts = 10;
+  const activePort = await resolveAvailablePort(preferredPort, maxPortAttempts);
+
+  await app.listen(activePort);
+  console.log(`🚀 Tabagheh API is running on: http://localhost:${activePort}/api/v1`);
+  if (activePort !== preferredPort) {
+    console.warn(`⚠️ Preferred port ${preferredPort} was busy. Switched to port ${activePort}.`);
+  }
 }
 bootstrap();

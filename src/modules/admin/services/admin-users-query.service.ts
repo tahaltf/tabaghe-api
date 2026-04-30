@@ -15,6 +15,7 @@ const USER_LIST_SELECT = {
   email: true,
   firstName: true,
   lastName: true,
+  rating: true,
   status: true,
   role: true,
   isActive: true,
@@ -172,6 +173,25 @@ export class AdminUsersQueryService {
       where: { id: userId },
       data: { isActive },
       select: { id: true, isActive: true },
+    });
+  }
+
+  async setUserRating(
+    actor: AuthenticatedUser,
+    userId: string,
+    rating: number,
+  ): Promise<{ id: string; rating: number }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true },
+    });
+    if (!user) throw new NotFoundException('کاربر یافت نشد');
+    this.assertCanManageTarget(actor, user.role);
+
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { rating },
+      select: { id: true, rating: true },
     });
   }
 

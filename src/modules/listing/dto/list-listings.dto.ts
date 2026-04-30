@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer';
 import { IsEnum, IsIn, IsOptional, IsString, Min } from 'class-validator';
-import { ListingType } from '@prisma/client';
+import { ItemCondition, ListingType } from '@prisma/client';
 import { PaginationQueryDto } from '../../../shared/contracts/pagination';
 
 export type ListingSort = 'newest' | 'oldest' | 'price_asc' | 'price_desc';
@@ -28,6 +28,10 @@ export class ListListingsDto extends PaginationQueryDto {
   @IsOptional()
   @IsEnum(ListingType)
   type?: ListingType;
+
+  @IsOptional()
+  @IsEnum(ItemCondition)
+  condition?: ItemCondition;
 
   @IsOptional()
   @Type(() => Number)

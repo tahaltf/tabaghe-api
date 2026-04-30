@@ -20,6 +20,7 @@ import { TokenService } from '../../auth/services/token.service';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { AdminSetUserPasswordDto } from '../dto/admin-user-password.dto';
 import { AdminSetUserActivationDto } from '../dto/admin-user-activation.dto';
+import { AdminSetUserRatingDto } from '../dto/admin-user-rating.dto';
 import { AuthenticatedUser } from '../../../shared/contracts/auth';
 
 @Controller('admin/users')
@@ -63,6 +64,15 @@ export class AdminUsersQueryController {
     @Body() dto: AdminSetUserActivationDto,
   ) {
     return this.service.setUserActivation(actor, id, dto.isActive);
+  }
+
+  @Patch(':id/rating')
+  setRating(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: AdminSetUserRatingDto,
+  ) {
+    return this.service.setUserRating(actor, id, dto.rating);
   }
 
   /**

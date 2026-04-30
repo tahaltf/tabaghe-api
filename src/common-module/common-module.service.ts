@@ -204,22 +204,43 @@ export class CommonService {
   }
 
   async getBlogPosts() {
-    const row = await this.prisma.systemSetting.findUnique({
-      where: { key: 'BLOG_POSTS_JSON' },
-      select: { value: true },
+    const rows = await this.prisma.blogPost.findMany({
+      where: { isPublished: true },
+      orderBy: { createdAt: 'desc' },
     });
-    try {
-      const parsed = JSON.parse(row?.value ?? '[]');
-      if (!Array.isArray(parsed)) return [];
-      return parsed.filter((x) => x && typeof x === 'object');
-    } catch {
-      return [];
-    }
+    return rows.map((x) => ({
+      id: x.id,
+      slug: x.slug,
+      title: x.title,
+      description: x.description,
+      excerpt: x.description,
+      content: x.description,
+      image: x.image ?? null,
+      outline: x.outline ?? null,
+      note: x.note ?? null,
+      createdAt: x.createdAt,
+      updatedAt: x.updatedAt,
+    }));
   }
 
   async getBlogPostBySlug(slug: string) {
-    const posts = await this.getBlogPosts();
-    return posts.find((p: any) => String(p?.slug) === slug) ?? null;
+    const post = await this.prisma.blogPost.findFirst({
+      where: { slug, isPublished: true },
+    });
+    if (!post) return null;
+    return {
+      id: post.id,
+      slug: post.slug,
+      title: post.title,
+      description: post.description,
+      excerpt: post.description,
+      content: post.description,
+      image: post.image ?? null,
+      outline: post.outline ?? null,
+      note: post.note ?? null,
+      createdAt: post.createdAt,
+      updatedAt: post.updatedAt,
+    };
   }
 
   async submitContactMessage(payload: {

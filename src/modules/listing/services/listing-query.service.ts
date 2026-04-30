@@ -98,16 +98,21 @@ export class ListingQueryService {
     const where = this.buildPublicWhere(query);
     const orderBy = this.buildOrderBy(query.sort);
 
-    const [items, total] = await this.prisma.$transaction([
+    const useRelevanceSort = !!query.search?.trim() && (!query.sort || query.sort === 'newest');
+    const takeForRanking = useRelevanceSort ? Math.max(pageSize * 4, 60) : pageSize;
+    const [rawItems, total] = await this.prisma.$transaction([
       this.prisma.listing.findMany({
         where,
         include: LIST_ITEM_INCLUDE,
         orderBy,
-        skip,
-        take: pageSize,
+        skip: useRelevanceSort ? 0 : skip,
+        take: takeForRanking,
       }),
       this.prisma.listing.count({ where }),
     ]);
+    const items = useRelevanceSort
+      ? this.rankByRelevance(query.search ?? '', rawItems).slice(skip, skip + pageSize)
+      : rawItems;
 
     return {
       items,
@@ -250,11 +255,16 @@ export class ListingQueryService {
     if (query.cityId) where.cityId = query.cityId;
     if (query.categoryId) where.categoryId = query.categoryId;
     if (query.type) where.type = query.type;
+    if (query.condition) where.condition = query.condition;
 
     if (query.search) {
+      const normalized = query.search.trim();
       where.OR = [
-        { title: { contains: query.search, mode: 'insensitive' } },
-        { description: { contains: query.search, mode: 'insensitive' } },
+        { title: { contains: normalized, mode: 'insensitive' } },
+        { description: { contains: normalized, mode: 'insensitive' } },
+        { category: { title: { contains: normalized, mode: 'insensitive' } } },
+        { city: { name: { contains: normalized, mode: 'insensitive' } } },
+        { province: { name: { contains: normalized, mode: 'insensitive' } } },
       ];
     }
 
@@ -288,5 +298,33 @@ export class ListingQueryService {
       default:
         return { createdAt: 'desc' };
     }
+  }
+
+  private rankByRelevance(search: string, items: ListingListItem[]): ListingListItem[] {
+    const q = this.normalize(search);
+    return [...items].sort((a, b) => this.relevanceScore(q, b) - this.relevanceScore(q, a));
+  }
+
+  private relevanceScore(query: string, item: ListingListItem): number {
+    const title = this.normalize(item.title);
+    const description = this.normalize(item.description ?? '');
+    const category = this.normalize(item.category?.title ?? '');
+    const city = this.normalize(item.city?.name ?? '');
+    const province = this.normalize(item.province?.name ?? '');
+    let score = 0;
+    if (title.startsWith(query)) score += 90;
+    if (title.includes(query)) score += 50;
+    if (category.includes(query)) score += 30;
+    if (city.includes(query) || province.includes(query)) score += 18;
+    if (description.includes(query)) score += 12;
+    return score;
+  }
+
+  private normalize(input: string): string {
+    return String(input || '')
+      .toLowerCase()
+      .replace(/ي/g, 'ی')
+      .replace(/ك/g, 'ک')
+      .trim();
   }
 }

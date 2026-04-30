@@ -24,6 +24,7 @@ import { AdminSmsController } from './controllers/admin-sms.controller';
 import { AdminLogsController } from './controllers/admin-logs.controller';
 import { AdminPlatformWalletController } from './controllers/admin-platform-wallet.controller';
 import { AdminContactMessagesController } from './controllers/admin-contact-messages.controller';
+import { AdminBlogController } from './controllers/admin-blog.controller';
 
 // Services
 import { AdminDashboardService } from './services/admin-dashboard.service';
@@ -45,6 +46,7 @@ import { AdminSmsService } from './services/admin-sms.service';
 import { AdminLogsService } from './services/admin-logs.service';
 import { AdminPlatformWalletService } from './services/admin-platform-wallet.service';
 import { SmsService } from '../sms/sms.service';
+import { AdminBlogService } from './services/admin-blog.service';
 
 @Module({
   imports: [PrismaModule, AuthModule, NotificationModule, FeesModule],
@@ -68,6 +70,7 @@ import { SmsService } from '../sms/sms.service';
     AdminLogsController,
     AdminPlatformWalletController,
     AdminContactMessagesController,
+    AdminBlogController,
   ],
   providers: [
     AdminDashboardService,
@@ -88,6 +91,7 @@ import { SmsService } from '../sms/sms.service';
     AdminSmsService,
     AdminLogsService,
     AdminPlatformWalletService,
+    AdminBlogService,
     SmsService,
   ],
 })
