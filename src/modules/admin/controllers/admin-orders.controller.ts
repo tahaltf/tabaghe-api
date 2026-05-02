@@ -15,7 +15,9 @@ import { AdminOrdersQueryService } from '../services/admin-orders-query.service'
 import { AdminOrdersCommandService } from '../services/admin-orders-command.service';
 import { AdminOrderListQueryDto } from '../dto/admin-query.dto';
 import {
+  FinalizeExchangeHubInspectionDto,
   ResolveOrderEscrowDto,
+  SetExchangeHubReceiptDto,
   SetParticipantShippingDto,
   SetHubShippingCodesDto,
   UpdateOrderStatusDto,
@@ -46,6 +48,14 @@ export class AdminOrdersQueryController {
     return this.command.updateStatus(id, dto.status, dto.note, dto.rejectedReturnTrackingCode);
   }
 
+  @Patch(':id/exchange-hub-inspection')
+  finalizeExchangeHubInspection(
+    @Param('id') id: string,
+    @Body() dto: FinalizeExchangeHubInspectionDto,
+  ) {
+    return this.command.finalizeExchangeHubInspection(id, dto);
+  }
+
   @Patch(':id/tracking-code')
   setTrackingCode(
     @Param('id') id: string,
@@ -60,6 +70,14 @@ export class AdminOrdersQueryController {
     @Body() dto: SetParticipantShippingDto,
   ) {
     return this.command.setParticipantShipping(id, dto);
+  }
+
+  @Patch(':id/exchange-hub-receipt')
+  setExchangeHubReceipt(
+    @Param('id') id: string,
+    @Body() dto: SetExchangeHubReceiptDto,
+  ) {
+    return this.command.setExchangeHubReceipt(id, dto);
   }
 
   @Patch(':id/hub-shipping')

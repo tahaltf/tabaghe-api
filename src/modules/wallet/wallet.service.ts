@@ -73,6 +73,48 @@ export class WalletService {
       },
     });
 
+    const sellerBlockedListingIds = transactions
+      .filter((t) => {
+        const meta = t.meta as Record<string, unknown> | null;
+        return (
+          !!meta &&
+          meta['kind'] === 'order-escrow' &&
+          meta['phase'] === 'seller_blocked' &&
+          typeof meta['listingId'] === 'string'
+        );
+      })
+      .map((t) => ((t.meta as Record<string, unknown>)['listingId'] as string));
+
+    const uniqueSellerBlockedListingIds = Array.from(new Set(sellerBlockedListingIds));
+    const exchangeOrdersForFix = uniqueSellerBlockedListingIds.length
+      ? await this.prisma.order.findMany({
+          where: {
+            type: 'EXCHANGE' as any,
+            listingId: { in: uniqueSellerBlockedListingIds },
+            sellerId: userId,
+          },
+          select: {
+            listingId: true,
+            sellerRevenue: true,
+            platformFee: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        })
+      : [];
+    const exchangeOrderByListingId = new Map<
+      string,
+      { sellerRevenue: number; platformFee: number }
+    >();
+    for (const o of exchangeOrdersForFix) {
+      if (!exchangeOrderByListingId.has(o.listingId)) {
+        exchangeOrderByListingId.set(o.listingId, {
+          sellerRevenue: Number(o.sellerRevenue || 0),
+          platformFee: Number(o.platformFee || 0),
+        });
+      }
+    }
+
     // meta شامل فیلدهای داخلی (مثل adminNote، ipAddress، receipt، ...)
     // است. برای کاربر فقط کلیدهای عمومی/مفید رو نگه میداریم.
     const ALLOWED_META_KEYS = new Set([
@@ -93,7 +135,19 @@ export class WalletService {
       'agreementAmount',
     ]);
 
-    const safeTxns = transactions.map((t) => {
+    const safeTxns = transactions
+      .filter((t) => {
+        const meta = t.meta as Record<string, unknown> | null;
+        // لاگ‌های بی‌معنای «درآمد ۰» را به کاربر نشان نده.
+        return !(
+          t.type === WalletTransactionType.DEPOSIT &&
+          Number(t.amount || 0) <= 0 &&
+          !!meta &&
+          meta['kind'] === 'order-escrow' &&
+          meta['phase'] === 'seller_blocked'
+        );
+      })
+      .map((t) => {
       let safeMeta: Record<string, unknown> | null = null;
       if (t.meta && typeof t.meta === 'object' && !Array.isArray(t.meta)) {
         safeMeta = {};
@@ -101,7 +155,26 @@ export class WalletService {
           if (ALLOWED_META_KEYS.has(k)) safeMeta[k] = v;
         }
       }
-      return { ...t, meta: safeMeta };
+      let normalizedAmount = Number(t.amount || 0);
+      const rawMeta = t.meta as Record<string, unknown> | null;
+      if (
+        rawMeta &&
+        rawMeta['kind'] === 'order-escrow' &&
+        rawMeta['phase'] === 'seller_blocked' &&
+        typeof rawMeta['listingId'] === 'string'
+      ) {
+        const match = exchangeOrderByListingId.get(rawMeta['listingId']);
+        // سفارش‌های قدیمی معاوضه که platformFee اشتباه خورده‌اند:
+        // مقدار بلوکه را در نمایش به مقدار صحیح (sellerRevenue + platformFee) نرمال می‌کنیم.
+        if (
+          match &&
+          match.platformFee > 0 &&
+          Math.abs(normalizedAmount - match.sellerRevenue) < 1
+        ) {
+          normalizedAmount = match.sellerRevenue + match.platformFee;
+        }
+      }
+      return { ...t, amount: normalizedAmount, meta: safeMeta };
     });
 
     return { ...wallet, transactions: safeTxns };
@@ -327,11 +400,15 @@ export class WalletService {
     platformFee: number | string | Decimal,
     refId: string,
     tx?: Prisma.TransactionClient,
+    opts?: { isExchangeEscrow?: boolean; blockedAmount?: number | string | Decimal },
   ) {
     const prisma = tx || this.prisma;
     const amountDec = new Decimal(amount);
     const feeDec = new Decimal(platformFee);
-    const sellerRevenue = amountDec.minus(feeDec);
+    const blockedAmountDec =
+      opts?.blockedAmount !== undefined ? new Decimal(opts.blockedAmount) : amountDec.minus(feeDec);
+    const sellerRevenue = blockedAmountDec;
+    const isExchangeEscrow = Boolean(opts?.isExchangeEscrow);
     const listingTitle = await this.listingTitleForWalletTx(prisma, refId);
     const titleQuoted = listingTitle ? `«${listingTitle}»` : 'این آگهی';
 
@@ -344,6 +421,12 @@ export class WalletService {
       new Decimal(buyerWallet.balanceAvailable).lt(amountDec)
     ) {
       throw new BadRequestException('موجودی کیف پول برای خرید کافی نیست');
+    }
+    if (blockedAmountDec.lt(0)) {
+      throw new BadRequestException('مبلغ بلوکه فروشنده نامعتبر است');
+    }
+    if (blockedAmountDec.gt(amountDec)) {
+      throw new BadRequestException('مبلغ بلوکه فروشنده نمی‌تواند بیشتر از مبلغ پرداختی باشد');
     }
 
     await prisma.wallet.update({
@@ -360,11 +443,14 @@ export class WalletService {
         referenceId: refId,
         meta: {
           kind: 'order-escrow',
-          phase: 'buyer_paid',
+          phase: isExchangeEscrow ? 'exchange_participant_paid' : 'buyer_paid',
+          ...(isExchangeEscrow ? { payerUserId: buyerId } : {}),
           listingId: refId,
           ...(listingTitle ? { listingTitle } : {}),
           paymentSource: 'WALLET',
-          description: `پرداخت خرید برای ${titleQuoted} از کیف پول ثبت شد.`,
+            description: isExchangeEscrow
+              ? `پرداخت سهم معاوضه (کارشناسی/مابه‌التفاوت) برای ${titleQuoted} از کیف پول ثبت شد.`
+              : `پرداخت خرید برای ${titleQuoted} از کیف پول ثبت شد.`,
         },
       },
     });
@@ -378,27 +464,33 @@ export class WalletService {
       });
     }
 
-    await prisma.wallet.update({
-      where: { userId: sellerId },
-      data: { balanceBlocked: { increment: sellerRevenue.toString() } },
-    });
+    // اگر سهم فروشنده صفر باشد (مثلاً در برخی سناریوهای معاوضه)،
+    // نباید تراکنش واریزی ۰ ثبت شود.
+    if (sellerRevenue.gt(0)) {
+      await prisma.wallet.update({
+        where: { userId: sellerId },
+        data: { balanceBlocked: { increment: sellerRevenue.toString() } },
+      });
 
-    await prisma.walletTransaction.create({
-      data: {
-        walletId: sellerWallet.id,
-        amount: sellerRevenue.toNumber(),
-        type: WalletTransactionType.DEPOSIT,
-        status: WalletTransactionStatus.PENDING,
-        referenceId: refId,
-        meta: {
-          kind: 'order-escrow',
-          phase: 'seller_blocked',
-          listingId: refId,
-          ...(listingTitle ? { listingTitle } : {}),
-          description: `سهم فروش شما برای ${titleQuoted} به کیف پول واریز شد و تا تایید دریافت توسط خریدار، در حالت بلوکه است.`,
+      await prisma.walletTransaction.create({
+        data: {
+          walletId: sellerWallet.id,
+          amount: sellerRevenue.toNumber(),
+          type: WalletTransactionType.DEPOSIT,
+          status: WalletTransactionStatus.PENDING,
+          referenceId: refId,
+          meta: {
+            kind: 'order-escrow',
+            phase: 'seller_blocked',
+            listingId: refId,
+            ...(listingTitle ? { listingTitle } : {}),
+            description: isExchangeEscrow
+              ? `مبلغ امانی معاوضه برای ${titleQuoted} در کیف پول شما بلوکه شد و پس از تایید نهایی طرفین آزاد می‌شود.`
+              : `سهم فروش شما برای ${titleQuoted} به کیف پول واریز شد و تا تایید دریافت توسط خریدار، در حالت بلوکه است.`,
+          },
         },
-      },
-    });
+      });
+    }
   }
 
   /**
@@ -411,14 +503,23 @@ export class WalletService {
     platformFee: number | string | Decimal,
     refId: string,
     tx?: Prisma.TransactionClient,
+    opts?: { isExchangeEscrow?: boolean; blockedAmount?: number | string | Decimal },
   ) {
     const prisma = tx || this.prisma;
     const amountDec = new Decimal(amount);
     const feeDec = new Decimal(platformFee);
-    const sellerRevenue = amountDec.minus(feeDec);
+    const blockedAmountDec =
+      opts?.blockedAmount !== undefined ? new Decimal(opts.blockedAmount) : amountDec.minus(feeDec);
+    const sellerRevenue = blockedAmountDec;
 
     if (amountDec.lte(0)) {
       throw new BadRequestException('مبلغ پرداخت نامعتبر است');
+    }
+    if (blockedAmountDec.lt(0)) {
+      throw new BadRequestException('مبلغ بلوکه فروشنده نامعتبر است');
+    }
+    if (blockedAmountDec.gt(amountDec)) {
+      throw new BadRequestException('مبلغ بلوکه فروشنده نمی‌تواند بیشتر از مبلغ پرداختی باشد');
     }
     if (sellerRevenue.lt(0)) {
       throw new BadRequestException('کارمزد از مبلغ پرداخت بیشتر است');
@@ -433,31 +534,37 @@ export class WalletService {
       });
     }
 
+    const isExchangeEscrow = Boolean(opts?.isExchangeEscrow);
     const listingTitle = await this.listingTitleForWalletTx(prisma, refId);
     const titleQuoted = listingTitle ? `«${listingTitle}»` : 'این آگهی';
 
-    await prisma.wallet.update({
-      where: { userId: sellerId },
-      data: { balanceBlocked: { increment: sellerRevenue.toString() } },
-    });
+    // ثبت تراکنش فروشنده فقط وقتی سهم واقعی > 0 باشد
+    if (sellerRevenue.gt(0)) {
+      await prisma.wallet.update({
+        where: { userId: sellerId },
+        data: { balanceBlocked: { increment: sellerRevenue.toString() } },
+      });
 
-    await prisma.walletTransaction.create({
-      data: {
-        walletId: sellerWallet.id,
-        amount: sellerRevenue.toNumber(),
-        type: WalletTransactionType.DEPOSIT,
-        status: WalletTransactionStatus.PENDING,
-        referenceId: refId,
-        meta: {
-          kind: 'order-escrow',
-          phase: 'seller_blocked',
-          listingId: refId,
-          ...(listingTitle ? { listingTitle } : {}),
-          paymentSource: 'GATEWAY',
-          description: `پرداخت خریدار از درگاه برای ${titleQuoted} ثبت شد و سهم فروش شما در کیف پول به‌صورت بلوکه قرار گرفت.`,
+      await prisma.walletTransaction.create({
+        data: {
+          walletId: sellerWallet.id,
+          amount: sellerRevenue.toNumber(),
+          type: WalletTransactionType.DEPOSIT,
+          status: WalletTransactionStatus.PENDING,
+          referenceId: refId,
+          meta: {
+            kind: 'order-escrow',
+            phase: 'seller_blocked',
+            listingId: refId,
+            ...(listingTitle ? { listingTitle } : {}),
+            paymentSource: 'GATEWAY',
+            description: isExchangeEscrow
+              ? `پرداخت امانی معاوضه از درگاه برای ${titleQuoted} ثبت شد و مبلغ مربوطه در کیف پول شما بلوکه شد.`
+              : `پرداخت خریدار از درگاه برای ${titleQuoted} ثبت شد و سهم فروش شما در کیف پول به‌صورت بلوکه قرار گرفت.`,
+          },
         },
-      },
-    });
+      });
+    }
   }
 
   async releaseEscrow(

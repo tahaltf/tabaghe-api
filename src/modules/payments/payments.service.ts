@@ -314,6 +314,8 @@ export class PaymentsService {
       const paidAmount = expectedAmount;
       let payeeUserId = locked.sellerId;
       let platformCut = Math.max(0, Number(locked.totalAmount) - Number(locked.sellerRevenue));
+      const isExchangeOrder = locked.type === 'EXCHANGE';
+      let blockedAmount = paidAmount;
       if (locked.type === 'EXCHANGE' && payerId) {
         const payerIsBuyer = payerId === locked.buyerId;
         const payerIsSeller = payerId === locked.sellerId;
@@ -322,9 +324,10 @@ export class PaymentsService {
         }
         // در معاوضه، پرداخت هر طرف به‌نفع طرف مقابل بلوکه می‌شود.
         payeeUserId = payerIsBuyer ? locked.sellerId : locked.buyerId;
-        // فعلا برای پرداخت‌های تکه‌ای معاوضه، کارمزد را اینجا صفر می‌گیریم.
-        // کارمزد کل در اقتصاد نهایی سفارش لحاظ می‌شود.
-        platformCut = Number(locked.verificationFee || 0);
+        // در معاوضه، مبلغ پرداختی باید کامل برای طرف مقابل بلوکه شود
+        // و نباید از لاگ بلوکه‌ی امانی کارمزدی کسر شود.
+        platformCut = 0;
+        blockedAmount = Math.max(0, paidAmount - Number(locked.verificationFee || 0));
       }
 
       await this.walletService.creditExternalPaymentToEscrow(
@@ -333,6 +336,7 @@ export class PaymentsService {
         platformCut,
         locked.listingId,
         tx,
+        { isExchangeEscrow: isExchangeOrder, blockedAmount },
       );
 
       const payerUserId = locked.type === 'EXCHANGE' && payerId ? payerId : locked.buyerId;
@@ -359,14 +363,19 @@ export class PaymentsService {
           referenceId: locked.listingId,
           meta: {
             kind: 'order-escrow',
-            phase: 'buyer_paid',
+            phase: isExchangeOrder ? 'exchange_participant_paid' : 'buyer_paid',
+            ...(isExchangeOrder ? { payerUserId } : {}),
             orderId: locked.id,
             listingId: locked.listingId,
             ...(listingTitle ? { listingTitle } : {}),
             paymentSource: 'GATEWAY',
-            description: listingTitle
-              ? `پرداخت خرید برای «${listingTitle}» از درگاه ثبت شد.`
-              : 'پرداخت خرید از درگاه ثبت شد.',
+            description: isExchangeOrder
+              ? (listingTitle
+                ? `پرداخت سهم معاوضه (کارشناسی/مابه‌التفاوت) برای «${listingTitle}» از درگاه ثبت شد.`
+                : 'پرداخت سهم معاوضه (کارشناسی/مابه‌التفاوت) از درگاه ثبت شد.')
+              : (listingTitle
+                ? `پرداخت خرید برای «${listingTitle}» از درگاه ثبت شد.`
+                : 'پرداخت خرید از درگاه ثبت شد.'),
           },
         },
       });

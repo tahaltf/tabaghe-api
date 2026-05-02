@@ -35,6 +35,7 @@ export class OrdersService {
   private static readonly EXCHANGE_NO_PAYMENT_TIMEOUT_HOURS = 24;
   private static readonly EXCHANGE_SECOND_PAYMENT_TIMEOUT_HOURS = 48;
   private static readonly EXCHANGE_SHIPMENT_TIMEOUT_HOURS = 48;
+  private static readonly DEFAULT_EXCHANGE_RETURN_CONFIRM_DEADLINE_MINUTES = 48 * 60;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -77,6 +78,7 @@ export class OrdersService {
           status: true,
           type: true,
           totalAmount: true,
+          verificationFee: true,
           createdAt: true,
           updatedAt: true,
           paymentMethod: true,
@@ -106,8 +108,45 @@ export class OrdersService {
       this.prisma.order.count({ where: whereClause }),
     ]);
 
+    const exchangeOfferIds = items
+      .filter((o) => o.type === OrderType.EXCHANGE && !!o.exchangeOfferId)
+      .map((o) => o.exchangeOfferId as string);
+    const exchangeOffers = exchangeOfferIds.length
+      ? await this.prisma.exchangeOffer.findMany({
+          where: { id: { in: exchangeOfferIds } },
+          select: { id: true, extraPayment: true, isPayerMe: true },
+        })
+      : [];
+    const exchangeOfferById = new Map(exchangeOffers.map((o) => [o.id, o]));
+
+    const itemsWithExchangeMyShare = items.map((item) => {
+      if (item.type !== OrderType.EXCHANGE || !item.exchangeOfferId) {
+        return item;
+      }
+      const offer = exchangeOfferById.get(item.exchangeOfferId);
+      const verificationFee = Number((item as any).verificationFee || 0);
+      const extra = Number(offer?.extraPayment || 0);
+      const isBuyer = item.buyerId === userId;
+      const isSeller = item.sellerId === userId;
+      let myDue = verificationFee;
+      if (isBuyer && offer?.isPayerMe) myDue += extra;
+      if (isSeller && offer && !offer.isPayerMe) myDue += extra;
+
+      const myPaid = isBuyer
+        ? Boolean(item.shippingAddress)
+        : isSeller
+          ? Boolean(item.sellerShippingAddress)
+          : false;
+
+      return {
+        ...item,
+        exchangeMyDueAmount: myDue,
+        exchangeMyPaidAmount: myPaid ? myDue : 0,
+      };
+    });
+
     return {
-      items,
+      items: itemsWithExchangeMyShare,
       pagination: {
         page,
         pageSize,
@@ -130,11 +169,17 @@ export class OrdersService {
 
     const [exchangeOffers, rawBids] = await Promise.all([
       this.prisma.exchangeOffer.findMany({
-        where: { offererId: userId },
+        where: {
+          OR: [
+            { offererId: userId },
+            { listing: { authorId: userId } },
+          ],
+        },
         skip,
         take: pageSize,
         select: {
           id: true,
+          offererId: true,
           status: true,
           title: true,
           description: true,
@@ -143,7 +188,15 @@ export class OrdersService {
           isPayerMe: true,
           createdAt: true,
           listing: {
-            select: { id: true, title: true, thumbnail: true, gallery: true, status: true },
+            select: { id: true, title: true, thumbnail: true, gallery: true, status: true, authorId: true },
+          },
+          offerer: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              phone: true,
+            },
           },
         },
         orderBy: { createdAt: 'desc' },
@@ -191,9 +244,13 @@ export class OrdersService {
     const orderByOfferId = new Map(linkedOrders.map((o) => [o.exchangeOfferId, o]));
     const exchangeOffersWithPaymentState = exchangeOffers.map((offer) => {
       const linked = orderByOfferId.get(offer.id);
-      const mySharePaid = Boolean(linked?.shippingAddress);
+      const isOfferer = offer.offererId === userId;
+      const mySharePaid = isOfferer
+        ? Boolean(linked?.shippingAddress)
+        : Boolean(linked?.sellerShippingAddress);
       return {
         ...offer,
+        isOfferer,
         exchangeOrderId: linked?.id ?? null,
         mySharePaid,
       };
@@ -304,16 +361,16 @@ export class OrdersService {
           }
 
           const otherUserId = isBuyer ? offer.listing.authorId : offer.offererId;
-          const platformCommission = await this.feeCalculator.calculateFee(ListingType.EXCHANGE, categoryId, finalPrice);
-          const totalPlatformCut = Number(platformCommission) + shippingCost + verificationFee;
+          const peerEscrowAmount = Math.max(0, totalPayable - verificationFee);
 
           await this.walletService.transferToEscrow(
             userId,
             otherUserId,
             totalPayable,
-            totalPlatformCut, // 👈 این متغیر درست محاسبه و پاس داده شد
+            0,
             listingId,
-            tx
+            tx,
+            { isExchangeEscrow: true, blockedAmount: peerEscrowAmount },
           );
         }
 
@@ -370,7 +427,9 @@ export class OrdersService {
           if (isExchangeIncomplete) {
             updateData.status = OrderStatus.AWAITING_PAYMENT;
           }
-          updateData.paymentMethod = paymentMethod;
+          if (orderType !== 'EXCHANGE') {
+            updateData.paymentMethod = paymentMethod;
+          }
           const updatedOrder = await tx.order.update({ where: { id: existingExchangeOrder.id }, data: updateData });
 
           const bothSidesProvidedAddress =
@@ -402,10 +461,12 @@ export class OrdersService {
           const totalExchangeExtraPayment = Number(offer.extraPayment || 0);
 
           // محاسبه کارمزد روی کل مبلغ سرک
-          const platformCommission = await this.feeCalculator.calculateFee(ListingType.EXCHANGE, categoryId, totalExchangeExtraPayment);
+          const platformCommission = 0;
 
           // دریافتی نهایی (در صورت وجود مابه‌التفاوت) منهای کارمزد شما
-          const sellerRev = new Decimal(totalExchangeExtraPayment).minus(platformCommission).toString();
+          const sellerRev = offer.isPayerMe
+            ? new Decimal(totalExchangeExtraPayment).minus(platformCommission).toString()
+            : '0';
 
           const orderPayload: any = {
             buyer: { connect: { id: offer.offererId } },
@@ -542,11 +603,13 @@ export class OrdersService {
           : finalPrice + shippingCost + feeChargedToBuyer
       );
 
-      const platformFee = await this.feeCalculator.calculateFee(
-        orderType === 'AUCTION' ? ListingType.AUCTION : (orderType === 'EXCHANGE' ? ListingType.EXCHANGE : ListingType.DIRECT),
-        categoryId,
-        finalPrice
-      );
+      const platformFee = orderType === 'EXCHANGE'
+        ? 0
+        : await this.feeCalculator.calculateFee(
+            orderType === 'AUCTION' ? ListingType.AUCTION : ListingType.DIRECT,
+            categoryId,
+            finalPrice,
+          );
 
       // 🎯 لاجیک طلایی واریزی فروشنده
       const sellerRevenue = new Decimal(finalPrice)
@@ -719,7 +782,9 @@ export class OrdersService {
       return createdOrder;
     });
 
-    if (paymentMethod === 'GATEWAY' && Number(order.totalAmount) > 0) {
+    // در معاوضه، مبلغ قابل پرداخت هر طرف جداگانه در PaymentsService محاسبه می‌شود
+    // و ممکن است totalAmount سفارش (در لحظه ساخت/به‌روزرسانی) معیار خوبی نباشد.
+    if (paymentMethod === 'GATEWAY' && (order.type === OrderType.EXCHANGE || Number(order.totalAmount) > 0)) {
       const initiated = await this.paymentsService.initiateOrderPayment(order.id, userId);
       paymentUrl = initiated.paymentUrl;
     }
@@ -1022,7 +1087,155 @@ export class OrdersService {
         if (order.status === OrderStatus.COMPLETED) {
           throw new BadRequestException('این سفارش قبلاً تسویه شده است');
         }
-        this.stateMachine.assertTransition(order.status, OrderStatus.COMPLETED, 'confirm-order-exchange');
+        const inspection = (order.exchangeHubInspection as Record<string, unknown> | null) ?? null;
+        const isReturnBothFlow =
+          inspection?.['resolution'] === 'RETURN_BOTH_TO_SENDERS' &&
+          (order.status === OrderStatus.CANCELLED || order.status === OrderStatus.REJECTED_AT_HUB);
+        const refundableAlreadyReleased = Boolean(inspection?.['refundsReleasedAt']);
+
+        if (!isReturnBothFlow) {
+          this.stateMachine.assertTransition(order.status, OrderStatus.COMPLETED, 'confirm-order-exchange');
+        }
+
+        if (isReturnBothFlow) {
+          if (refundableAlreadyReleased) {
+            throw new BadRequestException('بازگشت وجه این مرجوعی قبلاً انجام شده است');
+          }
+
+          if (isBuyer) {
+            if (!order.hubToBuyerTrackingCode?.trim()) {
+              throw new BadRequestException(
+                'تا زمان ثبت کد رهگیری مرجوعی کالای شما، امکان تایید دریافت وجود ندارد.',
+              );
+            }
+            if (order.buyerConfirmedDelivery) {
+              throw new BadRequestException('شما قبلاً دریافت کالای مرجوعی خود را تایید کرده‌اید');
+            }
+          }
+          if (isSeller) {
+            if (!order.hubToSellerTrackingCode?.trim()) {
+              throw new BadRequestException(
+                'تا زمان ثبت کد رهگیری مرجوعی کالای شما، امکان تایید دریافت وجود ندارد.',
+              );
+            }
+            if (order.sellerConfirmedDelivery) {
+              throw new BadRequestException('شما قبلاً دریافت کالای مرجوعی خود را تایید کرده‌اید');
+            }
+          }
+
+          const updateData: Prisma.OrderUpdateInput = {};
+          if (isBuyer && !order.buyerConfirmedDelivery) {
+            updateData.buyerConfirmedDelivery = true;
+          }
+          if (isSeller && !order.sellerConfirmedDelivery) {
+            updateData.sellerConfirmedDelivery = true;
+          }
+          const afterAck = await tx.order.update({
+            where: { id: orderId },
+            data: updateData,
+          });
+
+          const bothConfirmed =
+            (afterAck.buyerConfirmedDelivery || isBuyer) &&
+            (afterAck.sellerConfirmedDelivery || isSeller);
+          if (!bothConfirmed) {
+            const mergedInspection = {
+              ...inspection,
+              buyerReturnReceived: Boolean(afterAck.buyerConfirmedDelivery || isBuyer),
+              sellerReturnReceived: Boolean(afterAck.sellerConfirmedDelivery || isSeller),
+              awaitingReturnConfirmations: true,
+            };
+            return tx.order.update({
+              where: { id: orderId },
+              data: {
+                exchangeHubInspection: mergedInspection as Prisma.InputJsonValue,
+              },
+            });
+          }
+
+          const exchangeOffer =
+            order.exchangeOfferId
+              ? await tx.exchangeOffer.findUnique({
+                  where: { id: order.exchangeOfferId },
+                  select: { extraPayment: true, isPayerMe: true },
+                })
+              : null;
+          const verificationFee = Number(order.verificationFee || 0);
+          const extra = Number(exchangeOffer?.extraPayment || 0);
+          const buyerShare = verificationFee + (exchangeOffer?.isPayerMe ? extra : 0);
+          const sellerShare = verificationFee + (!exchangeOffer?.isPayerMe ? extra : 0);
+          const buyerRefundable = Math.max(0, buyerShare - verificationFee);
+          const sellerRefundable = Math.max(0, sellerShare - verificationFee);
+
+          if (buyerRefundable > 0) {
+            await this.walletService.releaseEscrow(
+              order.buyerId,
+              buyerRefundable,
+              order.listingId,
+              tx,
+              { orderId: order.id },
+            );
+          }
+          if (sellerRefundable > 0) {
+            await this.walletService.releaseEscrow(
+              order.sellerId,
+              sellerRefundable,
+              order.listingId,
+              tx,
+              { orderId: order.id },
+            );
+          }
+
+          const mergedInspection = {
+            ...inspection,
+            buyerReturnReceived: true,
+            sellerReturnReceived: true,
+            awaitingReturnConfirmations: false,
+            refundsReleasedAt: new Date().toISOString(),
+          };
+          return tx.order.update({
+            where: { id: orderId },
+            data: {
+              exchangeHubInspection: mergedInspection as Prisma.InputJsonValue,
+              returnConfirmedAt: new Date(),
+              returnConfirmedBy: 'BOTH_PARTIES',
+              cancelReason: [
+                order.cancelReason ?? 'مرجوعی دوطرفه معاوضه',
+                'دریافت مرجوعی توسط هر دو طرف تایید شد و سهم پرداختی (بدون هزینه کارشناسی) آزاد شد.',
+              ].filter(Boolean).join('\n'),
+            },
+          });
+        }
+
+        const hubShipped =
+          order.status === OrderStatus.SHIPPED_TO_BUYER ||
+          order.status === OrderStatus.SHIPPED ||
+          order.status === OrderStatus.DELIVERED;
+        if (!hubShipped) {
+          throw new BadRequestException(
+            'هنوز مرحله ارسال کالا از هاب به مقصد نهایی تکمیل نشده؛ امکان تایید دریافت نیست.',
+          );
+        }
+        if (isBuyer) {
+          if (!order.hubToBuyerTrackingCode?.trim()) {
+            throw new BadRequestException(
+              'تا زمان ثبت کد رهگیری ارسال کالای شما از هاب، امکان تایید دریافت وجود ندارد.',
+            );
+          }
+          if (order.buyerConfirmedDelivery) {
+            throw new BadRequestException('شما قبلاً دریافت کالای خود را تایید کرده‌اید');
+          }
+        }
+        if (isSeller) {
+          if (!order.hubToSellerTrackingCode?.trim()) {
+            throw new BadRequestException(
+              'تا زمان ثبت کد رهگیری ارسال کالای شما از هاب، امکان تایید دریافت وجود ندارد.',
+            );
+          }
+          if (order.sellerConfirmedDelivery) {
+            throw new BadRequestException('شما قبلاً دریافت کالای خود را تایید کرده‌اید');
+          }
+        }
 
         const updateData: Prisma.OrderUpdateInput = {};
         if (isBuyer && !order.buyerConfirmedDelivery) {
@@ -1043,11 +1256,40 @@ export class OrdersService {
           return afterAck;
         }
 
-        const amountToRelease = Number(order.sellerRevenue);
-        if (amountToRelease > 0) {
+        const exchangeOffer =
+          order.exchangeOfferId
+            ? await tx.exchangeOffer.findUnique({
+                where: { id: order.exchangeOfferId },
+                select: { extraPayment: true, isPayerMe: true },
+              })
+            : null;
+        const extraPayment = Number(exchangeOffer?.extraPayment || 0);
+        const inspection = (order.exchangeHubInspection as Record<string, unknown> | null) ?? null;
+        const fs = (inspection?.financialSettlementSummary as Record<string, unknown> | null) ?? null;
+        const sellerAdj = (fs?.sellerAdjustment as Record<string, unknown> | null) ?? null;
+        const sellerAfterFromSettlement = Number(sellerAdj?.after ?? NaN);
+        const sellerShare = Number.isFinite(sellerAfterFromSettlement)
+          ? Math.max(0, sellerAfterFromSettlement)
+          : exchangeOffer
+            ? exchangeOffer.isPayerMe
+              ? extraPayment
+              : 0
+            : Math.max(0, Number(order.sellerRevenue || 0));
+        const buyerShare = Math.max(0, extraPayment - Math.min(extraPayment, sellerShare));
+
+        if (sellerShare > 0) {
           await this.walletService.releaseEscrow(
             order.sellerId,
-            amountToRelease,
+            sellerShare,
+            order.listingId,
+            tx,
+            { orderId: order.id },
+          );
+        }
+        if (buyerShare > 0) {
+          await this.walletService.releaseEscrow(
+            order.buyerId,
+            buyerShare,
             order.listingId,
             tx,
             { orderId: order.id },
@@ -1170,6 +1412,55 @@ export class OrdersService {
           totalPaid: paidTotal,
         };
       }
+    }
+
+    let exchangePaymentSources:
+      | {
+          buyer: 'GATEWAY' | 'WALLET' | 'UNKNOWN';
+          seller: 'GATEWAY' | 'WALLET' | 'UNKNOWN';
+        }
+      | null = null;
+    if (order.type === OrderType.EXCHANGE) {
+      const inferred: {
+        buyer: 'GATEWAY' | 'WALLET' | 'UNKNOWN';
+        seller: 'GATEWAY' | 'WALLET' | 'UNKNOWN';
+      } = {
+        buyer: 'WALLET',
+        seller: 'WALLET',
+      };
+      const settlements = await this.prisma.walletTransaction.findMany({
+        where: {
+          wallet: {
+            userId: { in: [order.buyerId, order.sellerId] },
+          },
+          AND: [
+            { type: WalletTransactionType.SETTLEMENT },
+            { status: WalletTransactionStatus.SUCCESS },
+            { meta: { path: ['kind'], equals: 'order-escrow' } },
+            {
+              OR: [
+                { meta: { path: ['orderId'], equals: order.id } },
+                { meta: { path: ['listingId'], equals: order.listingId } },
+              ],
+            },
+          ],
+        },
+        select: {
+          wallet: { select: { userId: true } },
+          meta: true,
+        },
+      });
+      for (const tx of settlements) {
+        const meta = (tx.meta as Record<string, unknown> | null) ?? {};
+        const src = String(meta['paymentSource'] ?? '').toUpperCase();
+        const mapped: 'GATEWAY' | 'WALLET' | null =
+          src === 'GATEWAY' ? 'GATEWAY' : src === 'WALLET' ? 'WALLET' : null;
+        if (!mapped) continue;
+        if (tx.wallet.userId === order.buyerId) inferred.buyer = mapped;
+        if (tx.wallet.userId === order.sellerId) inferred.seller = mapped;
+      }
+      exchangePaymentSources = inferred;
+      (order as any).exchangePaymentSources = exchangePaymentSources;
     }
 
     if (order.status === OrderStatus.REJECTED_AT_HUB) {
@@ -1670,7 +1961,11 @@ export class OrdersService {
             if (!locked) return;
             if (locked.status === OrderStatus.COMPLETED || locked.status === OrderStatus.CANCELLED) return;
 
-            const amountToRelease = Number(locked.sellerRevenue);
+            // معاوضه کارمزد ندارد؛ سفارش‌های قدیمی با platformFee غیرصفر را اینجا نرمال می‌کنیم.
+            const amountToRelease = Math.max(
+              0,
+              Number(locked.sellerRevenue || 0) + Number(locked.platformFee || 0),
+            );
             if (amountToRelease > 0) {
               await this.walletService.releaseEscrow(
                 locked.sellerId,
@@ -1695,6 +1990,169 @@ export class OrdersService {
         console.log(`Auto-confirmed order ${order.id}`);
       } catch (error) {
         console.error(`Error auto-confirming order ${order.id}:`, error);
+      }
+    }
+  }
+
+  @Cron(CronExpression.EVERY_HOUR)
+  async autoReleaseExchangeReturnEscrow() {
+    const now = new Date();
+    const deadlineMinutes = await this.getExchangeReturnConfirmDeadlineMinutes();
+    const orders = await this.prisma.order.findMany({
+      where: {
+        type: OrderType.EXCHANGE,
+        status: OrderStatus.CANCELLED,
+        hubToBuyerTrackingCode: { not: null },
+        hubToSellerTrackingCode: { not: null },
+        AND: [
+          { exchangeHubInspection: { path: ['resolution'], equals: 'RETURN_BOTH_TO_SENDERS' } },
+          { exchangeHubInspection: { path: ['awaitingReturnConfirmations'], equals: true } },
+          { exchangeHubInspection: { path: ['refundsReleasedAt'], equals: null } },
+        ],
+      },
+      select: {
+        id: true,
+        buyerId: true,
+        sellerId: true,
+        listingId: true,
+        exchangeOfferId: true,
+        verificationFee: true,
+        buyerConfirmedDelivery: true,
+        sellerConfirmedDelivery: true,
+        exchangeHubInspection: true,
+      },
+    });
+
+    for (const order of orders) {
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          const locked = await tx.order.findUnique({
+            where: { id: order.id },
+            select: {
+              id: true,
+              status: true,
+              type: true,
+              buyerId: true,
+              sellerId: true,
+              listingId: true,
+              exchangeOfferId: true,
+              verificationFee: true,
+              buyerConfirmedDelivery: true,
+              sellerConfirmedDelivery: true,
+              exchangeHubInspection: true,
+            },
+          });
+          if (!locked) return;
+
+          const inspection = (locked.exchangeHubInspection as Record<string, unknown> | null) ?? {};
+          if (
+            locked.type !== OrderType.EXCHANGE ||
+            locked.status !== OrderStatus.CANCELLED ||
+            inspection['resolution'] !== 'RETURN_BOTH_TO_SENDERS' ||
+            inspection['awaitingReturnConfirmations'] !== true ||
+            inspection['refundsReleasedAt']
+          ) {
+            return;
+          }
+
+          const returnShipmentCompletedAtRaw = inspection['returnShipmentCompletedAt'];
+          const returnShipmentCompletedAt =
+            typeof returnShipmentCompletedAtRaw === 'string'
+              ? new Date(returnShipmentCompletedAtRaw)
+              : null;
+          if (!returnShipmentCompletedAt || Number.isNaN(returnShipmentCompletedAt.getTime())) {
+            return;
+          }
+          const autoReleaseAt = new Date(
+            returnShipmentCompletedAt.getTime() + deadlineMinutes * 60 * 1000,
+          );
+          if (autoReleaseAt > now) return;
+
+          const openTickets = await tx.ticket.count({
+            where: {
+              userId: { in: [locked.buyerId, locked.sellerId] },
+              status: 'OPEN',
+              subject: { contains: `[ORDER:${locked.id}]`, mode: 'insensitive' },
+            },
+          });
+          if (openTickets > 0) return;
+
+          const exchangeOffer = locked.exchangeOfferId
+            ? await tx.exchangeOffer.findUnique({
+                where: { id: locked.exchangeOfferId },
+                select: { extraPayment: true, isPayerMe: true },
+              })
+            : null;
+
+          const verificationFee = Number(locked.verificationFee || 0);
+          const extra = Number(exchangeOffer?.extraPayment || 0);
+          const buyerShare = verificationFee + (exchangeOffer?.isPayerMe ? extra : 0);
+          const sellerShare = verificationFee + (!exchangeOffer?.isPayerMe ? extra : 0);
+          const buyerRefundable = Math.max(0, buyerShare - verificationFee);
+          const sellerRefundable = Math.max(0, sellerShare - verificationFee);
+
+          if (buyerRefundable > 0) {
+            await this.walletService.releaseEscrow(
+              locked.buyerId,
+              buyerRefundable,
+              locked.listingId,
+              tx,
+              { orderId: locked.id },
+            );
+          }
+          if (sellerRefundable > 0) {
+            await this.walletService.releaseEscrow(
+              locked.sellerId,
+              sellerRefundable,
+              locked.listingId,
+              tx,
+              { orderId: locked.id },
+            );
+          }
+
+          const mergedInspection = {
+            ...inspection,
+            buyerReturnReceived: true,
+            sellerReturnReceived: true,
+            awaitingReturnConfirmations: false,
+            refundsReleasedAt: new Date().toISOString(),
+            autoReleasedByTimeout: true,
+          };
+
+          await tx.order.update({
+            where: { id: locked.id },
+            data: {
+              buyerConfirmedDelivery: true,
+              sellerConfirmedDelivery: true,
+              returnConfirmedAt: new Date(),
+              returnConfirmedBy: 'AUTO_TIMEOUT',
+              exchangeHubInspection: mergedInspection as Prisma.InputJsonValue,
+            },
+          });
+
+          await tx.notification.createMany({
+            data: [
+              {
+                userId: locked.buyerId,
+                type: NotificationType.ORDER_STATUS_CHANGED,
+                title: 'آزادسازی خودکار وجه مرجوعی',
+                message:
+                  'با پایان مهلت تایید دریافت و نبود اختلاف فعال، سهم پرداختی شما (بدون هزینه کارشناسی) آزاد شد.',
+                meta: { orderId: locked.id, autoRelease: true } as Prisma.InputJsonValue,
+              },
+              {
+                userId: locked.sellerId,
+                type: NotificationType.ORDER_STATUS_CHANGED,
+                title: 'آزادسازی خودکار وجه مرجوعی',
+                message:
+                  'با پایان مهلت تایید دریافت و نبود اختلاف فعال، سهم پرداختی شما (بدون هزینه کارشناسی) آزاد شد.',
+                meta: { orderId: locked.id, autoRelease: true } as Prisma.InputJsonValue,
+              },
+            ],
+          });
+        });
+      } catch (error) {
+        console.error(`Error auto-releasing exchange return escrow for order ${order.id}:`, error);
       }
     }
   }
@@ -1729,6 +2187,26 @@ export class OrdersService {
       OrdersService.DEFAULT_EXCHANGE_NO_SHIPMENT_COMPENSATION,
     );
     return Math.max(0, parsed);
+  }
+
+  private async getExchangeReturnConfirmDeadlineMinutes(): Promise<number> {
+    const setting = await this.prisma.systemSetting.findFirst({
+      where: {
+        key: {
+          in: [
+            'EXCHANGE_RETURN_CONFIRM_DEADLINE_MINUTES',
+            'EXCHANGE_RETURN_CONFIRM_DEADLINE_HOURS',
+          ],
+        },
+      },
+      orderBy: { key: 'asc' },
+    });
+    const fallback = OrdersService.DEFAULT_EXCHANGE_RETURN_CONFIRM_DEADLINE_MINUTES;
+    const parsed = this.parsePositiveIntSetting(setting?.value, fallback);
+    if (setting?.key === 'EXCHANGE_RETURN_CONFIRM_DEADLINE_HOURS') {
+      return parsed * 60;
+    }
+    return parsed;
   }
 
   private async creditExchangeCompensation(

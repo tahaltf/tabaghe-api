@@ -10,12 +10,20 @@ import {
   WalletTransactionType,
 } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
-import { AdminEscrowAction, ResolveOrderEscrowDto, SetHubShippingCodesDto, SetParticipantShippingDto } from '../dto/admin-order.dto';
+import {
+  AdminEscrowAction,
+  FinalizeExchangeHubInspectionDto,
+  ResolveOrderEscrowDto,
+  SetExchangeHubReceiptDto,
+  SetHubShippingCodesDto,
+  SetParticipantShippingDto,
+} from '../dto/admin-order.dto';
 import { AppSettingsService } from '../../../shared/settings/app-settings.service';
 import { FeeCalculatorService } from '../../fees/fee-calculator.service';
 
 @Injectable()
 export class AdminOrdersCommandService {
+  private static readonly EXCHANGE_FAIL_PENALTY_POINTS = 1;
   constructor(
     private readonly prisma: PrismaService,
     private readonly appSettings: AppSettingsService,
@@ -54,6 +62,16 @@ export class AdminOrdersCommandService {
       },
     });
     if (!existing) throw new NotFoundException('سفارش یافت نشد');
+
+    if (
+      existing.type === 'EXCHANGE' &&
+      existing.status === OrderStatus.CHECKING_AT_HUB &&
+      (status === OrderStatus.VERIFIED_AT_HUB || status === OrderStatus.REJECTED_AT_HUB)
+    ) {
+      throw new BadRequestException(
+        'برای سفارش معاوضه، نتیجه کارشناسی هر دو کالا را از بخش «ثبت نتیجه کارشناسی معاوضه» در پنل ثبت کنید.',
+      );
+    }
 
     if (status === OrderStatus.REJECTED_AT_HUB) {
       const normalizedNote = note?.trim();
@@ -274,15 +292,46 @@ export class AdminOrdersCommandService {
   async setHubShippingCodes(id: string, dto: SetHubShippingCodesDto) {
     const existing = await this.prisma.order.findUnique({
       where: { id },
-      select: { id: true, type: true, buyerId: true, sellerId: true, status: true },
+      select: {
+        id: true,
+        type: true,
+        buyerId: true,
+        sellerId: true,
+        status: true,
+        hubToBuyerTrackingCode: true,
+        hubToSellerTrackingCode: true,
+        exchangeHubInspection: true,
+      },
     });
     if (!existing) throw new NotFoundException('سفارش یافت نشد');
-    if (
-      existing.status !== OrderStatus.VERIFIED_AT_HUB &&
-      existing.status !== OrderStatus.SHIPPED_TO_BUYER
-    ) {
+    const inspection = (existing.exchangeHubInspection as Record<string, unknown> | null) ?? null;
+    const isExchangeReturnFlow =
+      existing.type === 'EXCHANGE' &&
+      (existing.status === OrderStatus.REJECTED_AT_HUB || existing.status === OrderStatus.CANCELLED) &&
+      inspection?.['resolution'] === 'RETURN_BOTH_TO_SENDERS';
+    const canShipNormalFlow =
+      existing.status === OrderStatus.VERIFIED_AT_HUB ||
+      existing.status === OrderStatus.SHIPPED_TO_BUYER;
+    if (!canShipNormalFlow && !isExchangeReturnFlow) {
       throw new BadRequestException('این سفارش در وضعیت مناسب برای ارسال از هاب نیست');
     }
+
+    const nextBuyerTracking = dto.hubToBuyerTrackingCode ?? existing.hubToBuyerTrackingCode;
+    const nextSellerTracking =
+      existing.type === 'EXCHANGE'
+        ? (dto.hubToSellerTrackingCode ?? existing.hubToSellerTrackingCode)
+        : existing.hubToSellerTrackingCode;
+    const mergedInspection = isExchangeReturnFlow
+      ? {
+          ...inspection,
+          returnBuyerShipped: Boolean(nextBuyerTracking),
+          returnSellerShipped: Boolean(nextSellerTracking),
+          returnShipmentCompletedAt:
+            nextBuyerTracking && nextSellerTracking
+              ? (inspection?.['returnShipmentCompletedAt'] ?? new Date().toISOString())
+              : (inspection?.['returnShipmentCompletedAt'] ?? null),
+        }
+      : null;
 
     const updated = await this.prisma.order.update({
       where: { id },
@@ -290,23 +339,71 @@ export class AdminOrdersCommandService {
         hubToBuyerTrackingCode: dto.hubToBuyerTrackingCode,
         hubToSellerTrackingCode:
           existing.type === 'EXCHANGE' ? dto.hubToSellerTrackingCode : undefined,
-        status: OrderStatus.SHIPPED_TO_BUYER,
+        status: isExchangeReturnFlow ? OrderStatus.CANCELLED : OrderStatus.SHIPPED_TO_BUYER,
+        ...(mergedInspection
+          ? { exchangeHubInspection: mergedInspection as Prisma.InputJsonValue }
+          : {}),
       },
     });
 
     const buyerNote =
       dto.note ??
       (existing.type === 'EXCHANGE'
-        ? 'مرسوله‌های خروجی از هاب ارسال شد و کد رهگیری شما ثبت گردید.'
+        ? 'مرسوله خروجی مربوط به شما از هاب ارسال شد و کد رهگیری ثبت گردید.'
         : 'مرسوله از هاب به مقصد شما ارسال شد و کد رهگیری ثبت گردید.');
     const sellerNote =
       dto.note ??
       (existing.type === 'EXCHANGE'
-        ? 'مرسوله‌های خروجی از هاب ارسال شد و کد رهگیری‌ها ثبت گردید.'
+        ? 'مرسوله خروجی مربوط به شما از هاب ارسال شد و کد رهگیری ثبت گردید.'
         : 'مرسوله از هاب برای خریدار ارسال شد و کد رهگیری ثبت گردید.');
 
-    await this.prisma.notification.createMany({
-      data: [
+    const notifications: Prisma.NotificationCreateManyInput[] = [];
+    if (existing.type === 'EXCHANGE') {
+      const hasBuyerLegUpdate = Boolean(dto.hubToBuyerTrackingCode);
+      const hasSellerLegUpdate = Boolean(dto.hubToSellerTrackingCode);
+      const statusForNotification = isExchangeReturnFlow
+        ? OrderStatus.CANCELLED
+        : OrderStatus.SHIPPED_TO_BUYER;
+      const titleForNotification = isExchangeReturnFlow
+        ? 'مرجوعی از هاب ثبت شد'
+        : 'وضعیت سفارش تغییر کرد';
+      const messageForBuyer = isExchangeReturnFlow
+        ? `مرسوله مرجوعی مربوط به شما از هاب ارسال شد. ${buyerNote}`
+        : `وضعیت سفارش به «ارسال به خریدار» تغییر یافت. توضیح: ${buyerNote}`;
+      const messageForSeller = isExchangeReturnFlow
+        ? `مرسوله مرجوعی مربوط به شما از هاب ارسال شد. ${sellerNote}`
+        : `وضعیت سفارش به «ارسال به خریدار» تغییر یافت. توضیح: ${sellerNote}`;
+      if (hasBuyerLegUpdate) {
+        notifications.push({
+          userId: existing.buyerId,
+          type: NotificationType.ORDER_STATUS_CHANGED,
+          title: titleForNotification,
+          message: messageForBuyer,
+          meta: {
+            orderId: id,
+            status: statusForNotification,
+            note: buyerNote,
+            audience: 'BUYER',
+          } as Prisma.InputJsonValue,
+        });
+      }
+      if (hasSellerLegUpdate) {
+        notifications.push({
+          userId: existing.sellerId,
+          type: NotificationType.ORDER_STATUS_CHANGED,
+          title: titleForNotification,
+          message: messageForSeller,
+          meta: {
+            orderId: id,
+            status: statusForNotification,
+            note: sellerNote,
+            audience: 'SELLER',
+          } as Prisma.InputJsonValue,
+        });
+      }
+      // اگر هر دو رهگیری با هم ثبت شدند، هر دو نوتیفیکیشن ساخته می‌شود.
+    } else {
+      notifications.push(
         {
           userId: existing.buyerId,
           type: NotificationType.ORDER_STATUS_CHANGED,
@@ -331,8 +428,12 @@ export class AdminOrdersCommandService {
             audience: 'SELLER',
           } as Prisma.InputJsonValue,
         },
-      ],
-    });
+      );
+    }
+
+    if (notifications.length > 0) {
+      await this.prisma.notification.createMany({ data: notifications });
+    }
     return updated;
   }
 
@@ -437,6 +538,667 @@ export class AdminOrdersCommandService {
     return updated;
   }
 
+  async setExchangeHubReceipt(id: string, dto: SetExchangeHubReceiptDto) {
+    const existing = await this.prisma.order.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        type: true,
+        status: true,
+        exchangeHubInspection: true,
+      },
+    });
+    if (!existing) throw new NotFoundException('سفارش یافت نشد');
+    if (existing.type !== 'EXCHANGE') {
+      throw new BadRequestException('این عملیات فقط برای سفارش معاوضه مجاز است');
+    }
+    if (
+      existing.status !== OrderStatus.SHIPPED_TO_HUB &&
+      existing.status !== OrderStatus.RECEIVED_AT_HUB &&
+      existing.status !== OrderStatus.CHECKING_AT_HUB
+    ) {
+      throw new BadRequestException('سفارش در وضعیت مناسب برای ثبت دریافت مرسوله در هاب نیست');
+    }
+
+    const prev = (existing.exchangeHubInspection as Record<string, unknown> | null) ?? {};
+    const next = {
+      ...prev,
+      sellerReceivedAtHub: dto.side === 'LISTING' ? dto.received : Boolean(prev['sellerReceivedAtHub']),
+      buyerReceivedAtHub: dto.side === 'OFFER' ? dto.received : Boolean(prev['buyerReceivedAtHub']),
+    };
+    const bothReceived = Boolean(next.sellerReceivedAtHub) && Boolean(next.buyerReceivedAtHub);
+    const targetStatus =
+      existing.status === OrderStatus.CHECKING_AT_HUB
+        ? OrderStatus.CHECKING_AT_HUB
+        : bothReceived
+          ? OrderStatus.RECEIVED_AT_HUB
+          : OrderStatus.SHIPPED_TO_HUB;
+
+    return this.prisma.order.update({
+      where: { id },
+      data: {
+        status: targetStatus,
+        exchangeHubInspection: next as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  /**
+   * معاوضه: ثبت نتیجه کارشناسی جداگانه برای هر کالا + انتخاب یکی از سه مسیر نهایی:
+   * ارسال به مقصد | مرجوع هر دو | ادامه با توافق مالی (مصالحه در همان صفحه ادمین).
+   */
+  async finalizeExchangeHubInspection(id: string, dto: FinalizeExchangeHubInspectionDto) {
+    const existing = await this.prisma.order.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        type: true,
+        status: true,
+        exchangeHubInspection: true,
+        verificationFee: true,
+        totalAmount: true,
+        sellerRevenue: true,
+        exchangeOfferId: true,
+        buyerId: true,
+        sellerId: true,
+        trackingCode: true,
+        sellerTrackingCode: true,
+        packagingVideo: true,
+        buyerPackagingVideo: true,
+        listing: { select: { id: true, title: true } },
+      },
+    });
+    if (!existing) throw new NotFoundException('سفارش یافت نشد');
+    if (existing.type !== 'EXCHANGE') {
+      throw new BadRequestException('این عملیات فقط برای سفارش معاوضه مجاز است');
+    }
+    if (existing.status !== OrderStatus.CHECKING_AT_HUB) {
+      throw new BadRequestException('سفارش باید در وضعیت «در حال بررسی در هاب» باشد');
+    }
+
+    const itemNeedsNote = (v: string) => v === 'FAIL' || v === 'PASS_WITH_SETTLEMENT';
+    if (itemNeedsNote(dto.listingItem) && !dto.listingNote?.trim()) {
+      throw new BadRequestException('برای کالای آگهی، با این نتیجه ثبت توضیح الزامی است');
+    }
+    if (itemNeedsNote(dto.offerItem) && !dto.offerNote?.trim()) {
+      throw new BadRequestException('برای کالای پیشنهاد، با این نتیجه ثبت توضیح الزامی است');
+    }
+
+    const resolution = dto.resolution;
+    const listingFailed = dto.listingItem === 'FAIL';
+    const offerFailed = dto.offerItem === 'FAIL';
+    const hasAnyFail = listingFailed || offerFailed;
+
+    if (resolution === 'SHIP_TO_DESTINATIONS') {
+      if (dto.listingItem !== 'PASS' || dto.offerItem !== 'PASS') {
+        throw new BadRequestException('برای «ارسال به مقصد»، هر دو کالا باید «تایید سلامت / بدون ایراد» باشند');
+      }
+    } else if (resolution === 'RETURN_BOTH_TO_SENDERS') {
+      if (!hasAnyFail) {
+        throw new BadRequestException(
+          'برای «مرجوع هر دو کالا»، حداقل یکی از کالاها باید «رد کارشناسی» باشد',
+        );
+      }
+    } else if (resolution === 'FINANCIAL_SETTLEMENT_THEN_SHIP') {
+      if (dto.listingItem === 'FAIL' || dto.offerItem === 'FAIL') {
+        throw new BadRequestException('در مسیر «توافق مالی و ادامه»، نباید کالایی در وضعیت «رد کامل» باشد');
+      }
+      if (
+        dto.listingItem !== 'PASS_WITH_SETTLEMENT' &&
+        dto.offerItem !== 'PASS_WITH_SETTLEMENT'
+      ) {
+        throw new BadRequestException(
+          'برای «توافق مالی و ادامه»، حداقل یکی از کالاها باید «تایید مشروط / نیاز به اصلاح مالی» باشد؛ اگر هر دو بدون ایرادند از «ارسال به مقصد» استفاده کنید',
+        );
+      }
+    }
+    if (hasAnyFail && resolution !== 'RETURN_BOTH_TO_SENDERS') {
+      throw new BadRequestException(
+        'با رد شدن حتی یکی از کالاها، معامله باید کنسل شود و مسیر «مرجوع هر دو کالا» انتخاب شود',
+      );
+    }
+
+    // در سیاست جدید، هر کالایی که رد شود، جریمه همان طرف به‌صورت خودکار اعمال می‌شود.
+    const listingApplyPenalty = listingFailed;
+    const offerApplyPenalty = offerFailed;
+
+    const inspectionBase = {
+      listingItem: dto.listingItem,
+      offerItem: dto.offerItem,
+      listingNote: dto.listingNote?.trim() || null,
+      offerNote: dto.offerNote?.trim() || null,
+      listingApplyPenalty,
+      offerApplyPenalty,
+      resolution,
+      finalizedAt: new Date().toISOString(),
+    };
+    const prevInspection =
+      (existing.exchangeHubInspection as Record<string, unknown> | null) ?? {};
+    const mergeInspectionPayload = (extra: Record<string, unknown>) => ({
+      ...prevInspection,
+      ...inspectionBase,
+      ...extra,
+    });
+
+    const itemLabel = (v: string) =>
+      v === 'PASS'
+        ? 'تایید سلامت (بدون ایراد)'
+        : v === 'FAIL'
+          ? 'رد کارشناسی'
+          : 'تایید مشروط / نیاز به اصلاح مالی';
+
+    const apiUrl = this.appSettings.getApiUrl().replace(/\/$/, '');
+    const listingUrl = `${apiUrl}/listing/${existing.listing.id}`;
+    const packagingVideoUrl = existing.packagingVideo
+      ? `${apiUrl}/uploads/orders/videos/${existing.packagingVideo}`
+      : null;
+    const buyerPackagingVideoUrl = existing.buyerPackagingVideo
+      ? `${apiUrl}/uploads/orders/videos/${existing.buyerPackagingVideo}`
+      : null;
+
+    if (resolution === 'SHIP_TO_DESTINATIONS') {
+      const inspectionPayload = mergeInspectionPayload({
+        awaitingFinanceSettlement: false,
+      });
+      const updated = await this.prisma.order.update({
+        where: { id },
+        data: {
+          status: OrderStatus.VERIFIED_AT_HUB,
+          exchangeHubInspection: inspectionPayload as Prisma.InputJsonValue,
+        },
+      });
+      await this.notifyParties(
+        existing.buyerId,
+        existing.sellerId,
+        id,
+        OrderStatus.VERIFIED_AT_HUB,
+        'نتیجه کارشناسی: هر دو کالا تایید شد و برای ارسال به مقصد نهایی آماده می‌شود.',
+      );
+      return updated;
+    }
+
+    if (resolution === 'FINANCIAL_SETTLEMENT_THEN_SHIP') {
+      const listingSettlementAmount =
+        dto.listingItem === 'PASS_WITH_SETTLEMENT'
+          ? Number(dto.listingSettlementAmount || 0)
+          : 0;
+      const offerSettlementAmount =
+        dto.offerItem === 'PASS_WITH_SETTLEMENT'
+          ? Number(dto.offerSettlementAmount || 0)
+          : 0;
+      if (dto.listingItem === 'PASS_WITH_SETTLEMENT' && listingSettlementAmount <= 0) {
+        throw new BadRequestException('برای کالای آگهی با اصلاح مالی، مبلغ اصلاح الزامی است');
+      }
+      if (dto.offerItem === 'PASS_WITH_SETTLEMENT' && offerSettlementAmount <= 0) {
+        throw new BadRequestException('برای کالای پیشنهاد با اصلاح مالی، مبلغ اصلاح الزامی است');
+      }
+      const listingSettlementDirection =
+        dto.listingItem === 'PASS_WITH_SETTLEMENT'
+          ? (dto.listingSettlementDirection || 'DEBIT')
+          : null;
+      const offerSettlementDirection =
+        dto.offerItem === 'PASS_WITH_SETTLEMENT'
+          ? (dto.offerSettlementDirection || 'DEBIT')
+          : null;
+      if (
+        (dto.listingItem === 'PASS_WITH_SETTLEMENT' && listingSettlementDirection !== 'DEBIT') ||
+        (dto.offerItem === 'PASS_WITH_SETTLEMENT' && offerSettlementDirection !== 'DEBIT')
+      ) {
+        throw new BadRequestException(
+          'در معاوضه، اصلاح مالی فقط کاهشی است و جهت CREDIT مجاز نیست',
+        );
+      }
+      const sellerBefore = Number(existing.sellerRevenue || 0);
+      const buyerBefore = Math.max(0, Number(existing.totalAmount || 0) - sellerBefore);
+      // اصلاح مالی همیشه "کاهشی" است:
+      // listingSettlementAmount => کاهش از فروشنده و افزایش به خریدار
+      // offerSettlementAmount => کاهش از خریدار و افزایش به فروشنده
+      const sellerAfter = Math.max(0, sellerBefore - listingSettlementAmount + offerSettlementAmount);
+      const buyerAfter = Math.max(0, buyerBefore + listingSettlementAmount - offerSettlementAmount);
+      const settlementSummary = {
+        sellerAdjustment: {
+          before: sellerBefore,
+          after: sellerAfter,
+          delta: sellerAfter - sellerBefore,
+        },
+        buyerAdjustment: {
+          before: buyerBefore,
+          after: buyerAfter,
+          delta: buyerAfter - buyerBefore,
+        },
+        listingAdjustment: listingSettlementAmount
+          ? {
+              amount: listingSettlementAmount,
+              direction: listingSettlementDirection,
+              deltaToSeller: -listingSettlementAmount,
+            }
+          : null,
+        offerAdjustment: offerSettlementAmount
+          ? {
+              amount: offerSettlementAmount,
+              direction: offerSettlementDirection,
+              deltaToBuyer: -offerSettlementAmount,
+            }
+          : null,
+        reason:
+          [dto.listingNote?.trim(), dto.offerNote?.trim()].filter(Boolean).join(' | ') || null,
+        settledAt: new Date().toISOString(),
+      };
+      const inspectionPayload = mergeInspectionPayload({
+        awaitingFinanceSettlement: false,
+        financialSettlementSummary: settlementSummary,
+      });
+      const summaryText = [
+        'نتیجه کارشناسی هر کالا ثبت شد و توافق مالی در همان مرحله نهایی شد:',
+        `کالای آگهی: ${itemLabel(dto.listingItem)}`,
+        dto.listingNote?.trim() ? `  توضیح: ${dto.listingNote.trim()}` : null,
+        `کالای پیشنهاد: ${itemLabel(dto.offerItem)}`,
+        dto.offerNote?.trim() ? `  توضیح: ${dto.offerNote.trim()}` : null,
+        `سهم فروشنده: ${sellerBefore.toLocaleString('fa-IR')} ← ${sellerAfter.toLocaleString('fa-IR')} تومان`,
+        `سهم خریدار: ${buyerBefore.toLocaleString('fa-IR')} ← ${buyerAfter.toLocaleString('fa-IR')} تومان`,
+        'سفارش وارد مرحله ارسال از هاب شد.',
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const offer = existing.exchangeOfferId
+          ? await tx.exchangeOffer.findUnique({
+              where: { id: existing.exchangeOfferId },
+              select: { extraPayment: true, isPayerMe: true },
+            })
+          : null;
+        if (!offer) {
+          throw new BadRequestException('اطلاعات پیشنهاد معاوضه برای تسویه مالی یافت نشد');
+        }
+
+        const extra = Number(offer.extraPayment || 0);
+        const hasExtraPayment = extra > 0;
+        const extraReceiverUserId = hasExtraPayment
+          ? (offer.isPayerMe ? existing.sellerId : existing.buyerId)
+          : null;
+        const sellerIsExtraReceiver = extraReceiverUserId === existing.sellerId;
+        const buyerIsExtraReceiver = extraReceiverUserId === existing.buyerId;
+
+        const sellerWallet = await tx.wallet.upsert({
+          where: { userId: existing.sellerId },
+          create: { userId: existing.sellerId, balanceAvailable: 0, balanceBlocked: 0 },
+          update: {},
+          select: { id: true, balanceAvailable: true, balanceBlocked: true },
+        });
+        const buyerWallet = await tx.wallet.upsert({
+          where: { userId: existing.buyerId },
+          create: { userId: existing.buyerId, balanceAvailable: 0, balanceBlocked: 0 },
+          update: {},
+          select: { id: true, balanceAvailable: true, balanceBlocked: true },
+        });
+
+        // ۱) اصلاح مالی کالای فروشنده: کاهش از فروشنده -> افزایش به خریدار
+        if (listingSettlementAmount > 0) {
+          if (!sellerIsExtraReceiver) {
+            // حالت ۱: کسر از پرداخت‌کننده سرک -> از available و افزودن به blocked طرف مقابل
+            const sellerAvailableNow = Number(sellerWallet.balanceAvailable || 0);
+            if (listingSettlementAmount > sellerAvailableNow) {
+              throw new BadRequestException(
+                'برای اعمال اصلاح مالی کالای فروشنده، موجودی کیف پول فروشنده کافی نیست',
+              );
+            }
+            await tx.wallet.update({
+              where: { userId: existing.sellerId },
+              data: { balanceAvailable: { decrement: listingSettlementAmount } },
+            });
+            await tx.walletTransaction.create({
+              data: {
+                walletId: sellerWallet.id,
+                amount: listingSettlementAmount,
+                type: WalletTransactionType.PENALTY,
+                status: WalletTransactionStatus.SUCCESS,
+                referenceId: existing.id,
+                meta: {
+                  kind: 'order-escrow',
+                  phase: 'seller_settlement_debit_available',
+                  settlementKind: 'exchange-financial-settlement',
+                  description: `اصلاح مالی معاوضه: ${listingSettlementAmount.toLocaleString('fa-IR')} تومان از موجودی قابل برداشت فروشنده کسر شد.`,
+                },
+              },
+            });
+            await tx.wallet.update({
+              where: { userId: existing.buyerId },
+              data: { balanceBlocked: { increment: listingSettlementAmount } },
+            });
+            await tx.walletTransaction.create({
+              data: {
+                walletId: buyerWallet.id,
+                amount: listingSettlementAmount,
+                type: WalletTransactionType.DEPOSIT,
+                status: WalletTransactionStatus.PENDING,
+                referenceId: existing.id,
+                meta: {
+                  kind: 'order-escrow',
+                  phase: 'buyer_settlement_blocked',
+                  settlementKind: 'exchange-financial-settlement',
+                  description: `اصلاح مالی معاوضه: ${listingSettlementAmount.toLocaleString('fa-IR')} تومان به مبلغ بلوکه خریدار اضافه شد.`,
+                },
+              },
+            });
+          } else {
+            // حالت ۲: کسر از دریافت‌کننده سرک -> از blocked و واریز فوری به available طرف مقابل
+            const sellerBlockedNow = Number(sellerWallet.balanceBlocked || 0);
+            if (listingSettlementAmount > sellerBlockedNow) {
+              throw new BadRequestException(
+                'برای اعمال اصلاح مالی کالای فروشنده، مبلغ بلوکه‌شده فروشنده کافی نیست',
+              );
+            }
+            await tx.wallet.update({
+              where: { userId: existing.sellerId },
+              data: { balanceBlocked: { decrement: listingSettlementAmount } },
+            });
+            await tx.walletTransaction.create({
+              data: {
+                walletId: sellerWallet.id,
+                amount: listingSettlementAmount,
+                type: WalletTransactionType.PENALTY,
+                status: WalletTransactionStatus.SUCCESS,
+                referenceId: existing.id,
+                meta: {
+                  kind: 'order-escrow',
+                  phase: 'seller_settlement_debit_blocked',
+                  settlementKind: 'exchange-financial-settlement',
+                  description: `اصلاح مالی معاوضه: ${listingSettlementAmount.toLocaleString('fa-IR')} تومان از مبلغ بلوکه‌شده فروشنده کسر شد.`,
+                },
+              },
+            });
+            await tx.wallet.update({
+              where: { userId: existing.buyerId },
+              data: { balanceAvailable: { increment: listingSettlementAmount } },
+            });
+            await tx.walletTransaction.create({
+              data: {
+                walletId: buyerWallet.id,
+                amount: listingSettlementAmount,
+                type: WalletTransactionType.REFUND,
+                status: WalletTransactionStatus.SUCCESS,
+                referenceId: existing.id,
+                meta: {
+                  kind: 'order-escrow',
+                  phase: 'buyer_settlement_credit_available',
+                  settlementKind: 'exchange-financial-settlement',
+                  description: `اصلاح مالی معاوضه: ${listingSettlementAmount.toLocaleString('fa-IR')} تومان همان لحظه به موجودی قابل برداشت خریدار اضافه شد.`,
+                },
+              },
+            });
+          }
+        }
+
+        // ۲) اصلاح مالی کالای خریدار: کاهش از خریدار -> افزایش به فروشنده
+        if (offerSettlementAmount > 0) {
+          if (!buyerIsExtraReceiver) {
+            // حالت ۱: کسر از پرداخت‌کننده سرک -> از available و افزودن به blocked طرف مقابل
+            const buyerAvailableNow = Number(buyerWallet.balanceAvailable || 0);
+            if (offerSettlementAmount > buyerAvailableNow) {
+              throw new BadRequestException(
+                'برای اعمال اصلاح مالی کالای خریدار، موجودی کیف پول خریدار کافی نیست',
+              );
+            }
+            await tx.wallet.update({
+              where: { userId: existing.buyerId },
+              data: { balanceAvailable: { decrement: offerSettlementAmount } },
+            });
+            await tx.walletTransaction.create({
+              data: {
+                walletId: buyerWallet.id,
+                amount: offerSettlementAmount,
+                type: WalletTransactionType.PENALTY,
+                status: WalletTransactionStatus.SUCCESS,
+                referenceId: existing.id,
+                meta: {
+                  kind: 'order-escrow',
+                  phase: 'buyer_settlement_debit_available',
+                  settlementKind: 'exchange-financial-settlement',
+                  description: `اصلاح مالی معاوضه: ${offerSettlementAmount.toLocaleString('fa-IR')} تومان از موجودی قابل برداشت خریدار کسر شد.`,
+                },
+              },
+            });
+            await tx.wallet.update({
+              where: { userId: existing.sellerId },
+              data: { balanceBlocked: { increment: offerSettlementAmount } },
+            });
+            await tx.walletTransaction.create({
+              data: {
+                walletId: sellerWallet.id,
+                amount: offerSettlementAmount,
+                type: WalletTransactionType.DEPOSIT,
+                status: WalletTransactionStatus.PENDING,
+                referenceId: existing.id,
+                meta: {
+                  kind: 'order-escrow',
+                  phase: 'seller_settlement_blocked',
+                  settlementKind: 'exchange-financial-settlement',
+                  description: `اصلاح مالی معاوضه: ${offerSettlementAmount.toLocaleString('fa-IR')} تومان به مبلغ بلوکه فروشنده اضافه شد.`,
+                },
+              },
+            });
+          } else {
+            // حالت ۲: کسر از دریافت‌کننده سرک -> از blocked و واریز فوری به available طرف مقابل
+            const buyerBlockedNow = Number(buyerWallet.balanceBlocked || 0);
+            if (offerSettlementAmount > buyerBlockedNow) {
+              throw new BadRequestException(
+                'برای اعمال اصلاح مالی کالای خریدار، مبلغ بلوکه‌شده خریدار کافی نیست',
+              );
+            }
+            await tx.wallet.update({
+              where: { userId: existing.buyerId },
+              data: { balanceBlocked: { decrement: offerSettlementAmount } },
+            });
+            await tx.walletTransaction.create({
+              data: {
+                walletId: buyerWallet.id,
+                amount: offerSettlementAmount,
+                type: WalletTransactionType.PENALTY,
+                status: WalletTransactionStatus.SUCCESS,
+                referenceId: existing.id,
+                meta: {
+                  kind: 'order-escrow',
+                  phase: 'buyer_settlement_debit_blocked',
+                  settlementKind: 'exchange-financial-settlement',
+                  description: `اصلاح مالی معاوضه: ${offerSettlementAmount.toLocaleString('fa-IR')} تومان از مبلغ بلوکه‌شده خریدار کسر شد.`,
+                },
+              },
+            });
+            await tx.wallet.update({
+              where: { userId: existing.sellerId },
+              data: { balanceAvailable: { increment: offerSettlementAmount } },
+            });
+            await tx.walletTransaction.create({
+              data: {
+                walletId: sellerWallet.id,
+                amount: offerSettlementAmount,
+                type: WalletTransactionType.REFUND,
+                status: WalletTransactionStatus.SUCCESS,
+                referenceId: existing.id,
+                meta: {
+                  kind: 'order-escrow',
+                  phase: 'seller_settlement_credit_available',
+                  settlementKind: 'exchange-financial-settlement',
+                  description: `اصلاح مالی معاوضه: ${offerSettlementAmount.toLocaleString('fa-IR')} تومان همان لحظه به موجودی قابل برداشت فروشنده اضافه شد.`,
+                },
+              },
+            });
+          }
+        }
+
+        return tx.order.update({
+          where: { id },
+          data: {
+            status: OrderStatus.VERIFIED_AT_HUB,
+            cancelReason: summaryText,
+            sellerRevenue: sellerAfter,
+            exchangeHubInspection: inspectionPayload as Prisma.InputJsonValue,
+          },
+        });
+      });
+      await this.notifyParties(
+        existing.buyerId,
+        existing.sellerId,
+        id,
+        OrderStatus.VERIFIED_AT_HUB,
+        summaryText,
+      );
+      return updated;
+    }
+
+    // RETURN_BOTH_TO_SENDERS
+    const summaryLines = [
+      'نتیجه کارشناسی معاوضه — مرجوع هر دو کالا به فرستندگان:',
+      `۱) کالای آگهی: ${itemLabel(dto.listingItem)}`,
+      dto.listingNote?.trim() ? `   توضیح: ${dto.listingNote.trim()}` : null,
+      `۲) کالای پیشنهاد: ${itemLabel(dto.offerItem)}`,
+      dto.offerNote?.trim() ? `   توضیح: ${dto.offerNote.trim()}` : null,
+    ].filter(Boolean) as string[];
+
+    const summaryText = summaryLines.join('\n');
+    const inspectionPayload = mergeInspectionPayload({
+      awaitingFinanceSettlement: false,
+      awaitingReturnConfirmations: true,
+      buyerReturnReceived: false,
+      sellerReturnReceived: false,
+      refundsReleasedAt: null,
+    });
+
+    return this.prisma.$transaction(async (tx) => {
+      const updatedOrder = await tx.order.update({
+        where: { id },
+        data: {
+          status: OrderStatus.CANCELLED,
+          cancelReason: summaryText,
+          exchangeHubInspection: inspectionPayload as Prisma.InputJsonValue,
+        },
+      });
+
+      const sellerTicketMessage = [
+        listingFailed
+          ? 'نتیجه کارشناسی: کالای ارسالی شما (طبق آگهی) رد شد؛ معاوضه کنسل شد و مرجوع هر دو کالا در دست اقدام است.'
+          : 'نتیجه کارشناسی: به‌دلیل رد کالای طرف مقابل، معاوضه کنسل شد و کالای شما به شما مرجوع می‌شود.',
+        `سفارش: #${id.slice(-6)}`,
+        `کالا: ${existing.listing.title}`,
+        `لینک آگهی: ${listingUrl}`,
+        `کد رهگیری شما به هاب: ${existing.trackingCode ?? 'ثبت نشده'}`,
+        packagingVideoUrl ? `ویدیوی بسته‌بندی شما: ${packagingVideoUrl}` : null,
+        listingFailed
+          ? `توضیح کارشناسی: ${dto.listingNote?.trim() || 'بدون توضیح'}`
+          : `توضیح رد کالای طرف مقابل: ${dto.offerNote?.trim() || 'بدون توضیح'}`,
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      const sellerTicket = await tx.ticket.create({
+        data: {
+          userId: existing.sellerId,
+          subject: `نتیجه کارشناسی معاوضه (مرجوع دوطرفه) [ORDER:${id}]`,
+          status: 'OPEN',
+          messages: {
+            create: { senderRole: UserRole.ADMIN, message: sellerTicketMessage },
+          },
+        },
+        select: { id: true },
+      });
+
+      await tx.notification.create({
+        data: {
+          userId: existing.sellerId,
+          type: NotificationType.TICKET_REPLY,
+          title: 'تیکت نتیجه کارشناسی معاوضه',
+          message: `برای سفارش #${id.slice(-6)} تیکت پشتیبانی ایجاد شد.`,
+          meta: { orderId: id, ticketId: sellerTicket.id } as Prisma.InputJsonValue,
+        },
+      });
+
+      const buyerTicketMessage = [
+        offerFailed
+          ? 'نتیجه کارشناسی: کالای ارسالی شما (پیشنهاد معاوضه) رد شد؛ معاوضه کنسل شد و مرجوع هر دو کالا در دست اقدام است.'
+          : 'نتیجه کارشناسی: به‌دلیل رد کالای طرف مقابل، معاوضه کنسل شد و کالای شما به شما مرجوع می‌شود.',
+        `سفارش: #${id.slice(-6)}`,
+        `کالا: ${existing.listing.title}`,
+        `لینک آگهی: ${listingUrl}`,
+        `کد رهگیری شما به هاب: ${existing.sellerTrackingCode ?? 'ثبت نشده'}`,
+        buyerPackagingVideoUrl ? `ویدیوی بسته‌بندی شما: ${buyerPackagingVideoUrl}` : null,
+        offerFailed
+          ? `توضیح کارشناسی: ${dto.offerNote?.trim() || 'بدون توضیح'}`
+          : `توضیح رد کالای طرف مقابل: ${dto.listingNote?.trim() || 'بدون توضیح'}`,
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      const buyerTicket = await tx.ticket.create({
+        data: {
+          userId: existing.buyerId,
+          subject: `نتیجه کارشناسی معاوضه (مرجوع دوطرفه) [ORDER:${id}]`,
+          status: 'OPEN',
+          messages: {
+            create: { senderRole: UserRole.ADMIN, message: buyerTicketMessage },
+          },
+        },
+        select: { id: true },
+      });
+
+      await tx.notification.create({
+        data: {
+          userId: existing.buyerId,
+          type: NotificationType.TICKET_REPLY,
+          title: 'تیکت نتیجه کارشناسی معاوضه',
+          message: `برای سفارش #${id.slice(-6)} تیکت پشتیبانی ایجاد شد.`,
+          meta: { orderId: id, ticketId: buyerTicket.id } as Prisma.InputJsonValue,
+        },
+      });
+
+      if (listingApplyPenalty) {
+        const seller = await tx.user.findUnique({
+          where: { id: existing.sellerId },
+          select: { rating: true },
+        });
+        if (seller) {
+          await tx.user.update({
+            where: { id: existing.sellerId },
+            data: {
+              rating: Math.max(
+                0,
+                Number(seller.rating || 0) - AdminOrdersCommandService.EXCHANGE_FAIL_PENALTY_POINTS,
+              ),
+            },
+          });
+        }
+      }
+
+      if (offerApplyPenalty) {
+        const buyer = await tx.user.findUnique({
+          where: { id: existing.buyerId },
+          select: { rating: true },
+        });
+        if (buyer) {
+          await tx.user.update({
+            where: { id: existing.buyerId },
+            data: {
+              rating: Math.max(
+                0,
+                Number(buyer.rating || 0) - AdminOrdersCommandService.EXCHANGE_FAIL_PENALTY_POINTS,
+              ),
+            },
+          });
+        }
+      }
+
+      await this.notifyParties(
+        existing.buyerId,
+        existing.sellerId,
+        id,
+        OrderStatus.REJECTED_AT_HUB,
+        summaryText,
+      );
+
+      return updatedOrder;
+    });
+  }
+
   async resolveEscrow(id: string, dto: ResolveOrderEscrowDto) {
     return this.prisma.$transaction(async (tx) => {
       const action = dto.action;
@@ -464,7 +1226,9 @@ export class AdminOrdersCommandService {
           shippingCost: true,
           verificationFee: true,
           requiresVerification: true,
+          exchangeOfferId: true,
           returnTrackingCode: true,
+          exchangeHubInspection: true,
         },
       });
       if (!order) throw new NotFoundException('سفارش یافت نشد');
@@ -489,6 +1253,18 @@ export class AdminOrdersCommandService {
         order.requiresVerification && !order.listing?.sellerRequiresVerification
           ? verificationFee
           : 0;
+      const exchangeOffer =
+        order.type === 'EXCHANGE' && order.exchangeOfferId
+          ? await tx.exchangeOffer.findUnique({
+              where: { id: order.exchangeOfferId },
+              select: { extraPayment: true, isPayerMe: true },
+            })
+          : null;
+      const exchangeExtra = Number(exchangeOffer?.extraPayment || 0);
+      const exchangeBuyerShare = verificationFee + (exchangeOffer?.isPayerMe ? exchangeExtra : 0);
+      const exchangeSellerShare = verificationFee + (!exchangeOffer?.isPayerMe ? exchangeExtra : 0);
+      const exchangeBuyerRefundable = Math.max(0, exchangeBuyerShare - verificationFee);
+      const exchangeSellerRefundable = Math.max(0, exchangeSellerShare - verificationFee);
       const refundableToBuyerAfterReturn = Math.max(
         0,
         totalAmount - shippingCost - verificationChargedToBuyer,
@@ -515,7 +1291,50 @@ export class AdminOrdersCommandService {
           throw new BadRequestException('کد رهگیری بازگشت به هر دو طرف الزامی است');
         }
 
-        if (sellerRevenue > 0) {
+        if (order.type === 'EXCHANGE') {
+          if (exchangeOffer?.isPayerMe && exchangeBuyerRefundable > 0) {
+            await tx.wallet.upsert({
+              where: { userId: order.sellerId },
+              create: { userId: order.sellerId, balanceAvailable: 0, balanceBlocked: 0 },
+              update: { balanceBlocked: { decrement: exchangeBuyerRefundable } },
+            });
+            await tx.walletTransaction.create({
+              data: {
+                wallet: { connect: { userId: order.sellerId } },
+                amount: exchangeBuyerRefundable,
+                type: WalletTransactionType.PENALTY,
+                status: WalletTransactionStatus.SUCCESS,
+                referenceId: order.id,
+                meta: {
+                  kind: 'exchange-cancel-both-rejected',
+                  description: 'لغو معاوضه: برداشت از بلوکه طرف مقابل برای بازگشت مابه‌التفاوت',
+                  adminNote: note ?? null,
+                },
+              },
+            });
+          }
+          if (!exchangeOffer?.isPayerMe && exchangeSellerRefundable > 0) {
+            await tx.wallet.upsert({
+              where: { userId: order.buyerId },
+              create: { userId: order.buyerId, balanceAvailable: 0, balanceBlocked: 0 },
+              update: { balanceBlocked: { decrement: exchangeSellerRefundable } },
+            });
+            await tx.walletTransaction.create({
+              data: {
+                wallet: { connect: { userId: order.buyerId } },
+                amount: exchangeSellerRefundable,
+                type: WalletTransactionType.PENALTY,
+                status: WalletTransactionStatus.SUCCESS,
+                referenceId: order.id,
+                meta: {
+                  kind: 'exchange-cancel-both-rejected',
+                  description: 'لغو معاوضه: برداشت از بلوکه طرف مقابل برای بازگشت مابه‌التفاوت',
+                  adminNote: note ?? null,
+                },
+              },
+            });
+          }
+        } else if (sellerRevenue > 0) {
           await tx.wallet.upsert({
             where: { userId: order.sellerId },
             create: {
@@ -540,26 +1359,56 @@ export class AdminOrdersCommandService {
             },
           });
         }
-        if (totalAmount > 0) {
+        const buyerRefundOnCancel =
+          order.type === 'EXCHANGE' ? exchangeBuyerRefundable : totalAmount;
+        if (buyerRefundOnCancel > 0) {
           await tx.wallet.upsert({
             where: { userId: order.buyerId },
             create: {
               userId: order.buyerId,
-              balanceAvailable: totalAmount,
+              balanceAvailable: buyerRefundOnCancel,
               balanceBlocked: 0,
             },
-            update: { balanceAvailable: { increment: totalAmount } },
+            update: { balanceAvailable: { increment: buyerRefundOnCancel } },
           });
           await tx.walletTransaction.create({
             data: {
               wallet: { connect: { userId: order.buyerId } },
-              amount: totalAmount,
+              amount: buyerRefundOnCancel,
               type: WalletTransactionType.REFUND,
               status: WalletTransactionStatus.SUCCESS,
               referenceId: order.id,
               meta: {
                 kind: 'exchange-cancel-both-rejected',
-                description: 'لغو معاوضه پس از رد هر دو کالا؛ بازگشت وجه خریدار',
+                description:
+                  order.type === 'EXCHANGE'
+                    ? 'لغو معاوضه پس از رد هر دو کالا؛ بازگشت مابه‌التفاوت پرداختی خریدار (بدون کارشناسی)'
+                    : 'لغو معاوضه پس از رد هر دو کالا؛ بازگشت وجه خریدار',
+                adminNote: note ?? null,
+              },
+            },
+          });
+        }
+        if (order.type === 'EXCHANGE' && exchangeSellerRefundable > 0) {
+          await tx.wallet.upsert({
+            where: { userId: order.sellerId },
+            create: {
+              userId: order.sellerId,
+              balanceAvailable: exchangeSellerRefundable,
+              balanceBlocked: 0,
+            },
+            update: { balanceAvailable: { increment: exchangeSellerRefundable } },
+          });
+          await tx.walletTransaction.create({
+            data: {
+              wallet: { connect: { userId: order.sellerId } },
+              amount: exchangeSellerRefundable,
+              type: WalletTransactionType.REFUND,
+              status: WalletTransactionStatus.SUCCESS,
+              referenceId: order.id,
+              meta: {
+                kind: 'exchange-cancel-both-rejected',
+                description: 'لغو معاوضه پس از رد هر دو کالا؛ بازگشت مابه‌التفاوت پرداختی فروشنده (بدون کارشناسی)',
                 adminNote: note ?? null,
               },
             },
@@ -651,27 +1500,28 @@ export class AdminOrdersCommandService {
 
         const sellerWallet = await tx.wallet.findUnique({
           where: { userId: order.sellerId },
-          select: { balanceBlocked: true },
+          select: { balanceBlocked: true, balanceAvailable: true },
         });
         const sellerBlockedNow = Number(sellerWallet?.balanceBlocked ?? 0);
-        if (refundAmount > sellerBlockedNow) {
-          throw new BadRequestException('مبلغ بازپرداخت از موجودی بلوکه فعلی فروشنده بیشتر است');
+        const sellerAvailableNow = Number(sellerWallet?.balanceAvailable ?? 0);
+        const fromSellerBlocked = Math.min(refundAmount, sellerBlockedNow);
+        const fromSellerAvailable = refundAmount - fromSellerBlocked;
+        if (fromSellerAvailable > sellerAvailableNow) {
+          throw new BadRequestException(
+            'موجودی کیف پول کاربر (فروشنده) برای این تسویه کافی نیست؛ ابتدا از بلوکه همین معامله کسر می‌شود و اگر کافی نبود از موجودی آزاد؛ موجودی آزاد کافی نیست.',
+          );
         }
 
         const recalculatedFinalPrice = Math.max(0, finalPrice - refundAmount);
-        const listingTypeForFee =
-          order.type === 'AUCTION'
-            ? ListingType.AUCTION
-            : order.type === 'EXCHANGE'
-              ? ListingType.EXCHANGE
-              : ListingType.DIRECT;
-        const recalculatedPlatformFee = Number(
-          await this.feeCalculator.calculateFee(
-            listingTypeForFee,
-            order.listing.categoryId,
-            recalculatedFinalPrice,
-          ),
-        );
+        const recalculatedPlatformFee = order.type === 'EXCHANGE'
+          ? 0
+          : Number(
+              await this.feeCalculator.calculateFee(
+                order.type === 'AUCTION' ? ListingType.AUCTION : ListingType.DIRECT,
+                order.listing.categoryId,
+                recalculatedFinalPrice,
+              ),
+            );
         const recalculatedSellerRevenue = Math.max(
           0,
           recalculatedFinalPrice - recalculatedPlatformFee + shippingCost - sellerVerificationFee,
@@ -685,7 +1535,10 @@ export class AdminOrdersCommandService {
             balanceAvailable: 0,
             balanceBlocked: 0,
           },
-          update: { balanceBlocked: { decrement: refundAmount } },
+          update: {
+            ...(fromSellerBlocked > 0 ? { balanceBlocked: { decrement: fromSellerBlocked } } : {}),
+            ...(fromSellerAvailable > 0 ? { balanceAvailable: { decrement: fromSellerAvailable } } : {}),
+          },
         });
         await tx.walletTransaction.create({
           data: {
@@ -696,15 +1549,17 @@ export class AdminOrdersCommandService {
             referenceId: order.id,
             meta: {
               kind: 'order-escrow',
-              phase: 'seller_blocked_debit',
+              phase: 'seller_settlement_debit',
               debitReason: 'admin-partial-refund',
               orderId: order.id,
               listingId: order.listingId,
               listingTitle: order.listing?.title ?? null,
               settlementKind: 'partial_refund_agreement',
               agreementAmount: refundAmount,
+              fromSellerBlocked,
+              fromSellerAvailable,
               adminNote: note ?? null,
-              description: `کسر توافقی ${refundAmount.toLocaleString('fa-IR')} تومان از موجودی بلوکه فروشنده برای سفارش «${order.listing?.title ?? 'کالا'}»`,
+              description: `کسر توافقی ${refundAmount.toLocaleString('fa-IR')} تومان از فروشنده (${fromSellerBlocked.toLocaleString('fa-IR')} از بلوکه + ${fromSellerAvailable.toLocaleString('fa-IR')} از موجودی آزاد) برای سفارش «${order.listing?.title ?? 'کالا'}»`,
             },
           },
         });
@@ -740,17 +1595,24 @@ export class AdminOrdersCommandService {
           },
         });
 
+        const debitBreakdownFa = [
+          fromSellerBlocked > 0 ? `${fromSellerBlocked.toLocaleString('fa-IR')} تومان از بلوکه` : null,
+          fromSellerAvailable > 0 ? `${fromSellerAvailable.toLocaleString('fa-IR')} تومان از موجودی آزاد` : null,
+        ]
+          .filter(Boolean)
+          .join(' و ');
+
         const buyerAgreementTicketMessage = [
           `برای سفارش «${order.listing?.title ?? 'کالا'}» توافق مالی ثبت شد.`,
           `مبلغ ${refundAmount.toLocaleString('fa-IR')} تومان به کیف پول شما اضافه شد.`,
-          'این مبلغ از موجودی بلوکه فروشنده کسر و به‌صورت توافقی به شما بازگردانده شد.',
+          `این مبلغ از طرف فروشنده/صاحب آگهی کسر شد (${debitBreakdownFa || 'جزئیات کسر ثبت شد'}) و به‌صورت توافقی به شما بازگردانده شد.`,
           note ? `توضیح ادمین: ${note}` : null,
         ]
           .filter(Boolean)
           .join('\n');
         const sellerAgreementTicketMessage = [
           `برای سفارش «${order.listing?.title ?? 'کالا'}» توافق مالی ثبت شد.`,
-          `مبلغ ${refundAmount.toLocaleString('fa-IR')} تومان از موجودی بلوکه شما کسر شد.`,
+          `جمع ${refundAmount.toLocaleString('fa-IR')} تومان از شما کسر شد: ${debitBreakdownFa || '—'}.`,
           'این مبلغ به‌صورت توافقی به کیف پول خریدار اضافه شد و سفارش ادامه پیدا می‌کند.',
           note ? `توضیح ادمین: ${note}` : null,
         ]
@@ -817,6 +1679,25 @@ export class AdminOrdersCommandService {
           ],
         });
 
+        const prevInspection =
+          (order.exchangeHubInspection as Record<string, unknown> | null) ?? {};
+        const mergedInspection =
+          order.type === 'EXCHANGE'
+            ? {
+                ...prevInspection,
+                financeSettledAt: new Date().toISOString(),
+                awaitingFinanceSettlement: false,
+                financeSettlementNote: note?.trim() || null,
+                lastFinancialSettlement: {
+                  creditedToBuyer: refundAmount,
+                  debitedFromSellerTotal: refundAmount,
+                  fromSellerBlocked,
+                  fromSellerAvailable,
+                  settledAt: new Date().toISOString(),
+                },
+              }
+            : undefined;
+
         const updated = await tx.order.update({
           where: { id: order.id },
           data: {
@@ -825,6 +1706,9 @@ export class AdminOrdersCommandService {
             platformFee: recalculatedPlatformFee,
             sellerRevenue: recalculatedSellerRevenue,
             totalAmount: recalculatedTotalAmount,
+            ...(mergedInspection
+              ? { exchangeHubInspection: mergedInspection as Prisma.InputJsonValue }
+              : {}),
             cancelReason: [
               `بازپرداخت جزئی: ${refundAmount} تومان`,
               `توافق: مبلغ ${refundAmount} تومان با رضایت طرفین به خریدار بازگشت داده شد`,
@@ -962,11 +1846,10 @@ export class AdminOrdersCommandService {
 
       if (action === AdminEscrowAction.RELEASE_TO_SELLER) {
         // در معاوضه، هنگام برگشت وجه به فروشنده در کنسلی/اختلاف،
-        // هزینه کارشناسی غیرقابل‌عودت است و کارمزد معامله نباید کسر شود.
+        // مبلغ قابل آزادسازی باید دقیقاً برابر سهم نهایی فروشنده باشد
+        // (پس از هر اصلاح مالی در کارشناسی)، نه totalAmount.
         const refundableToSeller =
-          order.type === 'EXCHANGE'
-            ? Math.max(0, totalAmount - Number(order.verificationFee || 0))
-            : sellerRevenue;
+          order.type === 'EXCHANGE' ? Math.max(0, sellerRevenue) : sellerRevenue;
         if (refundableToSeller > 0) {
           await tx.wallet.upsert({
             where: { userId: order.sellerId },

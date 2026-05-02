@@ -5,7 +5,14 @@ import {
     NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { ExchangeOfferStatus, ListingType, OrderStatus, ListingStatus } from '@prisma/client';
+import {
+    ExchangeOfferStatus,
+    ListingType,
+    OrderStatus,
+    ListingStatus,
+    WalletTransactionStatus,
+    WalletTransactionType,
+} from '@prisma/client';
 import { CreateExchangeOfferDto } from './create-exchange-offer.dto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ExchangeEvents } from './exchange.events';
@@ -152,8 +159,51 @@ export class ExchangeService {
             this.prisma.exchangeOffer.count({ where }),
         ]);
 
+        const offerIds = items.map((o) => o.id);
+        const linkedOrders = offerIds.length
+          ? await this.prisma.order.findMany({
+              where: { exchangeOfferId: { in: offerIds } },
+              select: {
+                id: true,
+                exchangeOfferId: true,
+                status: true,
+              },
+            })
+          : [];
+        const orderByOfferId = new Map(linkedOrders.map((o) => [o.exchangeOfferId, o]));
+        const linkedOrderIds = linkedOrders.map((o) => o.id);
+        const settlements = linkedOrderIds.length
+          ? await this.prisma.walletTransaction.findMany({
+              where: {
+                wallet: { userId },
+                type: WalletTransactionType.SETTLEMENT,
+                status: WalletTransactionStatus.SUCCESS,
+                AND: [
+                  { meta: { path: ['kind'], equals: 'order-escrow' } },
+                ],
+              },
+              select: { meta: true },
+            })
+          : [];
+        const paidOrderIds = new Set<string>();
+        for (const s of settlements) {
+          const meta = (s.meta as Record<string, unknown> | null) ?? {};
+          const oid = typeof meta['orderId'] === 'string' ? meta['orderId'] : null;
+          if (oid && linkedOrderIds.includes(oid)) paidOrderIds.add(oid);
+        }
+
+        const itemsWithPaymentState = items.map((offer) => {
+          const linked = orderByOfferId.get(offer.id);
+          return {
+            ...offer,
+            exchangeOrderId: linked?.id ?? null,
+            exchangeOrderStatus: linked?.status ?? null,
+            mySharePaid: linked?.id ? paidOrderIds.has(linked.id) : false,
+          };
+        });
+
         return {
-            items,
+            items: itemsWithPaymentState,
             pagination: {
                 page,
                 pageSize,
@@ -174,41 +224,35 @@ export class ExchangeService {
         if (offer.listing.authorId !== userId) throw new ForbiddenException('شما مالک نیستید');
         if (offer.status !== ExchangeOfferStatus.PENDING) throw new BadRequestException('پیشنهاد قبلا تعیین تکلیف شده');
 
-        const needsPayment = Number(offer.extraPayment) > 0;
+        // در همه‌ی معاوضه‌ها (حتی سر‌به‌سر)، هر دو طرف باید سهم خود از کارشناسی را پرداخت کنند.
+        // بنابراین پس از پذیرش، سفارش نباید مستقیم نهایی شود و فقط به وضعیت ACCEPTED می‌رود.
+        await this.prisma.exchangeOffer.update({
+            where: { id: offerId },
+            data: { status: ExchangeOfferStatus.ACCEPTED }
+        });
 
-        if (!needsPayment) {
-            // ✅ حالت ۱: سر به سر (بدون پول) -> مستقیم نهایی کن
-            return this.finalizeExchange(offerId);
-        } else {
-            // ⏳ حالت ۲: نیازمند پرداخت -> فقط وضعیت را ACCEPTED کن
-            await this.prisma.exchangeOffer.update({
-                where: { id: offerId },
-                data: { status: ExchangeOfferStatus.ACCEPTED }
-            });
-
-            // رد کردن سایر پیشنهادها
-            await this.prisma.exchangeOffer.updateMany({
-                where: {
-                    listingId: offer.listingId,
-                    id: { not: offerId },
-                    status: ExchangeOfferStatus.PENDING,
-                },
-                data: { status: ExchangeOfferStatus.REJECTED },
-            });
-
-            this.eventEmitter.emit(ExchangeEvents.OFFER_ACCEPTED, {
+        // رد کردن سایر پیشنهادها
+        await this.prisma.exchangeOffer.updateMany({
+            where: {
                 listingId: offer.listingId,
-                offererId: offer.offererId,
-                offerId: offer.id,
-            });
+                id: { not: offerId },
+                status: ExchangeOfferStatus.PENDING,
+            },
+            data: { status: ExchangeOfferStatus.REJECTED },
+        });
 
-            return {
-                ok: true,
-                message: 'پیشنهاد تایید شد. منتظر پرداخت وجه جهت تکمیل معامله باشید.',
-                status: 'ACCEPTED',
-                needsPayment: true
-            };
-        }
+        this.eventEmitter.emit(ExchangeEvents.OFFER_ACCEPTED, {
+            listingId: offer.listingId,
+            offererId: offer.offererId,
+            offerId: offer.id,
+        });
+
+        return {
+            ok: true,
+            message: 'پیشنهاد تایید شد. تکمیل معامله پس از پرداخت سهم هر دو طرف انجام می‌شود.',
+            status: 'ACCEPTED',
+            needsPayment: true
+        };
     }
 
     // -----------------------------------
@@ -318,7 +362,7 @@ export class ExchangeService {
         const offer = await this.prisma.exchangeOffer.findUnique({
             where: { id: offerId },
             include: {
-                listing: { include: { direct: true } },
+                listing: { include: { direct: true, exchange: true } },
                 offerer: {
                     select: { id: true, firstName: true, lastName: true, avatar: true }
                 }
@@ -332,5 +376,31 @@ export class ExchangeService {
             throw new ForbiddenException('شما اجازه مشاهده یا پرداخت این معامله را ندارید');
         }
 
-        return offer;
+        const linkedOrder = await this.prisma.order.findFirst({
+          where: { exchangeOfferId: offer.id },
+          select: { id: true, status: true },
+        });
+        let mySharePaid = false;
+        if (linkedOrder?.id) {
+          const mySettlement = await this.prisma.walletTransaction.findFirst({
+            where: {
+              wallet: { userId },
+              type: WalletTransactionType.SETTLEMENT,
+              status: WalletTransactionStatus.SUCCESS,
+              AND: [
+                { meta: { path: ['kind'], equals: 'order-escrow' } },
+                { meta: { path: ['orderId'], equals: linkedOrder.id } },
+              ],
+            },
+            select: { id: true },
+          });
+          mySharePaid = Boolean(mySettlement);
+        }
+
+        return {
+          ...offer,
+          exchangeOrderId: linkedOrder?.id ?? null,
+          exchangeOrderStatus: linkedOrder?.status ?? null,
+          mySharePaid,
+        };
     }}

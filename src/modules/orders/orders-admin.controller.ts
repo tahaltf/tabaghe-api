@@ -46,4 +46,22 @@ export class OrdersAdminController {
       body.hubToSellerTrackingCode,
     );
   }
+
+  @Patch(':id/exchange-hub-receipt')
+  setExchangeHubReceipt(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      side: 'LISTING' | 'OFFER';
+      received: boolean;
+    },
+  ) {
+    if (!body?.side || (body.side !== 'LISTING' && body.side !== 'OFFER')) {
+      throw new BadRequestException('فیلد side باید LISTING یا OFFER باشد');
+    }
+    if (typeof body.received !== 'boolean') {
+      throw new BadRequestException('فیلد received باید boolean باشد');
+    }
+    return this.ordersAdminService.setExchangeHubReceipt(id, body);
+  }
 }

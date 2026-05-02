@@ -778,6 +778,9 @@ paymentMethod    PaymentMethod @default(GATEWAY)
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
 
+  /** معاوضه: نتیجه کارشناسی جداگانه هر کالا در هاب (JSON) */
+  exchangeHubInspection Json?
+
   shippingDeadline  DateTime? // مهلت ارسال کالا
   cancelReason      String?   // دلیل لغو (اگر خودکار لغو شد)
 

@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsEnum, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { OrderStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { IsNumber, Min } from 'class-validator';
@@ -98,6 +98,72 @@ export class SetHubShippingCodesDto {
   note?: string;
 }
 
+/** نتیجه فنی هر کالا در هاب معاوضه */
+export type ExchangeHubItemResult = 'PASS' | 'FAIL' | 'PASS_WITH_SETTLEMENT';
+
+/** جمع‌بندی نهایی معاوضه پس از ثبت نتیجه هر دو کالا */
+export type ExchangeHubResolution =
+  | 'SHIP_TO_DESTINATIONS'
+  | 'RETURN_BOTH_TO_SENDERS'
+  | 'FINANCIAL_SETTLEMENT_THEN_SHIP';
+export type ExchangeSettlementDirection = 'DEBIT' | 'CREDIT';
+
+export class FinalizeExchangeHubInspectionDto {
+  @IsString()
+  @IsIn(['PASS', 'FAIL', 'PASS_WITH_SETTLEMENT'])
+  listingItem!: ExchangeHubItemResult;
+
+  @IsString()
+  @IsIn(['PASS', 'FAIL', 'PASS_WITH_SETTLEMENT'])
+  offerItem!: ExchangeHubItemResult;
+
+  @IsString()
+  @IsIn(['SHIP_TO_DESTINATIONS', 'RETURN_BOTH_TO_SENDERS', 'FINANCIAL_SETTLEMENT_THEN_SHIP'])
+  resolution!: ExchangeHubResolution;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(800)
+  listingNote?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(800)
+  offerNote?: string;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  listingApplyPenalty?: boolean;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  offerApplyPenalty?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  listingSettlementAmount?: number;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['DEBIT', 'CREDIT'])
+  listingSettlementDirection?: ExchangeSettlementDirection;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  offerSettlementAmount?: number;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['DEBIT', 'CREDIT'])
+  offerSettlementDirection?: ExchangeSettlementDirection;
+}
+
 export class SetParticipantShippingDto {
   @IsOptional()
   @IsString()
@@ -120,4 +186,14 @@ export class SetParticipantShippingDto {
   @IsString()
   @MaxLength(500)
   buyerNote?: string;
+}
+
+export class SetExchangeHubReceiptDto {
+  @IsString()
+  @IsIn(['LISTING', 'OFFER'])
+  side!: 'LISTING' | 'OFFER';
+
+  @Type(() => Boolean)
+  @IsBoolean()
+  received!: boolean;
 }
