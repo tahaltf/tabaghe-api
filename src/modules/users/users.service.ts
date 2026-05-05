@@ -82,7 +82,9 @@ export class UsersService {
         this.prisma.exchangeOffer.count({
           where: {
             listing: { authorId: userId },
-            status: ExchangeOfferStatus.PENDING,
+            status: {
+              in: [ExchangeOfferStatus.PENDING, ExchangeOfferStatus.WAITLISTED],
+            },
           },
         }),
         this.prisma.listing.count({

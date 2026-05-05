@@ -7,20 +7,29 @@ import { OrdersStateMachineService } from './orders-state-machine.service';
 import { AppSettingsService } from '../../shared/settings/app-settings.service';
 import { PaymentsService } from '../payments/payments.service';
 import { NotificationService } from '../notification/notification.service';
+import { OrderReputationService } from './order-reputation.service';
+import { ExchangeService } from '../exchange/exchange.service';
+import { ListingStatus, OrderStatus, OrderType, WalletTransactionStatus, WalletTransactionType } from '@prisma/client';
 
 describe('OrdersService', () => {
   let service: OrdersService;
 
   const prismaMock = {
     order: { findMany: jest.fn() },
+    systemSetting: { findFirst: jest.fn().mockResolvedValue(null) },
     $transaction: jest.fn(),
   };
 
-  const walletMock = { releaseEscrow: jest.fn() };
+  const walletMock = {
+    releaseEscrow: jest.fn(),
+    refundExchangeExtraOnCancel: jest.fn(),
+  };
   const feeMock = {};
   const appSettingsMock = { getApiUrl: jest.fn(), getPaymentGatewayConfig: jest.fn() };
   const paymentsMock = { initiateOrderPayment: jest.fn() };
   const notificationMock = { create: jest.fn() };
+  const orderReputationMock = { recordTerminalOutcome: jest.fn() };
+  const exchangeMock = { rejectNonWinningExchangeOffersAfterSale: jest.fn() };
   const stateMachineMock = {
     canTransition: jest.fn(),
     assertTransition: jest.fn(),
@@ -38,6 +47,8 @@ describe('OrdersService', () => {
         { provide: OrdersStateMachineService, useValue: stateMachineMock },
         { provide: PaymentsService, useValue: paymentsMock },
         { provide: NotificationService, useValue: notificationMock },
+        { provide: OrderReputationService, useValue: orderReputationMock },
+        { provide: ExchangeService, useValue: exchangeMock },
       ],
     }).compile();
 
@@ -82,6 +93,12 @@ describe('OrdersService', () => {
           isPayerMe: false, // فروشنده payer است => خریدار باید دریافت کند
         }),
       },
+      wallet: {
+        findUnique: jest.fn().mockImplementation(async ({ where }: { where: { userId: string } }) => {
+          if (where.userId === 'buyer-1') return { balanceBlocked: 500 };
+          return { balanceBlocked: 0 };
+        }),
+      },
     };
     prismaMock.$transaction.mockImplementation(async (cb: (trx: typeof tx) => Promise<unknown>) =>
       cb(tx),
@@ -96,6 +113,197 @@ describe('OrdersService', () => {
       'lst-1',
       tx,
       { orderId: 'ord-1' },
+    );
+  });
+
+  it('autoCancelExpiredOrders: one-side shipment timeout -> REJECTED_AT_HUB + refunds + penalize non-sender', async () => {
+    const orderId = 'ord-ex-1';
+    const listingId = 'lst-1';
+    const buyerId = 'buyer-1';
+    const sellerId = 'seller-1';
+    const exchangeOfferId = 'offer-1';
+
+    // seller sent, buyer not sent (sellerTrackingCode is null/undefined for buyer)
+    const expiredOrder = {
+      id: orderId,
+      type: OrderType.EXCHANGE,
+      buyerId,
+      sellerId,
+      listingId,
+      exchangeOfferId,
+      status: OrderStatus.AWAITING_SHIPMENT_TO_HUB,
+      trackingCode: 'HB-TRACK',
+      sellerTrackingCode: null,
+      sellerRevenue: 0,
+      totalAmount: 0,
+      verificationFee: 100,
+      exchangeHubInspection: {},
+      tradeReputationAt: null,
+      // shippingDeadline is not used inside transaction; findMany will just return this record.
+    };
+
+    prismaMock.order.findMany.mockResolvedValue([expiredOrder]);
+
+    const tx = {
+      exchangeOffer: {
+        findUnique: jest.fn().mockResolvedValue({
+          extraPayment: 200,
+          isPayerMe: true, // payer = buyer, so buyerRefundable = 200
+        }),
+      },
+      wallet: {
+        upsert: jest.fn().mockResolvedValue({}),
+      },
+      walletTransaction: {
+        create: jest.fn().mockResolvedValue({}),
+      },
+      user: {
+        update: jest.fn().mockResolvedValue({}),
+      },
+      order: {
+        update: jest.fn().mockResolvedValue({}),
+      },
+      listing: {
+        update: jest.fn().mockResolvedValue({ id: listingId, status: ListingStatus.APPROVED }),
+      },
+    };
+
+    prismaMock.$transaction.mockImplementation(async (cb: (trx: typeof tx) => Promise<unknown>) =>
+      cb(tx),
+    );
+
+    walletMock.refundExchangeExtraOnCancel.mockResolvedValue(undefined);
+
+    const creditSpy = jest
+      .spyOn(service as any, 'creditExchangeCompensation')
+      .mockResolvedValue(undefined);
+
+    await service.autoCancelExpiredOrders();
+
+    // Refund: only extra refund should happen to the payer (buyer) = non-sender here.
+    expect(walletMock.refundExchangeExtraOnCancel).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        buyerId,
+        sellerId,
+        listingId,
+        orderId,
+        isPayerMe: true,
+        buyerRefundable: 200,
+        sellerRefundable: 0,
+      }),
+    );
+
+    // Sender refund (seller sent) includes verification fee only (sellerShare = 100, because buyer pays extra).
+    expect(tx.wallet.upsert).toHaveBeenCalledTimes(1);
+    expect(tx.walletTransaction.create).toHaveBeenCalledTimes(1);
+    expect(tx.walletTransaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          type: WalletTransactionType.REFUND,
+          status: WalletTransactionStatus.SUCCESS,
+          amount: 100,
+        }),
+      }),
+    );
+
+    // 20% compensation for sender
+    expect(creditSpy).toHaveBeenCalledWith(tx, sellerId, 20, orderId);
+
+    // State machine transition: we keep exchange in flow by marking REJECTED_AT_HUB
+    expect(stateMachineMock.assertTransition).toHaveBeenCalledWith(
+      expiredOrder.status,
+      OrderStatus.REJECTED_AT_HUB,
+      'auto-cancel-expired',
+    );
+
+    expect(tx.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: orderId },
+        data: expect.objectContaining({
+          status: OrderStatus.REJECTED_AT_HUB,
+          cancelReason: expect.stringContaining('عدم ارسال'),
+          exchangeHubInspection: expect.objectContaining({
+            resolution: 'RETURN_BOTH_TO_SENDERS',
+            awaitingReturnConfirmations: false,
+          }),
+        }),
+      }),
+    );
+
+    // Penalty only for non-sender (buyer)
+    expect(orderReputationMock.recordTerminalOutcome).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({ id: orderId, buyerId, sellerId }),
+      expiredOrder.status,
+      'FAILURE',
+      expect.objectContaining({ failurePenalizeUserIds: [buyerId] }),
+    );
+
+    expect(tx.listing.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: listingId },
+        data: { status: ListingStatus.APPROVED },
+      }),
+    );
+
+    creditSpy.mockRestore();
+  });
+
+  it('autoConfirmOrders: includes SHIPPED_TO_BUYER in auto-confirm flow', async () => {
+    const orderId = 'ord-auto-1';
+    prismaMock.order.findMany.mockResolvedValue([
+      {
+        id: orderId,
+        type: OrderType.EXCHANGE,
+        status: OrderStatus.SHIPPED_TO_BUYER,
+      },
+    ]);
+
+    const tx = {
+      order: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: orderId,
+          type: OrderType.EXCHANGE,
+          status: OrderStatus.SHIPPED_TO_BUYER,
+          sellerId: 'seller-1',
+          buyerId: 'buyer-1',
+          listingId: 'lst-1',
+          sellerRevenue: 200,
+          platformFee: 0,
+          tradeReputationAt: null,
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      wallet: {
+        findUnique: jest.fn().mockResolvedValue({ balanceBlocked: 200 }),
+      },
+    };
+
+    prismaMock.$transaction.mockImplementation(async (cb: (trx: typeof tx) => Promise<unknown>) =>
+      cb(tx),
+    );
+    walletMock.releaseEscrow.mockResolvedValue(undefined);
+    orderReputationMock.recordTerminalOutcome.mockResolvedValue(undefined);
+
+    await service.autoConfirmOrders();
+
+    expect(walletMock.releaseEscrow).toHaveBeenCalledWith(
+      'seller-1',
+      200,
+      'lst-1',
+      tx,
+      { orderId },
+    );
+    expect(orderReputationMock.recordTerminalOutcome).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        id: orderId,
+        buyerId: 'buyer-1',
+        sellerId: 'seller-1',
+      }),
+      OrderStatus.SHIPPED_TO_BUYER,
+      'SUCCESS',
     );
   });
 });

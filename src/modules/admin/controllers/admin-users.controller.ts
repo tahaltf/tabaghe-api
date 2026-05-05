@@ -1,10 +1,12 @@
 import {
   Body,
   Controller,
+  DefaultValuePipe,
   Get,
   NotFoundException,
   Param,
   Patch,
+  ParseIntPipe,
   Post,
   Query,
   UseGuards,
@@ -41,6 +43,15 @@ export class AdminUsersQueryController {
   @Get(':id')
   detail(@CurrentUser() actor: AuthenticatedUser, @Param('id') id: string) {
     return this.service.detail(actor, id);
+  }
+
+  @Get(':id/activities')
+  activities(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Param('id') id: string,
+    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit: number,
+  ) {
+    return this.service.activities(actor, id, limit);
   }
 
   @Patch(':id/toggle-role')

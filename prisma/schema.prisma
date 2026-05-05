@@ -134,6 +134,7 @@ enum AuctionBidStatus {
 
 enum ExchangeOfferStatus {
   PENDING
+  WAITLISTED
   ACCEPTED
   REJECTED
   CANCELLED
@@ -806,6 +807,9 @@ paymentMethod    PaymentMethod @default(GATEWAY)
   returnShippedAt      DateTime? // زمان ثبت مرجوعی توسط خریدار
   returnConfirmedAt    DateTime? // زمان تایید ادمین بابت ارسال مرجوعی
   returnConfirmedBy    String?   // شناسه ادمینی که مرجوعی را تایید کرده
+
+  /** یک‌بار: اعمال امتیاز معامله (موفق +۰.۷ یا شکست/مرجوعی −۱.۵) */
+  tradeReputationAt    DateTime?
 
   @@index([buyerId, status])
   @@index([sellerId, status])

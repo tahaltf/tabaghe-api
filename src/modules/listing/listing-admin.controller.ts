@@ -13,6 +13,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { ListingAdminService } from './services/listing-admin.service';
 import { RejectListingDto } from './dto/reject-listing.dto';
+import { SetListingStatusDto } from './dto/set-listing-status.dto';
 
 @Controller('admin/listings')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -33,5 +34,10 @@ export class ListingAdminController {
   @Patch(':id/reject')
   reject(@Param('id') id: string, @Body() dto: RejectListingDto) {
     return this.adminService.reject(id, dto);
+  }
+
+  @Patch(':id/status')
+  setStatus(@Param('id') id: string, @Body() dto: SetListingStatusDto) {
+    return this.adminService.setStatus(id, dto.status);
   }
 }

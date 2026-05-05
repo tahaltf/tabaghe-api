@@ -9,6 +9,7 @@ import {
   AuctionBidStatus,
   AuctionSettlementStatus,
   AuctionStatus,
+  ExchangeOfferStatus,
   ListingType,
   OrderStatus,
   OrderType,
@@ -26,6 +27,8 @@ import { OrdersStateMachineService } from './orders-state-machine.service';
 import { AppSettingsService } from '../../shared/settings/app-settings.service';
 import { PaymentsService } from '../payments/payments.service';
 import { NotificationService } from '../notification/notification.service';
+import { OrderReputationService } from './order-reputation.service';
+import { ExchangeService } from '../exchange/exchange.service';
 
 @Injectable()
 export class OrdersService {
@@ -45,6 +48,8 @@ export class OrdersService {
     private readonly stateMachine: OrdersStateMachineService,
     private readonly paymentsService: PaymentsService,
     private readonly notificationService: NotificationService,
+    private readonly orderReputation: OrderReputationService,
+    private readonly exchangeService: ExchangeService,
   ) {}
 
   // =================================================================
@@ -252,6 +257,7 @@ export class OrdersService {
         ...offer,
         isOfferer,
         exchangeOrderId: linked?.id ?? null,
+        exchangeOrderStatus: linked?.status ?? null,
         mySharePaid,
       };
     });
@@ -447,6 +453,11 @@ export class OrdersService {
               where: { id: listingId },
               data: { status: ListingStatus.SOLD },
             });
+            await this.exchangeService.rejectNonWinningExchangeOffersAfterSale(
+              tx,
+              listingId,
+              finalExchangeId,
+            );
           }
 
           return updatedOrder;
@@ -973,6 +984,18 @@ export class OrdersService {
         throw new BadRequestException('این سفارش در وضعیت مناسب برای تایید مرجوعی نیست');
       }
 
+      await this.orderReputation.recordTerminalOutcome(
+        tx,
+        {
+          id: order.id,
+          buyerId: order.buyerId,
+          sellerId: order.sellerId,
+          tradeReputationAt: order.tradeReputationAt,
+        },
+        OrderStatus.RETURN_SHIPPED,
+        'FAILURE',
+      );
+
       if (sellerRevenue > 0) {
         await tx.wallet.upsert({
           where: { userId: order.sellerId },
@@ -1167,24 +1190,15 @@ export class OrdersService {
           const buyerRefundable = Math.max(0, buyerShare - verificationFee);
           const sellerRefundable = Math.max(0, sellerShare - verificationFee);
 
-          if (buyerRefundable > 0) {
-            await this.walletService.releaseEscrow(
-              order.buyerId,
-              buyerRefundable,
-              order.listingId,
-              tx,
-              { orderId: order.id },
-            );
-          }
-          if (sellerRefundable > 0) {
-            await this.walletService.releaseEscrow(
-              order.sellerId,
-              sellerRefundable,
-              order.listingId,
-              tx,
-              { orderId: order.id },
-            );
-          }
+          await this.walletService.refundExchangeExtraOnCancel(tx, {
+            buyerId: order.buyerId,
+            sellerId: order.sellerId,
+            listingId: order.listingId,
+            orderId: order.id,
+            isPayerMe: Boolean(exchangeOffer?.isPayerMe),
+            buyerRefundable,
+            sellerRefundable,
+          });
 
           const mergedInspection = {
             ...inspection,
@@ -1256,50 +1270,59 @@ export class OrdersService {
           return afterAck;
         }
 
-        const exchangeOffer =
-          order.exchangeOfferId
-            ? await tx.exchangeOffer.findUnique({
-                where: { id: order.exchangeOfferId },
-                select: { extraPayment: true, isPayerMe: true },
-              })
-            : null;
-        const extraPayment = Number(exchangeOffer?.extraPayment || 0);
-        const inspection = (order.exchangeHubInspection as Record<string, unknown> | null) ?? null;
-        const fs = (inspection?.financialSettlementSummary as Record<string, unknown> | null) ?? null;
-        const sellerAdj = (fs?.sellerAdjustment as Record<string, unknown> | null) ?? null;
-        const sellerAfterFromSettlement = Number(sellerAdj?.after ?? NaN);
-        const sellerShare = Number.isFinite(sellerAfterFromSettlement)
-          ? Math.max(0, sellerAfterFromSettlement)
-          : exchangeOffer
-            ? exchangeOffer.isPayerMe
-              ? extraPayment
-              : 0
-            : Math.max(0, Number(order.sellerRevenue || 0));
-        const buyerShare = Math.max(0, extraPayment - Math.min(extraPayment, sellerShare));
+        // در معاوضه، برای جلوگیری از دوبار واریز، فقط همان مبالغی را آزاد می‌کنیم
+        // که واقعاً هنوز در کیف پول کاربران در حالت بلوکه مانده‌اند.
+        const [sellerWallet, buyerWallet] = await Promise.all([
+          tx.wallet.findUnique({
+            where: { userId: order.sellerId },
+            select: { balanceBlocked: true },
+          }),
+          tx.wallet.findUnique({
+            where: { userId: order.buyerId },
+            select: { balanceBlocked: true },
+          }),
+        ]);
+        const sellerBlocked = Math.max(0, Number(sellerWallet?.balanceBlocked || 0));
+        const buyerBlocked = Math.max(0, Number(buyerWallet?.balanceBlocked || 0));
+        const sellerRelease = sellerBlocked;
+        const buyerRelease = buyerBlocked;
 
-        if (sellerShare > 0) {
+        if (sellerRelease > 0) {
           await this.walletService.releaseEscrow(
             order.sellerId,
-            sellerShare,
+            sellerRelease,
             order.listingId,
             tx,
             { orderId: order.id },
           );
         }
-        if (buyerShare > 0) {
+        if (buyerRelease > 0) {
           await this.walletService.releaseEscrow(
             order.buyerId,
-            buyerShare,
+            buyerRelease,
             order.listingId,
             tx,
             { orderId: order.id },
           );
         }
 
-        return tx.order.update({
+        const prevExchangeStatus = order.status;
+        const completedExchange = await tx.order.update({
           where: { id: orderId },
           data: { status: OrderStatus.COMPLETED },
         });
+        await this.orderReputation.recordTerminalOutcome(
+          tx,
+          {
+            id: order.id,
+            buyerId: order.buyerId,
+            sellerId: order.sellerId,
+            tradeReputationAt: order.tradeReputationAt,
+          },
+          prevExchangeStatus,
+          'SUCCESS',
+        );
+        return completedExchange;
       }
 
       if (order.buyerId !== userId) throw new BadRequestException('شما خریدار این سفارش نیستید');
@@ -1328,10 +1351,23 @@ export class OrdersService {
       });
 
       // 🎯 تغییر وضعیت به تکمیل شده (تسویه نهایی)
-      return tx.order.update({
+      const prevDirectStatus = order.status;
+      const completedDirect = await tx.order.update({
         where: { id: orderId },
         data: { status: OrderStatus.COMPLETED },
       });
+      await this.orderReputation.recordTerminalOutcome(
+        tx,
+        {
+          id: order.id,
+          buyerId: order.buyerId,
+          sellerId: order.sellerId,
+          tradeReputationAt: order.tradeReputationAt,
+        },
+        prevDirectStatus,
+        'SUCCESS',
+      );
+      return completedDirect;
     });
   }
   // =================================================================
@@ -1482,28 +1518,26 @@ export class OrdersService {
     let hubShipmentNote: string | null = null;
     let hubShipmentNotedAt: Date | null = null;
     try {
-      const hubShipmentNotification = await this.prisma.notification.findFirst({
+      const noteCandidates = await this.prisma.notification.findMany({
         where: {
           userId,
           type: NotificationType.ORDER_STATUS_CHANGED,
-          AND: [
-            {
-              meta: {
-                path: ['orderId'],
-                equals: orderId,
-              },
-            },
-            {
-              meta: {
-                path: ['status'],
-                equals: OrderStatus.SHIPPED_TO_BUYER,
-              },
-            },
-          ],
+          meta: {
+            path: ['orderId'],
+            equals: orderId,
+          },
         },
         orderBy: { createdAt: 'desc' },
+        take: 10,
         select: { meta: true, createdAt: true },
       });
+
+      const hubShipmentNotification =
+        noteCandidates.find((n) => {
+          const note = (n.meta as Record<string, unknown> | null)?.['note'];
+          return typeof note === 'string' && note.trim().length > 0;
+        }) ?? null;
+
       const hubShipmentNoteRaw = (hubShipmentNotification?.meta as Record<string, unknown> | null)?.['note'];
       hubShipmentNote =
         typeof hubShipmentNoteRaw === 'string' && hubShipmentNoteRaw.trim().length > 0
@@ -1671,7 +1705,6 @@ export class OrdersService {
   @Cron(CronExpression.EVERY_HOUR)
   async autoCancelExpiredOrders() {
     const now = new Date();
-    const exchangeCompensation = await this.getExchangeNoShipmentCompensation();
     const expiredOrders = await this.prisma.order.findMany({
       where: {
         status: { in: [OrderStatus.PAID, OrderStatus.AWAITING_SHIPMENT_TO_HUB] },
@@ -1686,45 +1719,90 @@ export class OrdersService {
           const buyerSentForExchange = order.type === OrderType.EXCHANGE && Boolean(order.sellerTrackingCode);
           const exchangeOnlyOneSent = order.type === OrderType.EXCHANGE && (sellerSent !== buyerSentForExchange);
 
-          if (Number(order.sellerRevenue) > 0) {
-            await tx.wallet.upsert({
-              where: { userId: order.sellerId },
-              create: {
-                userId: order.sellerId,
-                balanceAvailable: 0,
-                balanceBlocked: 0,
-              },
-              update: { balanceBlocked: { decrement: order.sellerRevenue } },
-            });
-          }
+          if (order.type === OrderType.EXCHANGE && exchangeOnlyOneSent) {
+            const exchangeOffer = order.exchangeOfferId
+              ? await tx.exchangeOffer.findUnique({
+                  where: { id: order.exchangeOfferId },
+                  select: { extraPayment: true, isPayerMe: true },
+                })
+              : null;
+            const verificationFee = Number(order.verificationFee || 0);
+            const extra = Number(exchangeOffer?.extraPayment || 0);
+            const buyerShare = verificationFee + (exchangeOffer?.isPayerMe ? extra : 0);
+            const sellerShare = verificationFee + (!exchangeOffer?.isPayerMe ? extra : 0);
+            const buyerRefundableExtra = Math.max(0, buyerShare - verificationFee);
+            const sellerRefundableExtra = Math.max(0, sellerShare - verificationFee);
 
-          if (Number(order.totalAmount) > 0) {
-            await tx.wallet.upsert({
-              where: { userId: order.buyerId },
-              create: {
-                userId: order.buyerId,
-                balanceAvailable: order.totalAmount,
-                balanceBlocked: 0,
-              },
-              update: { balanceAvailable: { increment: order.totalAmount } },
+            // بازگشت مابه‌التفاوت (بدون کارشناسی) به پرداخت‌کننده واقعی.
+            await this.walletService.refundExchangeExtraOnCancel(tx, {
+              buyerId: order.buyerId,
+              sellerId: order.sellerId,
+              listingId: order.listingId,
+              orderId: order.id,
+              isPayerMe: Boolean(exchangeOffer?.isPayerMe),
+              buyerRefundable: buyerRefundableExtra,
+              sellerRefundable: sellerRefundableExtra,
             });
-          }
 
-          if (order.type === OrderType.EXCHANGE && exchangeCompensation > 0) {
-            if (sellerSent && !buyerSentForExchange) {
+            // طبق سیاست محصول: پرداخت‌کننده‌ای که کالا را ارسال کرده، کل سهم پرداختی‌اش برگردد
+            // (از جمله هزینه کارشناسی).
+            const senderId = sellerSent ? order.sellerId : order.buyerId;
+            const senderTotalPaid = sellerSent ? sellerShare : buyerShare;
+            if (senderTotalPaid > 0) {
+              await tx.wallet.upsert({
+                where: { userId: senderId },
+                create: { userId: senderId, balanceAvailable: senderTotalPaid, balanceBlocked: 0 },
+                update: { balanceAvailable: { increment: senderTotalPaid } },
+              });
+              await tx.walletTransaction.create({
+                data: {
+                  wallet: { connect: { userId: senderId } },
+                  amount: senderTotalPaid,
+                  type: WalletTransactionType.REFUND,
+                  status: WalletTransactionStatus.SUCCESS,
+                  referenceId: order.id,
+                  meta: {
+                    kind: 'exchange-one-side-shipment-timeout',
+                    description:
+                      'بازگشت کامل سهم پرداختی فرستنده (شامل کارشناسی) به دلیل عدم ارسال طرف مقابل',
+                  },
+                },
+              });
+            }
+
+            // ۲۰٪ از هزینه کارشناسیِ طرفی که ارسال نکرده، به فرستنده پرداخت می‌شود.
+            const compensation = Math.max(0, Math.floor(verificationFee * 0.2));
+            if (compensation > 0) {
               await this.creditExchangeCompensation(
                 tx,
-                order.sellerId,
-                exchangeCompensation,
+                senderId,
+                compensation,
                 order.id,
               );
-            } else if (buyerSentForExchange && !sellerSent) {
-              await this.creditExchangeCompensation(
-                tx,
-                order.buyerId,
-                exchangeCompensation,
-                order.id,
-              );
+            }
+          } else {
+            if (Number(order.sellerRevenue) > 0) {
+              await tx.wallet.upsert({
+                where: { userId: order.sellerId },
+                create: {
+                  userId: order.sellerId,
+                  balanceAvailable: 0,
+                  balanceBlocked: 0,
+                },
+                update: { balanceBlocked: { decrement: order.sellerRevenue } },
+              });
+            }
+
+            if (Number(order.totalAmount) > 0) {
+              await tx.wallet.upsert({
+                where: { userId: order.buyerId },
+                create: {
+                  userId: order.buyerId,
+                  balanceAvailable: order.totalAmount,
+                  balanceBlocked: 0,
+                },
+                update: { balanceAvailable: { increment: order.totalAmount } },
+              });
             }
           }
 
@@ -1740,17 +1818,49 @@ export class OrdersService {
               data: { trustScore: { decrement: 15 } },
             });
           }
-          this.stateMachine.assertTransition(order.status, OrderStatus.CANCELLED, 'auto-cancel-expired');
+          const targetStatus =
+            order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
+              ? OrderStatus.REJECTED_AT_HUB
+              : OrderStatus.CANCELLED;
+          this.stateMachine.assertTransition(order.status, targetStatus, 'auto-cancel-expired');
+          const prevShipCancel = order.status;
           await tx.order.update({
             where: { id: order.id },
             data: {
-              status: OrderStatus.CANCELLED,
+              status: targetStatus,
               cancelReason:
                 order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
                   ? 'عدم ارسال یکی از طرفین در مهلت ۴۸ ساعته پس از ارسال طرف مقابل؛ مرجوعی کالای ارسال‌شده الزامی است'
                   : 'عدم ارسال در مهلت مقرر',
+              ...(order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
+                ? {
+                    exchangeHubInspection: {
+                      ...(order.exchangeHubInspection as Record<string, unknown> | null),
+                      resolution: 'RETURN_BOTH_TO_SENDERS',
+                      singleSideNoShipmentTimeout: true,
+                      awaitingReturnConfirmations: false,
+                      refundsReleasedAt: new Date().toISOString(),
+                    } as Prisma.InputJsonValue,
+                  }
+                : {}),
             },
           });
+          const failurePenalizeUserIds =
+            order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
+              ? [sellerSent ? order.buyerId : order.sellerId]
+              : undefined;
+          await this.orderReputation.recordTerminalOutcome(
+            tx,
+            {
+              id: order.id,
+              buyerId: order.buyerId,
+              sellerId: order.sellerId,
+              tradeReputationAt: order.tradeReputationAt,
+            },
+            prevShipCancel,
+            'FAILURE',
+            failurePenalizeUserIds ? { failurePenalizeUserIds } : undefined,
+          );
           await tx.listing.update({
             where: { id: order.listingId },
             data: { status: ListingStatus.APPROVED },
@@ -1889,6 +1999,7 @@ export class OrdersService {
                 data: { trustScore: { decrement: 10 } },
               });
             }
+            const prevExchangePayTimeout = linkedOrder.status;
             await tx.order.update({
               where: { id: linkedOrder.id },
               data: {
@@ -1898,11 +2009,47 @@ export class OrdersService {
                   : 'پس از پرداخت نفر اول، طرف مقابل در مهلت ۴۸ ساعته پرداخت را تکمیل نکرد',
               },
             });
+            await this.orderReputation.recordTerminalOutcome(
+              tx,
+              {
+                id: linkedOrder.id,
+                buyerId: linkedOrder.buyerId,
+                sellerId: linkedOrder.sellerId,
+                tradeReputationAt: linkedOrder.tradeReputationAt,
+              },
+              prevExchangePayTimeout,
+              'FAILURE',
+              payerToPenalize
+                ? {
+                    failurePenalizeUserIds: [payerToPenalize],
+                    ignoreEarlyAbort: true,
+                  }
+                : undefined,
+            );
           }
+
+          const waitlistedOfferers = await tx.exchangeOffer.findMany({
+            where: {
+              listingId: offer.listingId,
+              status: ExchangeOfferStatus.WAITLISTED,
+            },
+            select: { offererId: true },
+          });
+          const waitlistedUserIds = [
+            ...new Set(waitlistedOfferers.map((r) => r.offererId)),
+          ];
 
           await tx.exchangeOffer.update({
             where: { id: offer.id },
-            data: { status: 'REJECTED' },
+            data: { status: ExchangeOfferStatus.CANCELLED },
+          });
+
+          await tx.exchangeOffer.updateMany({
+            where: {
+              listingId: offer.listingId,
+              status: ExchangeOfferStatus.WAITLISTED,
+            },
+            data: { status: ExchangeOfferStatus.PENDING },
           });
 
           await tx.listing.update({
@@ -1910,25 +2057,16 @@ export class OrdersService {
             data: { status: ListingStatus.APPROVED },
           });
 
-          const rejectedOffers = await tx.exchangeOffer.findMany({
-            where: {
-              listingId: offer.listingId,
-              id: { not: offer.id },
-              status: 'REJECTED',
-            },
-            select: { offererId: true },
-          });
-          const uniqueOffererIds = [...new Set(rejectedOffers.map((x) => x.offererId))];
-          if (uniqueOffererIds.length > 0) {
+          if (waitlistedUserIds.length > 0) {
             await tx.notification.createMany({
-              data: uniqueOffererIds.map((uid) => ({
+              data: waitlistedUserIds.map((uid) => ({
                 userId: uid,
                 type: NotificationType.SYSTEM,
-                title: 'آگهی دوباره برای معاوضه فعال شد',
-                message: `مهلت تکمیل معاوضه برای «${offer.listing?.title ?? 'این آگهی'}» تمام شد و می‌توانید دوباره درخواست ثبت کنید.`,
+                title: 'پیشنهاد شما دوباره در انتظار بررسی است',
+                message: `مهلت تکمیل معاوضه برای «${offer.listing?.title ?? 'این آگهی'}» به پایان رسید. پیشنهاد شما از صف انتظار فعال شد و فروشنده می‌تواند دوباره یکی از درخواست‌ها را انتخاب کند.`,
                 meta: {
                   listingId: offer.listingId,
-                  reason: 'exchange-timeout',
+                  reason: 'exchange-timeout-waitlist-restore',
                 } as Prisma.InputJsonValue,
               })),
             });
@@ -1948,7 +2086,9 @@ export class OrdersService {
     );
     const pendingOrders = await this.prisma.order.findMany({
       where: {
-        status: { in: [OrderStatus.SHIPPED, OrderStatus.DELIVERED] },
+        // در ارسال از هاب (معامله تاییدشده) وضعیت SHIPPED_TO_BUYER داریم.
+        // برای UX یکپارچه، اگر کاربر تایید دریافت نکند، این وضعیت هم باید مشمول تایید خودکار شود.
+        status: { in: [OrderStatus.SHIPPED_TO_BUYER, OrderStatus.SHIPPED, OrderStatus.DELIVERED] },
         updatedAt: { lte: threshold },
       },
     });
@@ -1961,20 +2101,37 @@ export class OrdersService {
             if (!locked) return;
             if (locked.status === OrderStatus.COMPLETED || locked.status === OrderStatus.CANCELLED) return;
 
-            // معاوضه کارمزد ندارد؛ سفارش‌های قدیمی با platformFee غیرصفر را اینجا نرمال می‌کنیم.
-            const amountToRelease = Math.max(
-              0,
-              Number(locked.sellerRevenue || 0) + Number(locked.platformFee || 0),
-            );
-            if (amountToRelease > 0) {
+            const [sellerWallet, buyerWallet] = await Promise.all([
+              tx.wallet.findUnique({
+                where: { userId: locked.sellerId },
+                select: { balanceBlocked: true },
+              }),
+              tx.wallet.findUnique({
+                where: { userId: locked.buyerId },
+                select: { balanceBlocked: true },
+              }),
+            ]);
+            const sellerBlocked = Math.max(0, Number(sellerWallet?.balanceBlocked || 0));
+            const buyerBlocked = Math.max(0, Number(buyerWallet?.balanceBlocked || 0));
+            if (sellerBlocked > 0) {
               await this.walletService.releaseEscrow(
                 locked.sellerId,
-                amountToRelease,
+                sellerBlocked,
                 locked.listingId,
                 tx,
                 { orderId: locked.id },
               );
             }
+            if (buyerBlocked > 0) {
+              await this.walletService.releaseEscrow(
+                locked.buyerId,
+                buyerBlocked,
+                locked.listingId,
+                tx,
+                { orderId: locked.id },
+              );
+            }
+            const prevAutoConfirm = locked.status;
             await tx.order.update({
               where: { id: locked.id },
               data: {
@@ -1983,6 +2140,17 @@ export class OrdersService {
                 status: OrderStatus.COMPLETED,
               },
             });
+            await this.orderReputation.recordTerminalOutcome(
+              tx,
+              {
+                id: locked.id,
+                buyerId: locked.buyerId,
+                sellerId: locked.sellerId,
+                tradeReputationAt: locked.tradeReputationAt,
+              },
+              prevAutoConfirm,
+              'SUCCESS',
+            );
           });
         } else {
           await this.confirmOrder(order.buyerId, order.id);
@@ -2091,24 +2259,15 @@ export class OrdersService {
           const buyerRefundable = Math.max(0, buyerShare - verificationFee);
           const sellerRefundable = Math.max(0, sellerShare - verificationFee);
 
-          if (buyerRefundable > 0) {
-            await this.walletService.releaseEscrow(
-              locked.buyerId,
-              buyerRefundable,
-              locked.listingId,
-              tx,
-              { orderId: locked.id },
-            );
-          }
-          if (sellerRefundable > 0) {
-            await this.walletService.releaseEscrow(
-              locked.sellerId,
-              sellerRefundable,
-              locked.listingId,
-              tx,
-              { orderId: locked.id },
-            );
-          }
+          await this.walletService.refundExchangeExtraOnCancel(tx, {
+            buyerId: locked.buyerId,
+            sellerId: locked.sellerId,
+            listingId: locked.listingId,
+            orderId: locked.id,
+            isPayerMe: Boolean(exchangeOffer?.isPayerMe),
+            buyerRefundable,
+            sellerRefundable,
+          });
 
           const mergedInspection = {
             ...inspection,

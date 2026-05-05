@@ -607,6 +607,139 @@ export class WalletService {
     });
   }
 
+  /**
+   * معاوضه: مابه‌التفاوت (غیر از هزینه کارشناسی) پس از پرداخت در کیف **طرف مقابل** بلوکه است.
+   * برای لغو/مرجوع باید از بلوکهٔ مقابل کسر و به موجودی پرداخت‌کننده اضافه شود (نه releaseEscrow روی کیف خودش).
+   */
+  async refundExchangeExtraOnCancel(
+    tx: Prisma.TransactionClient,
+    params: {
+      buyerId: string;
+      sellerId: string;
+      listingId: string;
+      orderId: string;
+      isPayerMe: boolean;
+      buyerRefundable: number;
+      sellerRefundable: number;
+    },
+  ): Promise<void> {
+    const { buyerId, sellerId, listingId, orderId, isPayerMe } = params;
+    const br = Math.max(0, Number(params.buyerRefundable) || 0);
+    const sr = Math.max(0, Number(params.sellerRefundable) || 0);
+
+    if (isPayerMe && br > 0) {
+      await tx.wallet.upsert({
+        where: { userId: sellerId },
+        create: { userId: sellerId, balanceAvailable: 0, balanceBlocked: 0 },
+        update: { balanceBlocked: { decrement: br } },
+      });
+      const sellerWallet = await tx.wallet.findUnique({
+        where: { userId: sellerId },
+        select: { id: true },
+      });
+      if (sellerWallet) {
+        await tx.walletTransaction.create({
+          data: {
+            walletId: sellerWallet.id,
+            amount: br,
+            type: WalletTransactionType.PENALTY,
+            status: WalletTransactionStatus.SUCCESS,
+            referenceId: orderId,
+            meta: {
+              kind: 'exchange-return-refund',
+              orderId,
+              listingId,
+              description:
+                'لغو معاوضه: برداشت از بلوکه طرف مقابل برای بازگشت مابه‌التفاوت به پرداخت‌کننده',
+            } as Prisma.InputJsonValue,
+          },
+        });
+      }
+      await tx.wallet.upsert({
+        where: { userId: buyerId },
+        create: { userId: buyerId, balanceAvailable: br, balanceBlocked: 0 },
+        update: { balanceAvailable: { increment: br } },
+      });
+      const buyerWallet = await tx.wallet.findUnique({
+        where: { userId: buyerId },
+        select: { id: true },
+      });
+      if (buyerWallet) {
+        await tx.walletTransaction.create({
+          data: {
+            walletId: buyerWallet.id,
+            amount: br,
+            type: WalletTransactionType.REFUND,
+            status: WalletTransactionStatus.SUCCESS,
+            referenceId: orderId,
+            meta: {
+              kind: 'exchange-return-refund',
+              orderId,
+              listingId,
+              description: 'بازگشت مابه‌التفاوت معاوضه به پرداخت‌کننده (بدون هزینه کارشناسی)',
+            } as Prisma.InputJsonValue,
+          },
+        });
+      }
+    }
+
+    if (!isPayerMe && sr > 0) {
+      await tx.wallet.upsert({
+        where: { userId: buyerId },
+        create: { userId: buyerId, balanceAvailable: 0, balanceBlocked: 0 },
+        update: { balanceBlocked: { decrement: sr } },
+      });
+      const buyerWallet = await tx.wallet.findUnique({
+        where: { userId: buyerId },
+        select: { id: true },
+      });
+      if (buyerWallet) {
+        await tx.walletTransaction.create({
+          data: {
+            walletId: buyerWallet.id,
+            amount: sr,
+            type: WalletTransactionType.PENALTY,
+            status: WalletTransactionStatus.SUCCESS,
+            referenceId: orderId,
+            meta: {
+              kind: 'exchange-return-refund',
+              orderId,
+              listingId,
+              description:
+                'لغو معاوضه: برداشت از بلوکه طرف مقابل برای بازگشت مابه‌التفاوت به پرداخت‌کننده',
+            } as Prisma.InputJsonValue,
+          },
+        });
+      }
+      await tx.wallet.upsert({
+        where: { userId: sellerId },
+        create: { userId: sellerId, balanceAvailable: sr, balanceBlocked: 0 },
+        update: { balanceAvailable: { increment: sr } },
+      });
+      const sellerWallet = await tx.wallet.findUnique({
+        where: { userId: sellerId },
+        select: { id: true },
+      });
+      if (sellerWallet) {
+        await tx.walletTransaction.create({
+          data: {
+            walletId: sellerWallet.id,
+            amount: sr,
+            type: WalletTransactionType.REFUND,
+            status: WalletTransactionStatus.SUCCESS,
+            referenceId: orderId,
+            meta: {
+              kind: 'exchange-return-refund',
+              orderId,
+              listingId,
+              description: 'بازگشت مابه‌التفاوت معاوضه به پرداخت‌کننده (بدون هزینه کارشناسی)',
+            } as Prisma.InputJsonValue,
+          },
+        });
+      }
+    }
+  }
+
   // =================================================================
   // STANDARD METHODS (Deposit / Withdraw / Admin)
   // =================================================================

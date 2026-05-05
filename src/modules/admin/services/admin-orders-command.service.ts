@@ -20,14 +20,15 @@ import {
 } from '../dto/admin-order.dto';
 import { AppSettingsService } from '../../../shared/settings/app-settings.service';
 import { FeeCalculatorService } from '../../fees/fee-calculator.service';
+import { OrderReputationService } from '../../orders/order-reputation.service';
 
 @Injectable()
 export class AdminOrdersCommandService {
-  private static readonly EXCHANGE_FAIL_PENALTY_POINTS = 1;
   constructor(
     private readonly prisma: PrismaService,
     private readonly appSettings: AppSettingsService,
     private readonly feeCalculator: FeeCalculatorService,
+    private readonly orderReputation: OrderReputationService,
   ) {}
 
   async updateStatus(
@@ -52,6 +53,7 @@ export class AdminOrdersCommandService {
         sellerTrackingCode: true,
         packagingVideo: true,
         buyerPackagingVideo: true,
+        tradeReputationAt: true,
         listing: {
           select: {
             id: true,
@@ -234,6 +236,18 @@ export class AdminOrdersCommandService {
           },
         });
 
+        await this.orderReputation.recordTerminalOutcome(
+          tx,
+          {
+            id: existing.id,
+            buyerId: existing.buyerId,
+            sellerId: existing.sellerId,
+            tradeReputationAt: existing.tradeReputationAt,
+          },
+          existing.status,
+          'FAILURE',
+        );
+
         await tx.listing.update({
           where: { id: existing.listingId },
           data: { status: ListingStatus.APPROVED },
@@ -281,9 +295,26 @@ export class AdminOrdersCommandService {
       });
     }
 
-    const order = await this.prisma.order.update({
-      where: { id },
-      data: { status },
+    const order = await this.prisma.$transaction(async (tx) => {
+      const o = await tx.order.update({
+        where: { id },
+        data: { status },
+      });
+      // مسیر CANCELLED در بالا برگردانده شده؛ اینجا فقط سایر انتقال‌ها (از جمله COMPLETED)
+      if (status === OrderStatus.COMPLETED) {
+        await this.orderReputation.recordTerminalOutcome(
+          tx,
+          {
+            id: existing.id,
+            buyerId: existing.buyerId,
+            sellerId: existing.sellerId,
+            tradeReputationAt: existing.tradeReputationAt,
+          },
+          existing.status,
+          'SUCCESS',
+        );
+      }
+      return o;
     });
     await this.notifyParties(existing.buyerId, existing.sellerId, id, status, note);
     return order;
@@ -297,6 +328,9 @@ export class AdminOrdersCommandService {
         type: true,
         buyerId: true,
         sellerId: true,
+        listingId: true,
+        exchangeOfferId: true,
+        verificationFee: true,
         status: true,
         hubToBuyerTrackingCode: true,
         hubToSellerTrackingCode: true,
@@ -321,17 +355,21 @@ export class AdminOrdersCommandService {
       existing.type === 'EXCHANGE'
         ? (dto.hubToSellerTrackingCode ?? existing.hubToSellerTrackingCode)
         : existing.hubToSellerTrackingCode;
+    const returnShipmentCompleted = Boolean(nextBuyerTracking && nextSellerTracking);
     const mergedInspection = isExchangeReturnFlow
       ? {
           ...inspection,
           returnBuyerShipped: Boolean(nextBuyerTracking),
           returnSellerShipped: Boolean(nextSellerTracking),
           returnShipmentCompletedAt:
-            nextBuyerTracking && nextSellerTracking
+            returnShipmentCompleted
               ? (inspection?.['returnShipmentCompletedAt'] ?? new Date().toISOString())
               : (inspection?.['returnShipmentCompletedAt'] ?? null),
         }
       : null;
+    const nextStatus = isExchangeReturnFlow
+      ? (returnShipmentCompleted ? OrderStatus.CANCELLED : OrderStatus.REJECTED_AT_HUB)
+      : OrderStatus.SHIPPED_TO_BUYER;
 
     const updated = await this.prisma.order.update({
       where: { id },
@@ -339,7 +377,7 @@ export class AdminOrdersCommandService {
         hubToBuyerTrackingCode: dto.hubToBuyerTrackingCode,
         hubToSellerTrackingCode:
           existing.type === 'EXCHANGE' ? dto.hubToSellerTrackingCode : undefined,
-        status: isExchangeReturnFlow ? OrderStatus.CANCELLED : OrderStatus.SHIPPED_TO_BUYER,
+        status: nextStatus,
         ...(mergedInspection
           ? { exchangeHubInspection: mergedInspection as Prisma.InputJsonValue }
           : {}),
@@ -361,17 +399,15 @@ export class AdminOrdersCommandService {
     if (existing.type === 'EXCHANGE') {
       const hasBuyerLegUpdate = Boolean(dto.hubToBuyerTrackingCode);
       const hasSellerLegUpdate = Boolean(dto.hubToSellerTrackingCode);
-      const statusForNotification = isExchangeReturnFlow
-        ? OrderStatus.CANCELLED
-        : OrderStatus.SHIPPED_TO_BUYER;
+      const statusForNotification = nextStatus;
       const titleForNotification = isExchangeReturnFlow
-        ? 'مرجوعی از هاب ثبت شد'
+        ? (returnShipmentCompleted ? 'مرجوعی از هاب ثبت شد' : 'ثبت مسیر مرجوعی از هاب')
         : 'وضعیت سفارش تغییر کرد';
       const messageForBuyer = isExchangeReturnFlow
-        ? `مرسوله مرجوعی مربوط به شما از هاب ارسال شد. ${buyerNote}`
+        ? `مرسوله مرجوعی مربوط به شما از هاب ثبت شد. ${buyerNote}`
         : `وضعیت سفارش به «ارسال به خریدار» تغییر یافت. توضیح: ${buyerNote}`;
       const messageForSeller = isExchangeReturnFlow
-        ? `مرسوله مرجوعی مربوط به شما از هاب ارسال شد. ${sellerNote}`
+        ? `مرسوله مرجوعی مربوط به شما از هاب ثبت شد. ${sellerNote}`
         : `وضعیت سفارش به «ارسال به خریدار» تغییر یافت. توضیح: ${sellerNote}`;
       if (hasBuyerLegUpdate) {
         notifications.push({
@@ -433,6 +469,147 @@ export class AdminOrdersCommandService {
 
     if (notifications.length > 0) {
       await this.prisma.notification.createMany({ data: notifications });
+    }
+
+    // در مرجوعی معاوضه، به‌محض اینکه هر دو کد رهگیری برگشت از هاب ثبت شد،
+    // سرکِ پرداخت‌شده باید فوراً از بلوکه طرف مقابل آزاد و به پرداخت‌کننده برگردد
+    // (بدون هزینه کارشناسی). این کار قبلاً به تایید دریافت/تایمر موکول می‌شد.
+    if (isExchangeReturnFlow && nextBuyerTracking && nextSellerTracking) {
+      await this.prisma.$transaction(async (tx) => {
+        const locked = await tx.order.findUnique({
+          where: { id },
+          select: {
+            id: true,
+            type: true,
+            buyerId: true,
+            sellerId: true,
+            listingId: true,
+            exchangeOfferId: true,
+            verificationFee: true,
+            exchangeHubInspection: true,
+          },
+        });
+        if (!locked || locked.type !== 'EXCHANGE') return;
+
+        const insp = (locked.exchangeHubInspection as Record<string, unknown> | null) ?? {};
+        if (
+          insp['resolution'] !== 'RETURN_BOTH_TO_SENDERS' ||
+          typeof insp['refundsReleasedAt'] === 'string'
+        ) {
+          return;
+        }
+
+        const offer = locked.exchangeOfferId
+          ? await tx.exchangeOffer.findUnique({
+              where: { id: locked.exchangeOfferId },
+              select: { extraPayment: true, isPayerMe: true },
+            })
+          : null;
+        const verificationFee = Number(locked.verificationFee || 0);
+        const extra = Number(offer?.extraPayment || 0);
+        const buyerShare = verificationFee + (offer?.isPayerMe ? extra : 0);
+        const sellerShare = verificationFee + (!offer?.isPayerMe ? extra : 0);
+        const buyerRefundable = Math.max(0, buyerShare - verificationFee);
+        const sellerRefundable = Math.max(0, sellerShare - verificationFee);
+
+        if (offer?.isPayerMe && buyerRefundable > 0) {
+          // پرداخت‌کننده خریدار بوده؛ پول در بلوکه فروشنده است.
+          await tx.wallet.upsert({
+            where: { userId: locked.sellerId },
+            create: { userId: locked.sellerId, balanceAvailable: 0, balanceBlocked: 0 },
+            update: { balanceBlocked: { decrement: buyerRefundable } },
+          });
+          await tx.walletTransaction.create({
+            data: {
+              wallet: { connect: { userId: locked.sellerId } },
+              amount: buyerRefundable,
+              type: WalletTransactionType.PENALTY,
+              status: WalletTransactionStatus.SUCCESS,
+              referenceId: locked.id,
+              meta: {
+                kind: 'exchange-return-refund',
+                orderId: locked.id,
+                listingId: locked.listingId,
+                description: 'مرجوعی معاوضه: برداشت از بلوکه طرف مقابل برای بازگشت سرک',
+              },
+            },
+          });
+          await tx.wallet.upsert({
+            where: { userId: locked.buyerId },
+            create: { userId: locked.buyerId, balanceAvailable: buyerRefundable, balanceBlocked: 0 },
+            update: { balanceAvailable: { increment: buyerRefundable } },
+          });
+          await tx.walletTransaction.create({
+            data: {
+              wallet: { connect: { userId: locked.buyerId } },
+              amount: buyerRefundable,
+              type: WalletTransactionType.REFUND,
+              status: WalletTransactionStatus.SUCCESS,
+              referenceId: locked.id,
+              meta: {
+                kind: 'exchange-return-refund',
+                orderId: locked.id,
+                listingId: locked.listingId,
+                description: 'مرجوعی معاوضه: بازگشت سرک پرداختی به پرداخت‌کننده (بدون کارشناسی)',
+              },
+            },
+          });
+        }
+
+        if (!offer?.isPayerMe && sellerRefundable > 0) {
+          // پرداخت‌کننده فروشنده بوده؛ پول در بلوکه خریدار است.
+          await tx.wallet.upsert({
+            where: { userId: locked.buyerId },
+            create: { userId: locked.buyerId, balanceAvailable: 0, balanceBlocked: 0 },
+            update: { balanceBlocked: { decrement: sellerRefundable } },
+          });
+          await tx.walletTransaction.create({
+            data: {
+              wallet: { connect: { userId: locked.buyerId } },
+              amount: sellerRefundable,
+              type: WalletTransactionType.PENALTY,
+              status: WalletTransactionStatus.SUCCESS,
+              referenceId: locked.id,
+              meta: {
+                kind: 'exchange-return-refund',
+                orderId: locked.id,
+                listingId: locked.listingId,
+                description: 'مرجوعی معاوضه: برداشت از بلوکه طرف مقابل برای بازگشت سرک',
+              },
+            },
+          });
+          await tx.wallet.upsert({
+            where: { userId: locked.sellerId },
+            create: { userId: locked.sellerId, balanceAvailable: sellerRefundable, balanceBlocked: 0 },
+            update: { balanceAvailable: { increment: sellerRefundable } },
+          });
+          await tx.walletTransaction.create({
+            data: {
+              wallet: { connect: { userId: locked.sellerId } },
+              amount: sellerRefundable,
+              type: WalletTransactionType.REFUND,
+              status: WalletTransactionStatus.SUCCESS,
+              referenceId: locked.id,
+              meta: {
+                kind: 'exchange-return-refund',
+                orderId: locked.id,
+                listingId: locked.listingId,
+                description: 'مرجوعی معاوضه: بازگشت سرک پرداختی به پرداخت‌کننده (بدون کارشناسی)',
+              },
+            },
+          });
+        }
+
+        await tx.order.update({
+          where: { id: locked.id },
+          data: {
+            exchangeHubInspection: {
+              ...insp,
+              refundsReleasedAt: new Date().toISOString(),
+            } as Prisma.InputJsonValue,
+          },
+        });
+      });
     }
     return updated;
   }
@@ -601,6 +778,7 @@ export class AdminOrdersCommandService {
         exchangeOfferId: true,
         buyerId: true,
         sellerId: true,
+        tradeReputationAt: true,
         trackingCode: true,
         sellerTrackingCode: true,
         packagingVideo: true,
@@ -655,6 +833,11 @@ export class AdminOrdersCommandService {
     if (hasAnyFail && resolution !== 'RETURN_BOTH_TO_SENDERS') {
       throw new BadRequestException(
         'با رد شدن حتی یکی از کالاها، معامله باید کنسل شود و مسیر «مرجوع هر دو کالا» انتخاب شود',
+      );
+    }
+    if (hasAnyFail && (dto.listingItem === 'PASS_WITH_SETTLEMENT' || dto.offerItem === 'PASS_WITH_SETTLEMENT')) {
+      throw new BadRequestException(
+        'وقتی حتی یکی از کالاها رد شده باشد، اصلاح مالی غیرفعال است و نتیجه کالای دیگر باید فقط «تایید سلامت» یا «رد کارشناسی» باشد',
       );
     }
 
@@ -794,8 +977,7 @@ export class AdminOrdersCommandService {
         dto.listingNote?.trim() ? `  توضیح: ${dto.listingNote.trim()}` : null,
         `کالای پیشنهاد: ${itemLabel(dto.offerItem)}`,
         dto.offerNote?.trim() ? `  توضیح: ${dto.offerNote.trim()}` : null,
-        `سهم فروشنده: ${sellerBefore.toLocaleString('fa-IR')} ← ${sellerAfter.toLocaleString('fa-IR')} تومان`,
-        `سهم خریدار: ${buyerBefore.toLocaleString('fa-IR')} ← ${buyerAfter.toLocaleString('fa-IR')} تومان`,
+        `اصلاح مالی نهایی اعمال شد: ${Math.abs(sellerAfter - sellerBefore).toLocaleString('fa-IR')} تومان`,
         'سفارش وارد مرحله ارسال از هاب شد.',
       ]
         .filter(Boolean)
@@ -882,7 +1064,7 @@ export class AdminOrdersCommandService {
               },
             });
           } else {
-            // حالت ۲: کسر از دریافت‌کننده سرک -> از blocked و واریز فوری به available طرف مقابل
+            // حالت ۲: کسر از دریافت‌کننده سرک -> از blocked و بازگشت مستقیم به available پرداخت‌کننده سرک
             const sellerBlockedNow = Number(sellerWallet.balanceBlocked || 0);
             if (listingSettlementAmount > sellerBlockedNow) {
               throw new BadRequestException(
@@ -923,7 +1105,7 @@ export class AdminOrdersCommandService {
                   kind: 'order-escrow',
                   phase: 'buyer_settlement_credit_available',
                   settlementKind: 'exchange-financial-settlement',
-                  description: `اصلاح مالی معاوضه: ${listingSettlementAmount.toLocaleString('fa-IR')} تومان همان لحظه به موجودی قابل برداشت خریدار اضافه شد.`,
+                  description: `اصلاح مالی معاوضه: ${listingSettlementAmount.toLocaleString('fa-IR')} تومان به پرداخت‌کننده سرک برگشت و به موجودی قابل برداشت او اضافه شد.`,
                 },
               },
             });
@@ -979,7 +1161,7 @@ export class AdminOrdersCommandService {
               },
             });
           } else {
-            // حالت ۲: کسر از دریافت‌کننده سرک -> از blocked و واریز فوری به available طرف مقابل
+            // حالت ۲: کسر از دریافت‌کننده سرک -> از blocked و بازگشت مستقیم به available پرداخت‌کننده سرک
             const buyerBlockedNow = Number(buyerWallet.balanceBlocked || 0);
             if (offerSettlementAmount > buyerBlockedNow) {
               throw new BadRequestException(
@@ -1020,7 +1202,7 @@ export class AdminOrdersCommandService {
                   kind: 'order-escrow',
                   phase: 'seller_settlement_credit_available',
                   settlementKind: 'exchange-financial-settlement',
-                  description: `اصلاح مالی معاوضه: ${offerSettlementAmount.toLocaleString('fa-IR')} تومان همان لحظه به موجودی قابل برداشت فروشنده اضافه شد.`,
+                  description: `اصلاح مالی معاوضه: ${offerSettlementAmount.toLocaleString('fa-IR')} تومان به پرداخت‌کننده سرک برگشت و به موجودی قابل برداشت او اضافه شد.`,
                 },
               },
             });
@@ -1059,6 +1241,8 @@ export class AdminOrdersCommandService {
     const summaryText = summaryLines.join('\n');
     const inspectionPayload = mergeInspectionPayload({
       awaitingFinanceSettlement: false,
+      financialSettlementSummary: null,
+      lastFinancialSettlement: null,
       awaitingReturnConfirmations: true,
       buyerReturnReceived: false,
       sellerReturnReceived: false,
@@ -1069,11 +1253,28 @@ export class AdminOrdersCommandService {
       const updatedOrder = await tx.order.update({
         where: { id },
         data: {
-          status: OrderStatus.CANCELLED,
+          status: OrderStatus.REJECTED_AT_HUB,
           cancelReason: summaryText,
           exchangeHubInspection: inspectionPayload as Prisma.InputJsonValue,
         },
       });
+
+      const failurePenalizeUserIds: string[] = [];
+      if (listingFailed) failurePenalizeUserIds.push(existing.sellerId);
+      if (offerFailed) failurePenalizeUserIds.push(existing.buyerId);
+
+      await this.orderReputation.recordTerminalOutcome(
+        tx,
+        {
+          id: existing.id,
+          buyerId: existing.buyerId,
+          sellerId: existing.sellerId,
+          tradeReputationAt: existing.tradeReputationAt,
+        },
+        existing.status,
+        'FAILURE',
+        { failurePenalizeUserIds },
+      );
 
       const sellerTicketMessage = [
         listingFailed
@@ -1151,42 +1352,6 @@ export class AdminOrdersCommandService {
         },
       });
 
-      if (listingApplyPenalty) {
-        const seller = await tx.user.findUnique({
-          where: { id: existing.sellerId },
-          select: { rating: true },
-        });
-        if (seller) {
-          await tx.user.update({
-            where: { id: existing.sellerId },
-            data: {
-              rating: Math.max(
-                0,
-                Number(seller.rating || 0) - AdminOrdersCommandService.EXCHANGE_FAIL_PENALTY_POINTS,
-              ),
-            },
-          });
-        }
-      }
-
-      if (offerApplyPenalty) {
-        const buyer = await tx.user.findUnique({
-          where: { id: existing.buyerId },
-          select: { rating: true },
-        });
-        if (buyer) {
-          await tx.user.update({
-            where: { id: existing.buyerId },
-            data: {
-              rating: Math.max(
-                0,
-                Number(buyer.rating || 0) - AdminOrdersCommandService.EXCHANGE_FAIL_PENALTY_POINTS,
-              ),
-            },
-          });
-        }
-      }
-
       await this.notifyParties(
         existing.buyerId,
         existing.sellerId,
@@ -1229,6 +1394,7 @@ export class AdminOrdersCommandService {
           exchangeOfferId: true,
           returnTrackingCode: true,
           exchangeHubInspection: true,
+          tradeReputationAt: true,
         },
       });
       if (!order) throw new NotFoundException('سفارش یافت نشد');
@@ -1415,6 +1581,7 @@ export class AdminOrdersCommandService {
           });
         }
 
+        const prevCancelBoth = order.status;
         const updated = await tx.order.update({
           where: { id: order.id },
           data: {
@@ -1430,6 +1597,28 @@ export class AdminOrdersCommandService {
             returnConfirmedAt: new Date(),
           },
         });
+
+        const cancelBothInsp = (order.exchangeHubInspection as Record<string, unknown> | null) ?? {};
+        const cancelBothListingFail = cancelBothInsp['listingItem'] === 'FAIL';
+        const cancelBothOfferFail = cancelBothInsp['offerItem'] === 'FAIL';
+        const cancelBothPenaltyIds: string[] = [];
+        if (cancelBothListingFail) cancelBothPenaltyIds.push(order.sellerId);
+        if (cancelBothOfferFail) cancelBothPenaltyIds.push(order.buyerId);
+
+        await this.orderReputation.recordTerminalOutcome(
+          tx,
+          {
+            id: order.id,
+            buyerId: order.buyerId,
+            sellerId: order.sellerId,
+            tradeReputationAt: order.tradeReputationAt,
+          },
+          prevCancelBoth,
+          'FAILURE',
+          cancelBothPenaltyIds.length > 0
+            ? { failurePenalizeUserIds: cancelBothPenaltyIds }
+            : undefined,
+        );
 
         await tx.listing.update({
           where: { id: order.listingId },
@@ -1789,6 +1978,19 @@ export class AdminOrdersCommandService {
           }
           throw new BadRequestException('این سفارش در وضعیت مناسب برای تایید مرجوعی نیست');
         }
+
+        await this.orderReputation.recordTerminalOutcome(
+          tx,
+          {
+            id: order.id,
+            buyerId: order.buyerId,
+            sellerId: order.sellerId,
+            tradeReputationAt: order.tradeReputationAt,
+          },
+          OrderStatus.RETURN_SHIPPED,
+          'FAILURE',
+        );
+
         if (sellerRevenue > 0) {
           await tx.wallet.upsert({
             where: { userId: order.sellerId },
@@ -1881,10 +2083,22 @@ export class AdminOrdersCommandService {
           });
         }
 
+        const prevReleaseSeller = order.status;
         const updated = await tx.order.update({
           where: { id: order.id },
           data: { status: OrderStatus.COMPLETED },
         });
+        await this.orderReputation.recordTerminalOutcome(
+          tx,
+          {
+            id: order.id,
+            buyerId: order.buyerId,
+            sellerId: order.sellerId,
+            tradeReputationAt: order.tradeReputationAt,
+          },
+          prevReleaseSeller,
+          'SUCCESS',
+        );
         await this.notifyParties(
           order.buyerId,
           order.sellerId,
@@ -1966,6 +2180,7 @@ export class AdminOrdersCommandService {
         });
       }
 
+      const prevManualCancel = order.status;
       const updated = await tx.order.update({
         where: { id: order.id },
         data: {
@@ -1987,6 +2202,26 @@ export class AdminOrdersCommandService {
             order.status === OrderStatus.RETURN_SHIPPED ? new Date() : undefined,
         },
       });
+      let manualRefundReputationOpts: { failurePenalizeUserIds: string[] } | undefined = undefined;
+      if (order.type === 'EXCHANGE') {
+        const hi = (order.exchangeHubInspection as Record<string, unknown> | null) ?? {};
+        const ids: string[] = [];
+        if (hi['listingItem'] === 'FAIL') ids.push(order.sellerId);
+        if (hi['offerItem'] === 'FAIL') ids.push(order.buyerId);
+        if (ids.length > 0) manualRefundReputationOpts = { failurePenalizeUserIds: ids };
+      }
+      await this.orderReputation.recordTerminalOutcome(
+        tx,
+        {
+          id: order.id,
+          buyerId: order.buyerId,
+          sellerId: order.sellerId,
+          tradeReputationAt: order.tradeReputationAt,
+        },
+        prevManualCancel,
+        'FAILURE',
+        manualRefundReputationOpts,
+      );
       await tx.listing.update({
         where: { id: order.listingId },
         data: { status: ListingStatus.APPROVED },

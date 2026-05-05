@@ -82,4 +82,20 @@ export class ListingAdminService {
       return updated;
     });
   }
+
+  async setStatus(
+    listingId: string,
+    status: ListingStatus,
+  ): Promise<Listing> {
+    const data: Prisma.ListingUpdateInput = {
+      status,
+    };
+    if (status === ListingStatus.APPROVED) {
+      data.approvedAt = new Date();
+    }
+    return this.prisma.listing.update({
+      where: { id: listingId },
+      data,
+    });
+  }
 }

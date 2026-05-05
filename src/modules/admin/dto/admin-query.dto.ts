@@ -71,6 +71,11 @@ export class AdminListingListQueryDto extends AdminListQueryDto {
   provinceId?: string;
 }
 
+export class AdminSetListingStatusDto {
+  @IsEnum(ListingStatus)
+  status!: ListingStatus;
+}
+
 export class AdminOrderListQueryDto extends AdminListQueryDto {
   @IsOptional()
   @IsEnum(OrderStatus)

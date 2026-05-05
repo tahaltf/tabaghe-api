@@ -9,6 +9,7 @@ describe('ZibalGateway', () => {
     getPaymentGatewayConfig: jest.fn().mockReturnValue({
       merchant: 'zibal',
       requestUrl: 'https://gateway.zibal.ir/v1/request',
+      verifyUrl: 'https://gateway.zibal.ir/v1/verify',
     }),
     buildZibalStartPayUrl: jest.fn((trackId: string) => `https://gateway.zibal.ir/start/${trackId}`),
   };

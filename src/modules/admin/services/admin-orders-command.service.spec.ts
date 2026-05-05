@@ -85,8 +85,14 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
 
     const appSettings = { getApiUrl: jest.fn().mockReturnValue('https://api.example.com') };
     const feeCalculator = {};
+    const orderReputation = { recordTerminalOutcome: jest.fn().mockResolvedValue(undefined) };
 
-    const service = new AdminOrdersCommandService(prisma as never, appSettings as never, feeCalculator as never);
+    const service = new AdminOrdersCommandService(
+      prisma as never,
+      appSettings as never,
+      feeCalculator as never,
+      orderReputation as never,
+    );
     return { service, prisma, tx };
   }
 
@@ -240,7 +246,13 @@ describe('AdminOrdersCommandService - exchange release escrow', () => {
     };
     const appSettings = { getApiUrl: jest.fn().mockReturnValue('https://api.example.com') };
     const feeCalculator = {};
-    const service = new AdminOrdersCommandService(prisma as never, appSettings as never, feeCalculator as never);
+    const orderReputation = { recordTerminalOutcome: jest.fn().mockResolvedValue(undefined) };
+    const service = new AdminOrdersCommandService(
+      prisma as never,
+      appSettings as never,
+      feeCalculator as never,
+      orderReputation as never,
+    );
     return { service, tx };
   }
 

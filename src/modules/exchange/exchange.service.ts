@@ -10,6 +10,7 @@ import {
     ListingType,
     OrderStatus,
     ListingStatus,
+    Prisma,
     WalletTransactionStatus,
     WalletTransactionType,
 } from '@prisma/client';
@@ -64,12 +65,19 @@ export class ExchangeService {
             where: {
                 offererId: userId,
                 listingId: listingId,
-                status: ExchangeOfferStatus.PENDING,
+                status: {
+                    in: [
+                        ExchangeOfferStatus.PENDING,
+                        ExchangeOfferStatus.WAITLISTED,
+                    ],
+                },
             },
         });
 
         if (existingOffer) {
-            throw new BadRequestException('شما قبلاً یک پیشنهاد در حال بررسی برای این آگهی ثبت کرده‌اید.');
+            throw new BadRequestException(
+                'شما قبلاً برای این آگهی پیشنهاد فعال (در انتظار یا در صف) دارید.',
+            );
         }
 
         const offer = await this.prisma.exchangeOffer.create({
@@ -231,14 +239,14 @@ export class ExchangeService {
             data: { status: ExchangeOfferStatus.ACCEPTED }
         });
 
-        // رد کردن سایر پیشنهادها
+        // سایر درخواست‌ها را رد قطعی نمی‌کنیم؛ در صف انتظار می‌مانند تا قفل شدن معامله یا انصراف خریدار اول
         await this.prisma.exchangeOffer.updateMany({
             where: {
                 listingId: offer.listingId,
                 id: { not: offerId },
                 status: ExchangeOfferStatus.PENDING,
             },
-            data: { status: ExchangeOfferStatus.REJECTED },
+            data: { status: ExchangeOfferStatus.WAITLISTED },
         });
 
         this.eventEmitter.emit(ExchangeEvents.OFFER_ACCEPTED, {
@@ -249,10 +257,34 @@ export class ExchangeService {
 
         return {
             ok: true,
-            message: 'پیشنهاد تایید شد. تکمیل معامله پس از پرداخت سهم هر دو طرف انجام می‌شود.',
+            message:
+                'پیشنهاد تایید شد. سایر درخواست‌ها در صف انتظار هستند تا پس از نهایی شدن پرداخت، در صورت شکست معامله دوباره در دسترس قرار گیرند.',
             status: 'ACCEPTED',
-            needsPayment: true
+            needsPayment: true,
         };
+    }
+
+    /**
+     * پس از قفل شدن معامله معاوضه (آگهی فروخته‌شده)، بقیهٔ صف و هر پیشنهاد معلق را رد قطعی می‌کند.
+     */
+    async rejectNonWinningExchangeOffersAfterSale(
+        tx: Prisma.TransactionClient,
+        listingId: string,
+        winningOfferId: string,
+    ) {
+        await tx.exchangeOffer.updateMany({
+            where: {
+                listingId,
+                id: { not: winningOfferId },
+                status: {
+                    in: [
+                        ExchangeOfferStatus.WAITLISTED,
+                        ExchangeOfferStatus.PENDING,
+                    ],
+                },
+            },
+            data: { status: ExchangeOfferStatus.REJECTED },
+        });
     }
 
     // -----------------------------------
@@ -279,7 +311,12 @@ export class ExchangeService {
                 where: {
                     listingId: offer.listingId,
                     id: { not: offerId },
-                    status: ExchangeOfferStatus.PENDING,
+                    status: {
+                        in: [
+                            ExchangeOfferStatus.PENDING,
+                            ExchangeOfferStatus.WAITLISTED,
+                        ],
+                    },
                 },
                 data: { status: ExchangeOfferStatus.REJECTED },
             });
@@ -338,7 +375,10 @@ export class ExchangeService {
         if (!offer) throw new NotFoundException('پیشنهاد یافت نشد');
         if (offer.listing.authorId !== userId) throw new ForbiddenException('دسترسی ندارید');
 
-        if (offer.status !== ExchangeOfferStatus.PENDING) {
+        if (
+            offer.status !== ExchangeOfferStatus.PENDING &&
+            offer.status !== ExchangeOfferStatus.WAITLISTED
+        ) {
             throw new BadRequestException('وضعیت این پیشنهاد قابل تغییر نیست');
         }
 

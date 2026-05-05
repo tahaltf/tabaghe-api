@@ -18,6 +18,7 @@ import { AppSettingsService } from '../../shared/settings/app-settings.service';
 import { PaymentGateway } from './gateways/payment-gateway.interface';
 import { ZibalGateway } from './gateways/zibal.gateway';
 import { NotificationService } from '../notification/notification.service';
+import { ExchangeService } from '../exchange/exchange.service';
 
 @Injectable()
 export class PaymentsService {
@@ -29,6 +30,7 @@ export class PaymentsService {
     private readonly appSettings: AppSettingsService,
     private readonly zibalGateway: ZibalGateway,
     private readonly notificationService: NotificationService,
+    private readonly exchangeService: ExchangeService,
   ) {}
 
   private getGateway(): PaymentGateway {
@@ -424,6 +426,17 @@ export class PaymentsService {
           where: { id: locked.listingId },
           data: { status: ListingStatus.SOLD },
         });
+        if (
+          locked.type === 'EXCHANGE' &&
+          locked.exchangeOfferId &&
+          paidStatus === OrderStatus.AWAITING_SHIPMENT_TO_HUB
+        ) {
+          await this.exchangeService.rejectNonWinningExchangeOffersAfterSale(
+            tx,
+            locked.listingId,
+            locked.exchangeOfferId,
+          );
+        }
       }
     });
 
@@ -657,6 +670,8 @@ export class PaymentsService {
             ...(locked.meta as Record<string, unknown>),
             approvedAt: new Date().toISOString(),
             refId: verified.refId ?? null,
+            description:
+              'شارژ آنلاین کیف پول با موفقیت انجام شد و مبلغ به موجودی قابل برداشت اضافه شد.',
           },
         },
       });

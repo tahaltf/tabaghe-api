@@ -3,6 +3,7 @@ import { WalletModule } from '../wallet/wallet.module';
 import { FeesModule } from '../fees/fees.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { NotificationModule } from '../notification/notification.module';
+import { ExchangeModule } from '../exchange/exchange.module';
 
 import { OrdersAdminController } from './orders-admin.controller';
 import { OrdersController } from './orders.controller';
@@ -11,9 +12,10 @@ import { OrdersCommandService } from './orders-command.service';
 import { OrdersQueryService } from './orders-query.service';
 import { OrdersService } from './orders.service';
 import { OrdersStateMachineService } from './orders-state-machine.service';
+import { OrderReputationService } from './order-reputation.service';
 
 @Module({
-  imports: [WalletModule, FeesModule, PaymentsModule, NotificationModule],
+  imports: [WalletModule, FeesModule, PaymentsModule, NotificationModule, ExchangeModule],
   controllers: [OrdersController, OrdersAdminController],
   providers: [
     OrdersService,
@@ -21,6 +23,8 @@ import { OrdersStateMachineService } from './orders-state-machine.service';
     OrdersQueryService,
     OrdersCommandService,
     OrdersAdminService,
+    OrderReputationService,
   ],
+  exports: [OrderReputationService],
 })
 export class OrdersModule {}

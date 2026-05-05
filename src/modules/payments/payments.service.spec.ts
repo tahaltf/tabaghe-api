@@ -5,6 +5,8 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { AppSettingsService } from '../../shared/settings/app-settings.service';
 import { ZibalGateway } from './gateways/zibal.gateway';
+import { NotificationService } from '../notification/notification.service';
+import { ExchangeService } from '../exchange/exchange.service';
 
 describe('PaymentsService', () => {
   let service: PaymentsService;
@@ -37,6 +39,9 @@ describe('PaymentsService', () => {
     verifyPayment: jest.fn(),
   };
 
+  const notificationMock = { create: jest.fn(), createMany: jest.fn() };
+  const exchangeMock = { rejectNonWinningExchangeOffersAfterSale: jest.fn() };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     const module: TestingModule = await Test.createTestingModule({
@@ -46,6 +51,8 @@ describe('PaymentsService', () => {
         { provide: WalletService, useValue: walletServiceMock },
         { provide: AppSettingsService, useValue: appSettingsMock },
         { provide: ZibalGateway, useValue: zibalGatewayMock },
+        { provide: NotificationService, useValue: notificationMock },
+        { provide: ExchangeService, useValue: exchangeMock },
       ],
     }).compile();
 

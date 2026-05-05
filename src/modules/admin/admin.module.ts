@@ -47,9 +47,10 @@ import { AdminLogsService } from './services/admin-logs.service';
 import { AdminPlatformWalletService } from './services/admin-platform-wallet.service';
 import { SmsService } from '../sms/sms.service';
 import { AdminBlogService } from './services/admin-blog.service';
+import { OrdersModule } from '../orders/orders.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, NotificationModule, FeesModule],
+  imports: [PrismaModule, AuthModule, NotificationModule, FeesModule, OrdersModule],
   controllers: [
     AdminDashboardController,
     AdminUsersQueryController,

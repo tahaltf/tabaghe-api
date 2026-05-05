@@ -30,6 +30,9 @@ export class AppSettingsService {
     const callbackUrl =
       this.configService.get<string>('ZIBAL_CALLBACK_URL') ??
       `${this.getApiUrl().replace(/\/$/, '')}/api/v1/payments/callback/zibal`;
+    const verifyUrl =
+      this.configService.get<string>('ZIBAL_VERIFY_URL') ??
+      'https://gateway.zibal.ir/v1/verify';
 
     return {
       provider: 'zibal',
@@ -37,6 +40,7 @@ export class AppSettingsService {
       requestUrl,
       startPayBaseUrl,
       callbackUrl,
+      verifyUrl,
     };
   }
 

@@ -23,6 +23,7 @@ import {
   AdminDisputeListQueryDto,
   ResolveDisputeDto,
 } from '../dto/admin-dispute.dto';
+import { OrderReputationService } from '../../orders/order-reputation.service';
 
 const DISPUTE_INCLUDE = {
   listing: {
@@ -68,6 +69,7 @@ export class AdminDisputesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notification: NotificationService,
+    private readonly orderReputation: OrderReputationService,
   ) {}
 
   async list(
@@ -248,6 +250,17 @@ export class AdminDisputesService {
             where: { id },
             data: { status: OrderStatus.COMPLETED },
           });
+          await this.orderReputation.recordTerminalOutcome(
+            tx,
+            {
+              id: order.id,
+              buyerId: order.buyerId,
+              sellerId: order.sellerId,
+              tradeReputationAt: order.tradeReputationAt,
+            },
+            OrderStatus.DISPUTED,
+            'SUCCESS',
+          );
           break;
         }
         case DisputeOutcome.PARTIAL_REFUND: {
@@ -344,6 +357,17 @@ export class AdminDisputesService {
             where: { id },
             data: { status: OrderStatus.COMPLETED },
           });
+          await this.orderReputation.recordTerminalOutcome(
+            tx,
+            {
+              id: order.id,
+              buyerId: order.buyerId,
+              sellerId: order.sellerId,
+              tradeReputationAt: order.tradeReputationAt,
+            },
+            OrderStatus.DISPUTED,
+            'SUCCESS',
+          );
           break;
         }
         case DisputeOutcome.CANCEL:

@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { ListingStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import {
   buildPaginationMeta,
@@ -119,5 +119,14 @@ export class AdminListingsQueryService {
     });
     if (!listing) throw new NotFoundException('آگهی یافت نشد');
     return listing;
+  }
+
+  async setStatus(id: string, status: ListingStatus) {
+    const data: Prisma.ListingUpdateInput = { status };
+    if (status === ListingStatus.APPROVED) data.approvedAt = new Date();
+    return this.prisma.listing.update({
+      where: { id },
+      data,
+    });
   }
 }

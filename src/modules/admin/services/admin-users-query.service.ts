@@ -46,6 +46,14 @@ const USER_DETAIL_INCLUDE = {
 
 export type AdminUserListItem = Prisma.UserGetPayload<{ select: typeof USER_LIST_SELECT }>;
 export type AdminUserDetail = Prisma.UserGetPayload<{ include: typeof USER_DETAIL_INCLUDE }>;
+export interface AdminUserActivityItem {
+  id: string;
+  kind: 'LISTING' | 'ORDER_BUY' | 'ORDER_SELL' | 'TICKET' | 'EXCHANGE_OFFER' | 'AUCTION_BID';
+  title: string;
+  subtitle: string;
+  createdAt: Date;
+  meta?: Record<string, unknown>;
+}
 const ADMIN_DEFAULT_PASSWORD = '@Ab123456789@';
 
 @Injectable()
@@ -195,6 +203,114 @@ export class AdminUsersQueryService {
     });
   }
 
+  async activities(
+    actor: AuthenticatedUser,
+    userId: string,
+    limit = 50,
+  ): Promise<AdminUserActivityItem[]> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true, firstName: true, lastName: true, phone: true },
+    });
+    if (!user) throw new NotFoundException('کاربر یافت نشد');
+    this.assertCanManageTarget(actor, user.role);
+
+    const take = Math.max(1, Math.min(Number.isFinite(limit) ? limit : 50, 100));
+    const [listings, buyerOrders, sellerOrders, tickets, offers, bids] = await Promise.all([
+      this.prisma.listing.findMany({
+        where: { authorId: userId },
+        select: { id: true, title: true, status: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.order.findMany({
+        where: { buyerId: userId },
+        select: { id: true, status: true, type: true, listing: { select: { title: true } }, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.order.findMany({
+        where: { sellerId: userId },
+        select: { id: true, status: true, type: true, listing: { select: { title: true } }, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.ticket.findMany({
+        where: { userId },
+        select: { id: true, subject: true, status: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.exchangeOffer.findMany({
+        where: { offererId: userId },
+        select: { id: true, status: true, title: true, listing: { select: { title: true } }, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.auctionBid.findMany({
+        where: { bidderId: userId },
+        select: { id: true, amount: true, status: true, auction: { select: { listing: { select: { title: true } } } }, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+    ]);
+
+    const items: AdminUserActivityItem[] = [
+      ...listings.map((x) => ({
+        id: `listing:${x.id}`,
+        kind: 'LISTING' as const,
+        title: 'ثبت/ویرایش آگهی',
+        subtitle: `${x.title} — وضعیت: ${x.status}`,
+        createdAt: x.createdAt,
+        meta: { listingId: x.id },
+      })),
+      ...buyerOrders.map((x) => ({
+        id: `order-buy:${x.id}`,
+        kind: 'ORDER_BUY' as const,
+        title: 'فعالیت خرید',
+        subtitle: `${x.listing?.title ?? 'سفارش'} — نوع: ${x.type} — وضعیت: ${x.status}`,
+        createdAt: x.createdAt,
+        meta: { orderId: x.id },
+      })),
+      ...sellerOrders.map((x) => ({
+        id: `order-sell:${x.id}`,
+        kind: 'ORDER_SELL' as const,
+        title: 'فعالیت فروش',
+        subtitle: `${x.listing?.title ?? 'سفارش'} — نوع: ${x.type} — وضعیت: ${x.status}`,
+        createdAt: x.createdAt,
+        meta: { orderId: x.id },
+      })),
+      ...tickets.map((x) => ({
+        id: `ticket:${x.id}`,
+        kind: 'TICKET' as const,
+        title: 'تیکت پشتیبانی',
+        subtitle: `${x.subject} — وضعیت: ${x.status}`,
+        createdAt: x.createdAt,
+        meta: { ticketId: x.id },
+      })),
+      ...offers.map((x) => ({
+        id: `exchange-offer:${x.id}`,
+        kind: 'EXCHANGE_OFFER' as const,
+        title: 'پیشنهاد معاوضه',
+        subtitle: `${x.title} — روی آگهی: ${x.listing.title} — وضعیت: ${x.status}`,
+        createdAt: x.createdAt,
+        meta: { exchangeOfferId: x.id },
+      })),
+      ...bids.map((x) => ({
+        id: `auction-bid:${x.id}`,
+        kind: 'AUCTION_BID' as const,
+        title: 'پیشنهاد مزایده',
+        subtitle: `${x.auction.listing.title} — مبلغ: ${x.amount.toString()} — وضعیت: ${x.status}`,
+        createdAt: x.createdAt,
+        meta: { bidId: x.id },
+      })),
+    ];
+
+    return items
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, take);
+  }
+
   private assertCanManageTarget(actor: AuthenticatedUser, targetRole: UserRole): void {
     if (actor.role === UserRole.GODADMIN) return;
     if (actor.role === UserRole.ADMIN && targetRole === UserRole.USER) return;
@@ -212,6 +328,7 @@ export class AdminUsersQueryService {
       lastLoginAt: { lastLoginAt: dir },
       firstName: { firstName: dir },
       phone: { phone: dir },
+      rating: { rating: dir },
     };
     return allowed[sortBy ?? ''] ?? { createdAt: dir };
   }
