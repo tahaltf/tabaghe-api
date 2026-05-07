@@ -36,6 +36,14 @@ export const SETTING_KEYS = {
   PLATFORM_LONGITUDE: 'PLATFORM_LONGITUDE',
   SMS_NOTIFICATION_RULES: 'SMS_NOTIFICATION_RULES',
   SYSTEM_INTRO_CONTENT: 'SYSTEM_INTRO_CONTENT',
+  AUCTION_DEPOSIT_MIN: 'AUCTION_DEPOSIT_MIN',
+  AUCTION_DEPOSIT_MAX: 'AUCTION_DEPOSIT_MAX',
+  AUCTION_MAX_BIDS_PER_MINUTE: 'AUCTION_MAX_BIDS_PER_MINUTE',
+  AUCTION_MAX_ACTIVE_AUCTIONS_PER_USER: 'AUCTION_MAX_ACTIVE_AUCTIONS_PER_USER',
+  AUCTION_MIN_TRUST_SCORE: 'AUCTION_MIN_TRUST_SCORE',
+  AUCTION_ALERT_PENDING_THRESHOLD: 'AUCTION_ALERT_PENDING_THRESHOLD',
+  AUCTION_ALERT_FAILED_THRESHOLD: 'AUCTION_ALERT_FAILED_THRESHOLD',
+  AUCTION_ALERT_COOLDOWN_MINUTES: 'AUCTION_ALERT_COOLDOWN_MINUTES',
 } as const;
 
 export type SettingKey = keyof typeof SETTING_KEYS;
@@ -70,6 +78,14 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   PLATFORM_LONGITUDE: 'مختصات جغرافیایی طول (Longitude) مرکز طبقه',
   SMS_NOTIFICATION_RULES: 'پالیسی نوتیف/پیامک به ازای نوع رویداد (JSON)',
   SYSTEM_INTRO_CONTENT: 'محتوای صفحه معرفی سامانه',
+  AUCTION_DEPOSIT_MIN: 'حداقل ودیعه ورود مزایده (تومان)',
+  AUCTION_DEPOSIT_MAX: 'حداکثر ودیعه ورود مزایده (تومان)',
+  AUCTION_MAX_BIDS_PER_MINUTE: 'حداکثر تعداد ثبت پیشنهاد برای هر کاربر در هر دقیقه',
+  AUCTION_MAX_ACTIVE_AUCTIONS_PER_USER: 'حداکثر تعداد مزایده‌های فعال قابل مشارکت برای هر کاربر',
+  AUCTION_MIN_TRUST_SCORE: 'حداقل امتیاز اعتماد برای مشارکت در مزایده',
+  AUCTION_ALERT_PENDING_THRESHOLD: 'آستانه هشدار تعداد مزایده‌های در انتظار تسویه',
+  AUCTION_ALERT_FAILED_THRESHOLD: 'آستانه هشدار تعداد مزایده‌های شکست‌خورده',
+  AUCTION_ALERT_COOLDOWN_MINUTES: 'حداقل فاصله زمانی بین alertهای سلامت مزایده (دقیقه)',
 };
 
 @Injectable()

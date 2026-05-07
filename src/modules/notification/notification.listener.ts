@@ -62,6 +62,20 @@ export class NotificationListener {
         });
     }
 
+    @OnEvent(AuctionEvents.SECOND_CHANCE_OFFERED)
+    async onSecondChanceOffered(payload: {
+        userId: string;
+        listingId: string;
+    }) {
+        await this.notificationService.create({
+            userId: payload.userId,
+            type: NotificationType.AUCTION_PAYMENT_REMINDER,
+            title: 'فرصت خرید نفر بعدی فعال شد',
+            message: 'برنده قبلی پرداخت نکرد. در صورت تمایل پرداخت را تکمیل کنید.',
+            meta: payload,
+        });
+    }
+
     // -----------------------------------
     // Exchange offer created -> notify listing owner
     // -----------------------------------

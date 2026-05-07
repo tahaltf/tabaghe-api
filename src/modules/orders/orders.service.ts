@@ -34,7 +34,7 @@ import { ExchangeService } from '../exchange/exchange.service';
 export class OrdersService {
   private static readonly DEFAULT_SELLER_SHIP_DEADLINE_MINUTES = 3 * 24 * 60;
   private static readonly DEFAULT_BUYER_CONFIRM_DEADLINE_MINUTES = 4 * 24 * 60;
-  private static readonly DEFAULT_EXCHANGE_NO_SHIPMENT_COMPENSATION = 0;
+  private static readonly DEFAULT_EXCHANGE_NO_SHIPMENT_COMPENSATION = 20;
   private static readonly EXCHANGE_NO_PAYMENT_TIMEOUT_HOURS = 24;
   private static readonly EXCHANGE_SECOND_PAYMENT_TIMEOUT_HOURS = 48;
   private static readonly EXCHANGE_SHIPMENT_TIMEOUT_HOURS = 48;
@@ -544,6 +544,41 @@ export class OrdersService {
         }
         if (listing.auction.highestBidderId !== userId) {
           throw new ForbiddenException('فقط برنده فعلی مزایده می‌تواند پرداخت و سفارش را نهایی کند');
+        }
+        // اگر این پرداخت در پنجره شانس دوم باشد، باید پیشنهاد رسمی شانس دوم وجود داشته باشد و همان لحظه ACCEPTED شود.
+        const now = new Date();
+        const finishedAt = listing.auction.finishedAt ? new Date(listing.auction.finishedAt).getTime() : 0;
+        const deadlineAt = listing.auction.paymentDeadline ? new Date(listing.auction.paymentDeadline).getTime() : 0;
+        const windowHours =
+          finishedAt > 0 && deadlineAt > finishedAt
+            ? (deadlineAt - finishedAt) / (60 * 60 * 1000)
+            : null;
+        const isSecondChanceRound = windowHours != null && windowHours <= 24 + 1;
+
+        const offered = await tx.secondChanceOffer.findFirst({
+          where: {
+            listingId,
+            userId,
+            status: 'OFFERED',
+            expiresAt: { gt: now },
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (isSecondChanceRound && !offered) {
+          throw new ForbiddenException('این پرداخت فقط با پیشنهاد شانس دوم معتبر امکان‌پذیر است');
+        }
+        if (offered) {
+          const accepted = await tx.secondChanceOffer.updateMany({
+            where: {
+              id: offered.id,
+              status: 'OFFERED',
+              expiresAt: { gt: now },
+            },
+            data: { status: 'ACCEPTED', acceptedAt: now },
+          });
+          if (!accepted.count) {
+            throw new BadRequestException('پیشنهاد شانس دوم دیگر معتبر نیست');
+          }
         }
 
         const winnerBidAmount = Number(listing.auction.bids[0].amount);
@@ -1705,6 +1740,8 @@ export class OrdersService {
   @Cron(CronExpression.EVERY_HOUR)
   async autoCancelExpiredOrders() {
     const now = new Date();
+    const exchangeNoShipmentCompensationPercent =
+      await this.getExchangeNoShipmentCompensation();
     const expiredOrders = await this.prisma.order.findMany({
       where: {
         status: { in: [OrderStatus.PAID, OrderStatus.AWAITING_SHIPMENT_TO_HUB] },
@@ -1771,13 +1808,17 @@ export class OrdersService {
             }
 
             // ۲۰٪ از هزینه کارشناسیِ طرفی که ارسال نکرده، به فرستنده پرداخت می‌شود.
-            const compensation = Math.max(0, Math.floor(verificationFee * 0.2));
+            const compensation = Math.max(
+              0,
+              Math.floor((verificationFee * exchangeNoShipmentCompensationPercent) / 100),
+            );
             if (compensation > 0) {
               await this.creditExchangeCompensation(
                 tx,
                 senderId,
                 compensation,
                 order.id,
+                exchangeNoShipmentCompensationPercent,
               );
             }
           } else {
@@ -1928,57 +1969,73 @@ export class OrdersService {
             return;
           }
 
-          if (linkedOrder?.shippingAddress && buyerRefundable > 0) {
+          const shouldRefundBuyerFullShare =
+            shouldCancelForSecondPaymentDelay &&
+            Boolean(linkedOrder?.shippingAddress) &&
+            !Boolean(linkedOrder?.sellerShippingAddress);
+          const shouldRefundSellerFullShare =
+            shouldCancelForSecondPaymentDelay &&
+            Boolean(linkedOrder?.sellerShippingAddress) &&
+            !Boolean(linkedOrder?.shippingAddress);
+
+          const buyerRefundAmount = shouldRefundBuyerFullShare ? buyerShare : buyerRefundable;
+          const sellerRefundAmount = shouldRefundSellerFullShare ? sellerShare : sellerRefundable;
+
+          if (linkedOrder?.shippingAddress && buyerRefundAmount > 0) {
             await tx.wallet.upsert({
               where: { userId: linkedOrder.buyerId },
               create: {
                 userId: linkedOrder.buyerId,
-                balanceAvailable: buyerRefundable,
+                balanceAvailable: buyerRefundAmount,
                 balanceBlocked: 0,
               },
               update: {
-                balanceAvailable: { increment: buyerRefundable },
+                balanceAvailable: { increment: buyerRefundAmount },
               },
             });
             await tx.walletTransaction.create({
               data: {
                 wallet: { connect: { userId: linkedOrder.buyerId } },
-                amount: buyerRefundable,
+                amount: buyerRefundAmount,
                 type: WalletTransactionType.DEPOSIT,
                 status: WalletTransactionStatus.SUCCESS,
                 referenceId: linkedOrder.id,
                 meta: {
                   kind: 'exchange-timeout-refund',
-                  description:
-                    'بازگشت وجه به‌دلیل عدم تکمیل معاوضه در مهلت ۴۸ ساعته (بدون عودت کارشناسی)',
+                  fullPaidShareRefunded: shouldRefundBuyerFullShare,
+                  description: shouldRefundBuyerFullShare
+                    ? 'بازگشت کامل سهم پرداختی به‌دلیل عدم پرداخت طرف مقابل در مهلت مقرر'
+                    : 'بازگشت وجه به‌دلیل عدم تکمیل معاوضه در مهلت ۴۸ ساعته (بدون عودت کارشناسی)',
                 },
               },
             });
           }
 
-          if (linkedOrder?.sellerShippingAddress && sellerRefundable > 0) {
+          if (linkedOrder?.sellerShippingAddress && sellerRefundAmount > 0) {
             await tx.wallet.upsert({
               where: { userId: linkedOrder.sellerId },
               create: {
                 userId: linkedOrder.sellerId,
-                balanceAvailable: sellerRefundable,
+                balanceAvailable: sellerRefundAmount,
                 balanceBlocked: 0,
               },
               update: {
-                balanceAvailable: { increment: sellerRefundable },
+                balanceAvailable: { increment: sellerRefundAmount },
               },
             });
             await tx.walletTransaction.create({
               data: {
                 wallet: { connect: { userId: linkedOrder.sellerId } },
-                amount: sellerRefundable,
+                amount: sellerRefundAmount,
                 type: WalletTransactionType.DEPOSIT,
                 status: WalletTransactionStatus.SUCCESS,
                 referenceId: linkedOrder.id,
                 meta: {
                   kind: 'exchange-timeout-refund',
-                  description:
-                    'بازگشت وجه به‌دلیل عدم تکمیل معاوضه در مهلت ۴۸ ساعته (بدون عودت کارشناسی)',
+                  fullPaidShareRefunded: shouldRefundSellerFullShare,
+                  description: shouldRefundSellerFullShare
+                    ? 'بازگشت کامل سهم پرداختی به‌دلیل عدم پرداخت طرف مقابل در مهلت مقرر'
+                    : 'بازگشت وجه به‌دلیل عدم تکمیل معاوضه در مهلت ۴۸ ساعته (بدون عودت کارشناسی)',
                 },
               },
             });
@@ -2337,7 +2394,11 @@ export class OrdersService {
   }
 
   private async getExchangeNoShipmentCompensation(): Promise<number> {
-    const setting = await this.prisma.systemSetting.findUnique({
+    const findUnique = (this.prisma.systemSetting as any)?.findUnique;
+    if (typeof findUnique !== 'function') {
+      return OrdersService.DEFAULT_EXCHANGE_NO_SHIPMENT_COMPENSATION;
+    }
+    const setting = await findUnique.call(this.prisma.systemSetting, {
       where: { key: 'EXCHANGE_NO_SHIPMENT_COMPENSATION' },
       select: { value: true },
     });
@@ -2373,6 +2434,7 @@ export class OrdersService {
     userId: string,
     amount: number,
     orderId: string,
+    compensationPercent: number,
   ): Promise<void> {
     await tx.wallet.upsert({
       where: { userId },
@@ -2394,7 +2456,8 @@ export class OrdersService {
         referenceId: orderId,
         meta: {
           kind: 'exchange-compensation',
-          description: 'به پاس عذرخواهی بابت عدم ارسال طرف مقابل',
+          compensationPercent,
+          description: 'پرداخت جبرانی بابت عدم ارسال طرف مقابل',
         },
       },
     });

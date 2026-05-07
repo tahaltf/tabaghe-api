@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, UserRole, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
@@ -201,6 +201,56 @@ export class AdminUsersQueryService {
       data: { rating },
       select: { id: true, rating: true },
     });
+  }
+
+  async createUser(
+    actor: AuthenticatedUser,
+    input: {
+      phone: string;
+      password?: string;
+      firstName?: string;
+      lastName?: string;
+      role?: UserRole;
+      isActive?: boolean;
+    },
+  ): Promise<{ id: string; phone: string; role: UserRole; isActive: boolean }> {
+    const phone = input.phone.trim();
+    const requestedRole = input.role ?? UserRole.USER;
+    const role =
+      actor.role === UserRole.GODADMIN
+        ? requestedRole
+        : UserRole.USER;
+    if (actor.role !== UserRole.GODADMIN && requestedRole !== UserRole.USER) {
+      throw new ForbiddenException('ادمین فقط می‌تواند کاربر عادی ایجاد کند');
+    }
+
+    const existing = await this.prisma.user.findUnique({
+      where: { phone },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new BadRequestException('کاربری با این شماره موبایل قبلاً ثبت شده است');
+    }
+
+    const rawPassword = (input.password?.trim() || ADMIN_DEFAULT_PASSWORD);
+    const passwordHash = await bcrypt.hash(rawPassword, 10);
+    const created = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          phone,
+          firstName: input.firstName?.trim() || null,
+          lastName: input.lastName?.trim() || null,
+          role,
+          isActive: input.isActive ?? true,
+          status: UserStatus.INCOMPLETE,
+          passwordHash,
+        },
+        select: { id: true, phone: true, role: true, isActive: true },
+      });
+      await tx.wallet.create({ data: { userId: user.id } });
+      return user;
+    });
+    return created;
   }
 
   async activities(

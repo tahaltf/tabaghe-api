@@ -51,6 +51,30 @@ export class AuctionController {
         return this.auctionService.cancelBid(req.user.id, listingId);
     }
 
+    @UseGuards(JwtAuthGuard)
+    @Throttle({
+        default: {
+            limit: 5,
+            ttl: 60_000,
+        },
+    })
+    @Post(':listingId/decline-second-chance')
+    declineSecondChance(
+        @Req() req: any,
+        @Param('listingId') listingId: string,
+        @Headers('idempotency-key') key?: string,
+    ) {
+        if (!key) {
+            return this.auctionService.declineSecondChance(req.user.id, listingId);
+        }
+        return this.idempotencyService.execute({
+            key,
+            userId: req.user.id,
+            endpoint: 'DECLINE_SECOND_CHANCE',
+            handler: () => this.auctionService.declineSecondChance(req.user.id, listingId),
+        });
+    }
+
     // -----------------------------------
     // Get Auction State (Public, اما viewer رو در صورت لاگین بودن خوانده می‌شه)
     // -----------------------------------
@@ -120,16 +144,11 @@ export class AuctionController {
         @Req() req,
         @Headers('idempotency-key') key: string,
     ) {
-        if (!key) {
-            throw new BadRequestException('هدر Idempotency-Key الزامی است');
-        }
-
-        return this.idempotencyService.execute({
-            key,
-            userId: req.user.id,
-            endpoint: 'AUCTION_PAY',
-            handler: () =>
-                this.auctionService.payAuction(req.user.id, listingId),
-        });
+        void listingId;
+        void req;
+        void key;
+        throw new BadRequestException(
+            'این مسیر غیرفعال شده است. برای پرداخت مزایده از مسیر checkout و ایجاد سفارش استفاده کنید.',
+        );
     }
 }

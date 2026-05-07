@@ -20,4 +20,14 @@ export class AdminLogsController {
   termsConsents(@Query('limit', new DefaultValuePipe(200), ParseIntPipe) limit: number) {
     return this.logs.listTermsConsents(limit);
   }
+
+  @Get('auction-ledger')
+  auctionLedger(@Query('limit', new DefaultValuePipe(500), ParseIntPipe) limit: number) {
+    return this.logs.listAuctionLedger(limit);
+  }
+
+  @Get('auction-timeline')
+  auctionTimeline(@Query('limit', new DefaultValuePipe(500), ParseIntPipe) limit: number) {
+    return this.logs.listAuctionTimeline(limit);
+  }
 }

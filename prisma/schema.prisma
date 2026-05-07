@@ -132,6 +132,13 @@ enum AuctionBidStatus {
   CANCELLED
 }
 
+enum SecondChanceOfferStatus {
+  OFFERED
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
 enum ExchangeOfferStatus {
   PENDING
   WAITLISTED
@@ -248,6 +255,7 @@ model User {
   notifications       Notification[]
   exchangeOffers      ExchangeOffer[]
   bids                AuctionBid[]
+  secondChanceOffers  SecondChanceOffer[]
   addresses           Address[]
 
   highestBids         ListingAuction[] @relation("HighestBidder")
@@ -428,8 +436,33 @@ model ListingAuction {
   settlementStatus AuctionSettlementStatus @default(PENDING)
   paymentDeadline  DateTime?
   finishedAt       DateTime?
+  secondChanceOffers SecondChanceOffer[]
 
   @@index([status, endDatetime])
+}
+
+model SecondChanceOffer {
+  id        String                 @id @default(cuid())
+  listingId String
+  auction   ListingAuction         @relation(fields: [listingId], references: [listingId], onDelete: Cascade)
+
+  userId    String
+  user      User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  amount    Decimal
+  status    SecondChanceOfferStatus @default(OFFERED)
+  expiresAt DateTime
+
+  acceptedAt DateTime?
+  declinedAt DateTime?
+  expiredAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([listingId, createdAt])
+  @@index([userId, createdAt])
+  @@unique([listingId, userId, status])
 }
 
 model AuctionBid {

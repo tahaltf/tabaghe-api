@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { existsSync, mkdirSync } from 'fs';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import type { MulterOptions } from '@nestjs/platform-express/multer/interfaces/multer-options.interface';
 
 const UPLOAD_PATH = './uploads/banners';
@@ -19,7 +19,7 @@ export const bannerMulterOptions: MulterOptions = {
       cb(null, UPLOAD_PATH);
     },
     filename: (_req, file, cb) => {
-      cb(null, `banner-${uuidv4()}${extname(file.originalname)}`);
+      cb(null, `banner-${randomUUID()}${extname(file.originalname)}`);
     },
   }),
   fileFilter: (_req, file, cb) => {

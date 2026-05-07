@@ -208,7 +208,7 @@ describe('OrdersService', () => {
     );
 
     // 20% compensation for sender
-    expect(creditSpy).toHaveBeenCalledWith(tx, sellerId, 20, orderId);
+    expect(creditSpy).toHaveBeenCalledWith(tx, sellerId, 20, orderId, 20);
 
     // State machine transition: we keep exchange in flow by marking REJECTED_AT_HUB
     expect(stateMachineMock.assertTransition).toHaveBeenCalledWith(

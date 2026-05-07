@@ -4,4 +4,5 @@ export const AuctionEvents = {
     OUTBID: 'auction.bid.outbid',
     FINISHED: 'auction.finished',
     PENALIZED: 'auction.penalized',
+    SECOND_CHANCE_OFFERED: 'auction.second_chance.offered',
 };

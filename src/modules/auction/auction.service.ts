@@ -12,17 +12,25 @@ import {
   AuctionStatus,
   AuctionSettlementStatus,
   ListingType, // 👈 اضافه شد
+  SecondChanceOfferStatus,
 } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { AuctionGateway } from './auction.gateway';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuctionEvents } from './auction.events';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { appendJsonLog } from '../../common/logging/app-log.util';
 
 const TOP_BIDDERS_LIMIT = 4;
-const BID_CANCEL_LOCK_HOURS = 12;
 const LAST_MINUTE_EXTENSION_MINUTES = 10;
-const DEFAULT_WINNER_PAYMENT_DEADLINE_HOURS = 24;
+const DEFAULT_WINNER_PAYMENT_DEADLINE_HOURS = 48;
+const SECOND_CHANCE_PAYMENT_DEADLINE_HOURS = 24;
+const MIN_TRUST_SCORE_FOR_AUCTION = 40;
+const DEFAULT_AUCTION_DEPOSIT_MIN = 50_000;
+const DEFAULT_AUCTION_DEPOSIT_MAX = 500_000_000;
+const DEFAULT_MAX_BIDS_PER_MINUTE = 20;
+const DEFAULT_MAX_ACTIVE_AUCTIONS_PER_USER = 15;
+const DEFAULT_MAX_REBIDS_PER_10_MIN = 8;
+const DEFAULT_MAX_BID_JUMP_MULTIPLIER = 2.5;
 
 @Injectable()
 export class AuctionService {
@@ -34,6 +42,20 @@ export class AuctionService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
+  private appendAuctionLedgerEvent(payload: Record<string, unknown>) {
+    appendJsonLog('auction-ledger.log', {
+      ts: new Date().toISOString(),
+      ...payload,
+    });
+  }
+
+  private appendAuctionTimelineEvent(payload: Record<string, unknown>) {
+    appendJsonLog('auction-timeline.log', {
+      ts: new Date().toISOString(),
+      ...payload,
+    });
+  }
+
   private async getWinnerPaymentDeadlineHours(tx: any): Promise<number> {
     const row = await tx.systemSetting.findUnique({
       where: { key: 'AUCTION_WINNER_PAYMENT_DEADLINE_HOURS' },
@@ -44,6 +66,69 @@ export class AuctionService {
       return DEFAULT_WINNER_PAYMENT_DEADLINE_HOURS;
     }
     return Math.floor(parsed);
+  }
+
+  private async getNumericSetting(
+    tx: any,
+    key: string,
+    fallback: number,
+  ): Promise<number> {
+    const row = await tx.systemSetting.findUnique({
+      where: { key },
+      select: { value: true },
+    });
+    const parsed = Number(row?.value ?? fallback);
+    if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+    return parsed;
+  }
+
+  private async getPolicyNumber(
+    tx: any,
+    policyKey: string,
+    settingKey: string,
+    fallback: number,
+    listingId?: string,
+    basePrice?: Decimal,
+  ): Promise<number> {
+    const policyRow = await tx.systemSetting.findUnique({
+      where: { key: 'AUCTION_POLICY_V2_JSON' },
+      select: { value: true },
+    });
+    let policy: any = null;
+    try {
+      policy = policyRow?.value ? JSON.parse(policyRow.value) : null;
+    } catch {
+      policy = null;
+    }
+    const categoryId = listingId
+      ? (await tx.listing.findUnique({
+          where: { id: listingId },
+          select: { categoryId: true },
+        }))?.categoryId
+      : null;
+
+    const fromGlobal = Number(policy?.global?.[policyKey]);
+    const fromCategory = categoryId ? Number(policy?.categories?.[categoryId]?.[policyKey]) : NaN;
+    let fromTier = NaN;
+    if (basePrice && Array.isArray(policy?.priceTiers)) {
+      const price = basePrice.toNumber();
+      const tier = policy.priceTiers.find((t: any) => {
+        const min = Number(t?.min ?? 0);
+        const max = t?.max == null ? Number.POSITIVE_INFINITY : Number(t.max);
+        return Number.isFinite(min) && price >= min && price <= max;
+      });
+      fromTier = Number(tier?.values?.[policyKey]);
+    }
+    const hierarchical =
+      Number.isFinite(fromTier) && fromTier > 0
+        ? fromTier
+        : Number.isFinite(fromCategory) && fromCategory > 0
+          ? fromCategory
+          : Number.isFinite(fromGlobal) && fromGlobal > 0
+            ? fromGlobal
+            : NaN;
+    if (Number.isFinite(hierarchical) && hierarchical > 0) return hierarchical;
+    return this.getNumericSetting(tx, settingKey, fallback);
   }
 
   private async getAuctionDepositPercent(tx: any, listingId: string): Promise<Decimal> {
@@ -66,6 +151,38 @@ export class AuctionService {
     const percent = feeRule?.auctionDepositPercent ?? listing.category?.auctionDepositPercent ?? 10;
     const dec = new Decimal(percent);
     return dec.gt(0) ? dec : new Decimal(10);
+  }
+
+  private async getFixedDepositAmount(tx: any, listingId: string): Promise<Decimal> {
+    const auction = await tx.listingAuction.findUnique({
+      where: { listingId },
+      select: { basePrice: true },
+    });
+    if (!auction) throw new NotFoundException('مزایده یافت نشد');
+
+    const depositPercent = await this.getAuctionDepositPercent(tx, listingId);
+    const minDeposit = await this.getPolicyNumber(
+      tx,
+      'depositMin',
+      'AUCTION_DEPOSIT_MIN',
+      DEFAULT_AUCTION_DEPOSIT_MIN,
+      listingId,
+      new Decimal(auction.basePrice),
+    );
+    const maxDeposit = await this.getPolicyNumber(
+      tx,
+      'depositMax',
+      'AUCTION_DEPOSIT_MAX',
+      DEFAULT_AUCTION_DEPOSIT_MAX,
+      listingId,
+      new Decimal(auction.basePrice),
+    );
+    const raw = new Decimal(auction.basePrice)
+      .mul(depositPercent)
+      .div(100)
+      .toDecimalPlaces(0, Decimal.ROUND_CEIL);
+    const clamped = Decimal.max(new Decimal(minDeposit), Decimal.min(raw, new Decimal(maxDeposit)));
+    return clamped;
   }
 
   private async getTopActiveBids(tx: any, listingId: string) {
@@ -113,16 +230,69 @@ export class AuctionService {
         where: { listingId },
         include: { listing: { select: { authorId: true } } },
       });
+      const bidder = await tx.user.findUnique({
+        where: { id: userId },
+        select: { trustScore: true, isVerified: true },
+      });
 
       if (!auction) throw new NotFoundException('مزایده یافت نشد');
+      if (!bidder) throw new NotFoundException('کاربر یافت نشد');
       if (auction.status !== AuctionStatus.ACTIVE) {
         throw new ForbiddenException('مزایده فعال نیست');
+      }
+      const minTrustScore = await this.getPolicyNumber(
+        tx,
+        'minTrustScore',
+        'AUCTION_MIN_TRUST_SCORE',
+        MIN_TRUST_SCORE_FOR_AUCTION,
+        listingId,
+        new Decimal(auction.basePrice),
+      );
+      if (!bidder.isVerified || Number(bidder.trustScore ?? 0) < minTrustScore) {
+        throw new ForbiddenException(
+          'به دلیل وضعیت اعتماد حساب، امکان شرکت در مزایده برای شما فعال نیست. لطفاً با پشتیبانی تماس بگیرید.',
+        );
       }
       if (new Date() >= auction.endDatetime) {
         throw new ForbiddenException('زمان مزایده تمام شده است');
       }
       if (auction.listing.authorId === userId) {
         throw new ForbiddenException('ثبت پیشنهاد روی آگهی خودتان مجاز نیست');
+      }
+
+      const oneMinuteAgo = new Date(Date.now() - 60_000);
+      const maxBidsPerMinute = await this.getPolicyNumber(
+        tx,
+        'maxBidsPerMinute',
+        'AUCTION_MAX_BIDS_PER_MINUTE',
+        DEFAULT_MAX_BIDS_PER_MINUTE,
+        listingId,
+        new Decimal(auction.basePrice),
+      );
+      const recentBidsCount = await tx.auctionBid.count({
+        where: { bidderId: userId, createdAt: { gte: oneMinuteAgo } },
+      });
+      if (recentBidsCount >= maxBidsPerMinute) {
+        throw new ForbiddenException('تعداد ثبت پیشنهاد شما در این دقیقه بیش از حد مجاز است');
+      }
+
+      const maxActiveAuctions = await this.getPolicyNumber(
+        tx,
+        'maxActiveAuctionsPerUser',
+        'AUCTION_MAX_ACTIVE_AUCTIONS_PER_USER',
+        DEFAULT_MAX_ACTIVE_AUCTIONS_PER_USER,
+        listingId,
+        new Decimal(auction.basePrice),
+      );
+      const activeAuctionParticipations = await tx.auctionBid.count({
+        where: {
+          bidderId: userId,
+          status: AuctionBidStatus.ACTIVE,
+          auction: { status: AuctionStatus.ACTIVE },
+        },
+      });
+      if (activeAuctionParticipations >= maxActiveAuctions) {
+        throw new ForbiddenException('تعداد مزایده‌های فعال شما به سقف مجاز رسیده است');
       }
 
       const currentHighest = auction.highestBidAmount
@@ -145,11 +315,41 @@ export class AuctionService {
         throw new BadRequestException('شما در حال حاضر بالاترین پیشنهاد را دارید');
       }
 
-      const depositPercent = await this.getAuctionDepositPercent(tx, listingId);
-      const depositAmount = bidAmount
-        .mul(depositPercent)
-        .div(100)
-        .toDecimalPlaces(0, Decimal.ROUND_CEIL);
+      // Anti-fraud v2 (behavioral guard): excessive re-bidding churn in short window
+      const maxRebidsPer10Min = await this.getPolicyNumber(
+        tx,
+        'maxRebidsPer10Minutes',
+        'AUCTION_MAX_REBIDS_PER_10_MINUTES',
+        DEFAULT_MAX_REBIDS_PER_10_MIN,
+        listingId,
+        new Decimal(auction.basePrice),
+      );
+      const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+      const rebidsCount = await tx.auctionBid.count({
+        where: { listingId, bidderId: userId, createdAt: { gte: tenMinutesAgo } },
+      });
+      if (rebidsCount >= maxRebidsPer10Min) {
+        throw new ForbiddenException('به دلیل رفتار غیرعادی در ثبت پیشنهاد، موقتاً امکان ادامه مزایده محدود شد');
+      }
+
+      // Anti-fraud v2 (sanity guard): abnormal jump beyond configured multiplier
+      if (currentHighest) {
+        const maxJumpMultiplier = await this.getPolicyNumber(
+          tx,
+          'maxBidJumpMultiplier',
+          'AUCTION_MAX_BID_JUMP_MULTIPLIER',
+          DEFAULT_MAX_BID_JUMP_MULTIPLIER,
+          listingId,
+          new Decimal(auction.basePrice),
+        );
+        const maxAllowed = currentHighest.mul(maxJumpMultiplier);
+        if (bidAmount.gt(maxAllowed)) {
+          throw new BadRequestException('افزایش قیمت پیشنهادی بیش از حد مجاز این مزایده است');
+        }
+      }
+
+      // ودیعه باید ثابت و مبتنی بر قیمت پایه مزایده باشد (نه مبلغ هر پیشنهاد).
+      const depositAmount = await this.getFixedDepositAmount(tx, listingId);
 
       if (depositAmount.lte(0)) {
         throw new BadRequestException('خطا در محاسبه ودیعه (مبلغ نامعتبر)');
@@ -222,6 +422,19 @@ export class AuctionService {
       return newBid;
     });
 
+    this.appendAuctionLedgerEvent({
+      event: 'BID_PLACED',
+      listingId,
+      actorUserId: userId,
+      amount: bidAmount.toNumber(),
+    });
+    this.appendAuctionTimelineEvent({
+      event: 'BID_PLACED',
+      listingId,
+      actorUserId: userId,
+      amount: bidAmount.toNumber(),
+    });
+
     this.auctionGateway.emitBidPlaced(listingId, {
       bidderId: userId,
       amount: result.amount,
@@ -272,6 +485,26 @@ export class AuctionService {
         },
       });
 
+      // در پایان مزایده فقط ودیعه نفر اول نگه داشته می‌شود.
+      // ودیعه نفرات بعدی باید فوری آزاد شود تا سرمایه کاربر بی‌دلیل حبس نشود.
+      const nonWinnerActiveBids = await tx.auctionBid.findMany({
+        where: {
+          listingId,
+          status: AuctionBidStatus.ACTIVE,
+          bidderId: { not: topBids[0].bidderId },
+        },
+      });
+      for (const bid of nonWinnerActiveBids) {
+        const blocked = new Decimal(bid.blockedAmount ?? 0);
+        if (blocked.gt(0)) {
+          await this.walletService.unblockAmount(bid.bidderId, blocked, listingId, tx);
+        }
+        await tx.auctionBid.update({
+          where: { id: bid.id },
+          data: { status: AuctionBidStatus.OUTBID, blockedAmount: 0 },
+        });
+      }
+
       return {
         winnerUserId: topBids[0].bidderId,
         amount: topBids[0].amount,
@@ -279,6 +512,12 @@ export class AuctionService {
     });
 
     if (result?.winnerUserId) {
+      this.appendAuctionTimelineEvent({
+        event: 'AUCTION_FINISHED',
+        listingId,
+        winnerUserId: result.winnerUserId,
+        amount: Number(result.amount),
+      });
       this.auctionGateway.emitAuctionFinished(listingId, result);
       this.eventEmitter.emit(AuctionEvents.FINISHED, {
         listingId,
@@ -294,7 +533,7 @@ export class AuctionService {
   // Pay auction (با کسر کارمزد داینامیک)
   // -----------------------------------
   async payAuction(userId: string | null, listingId: string) {
-    return this.prisma.$transaction(async (tx) => {
+    const res = await this.prisma.$transaction(async (tx) => {
       const auction = await tx.listingAuction.findUnique({
         where: { listingId },
         include: { listing: true },
@@ -380,13 +619,18 @@ export class AuctionService {
 
       return { ok: true, message: 'پرداخت با موفقیت انجام شد' };
     });
+    this.appendAuctionLedgerEvent({
+      event: 'AUCTION_PAID',
+      listingId,
+      actorUserId: userId,
+    });
+    return res;
   }
 
   // -----------------------------------
   // CRON & PROCESS LOGIC
   // -----------------------------------
 
-  @Cron(CronExpression.EVERY_10_MINUTES)
   async checkUnpaidAuctions() {
     const now = new Date();
     const expiredAuctions = await this.prisma.listingAuction.findMany({
@@ -398,18 +642,118 @@ export class AuctionService {
     });
 
     for (const auction of expiredAuctions) {
-      await this.processNextWinner(auction.listingId);
+      const finishTimestamp = auction.finishedAt ? new Date(auction.finishedAt).getTime() : 0;
+      const deadlineTimestamp = auction.paymentDeadline
+        ? new Date(auction.paymentDeadline).getTime()
+        : 0;
+      const deadlineHours = deadlineTimestamp > finishTimestamp
+        ? (deadlineTimestamp - finishTimestamp) / (60 * 60 * 1000)
+        : DEFAULT_WINNER_PAYMENT_DEADLINE_HOURS;
+      const isSecondChanceRound = deadlineHours <= SECOND_CHANCE_PAYMENT_DEADLINE_HOURS + 1;
+      await this.processNextWinner(
+        auction.listingId,
+        isSecondChanceRound ? { mode: 'second_chance_timeout' } : { mode: 'penalize' },
+      );
     }
   }
 
   async penalizeWinner(listingId: string) {
-    return this.processNextWinner(listingId);
+    return this.processNextWinner(listingId, { mode: 'penalize' });
   }
 
-  private async processNextWinner(listingId: string) {
+  async declineSecondChance(userId: string, listingId: string) {
+    const auction = await this.prisma.listingAuction.findUnique({
+      where: { listingId },
+      select: {
+        status: true,
+        settlementStatus: true,
+        highestBidderId: true,
+      },
+    });
+    if (!auction) throw new NotFoundException('مزایده یافت نشد');
+    if (auction.status !== AuctionStatus.FINISHED) {
+      throw new BadRequestException('این مزایده هنوز نهایی نشده است');
+    }
+    if (auction.settlementStatus !== AuctionSettlementStatus.PENDING) {
+      throw new BadRequestException('این مزایده در وضعیت قابل پاسخ‌گویی نیست');
+    }
+    if (auction.highestBidderId !== userId) {
+      throw new ForbiddenException('فقط برنده فعلی می‌تواند پیشنهاد شانس دوم را رد کند');
+    }
+
+    return this.processNextWinner(listingId, {
+      mode: 'decline',
+      actingUserId: userId,
+    });
+  }
+
+  private async processNextWinner(
+    listingId: string,
+    options:
+      | { mode: 'penalize' }
+      | { mode: 'decline'; actingUserId: string }
+      | { mode: 'second_chance_timeout' } = { mode: 'penalize' },
+  ) {
     await this.prisma.$transaction(async (tx) => {
       const auction = await tx.listingAuction.findUnique({ where: { listingId } });
       if (!auction) return;
+      if (
+        auction.status !== AuctionStatus.FINISHED ||
+        auction.settlementStatus !== AuctionSettlementStatus.PENDING
+      ) {
+        return;
+      }
+
+      const isPenalize = options.mode === 'penalize';
+      const isDecline = options.mode === 'decline';
+      const isSecondChanceTimeout = options.mode === 'second_chance_timeout';
+      const now = new Date();
+
+      // Optimistic concurrency (compare-and-swap): if another worker changed auction row,
+      // this transition is skipped to avoid double-processing.
+      const cas = await tx.listingAuction.updateMany({
+        where: {
+          listingId,
+          status: AuctionStatus.FINISHED,
+          settlementStatus: AuctionSettlementStatus.PENDING,
+          highestBidderId: auction.highestBidderId,
+          highestBidAmount: auction.highestBidAmount,
+          paymentDeadline: auction.paymentDeadline,
+          finishedAt: auction.finishedAt,
+        },
+        data: {
+          // no logical state change; this write only claims transition ownership
+          settlementStatus: AuctionSettlementStatus.PENDING,
+        },
+      });
+      if (!cas.count) return;
+
+      // State-machine transition guard برای شانس دوم:
+      // decline: OFFERED -> DECLINED (فقط توسط همان کاربر)
+      // timeout: OFFERED -> EXPIRED (فقط در کران زمانی)
+      if ((isDecline || isSecondChanceTimeout) && auction.highestBidderId) {
+        const transitionUserId = isDecline ? options.actingUserId : auction.highestBidderId;
+        const offerTransition = await tx.secondChanceOffer.updateMany({
+          where: {
+            listingId,
+            userId: transitionUserId,
+            status: SecondChanceOfferStatus.OFFERED,
+            ...(isDecline ? { expiresAt: { gt: now } } : { expiresAt: { lte: now } }),
+          },
+          data: isDecline
+            ? {
+                status: SecondChanceOfferStatus.DECLINED,
+                declinedAt: now,
+              }
+            : {
+                status: SecondChanceOfferStatus.EXPIRED,
+                expiredAt: now,
+              },
+        });
+        // اگر transition انجام نشد یعنی قبلاً توسط مسیر دیگری پردازش شده؛
+        // برای idempotency/race-safe بدون خطا خارج می‌شویم.
+        if (!offerTransition.count) return;
+      }
 
       const currentWinnerBid = auction.highestBidderId
         ? await tx.auctionBid.findFirst({
@@ -424,13 +768,28 @@ export class AuctionService {
 
       if (currentWinnerBid) {
         const blocked = new Decimal(currentWinnerBid.blockedAmount ?? 0);
-        if (blocked.gt(0)) {
+        if (blocked.gt(0) && isPenalize) {
           await this.walletService.confiscateBlocked(
             currentWinnerBid.bidderId,
             blocked,
             listingId,
             tx,
           );
+          const winnerUser = await tx.user.findUnique({
+            where: { id: currentWinnerBid.bidderId },
+            select: { trustScore: true },
+          });
+          const currentTrust = Number(winnerUser?.trustScore ?? 100);
+          await tx.user.update({
+            where: { id: currentWinnerBid.bidderId },
+            data: {
+              trustScore: Math.max(0, currentTrust - 5),
+            },
+          });
+          this.eventEmitter.emit(AuctionEvents.PENALIZED, {
+            listingId,
+            userId: currentWinnerBid.bidderId,
+          });
         }
         await tx.auctionBid.update({
           where: { id: currentWinnerBid.id },
@@ -438,22 +797,14 @@ export class AuctionService {
         });
       }
 
-      const topBids = await this.syncAuctionRanking(tx, listingId);
-      const nextWinner = topBids[0];
+      const nextWinner = await tx.auctionBid.findFirst({
+        where: {
+          listingId,
+          status: AuctionBidStatus.OUTBID,
+        },
+        orderBy: [{ amount: 'desc' }, { createdAt: 'asc' }],
+      });
       if (!nextWinner) {
-        const leftovers = await tx.auctionBid.findMany({
-          where: { listingId, status: AuctionBidStatus.ACTIVE },
-        });
-        for (const bid of leftovers) {
-          const blocked = new Decimal(bid.blockedAmount ?? 0);
-          if (blocked.gt(0)) {
-            await this.walletService.unblockAmount(bid.bidderId, blocked, listingId, tx);
-          }
-          await tx.auctionBid.update({
-            where: { id: bid.id },
-            data: { status: AuctionBidStatus.LOST, blockedAmount: 0 },
-          });
-        }
         await tx.listingAuction.update({
           where: { listingId },
           data: { settlementStatus: AuctionSettlementStatus.FAILED, paymentDeadline: null },
@@ -461,56 +812,68 @@ export class AuctionService {
         return;
       }
 
-      const deadlineHours = await this.getWinnerPaymentDeadlineHours(tx);
+      await tx.auctionBid.update({
+        where: { id: nextWinner.id },
+        data: { status: AuctionBidStatus.ACTIVE },
+      });
+
+      const deadlineHours = SECOND_CHANCE_PAYMENT_DEADLINE_HOURS;
+      const ranking = await this.syncAuctionRanking(tx, listingId);
       await tx.listingAuction.update({
         where: { listingId },
         data: {
-          highestBidAmount: nextWinner.amount,
-          highestBidderId: nextWinner.bidderId,
-          secondBidderId: topBids[1]?.bidderId ?? null,
-          thirdBidderId: topBids[2]?.bidderId ?? null,
+          highestBidAmount: ranking[0]?.amount ?? nextWinner.amount,
+          highestBidderId: ranking[0]?.bidderId ?? nextWinner.bidderId,
+          secondBidderId: ranking[1]?.bidderId ?? null,
+          thirdBidderId: ranking[2]?.bidderId ?? null,
           paymentDeadline: new Date(Date.now() + deadlineHours * 60 * 60 * 1000),
           settlementStatus: AuctionSettlementStatus.PENDING,
+          finishedAt: new Date(),
         },
+      });
+
+      // ثبت رسمی پیشنهاد شانس دوم برای audit و کنترل وضعیت‌ها
+      await tx.secondChanceOffer.create({
+        data: {
+          listingId,
+          userId: nextWinner.bidderId,
+          amount: nextWinner.amount,
+          status: SecondChanceOfferStatus.OFFERED,
+          expiresAt: new Date(now.getTime() + deadlineHours * 60 * 60 * 1000),
+        },
+      });
+
+      this.eventEmitter.emit(AuctionEvents.SECOND_CHANCE_OFFERED, {
+        listingId,
+        userId: nextWinner.bidderId,
+      });
+
+      this.appendAuctionTimelineEvent({
+        event: isPenalize
+          ? 'SECOND_CHANCE_FROM_PENALTY'
+          : isDecline
+            ? 'SECOND_CHANCE_FROM_DECLINE'
+            : 'SECOND_CHANCE_FROM_TIMEOUT',
+        listingId,
+        fromUserId: currentWinnerBid?.bidderId ?? auction.highestBidderId ?? null,
+        toUserId: nextWinner.bidderId,
+        amount: Number(nextWinner.amount),
       });
     });
   }
 
   async cancelBid(userId: string, listingId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      const auction = await tx.listingAuction.findUnique({ where: { listingId } });
-      if (!auction) throw new NotFoundException('مزایده یافت نشد');
-      if (auction.status !== AuctionStatus.ACTIVE) {
-        throw new BadRequestException('فقط در مزایده فعال امکان انصراف وجود دارد');
-      }
-
-      const lockWindowMs = BID_CANCEL_LOCK_HOURS * 60 * 60 * 1000;
-      if (auction.endDatetime.getTime() - Date.now() <= lockWindowMs) {
-        throw new BadRequestException('تا ۱۲ ساعت مانده به پایان مزایده امکان انصراف وجود ندارد');
-      }
-
-      const bid = await tx.auctionBid.findFirst({
-        where: { listingId, bidderId: userId, status: AuctionBidStatus.ACTIVE },
-        orderBy: { amount: 'desc' },
-      });
-      if (!bid) throw new BadRequestException('پیشنهاد فعال برای انصراف یافت نشد');
-
-      const blocked = new Decimal(bid.blockedAmount ?? 0);
-      if (blocked.gt(0)) {
-        await this.walletService.unblockAmount(userId, blocked, listingId, tx);
-      }
-      await tx.auctionBid.update({
-        where: { id: bid.id },
-        data: { status: AuctionBidStatus.CANCELLED, blockedAmount: 0 },
-      });
-
-      await this.syncAuctionRanking(tx, listingId);
-      return { ok: true, message: 'پیشنهاد شما با موفقیت لغو شد' };
-    });
+    void userId;
+    void listingId;
+    throw new ForbiddenException(
+      'انصراف خودکار از مزایده غیرفعال است. در صورت خطای انسانی، از طریق پشتیبانی ثبت تیکت کنید.',
+    );
   }
 
   // -----------------------------------
-  // Buy now (با کسر کارمزد و Escrow امن)
+  // Buy now
+  // canonical flow: فقط مزایده را تمام می‌کند و برنده را تعیین می‌کند.
+  // پرداخت نهایی باید از مسیر checkout/order انجام شود.
   // -----------------------------------
   async buyNow(userId: string, listingId: string) {
     const result = await this.prisma.$transaction(async (tx) => {
@@ -524,25 +887,12 @@ export class AuctionService {
         throw new ForbiddenException('مزایده فعال نیست');
       if (!auction.buyNowEnabled || !auction.buyNowPrice)
         throw new BadRequestException('خرید فوری برای این مزایده فعال نیست');
+      if (auction.listing.authorId === userId) {
+        throw new ForbiddenException('ثبت خرید فوری روی آگهی خودتان مجاز نیست');
+      }
 
       const amount = new Decimal(auction.buyNowPrice);
-
-      // 👈 محاسبه کارمزد پلتفرم
-      const platformFee = await this.feeCalculator.calculateFee(
-        ListingType.AUCTION,
-        auction.listing.categoryId,
-        amount
-      );
-
-      // 👈 استفاده از Escrow (پول در حساب بلوکه فروشنده می‌ماند)
-      await this.walletService.transferToEscrow(
-        userId,
-        auction.listing.authorId,
-        amount,
-        platformFee,
-        listingId,
-        tx
-      );
+      const deadlineHours = await this.getWinnerPaymentDeadlineHours(tx);
 
       const bidders = [
         auction.highestBidderId,
@@ -568,7 +918,8 @@ export class AuctionService {
         where: { listingId },
         data: {
           status: AuctionStatus.FINISHED,
-          settlementStatus: AuctionSettlementStatus.PAID,
+          settlementStatus: AuctionSettlementStatus.PENDING,
+          paymentDeadline: new Date(Date.now() + deadlineHours * 60 * 60 * 1000),
           finishedAt: new Date(),
           highestBidderId: userId,
           highestBidAmount: amount,
@@ -580,8 +931,13 @@ export class AuctionService {
 
     this.auctionGateway.emitAuctionFinished(listingId, {
       type: 'BUY_NOW',
-      buyerId: result.buyerId,
+      winnerUserId: result.buyerId,
       amount: result.amount,
+    });
+    this.eventEmitter.emit(AuctionEvents.FINISHED, {
+      listingId,
+      winnerUserId: result.buyerId,
+      amount: result.amount.toString(),
     });
     return { ok: true, ...result };
   }
@@ -689,13 +1045,36 @@ export class AuctionService {
     if (!userBid) {
       throw new ForbiddenException('شما هیچ پیشنهادی در این مزایده ندارید');
     }
+    if (listing.auction.highestBidderId !== userId) {
+      throw new ForbiddenException('فقط برنده فعلی مجاز به ادامه پرداخت مزایده است');
+    }
+
+    const finishedAt = listing.auction.finishedAt ? new Date(listing.auction.finishedAt).getTime() : 0;
+    const deadlineAt = listing.auction.paymentDeadline ? new Date(listing.auction.paymentDeadline).getTime() : 0;
+    const windowHours =
+      finishedAt > 0 && deadlineAt > finishedAt
+        ? (deadlineAt - finishedAt) / (60 * 60 * 1000)
+        : null;
+    const isSecondChanceRound = windowHours != null && windowHours <= 24 + 1;
+    if (isSecondChanceRound) {
+      const offered = await this.prisma.secondChanceOffer.findFirst({
+        where: {
+          listingId,
+          userId,
+          status: 'OFFERED',
+          expiresAt: { gt: new Date() },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+      if (!offered) {
+        throw new ForbiddenException('شانس دوم برای این کاربر فعال نیست');
+      }
+    }
 
     const bidAmount = new Decimal(userBid.amount);
     const depositPercent = await this.getAuctionDepositPercent(this.prisma, listingId);
-    const blockedAmount = bidAmount
-      .mul(depositPercent)
-      .div(100)
-      .toDecimalPlaces(0, Decimal.ROUND_CEIL);
+    const blockedAmount = await this.getFixedDepositAmount(this.prisma, listingId);
     const payableAmount = bidAmount.minus(blockedAmount);
 
     return {

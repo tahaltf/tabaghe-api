@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { existsSync, mkdirSync } from 'fs';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import type { MulterOptions } from '@nestjs/platform-express/multer/interfaces/multer-options.interface';
 
 const IMAGE_PATH = './uploads/repairs/images';
@@ -28,7 +28,7 @@ export const repairMediaMulterOptions: MulterOptions = {
     },
     filename: (_req, file, cb) => {
       const prefix = file.fieldname === 'videos' ? 'repair-vid' : 'repair-img';
-      cb(null, `${prefix}-${uuidv4()}${extname(file.originalname)}`);
+      cb(null, `${prefix}-${randomUUID()}${extname(file.originalname)}`);
     },
   }),
   fileFilter: (_req, file, cb) => {
@@ -60,7 +60,7 @@ export const repairShipVideoMulterOptions: MulterOptions = {
       cb(null, VIDEO_PATH);
     },
     filename: (_req, file, cb) => {
-      cb(null, `repair-ship-${uuidv4()}${extname(file.originalname)}`);
+      cb(null, `repair-ship-${randomUUID()}${extname(file.originalname)}`);
     },
   }),
   fileFilter: (_req, file, cb) => {

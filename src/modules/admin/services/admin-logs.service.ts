@@ -10,4 +10,12 @@ export class AdminLogsService {
   listTermsConsents(limit = 200) {
     return readRecentJsonLogs('terms-consent.log', limit);
   }
+
+  listAuctionLedger(limit = 500) {
+    return readRecentJsonLogs('auction-ledger.log', limit);
+  }
+
+  listAuctionTimeline(limit = 500) {
+    return readRecentJsonLogs('auction-timeline.log', limit);
+  }
 }
