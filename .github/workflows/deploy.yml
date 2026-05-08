@@ -10,7 +10,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  ci:
+    name: CI (test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: tabaghe-api/package-lock.json
+
+      - name: Install
+        working-directory: tabaghe-api
+        run: npm ci
+
+      - name: Test
+        working-directory: tabaghe-api
+        run: npm test
+
   deploy:
+    needs: [ci]
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
