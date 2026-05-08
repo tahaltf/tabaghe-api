@@ -105,17 +105,22 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
     });
     const dto = makeDto();
     dto.listingSettlementAmount = 100;
-    dto.listingSettlementDirection = 'CREDIT';
+    dto.listingSettlementDirection = 'DEBIT';
 
     await service.finalizeExchangeHubInspection('ord-1', dto);
 
+    // settlement direction=DEBIT => seller pays buyer (deduct from seller, credit buyer blocked)
+    expect(tx.wallet.update).toHaveBeenCalledWith({
+      where: { userId: 'seller-1' },
+      data: { balanceAvailable: { decrement: 100 } },
+    });
     expect(tx.wallet.update).toHaveBeenCalledWith({
       where: { userId: 'buyer-1' },
-      data: { balanceBlocked: { decrement: 100 } },
+      data: { balanceBlocked: { increment: 100 } },
     });
     expect(tx.order.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ sellerRevenue: 400, status: OrderStatus.VERIFIED_AT_HUB }),
+        data: expect.objectContaining({ sellerRevenue: 200, status: OrderStatus.VERIFIED_AT_HUB }),
       }),
     );
   });
@@ -129,20 +134,25 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
     });
     const dto = makeDto();
     dto.listingSettlementAmount = 350;
-    dto.listingSettlementDirection = 'CREDIT';
+    dto.listingSettlementDirection = 'DEBIT';
 
     await service.finalizeExchangeHubInspection('ord-1', dto);
 
     expect(tx.wallet.update).toHaveBeenCalledWith({
+      where: { userId: 'seller-1' },
+      data: {
+        balanceAvailable: { decrement: 350 },
+      },
+    });
+    expect(tx.wallet.update).toHaveBeenCalledWith({
       where: { userId: 'buyer-1' },
       data: {
-        balanceBlocked: { decrement: 200 },
-        balanceAvailable: { decrement: 150 },
+        balanceBlocked: { increment: 350 },
       },
     });
     expect(tx.order.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ sellerRevenue: 650 }),
+        data: expect.objectContaining({ sellerRevenue: 0 }),
       }),
     );
   });
@@ -153,10 +163,11 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
       offerIsPayerMe: false,
       buyerBlocked: 200,
       buyerAvailable: 40,
+      sellerAvailable: 40,
     });
     const dto = makeDto();
     dto.listingSettlementAmount = 350;
-    dto.listingSettlementDirection = 'CREDIT';
+    dto.listingSettlementDirection = 'DEBIT';
 
     await expect(service.finalizeExchangeHubInspection('ord-1', dto)).rejects.toBeInstanceOf(
       BadRequestException,
@@ -173,7 +184,7 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
     const dto = makeDto();
     dto.offerItem = 'PASS_WITH_SETTLEMENT';
     dto.offerSettlementAmount = 300;
-    dto.offerSettlementDirection = 'CREDIT';
+    dto.offerSettlementDirection = 'DEBIT';
     dto.offerNote = 'offer settle';
     dto.listingItem = 'PASS';
     dto.listingNote = 'ok';
@@ -181,16 +192,22 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
 
     await service.finalizeExchangeHubInspection('ord-1', dto);
 
+    // offer settlement DEBIT => buyer pays seller (deduct from buyer, credit seller blocked)
+    expect(tx.wallet.update).toHaveBeenCalledWith({
+      where: { userId: 'buyer-1' },
+      data: {
+        balanceAvailable: { decrement: 300 },
+      },
+    });
     expect(tx.wallet.update).toHaveBeenCalledWith({
       where: { userId: 'seller-1' },
       data: {
-        balanceBlocked: { decrement: 250 },
-        balanceAvailable: { decrement: 50 },
+        balanceBlocked: { increment: 300 },
       },
     });
     expect(tx.order.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ sellerRevenue: 0 }),
+        data: expect.objectContaining({ sellerRevenue: 600 }),
       }),
     );
   });

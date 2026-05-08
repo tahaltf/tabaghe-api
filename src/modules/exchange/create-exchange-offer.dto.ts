@@ -1,5 +1,7 @@
-import { IsOptional, IsString, IsNumber, IsBoolean, IsIn } from 'class-validator';
+import { IsOptional, IsString, IsNumber, IsBoolean, IsIn, Min, Max } from 'class-validator';
 import { Transform } from 'class-transformer';
+
+const MAX_EXCHANGE_EXTRA_PAYMENT_TOMAN = 2_000_000_000;
 
 export class CreateExchangeOfferDto {
     @IsString()
@@ -15,6 +17,8 @@ export class CreateExchangeOfferDto {
     @Transform(({ value }) => Number(value)) // تبدیل رشته به عدد
     @IsNumber()
     @IsOptional()
+    @Min(0)
+    @Max(MAX_EXCHANGE_EXTRA_PAYMENT_TOMAN)
     extraPayment?: number;
 
     @Transform(({ value }) => {

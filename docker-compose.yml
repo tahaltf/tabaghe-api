@@ -8,7 +8,7 @@ services:
     restart: always
     environment:
       POSTGRES_USER: tabagheh_maindb
-      POSTGRES_PASSWORD: "@QWEasdZXC123456"
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: tabagheh_db
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -25,8 +25,7 @@ services:
     depends_on:
       - postgres_db
     environment:
-      # نکته مهم: %40 همان @ اول پسورد است که برای URL انکود شده
-      - DATABASE_URL=postgresql://tabagheh_maindb:%40QWEasdZXC123456@postgres_db:5432/tabagheh_db
+      - DATABASE_URL=${DATABASE_URL}
       - DATABASE_HOST=postgres_db
       - DATABASE_PORT=5432
       - DATABASE_USER=tabagheh_maindb

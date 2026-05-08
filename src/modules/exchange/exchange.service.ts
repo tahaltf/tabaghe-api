@@ -87,7 +87,13 @@ export class ExchangeService {
                 title: dto.title,
                 description: dto.description,
                 images: fileNames,
-                extraPayment: Number(dto.extraPayment || 0),
+                extraPayment: (() => {
+                  const n = Number(dto.extraPayment || 0);
+                  if (!Number.isFinite(n) || n < 0) {
+                    throw new BadRequestException('مبلغ مابه‌التفاوت نامعتبر است');
+                  }
+                  return n;
+                })(),
                 // ترجیح با فیلد صریح payerRole است؛ سپس fallback روی isPayerMe
                 isPayerMe:
                   dto.payerRole === 'OFFERER'

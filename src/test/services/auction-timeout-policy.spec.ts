@@ -32,7 +32,7 @@ describe('Auction timeout policy (unit)', () => {
     await service.checkUnpaidAuctions();
 
     expect((service as any).processNextWinner).toHaveBeenCalledWith('L1', {
-      penalizeCurrentWinner: false,
+      mode: 'second_chance_timeout',
     });
   });
 });

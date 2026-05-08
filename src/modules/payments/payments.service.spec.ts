@@ -86,6 +86,7 @@ describe('PaymentsService', () => {
         },
         wallet: {
           update: prismaMock.wallet.update,
+          findUnique: jest.fn().mockResolvedValue({ userId: 'user-1' }),
         },
       }),
     );

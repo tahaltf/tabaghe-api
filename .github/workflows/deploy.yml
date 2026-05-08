@@ -1,0 +1,32 @@
+name: Deploy (SSH)
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Deploy on server via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.PROD_SSH_HOST }}
+          username: ${{ secrets.PROD_SSH_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          port: ${{ secrets.PROD_SSH_PORT || 22 }}
+          script_stop: true
+          command_timeout: 30m
+          script: |
+            set -euo pipefail
+            cd /var/www/tabagheh
+            ./deploy.sh
+            docker exec tabagheh_api npx prisma migrate deploy
+

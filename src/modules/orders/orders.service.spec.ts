@@ -15,7 +15,7 @@ describe('OrdersService', () => {
   let service: OrdersService;
 
   const prismaMock = {
-    order: { findMany: jest.fn() },
+    order: { findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
     systemSetting: { findFirst: jest.fn().mockResolvedValue(null) },
     $transaction: jest.fn(),
   };
@@ -305,5 +305,109 @@ describe('OrdersService', () => {
       OrderStatus.SHIPPED_TO_BUYER,
       'SUCCESS',
     );
+  });
+
+  describe('updateTrackingCode', () => {
+    it('rejects invalid tracking code format', async () => {
+      prismaMock.order.findUnique = jest.fn().mockResolvedValue({
+        id: 'ord-1',
+        type: OrderType.DIRECT,
+        status: OrderStatus.PAID,
+        sellerId: 'seller-1',
+        buyerId: 'buyer-1',
+        listingId: 'lst-1',
+        trackingCode: null,
+        sellerTrackingCode: null,
+        listing: { sellerRequiresVerification: false },
+      });
+      prismaMock.order.update = jest.fn();
+
+      await expect(
+        service.updateTrackingCode('seller-1', 'ord-1', '123', 'video.mp4'),
+      ).rejects.toThrow('کد رهگیری باید دقیقاً ۲۴ رقم باشد.');
+    });
+
+    it('requires packaging video', async () => {
+      prismaMock.order.findUnique = jest.fn().mockResolvedValue({
+        id: 'ord-1',
+        type: OrderType.DIRECT,
+        status: OrderStatus.PAID,
+        sellerId: 'seller-1',
+        buyerId: 'buyer-1',
+        listingId: 'lst-1',
+        trackingCode: null,
+        sellerTrackingCode: null,
+        listing: { sellerRequiresVerification: false },
+      });
+      prismaMock.order.update = jest.fn();
+
+      await expect(
+        service.updateTrackingCode('seller-1', 'ord-1', '123456789012345678901234'),
+      ).rejects.toThrow('ویدیوی بسته‌بندی کالا الزامی است');
+    });
+
+    it('stores seller trackingCode + packagingVideo for direct orders', async () => {
+      prismaMock.order.findUnique = jest.fn().mockResolvedValue({
+        id: 'ord-1',
+        type: OrderType.DIRECT,
+        status: OrderStatus.PAID,
+        sellerId: 'seller-1',
+        buyerId: 'buyer-1',
+        listingId: 'lst-1',
+        trackingCode: null,
+        sellerTrackingCode: null,
+        requiresVerification: false,
+        listing: { sellerRequiresVerification: false },
+      });
+      prismaMock.order.update = jest.fn().mockResolvedValue({ ok: true });
+
+      await service.updateTrackingCode(
+        'seller-1',
+        'ord-1',
+        '123456789012345678901234',
+        'video-1.mp4',
+      );
+
+      expect(prismaMock.order.update).toHaveBeenCalledWith({
+        where: { id: 'ord-1' },
+        data: expect.objectContaining({
+          trackingCode: '123456789012345678901234',
+          packagingVideo: 'video-1.mp4',
+          status: OrderStatus.SHIPPED,
+        }),
+      });
+    });
+
+    it('stores seller trackingCode + packagingVideo and sets SHIPPED when hub not needed', async () => {
+      prismaMock.order.findUnique = jest.fn().mockResolvedValue({
+        id: 'ord-2',
+        type: OrderType.DIRECT,
+        status: OrderStatus.PAID,
+        sellerId: 'seller-1',
+        buyerId: 'buyer-1',
+        listingId: 'lst-2',
+        trackingCode: null,
+        sellerTrackingCode: null,
+        requiresVerification: false,
+        listing: { sellerRequiresVerification: false },
+      });
+      prismaMock.order.update = jest.fn().mockResolvedValue({ ok: true });
+
+      await service.updateTrackingCode(
+        'seller-1',
+        'ord-2',
+        '123456789012345678901234',
+        'video-2.mp4',
+      );
+
+      expect(prismaMock.order.update).toHaveBeenCalledWith({
+        where: { id: 'ord-2' },
+        data: expect.objectContaining({
+          trackingCode: '123456789012345678901234',
+          packagingVideo: 'video-2.mp4',
+          status: OrderStatus.SHIPPED,
+        }),
+      });
+    });
   });
 });
