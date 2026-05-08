@@ -32,6 +32,5 @@ jobs:
               exit 1
             fi
             ./deploy.sh
-            # No TTY in GitHub Actions: force non-interactive exec
-            docker compose exec -T tabagheh_api npx prisma migrate deploy
+            # deploy.sh is the source of truth for deploy steps
 
