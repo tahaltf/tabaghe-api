@@ -17,6 +17,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../shared/contracts/auth';
 import { RepairService } from './repair.service';
+import { Throttle } from '@nestjs/throttler';
 import {
   ConfirmReturnDeliveryDto,
   ConfirmRepairResultDto,
@@ -43,6 +44,7 @@ export class RepairController {
   // -------------------- User-facing repair endpoints --------------------
 
   @Post()
+  @Throttle({ default: { limit: 5, ttl: 10 * 60_000 } })
   @UseInterceptors(
     FileFieldsInterceptor(
       [
@@ -61,6 +63,7 @@ export class RepairController {
   }
 
   @Get('me')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   getMy(
     @CurrentUser() user: AuthenticatedUser,
     @Query('page') page?: string,
@@ -73,11 +76,13 @@ export class RepairController {
   }
 
   @Get(':id')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   getDetail(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.service.detail(user.id, id);
   }
 
   @Patch(':id')
+  @Throttle({ default: { limit: 10, ttl: 10 * 60_000 } })
   @UseInterceptors(
     FileFieldsInterceptor(
       [
@@ -97,6 +102,7 @@ export class RepairController {
   }
 
   @Patch(':id/select-slot')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   selectSlot(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
@@ -106,6 +112,7 @@ export class RepairController {
   }
 
   @Patch(':id/ship')
+  @Throttle({ default: { limit: 5, ttl: 10 * 60_000 } })
   @UseInterceptors(FileInterceptor('video', repairShipVideoMulterOptions))
   markShipped(
     @CurrentUser() user: AuthenticatedUser,
@@ -117,6 +124,7 @@ export class RepairController {
   }
 
   @Patch(':id/respond-result')
+  @Throttle({ default: { limit: 10, ttl: 10 * 60_000 } })
   respondResult(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
@@ -126,6 +134,7 @@ export class RepairController {
   }
 
   @Patch(':id/pay')
+  @Throttle({ default: { limit: 5, ttl: 10 * 60_000 } })
   pay(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
@@ -135,6 +144,7 @@ export class RepairController {
   }
 
   @Patch(':id/confirm-return')
+  @Throttle({ default: { limit: 10, ttl: 10 * 60_000 } })
   confirmReturn(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
@@ -144,6 +154,7 @@ export class RepairController {
   }
 
   @Delete(':id')
+  @Throttle({ default: { limit: 10, ttl: 10 * 60_000 } })
   cancel(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,

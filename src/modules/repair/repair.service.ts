@@ -209,19 +209,30 @@ export class RepairService {
 
     const normalizedDeviceType = await this.resolveRepairDeviceType(dto.deviceType);
 
-    const repair = await this.prisma.repairRequest.create({
-      data: {
-        userId,
-        trackingCode: this.genTrackingCode(),
-        deviceType: normalizedDeviceType,
-        brand: dto.brand,
-        model: dto.model,
-        description: dto.description,
-        images,
-        videos,
-        status: RepairRequestStatus.PENDING_REVIEW,
-      },
-    });
+    // trackingCode is unique; in the rare event of collision, retry a few times.
+    let repair: { id: string; trackingCode: string; status: RepairRequestStatus } & Record<string, any>;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        repair = await this.prisma.repairRequest.create({
+          data: {
+            userId,
+            trackingCode: this.genTrackingCode(),
+            deviceType: normalizedDeviceType,
+            brand: dto.brand,
+            model: dto.model,
+            description: dto.description,
+            images,
+            videos,
+            status: RepairRequestStatus.PENDING_REVIEW,
+          },
+        });
+        break;
+      } catch (e: any) {
+        const isUnique =
+          typeof e?.code === 'string' && e.code === 'P2002';
+        if (!isUnique || attempt === 4) throw e;
+      }
+    }
 
     await this.notifyOwner(
       userId,
@@ -723,7 +734,11 @@ export class RepairService {
       RepairRequestStatus.APPROVED,
       RepairRequestStatus.DELIVERY_TIME_SELECTED,
     ];
-    if (!cancellable.includes(repair.status)) {
+    const isInPersonAwaiting =
+      repair.status === RepairRequestStatus.AWAITING_DELIVERY &&
+      repair.shippingTrackingCode === 'IN_PERSON_PICKUP';
+
+    if (!cancellable.includes(repair.status) && !isInPersonAwaiting) {
       throw new BadRequestException('در این وضعیت لغو درخواست ممکن نیست');
     }
 
@@ -734,6 +749,13 @@ export class RepairService {
         rejectionReason: reason ?? 'لغو توسط کاربر',
       },
     });
+    await this.notifyOwner(
+      userId,
+      updated.trackingCode,
+      'درخواست تعمیر لغو شد',
+      'لغو درخواست توسط شما ثبت شد. اگر کالا را ارسال کرده‌اید، سریعاً با پشتیبانی تماس بگیرید.',
+      { repairId, status: updated.status },
+    );
     return updated;
   }
 

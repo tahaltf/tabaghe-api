@@ -23,6 +23,7 @@ import {
   AdminShipBackDto,
 } from '../dto/admin-repair.dto';
 import { repairShipVideoMulterOptions } from '../../../common/upload/repair-media-upload.config';
+import { Throttle } from '@nestjs/throttler';
 
 @Controller('admin/repair-requests')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -31,46 +32,55 @@ export class AdminRepairsController {
   constructor(private readonly service: AdminRepairsService) {}
 
   @Get()
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
   list(@Query() query: AdminRepairListQueryDto) {
     return this.service.list(query);
   }
 
   @Get(':id')
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
   detail(@Param('id') id: string) {
     return this.service.detail(id);
   }
 
   @Patch(':id/approve')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   approve(@Param('id') id: string, @Body() dto: AdminApproveRepairDto) {
     return this.service.approve(id, dto);
   }
 
   @Patch(':id/reject')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   reject(@Param('id') id: string, @Body() dto: AdminRejectRepairDto) {
     return this.service.reject(id, dto);
   }
 
   @Patch(':id/mark-received')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   markReceived(@Param('id') id: string) {
     return this.service.markReceived(id);
   }
 
   @Patch(':id/start-inspection')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   startInspection(@Param('id') id: string) {
     return this.service.startInspection(id);
   }
 
   @Patch(':id/set-result')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   setResult(@Param('id') id: string, @Body() dto: AdminSetResultDto) {
     return this.service.setResult(id, dto);
   }
 
   @Patch(':id/ready-to-ship')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   readyToShip(@Param('id') id: string) {
     return this.service.markReadyToShip(id);
   }
 
   @Patch(':id/ship-back')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @UseInterceptors(FileInterceptor('video', repairShipVideoMulterOptions))
   shipBack(
     @Param('id') id: string,
@@ -81,11 +91,13 @@ export class AdminRepairsController {
   }
 
   @Patch(':id/cancel')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   cancel(@Param('id') id: string, @Body('reason') reason?: string) {
     return this.service.cancel(id, reason);
   }
 
   @Patch(':id/complete')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   complete(@Param('id') id: string) {
     return this.service.complete(id);
   }
