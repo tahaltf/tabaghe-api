@@ -27,6 +27,11 @@ jobs:
           script: |
             set -euo pipefail
             cd /var/www/tabagheh
+            if [ ! -f .env ]; then
+              echo "Missing /var/www/tabagheh/.env on server (needed for POSTGRES_PASSWORD & DATABASE_URL)"
+              exit 1
+            fi
             ./deploy.sh
-            docker exec tabagheh_api npx prisma migrate deploy
+            # No TTY in GitHub Actions: force non-interactive exec
+            docker compose exec -T tabagheh_api npx prisma migrate deploy
 

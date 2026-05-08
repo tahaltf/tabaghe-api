@@ -613,17 +613,38 @@ export class OrdersService {
         sellerRequestedVerification = listing.sellerRequiresVerification || false;
       }
 
-      // --- بررسی و حذف سفارش‌های معلق قبلی ---
-      const existingOrder = await tx.order.findFirst({
-        where: { listingId: listingId }
+      // --- بررسی سفارش‌های قبلی این آگهی (ضد سوءاستفاده) ---
+      // نکته: حذف سفارشِ معلقِ «کاربر دیگر» برای همین آگهی یک سوراخ امنیتی است.
+      // فقط سفارش‌های معلق/کنسل‌شده‌ی همین کاربر قابل پاکسازی هستند.
+      const existingOrders = await tx.order.findMany({
+        where: { listingId },
+        select: { id: true, status: true, buyerId: true },
+        take: 5,
+        orderBy: { createdAt: 'desc' },
       });
 
-      if (existingOrder) {
-        if (existingOrder.status === OrderStatus.PENDING || existingOrder.status === OrderStatus.CANCELLED) {
-          await tx.order.delete({ where: { id: existingOrder.id } });
-        } else {
+      if (existingOrders.length) {
+        const hasActiveNonCancelable = existingOrders.some(
+          (o) => o.status !== OrderStatus.PENDING && o.status !== OrderStatus.CANCELLED,
+        );
+        if (hasActiveNonCancelable) {
           throw new BadRequestException('این کالا در حال حاضر به فروش رسیده و در جریان است.');
         }
+
+        const someoneElseHasPending = existingOrders.some(
+          (o) => o.status === OrderStatus.PENDING && o.buyerId !== buyerId,
+        );
+        if (someoneElseHasPending) {
+          throw new BadRequestException('این کالا در حال پرداخت توسط کاربر دیگری است.');
+        }
+
+        await tx.order.deleteMany({
+          where: {
+            listingId,
+            buyerId,
+            status: { in: [OrderStatus.PENDING, OrderStatus.CANCELLED] },
+          },
+        });
       }
 
       // 👇 منطق هوشمند کارشناسی
