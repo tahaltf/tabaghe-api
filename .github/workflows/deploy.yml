@@ -21,7 +21,7 @@ jobs:
           host: ${{ secrets.PROD_SSH_HOST }}
           username: ${{ secrets.PROD_SSH_USER }}
           key: ${{ secrets.PROD_SSH_KEY }}
-          port: ${{ secrets.PROD_SSH_PORT || 22 }}
+          port: ${{ secrets.PROD_SSH_PORT }}
           script_stop: true
           command_timeout: 30m
           script: |
