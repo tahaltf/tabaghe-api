@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { validateProductionEnv } from './config/env';
 import {
   BadRequestException,
   ValidationError,
@@ -159,6 +160,10 @@ async function resolveAvailablePort(startPort: number, maxAttempts: number): Pro
 }
 
 async function bootstrap() {
+  if (process.env.NODE_ENV === 'production') {
+    validateProductionEnv();
+  }
+
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   // ۱. امنیت: جلوگیری از حملات رایج وب با تنظیم هدرهای HTTP
