@@ -184,7 +184,7 @@ async function bootstrap() {
     .split(',')
     .map((x) => x.trim())
     .filter(Boolean);
-  const frontendAppUrl = (process.env.FRONTEND_APP_URL || 'https://app.tabagheh.com').trim();
+  const frontendAppUrl = (process.env.FRONTEND_APP_URL || 'https://tabagheh.com').trim();
 
   // ۳. تنظیمات CORS هماهنگ با Angular
   app.enableCors({

@@ -16,7 +16,7 @@ export class AppSettingsService {
   }
 
   getFrontendAppUrl(): string {
-    return this.configService.get<string>('FRONTEND_APP_URL') ?? 'https://app.tabagheh.com';
+    return this.configService.get<string>('FRONTEND_APP_URL') ?? 'https://tabagheh.com';
   }
 
   getPaymentGatewayConfig() {
