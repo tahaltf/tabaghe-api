@@ -193,7 +193,8 @@ async function bootstrap() {
       : [
           frontendAppUrl,
           'http://localhost:4200',
-        ],
+          'https://tabagheh.com',   
+          'https://www.tabagheh.com', 
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,
   });
