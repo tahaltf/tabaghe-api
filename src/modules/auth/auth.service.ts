@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { User, UserRole, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -8,15 +8,19 @@ import {
 } from '../../shared/contracts/auth';
 import { OtpIssueResult, OtpService } from './services/otp.service';
 import { TokenService } from './services/token.service';
+import { SmsService } from '../sms/sms.service';
 
 const ADMIN_DEFAULT_PASSWORD = '@Ab123456789@';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly otpService: OtpService,
     private readonly tokenService: TokenService,
+    private readonly smsService: SmsService,
   ) {}
 
   async requestOtp(phone: string): Promise<OtpIssueResult> {
@@ -26,7 +30,9 @@ export class AuthService {
   async verifyOtp(phone: string, code: string): Promise<AuthSessionResponse> {
     await this.otpService.consume(phone, code);
     const user = await this.findOrCreateUser(phone);
-    return this.buildSession(user);
+    const session = this.buildSession(user);
+    this.notifyAdminAboutLogin(user.phone);
+    return session;
   }
 
   async loginWithPassword(
@@ -71,7 +77,9 @@ export class AuthService {
       throw new UnauthorizedException('نام کاربری یا رمز عبور اشتباه است.');
     }
 
-    return this.buildSession(user);
+    const session = this.buildSession(user);
+    this.notifyAdminAboutLogin(user.phone);
+    return session;
   }
 
   async refresh(refreshToken: string): Promise<AuthSessionResponse> {
@@ -115,5 +123,15 @@ export class AuthService {
         isVerified: user.isVerified,
       },
     };
+  }
+
+  private notifyAdminAboutLogin(phone: string): void {
+    this.smsService.sendAdminLoginAlert(phone).catch((error: unknown) => {
+      this.logger.warn(
+        `Failed to send admin login alert SMS for ${phone}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    });
   }
 }

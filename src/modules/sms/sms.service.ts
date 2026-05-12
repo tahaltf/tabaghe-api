@@ -2,6 +2,9 @@ import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import axios from 'axios';
 import { AppSettingsService } from '../../shared/settings/app-settings.service';
 
+const ADMIN_LOGIN_ALERT_PHONE = '09190949469';
+const ADMIN_LOGIN_ALERT_TEMPLATE_ID = 176584;
+
 @Injectable()
 export class SmsService {
   constructor(private readonly appSettings: AppSettingsService) {}
@@ -43,5 +46,11 @@ export class SmsService {
 
   async sendOtp(phone: string, code: string) {
     return this.sendByTemplate(phone, 591069, [{ name: 'CONTACTS', value: code }]);
+  }
+
+  async sendAdminLoginAlert(userPhone: string) {
+    return this.sendByTemplate(ADMIN_LOGIN_ALERT_PHONE, ADMIN_LOGIN_ALERT_TEMPLATE_ID, [
+      { name: 'PHONE', value: userPhone },
+    ]);
   }
 }
