@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { MulterError } from 'multer';
 import {
   ApiErrorDetails,
   buildErrorEnvelope,
@@ -68,6 +69,37 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const res = ctx.getResponse<Response>();
     const req = ctx.getRequest<Request>();
+
+    if (exception instanceof MulterError) {
+      const status =
+        exception.code === 'LIMIT_FILE_SIZE'
+          ? HttpStatus.PAYLOAD_TOO_LARGE
+          : HttpStatus.BAD_REQUEST;
+      const message =
+        exception.code === 'LIMIT_FILE_SIZE'
+          ? 'حجم فایل ارسالی بیش از حد مجاز است. لطفاً فایل کوچک‌تر انتخاب کنید.'
+          : `خطا در آپلود فایل: ${exception.message}`;
+
+      appendJsonLog('app-errors.log', {
+        at: new Date().toISOString(),
+        status,
+        method: req.method,
+        path: req.originalUrl || req.url,
+        ip: req.ip,
+        message,
+        debug: `${exception.name}: ${exception.message}`,
+      });
+
+      const errorDetails: ApiErrorDetails = {
+        code: mapStatusToCode(status),
+        message,
+      };
+      const envelope = buildErrorEnvelope(errorDetails, {
+        path: req.originalUrl || req.url,
+      });
+      res.status(status).json(envelope);
+      return;
+    }
 
     const isHttp = exception instanceof HttpException;
     const status = isHttp ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;

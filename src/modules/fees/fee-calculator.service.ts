@@ -1,16 +1,26 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { ListingType } from '@prisma/client';
 import Decimal from 'decimal.js';
+import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { PlanFeeDiscountService } from './plan-fee-discount.service';
+
+export type CalculateFeeOptions = {
+  /** برای اعمال تخفیف کارمزد بر اساس پلن/اشتراک فعال فروشنده */
+  sellerId?: string;
+};
 
 @Injectable()
 export class FeeCalculatorService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly planFeeDiscount: PlanFeeDiscountService,
+  ) {}
 
   async calculateFee(
     listingType: ListingType,
     categoryId: string | null,
     amount: number | string | Decimal,
+    options?: CalculateFeeOptions,
   ): Promise<Decimal> {
     const targetAmount = new Decimal(amount);
 
@@ -18,7 +28,8 @@ export class FeeCalculatorService {
       return new Decimal(0);
     }
 
-    // ۱. اولویت اول: پیدا کردن قوانین خاص از جدول FeeRule
+    let totalFee: Decimal;
+
     const rules = await this.prisma.feeRule.findMany({
       where: {
         listingType,
@@ -27,12 +38,11 @@ export class FeeCalculatorService {
         minPrice: { lte: targetAmount.toString() },
       },
       orderBy: [
-        { categoryId: 'desc' }, // اولویت با قوانین اختصاصی دسته‌بندی
-        { minPrice: 'desc' },   // اولویت با نزدیک‌ترین کف قیمتی
+        { categoryId: 'desc' },
+        { minPrice: 'desc' },
       ],
     });
 
-    // ۲. اگر قانون خاصی در FeeRule نبود، می‌رویم سراغ درصد پیش‌فرض خود Category (Fallback)
     if (rules.length === 0) {
       if (categoryId) {
         const category = await this.prisma.category.findUnique({
@@ -40,47 +50,57 @@ export class FeeCalculatorService {
         });
 
         if (category) {
-          // محاسبه بر اساس درصد دسته‌بندی
           const percentageFee = targetAmount
             .mul(new Decimal(category.feePercentage))
             .div(new Decimal(100));
 
-          let totalFee = percentageFee;
+          let fee = percentageFee;
 
-          // اعمال سقف کارمزد (Fee Cap) دسته‌بندی
           if (category.feeCap && new Decimal(category.feeCap).gt(0)) {
             const cap = new Decimal(category.feeCap);
-            if (totalFee.gt(cap)) {
-              totalFee = cap;
+            if (fee.gt(cap)) {
+              fee = cap;
             }
           }
 
-          return totalFee.floor();
+          totalFee = fee.floor();
+        } else {
+          totalFee = new Decimal(0);
+        }
+      } else {
+        totalFee = new Decimal(0);
+      }
+    } else {
+      const applicableRule =
+        rules.find((rule) => {
+          if (!rule.maxPrice) return true;
+          return targetAmount.lte(new Decimal(rule.maxPrice));
+        }) || rules[0];
+
+      const percentageFee = targetAmount
+        .mul(new Decimal(applicableRule.feePercent))
+        .div(new Decimal(100));
+
+      let fee = percentageFee.plus(new Decimal(applicableRule.feeFixed));
+
+      if (applicableRule.feeCap && new Decimal(applicableRule.feeCap).gt(0)) {
+        const cap = new Decimal(applicableRule.feeCap);
+        if (fee.gt(cap)) {
+          fee = cap;
         }
       }
-      // اگر اصلاً دسته‌بندی هم پیدا نشد (حالت استثنا)
-      return new Decimal(0);
+
+      totalFee = fee.floor();
     }
 
-    // ۳. محاسبه بر اساس قانون پیدا شده در FeeRule (مثل قبل)
-    const applicableRule = rules.find((rule) => {
-      if (!rule.maxPrice) return true;
-      return targetAmount.lte(new Decimal(rule.maxPrice));
-    }) || rules[0];
-
-    const percentageFee = targetAmount
-      .mul(new Decimal(applicableRule.feePercent)) // دقت کن اینجا feePercent از جدول FeeRule خونده میشه
-      .div(new Decimal(100));
-
-    let totalFee = percentageFee.plus(new Decimal(applicableRule.feeFixed));
-
-    if (applicableRule.feeCap && new Decimal(applicableRule.feeCap).gt(0)) {
-      const cap = new Decimal(applicableRule.feeCap);
-      if (totalFee.gt(cap)) {
-        totalFee = cap;
-      }
+    if (options?.sellerId) {
+      return this.planFeeDiscount.applySellerSubscriptionDiscount(
+        options.sellerId,
+        listingType,
+        totalFee,
+      );
     }
 
-    return totalFee.floor();
+    return totalFee;
   }
 }

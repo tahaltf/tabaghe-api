@@ -35,6 +35,13 @@ export const SETTING_KEYS = {
   PLATFORM_LATITUDE: 'PLATFORM_LATITUDE',
   PLATFORM_LONGITUDE: 'PLATFORM_LONGITUDE',
   SMS_NOTIFICATION_RULES: 'SMS_NOTIFICATION_RULES',
+  SMS_OTP_TEMPLATE_ID: 'SMS_OTP_TEMPLATE_ID',
+  SMS_OTP_CODE_PARAMETER_NAME: 'SMS_OTP_CODE_PARAMETER_NAME',
+  SMS_ADMIN_LOGIN_ALERT_ENABLED: 'SMS_ADMIN_LOGIN_ALERT_ENABLED',
+  SMS_ADMIN_LOGIN_ALERT_TEMPLATE_ID: 'SMS_ADMIN_LOGIN_ALERT_TEMPLATE_ID',
+  SMS_ADMIN_LOGIN_ALERT_RECIPIENTS: 'SMS_ADMIN_LOGIN_ALERT_RECIPIENTS',
+  SMS_ADMIN_LOGIN_ALERT_USER_PHONE_PARAMETER:
+    'SMS_ADMIN_LOGIN_ALERT_USER_PHONE_PARAMETER',
   SYSTEM_INTRO_CONTENT: 'SYSTEM_INTRO_CONTENT',
   AUCTION_DEPOSIT_MIN: 'AUCTION_DEPOSIT_MIN',
   AUCTION_DEPOSIT_MAX: 'AUCTION_DEPOSIT_MAX',
@@ -77,6 +84,17 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   PLATFORM_LATITUDE: 'مختصات جغرافیایی عرض (Latitude) مرکز طبقه',
   PLATFORM_LONGITUDE: 'مختصات جغرافیایی طول (Longitude) مرکز طبقه',
   SMS_NOTIFICATION_RULES: 'پالیسی نوتیف/پیامک به ازای نوع رویداد (JSON)',
+  SMS_OTP_TEMPLATE_ID: 'شناسه قالب پیامک ورود (OTP) در sms.ir',
+  SMS_OTP_CODE_PARAMETER_NAME:
+    'نام پارامتر قالب OTP که مقدار کد در آن قرار می‌گیرد (مثلاً CONTACTS)',
+  SMS_ADMIN_LOGIN_ALERT_ENABLED:
+    'ارسال پیامک به ادمین پس از ورود کاربر (true/false، پیش‌فرض true)',
+  SMS_ADMIN_LOGIN_ALERT_TEMPLATE_ID:
+    'شناسه قالب پیامک «ورود کاربر» برای اطلاع ادمین در sms.ir',
+  SMS_ADMIN_LOGIN_ALERT_RECIPIENTS:
+    'شماره‌های ادمین برای دریافت هشدار ورود (جدا با ویرگول، مثلاً 0912...,0913...)',
+  SMS_ADMIN_LOGIN_ALERT_USER_PHONE_PARAMETER:
+    'نام پارامتر قالب هشدار ورود که شمارهٔ کاربر واردشده در آن قرار می‌گیرد (مثلاً PHONE)',
   SYSTEM_INTRO_CONTENT: 'محتوای صفحه معرفی سامانه',
   AUCTION_DEPOSIT_MIN: 'حداقل ودیعه ورود مزایده (تومان)',
   AUCTION_DEPOSIT_MAX: 'حداکثر ودیعه ورود مزایده (تومان)',

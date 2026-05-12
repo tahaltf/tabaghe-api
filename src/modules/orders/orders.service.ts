@@ -676,6 +676,7 @@ export class OrdersService {
             orderType === 'AUCTION' ? ListingType.AUCTION : ListingType.DIRECT,
             categoryId,
             finalPrice,
+            { sellerId },
           );
 
       // 🎯 لاجیک طلایی واریزی فروشنده

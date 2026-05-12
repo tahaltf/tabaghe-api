@@ -74,18 +74,69 @@ async function main() {
         await prisma.category.create({ data: { title: cat.title, slug: cat.slug } });
     }
 
-    // ۴. پلن‌های اشتراکی
+    // ۴. سهمیهٔ رایگان فروش مستقیم (پلن رایگان در API به‌صورت خودکار به لیست اضافه می‌شود)
+    await prisma.systemSetting.upsert({
+        where: { key: 'FREE_DIRECT_QUOTA' },
+        create: { key: 'FREE_DIRECT_QUOTA', value: '3' },
+        update: { value: '3' },
+    });
+
+    // ۵. پلن‌های پولی (نام و توضیح برای جذابیت بیزینسی)
     await prisma.plan.create({
         data: {
-            title: 'پلن پایه',
-            description: 'مناسب کاربران عادی',
-            price: 100000,
+            title: 'پلن فروشنده',
+            description:
+                'برای کسی که می‌خواهد بیشتر دیده شود: سهمیهٔ معاوضه و مزایده اضافه، مناسب فروش دوره‌ای.',
+            price: 349_000,
             isActive: true,
+            durationDays: 365,
+            feeDiscountDirectPercent: 0,
+            feeDiscountAuctionPercent: 0,
             rules: {
                 create: [
-                    { type: ListingType.DIRECT, count: 5 },
-                    { type: ListingType.EXCHANGE, count: 3 },
-                    { type: ListingType.AUCTION, count: 2 },
+                    { type: ListingType.DIRECT, count: 8 },
+                    { type: ListingType.EXCHANGE, count: 5 },
+                    { type: ListingType.AUCTION, count: 4 },
+                ],
+            },
+        },
+    });
+
+    await prisma.plan.create({
+        data: {
+            title: 'پلن رشد (پیشنهاد ویژه)',
+            description:
+                'تعادل قیمت و حجم: برای فروشندگان فعال که هم فروش ثابت دارند هم حراج و معاوضه.',
+            price: 799_000,
+            isActive: true,
+            durationDays: 365,
+            feeDiscountDirectPercent: 5,
+            feeDiscountAuctionPercent: 8,
+            rules: {
+                create: [
+                    { type: ListingType.DIRECT, count: 18 },
+                    { type: ListingType.EXCHANGE, count: 12 },
+                    { type: ListingType.AUCTION, count: 10 },
+                ],
+            },
+        },
+    });
+
+    await prisma.plan.create({
+        data: {
+            title: 'پلن حرفه‌ای',
+            description:
+                'حداکثر دیده‌شدن و چرخش کالا؛ مناسب مغازه‌داران و فروشندگان پرحجم آنلاین.',
+            price: 1_699_000,
+            isActive: true,
+            durationDays: 365,
+            feeDiscountDirectPercent: 12,
+            feeDiscountAuctionPercent: 15,
+            rules: {
+                create: [
+                    { type: ListingType.DIRECT, count: 45 },
+                    { type: ListingType.EXCHANGE, count: 30 },
+                    { type: ListingType.AUCTION, count: 25 },
                 ],
             },
         },

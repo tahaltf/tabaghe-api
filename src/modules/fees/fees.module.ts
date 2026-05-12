@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
 import { FeeCalculatorService } from './fee-calculator.service';
+import { PlanFeeDiscountService } from './plan-fee-discount.service';
 
 @Module({
-  providers: [FeeCalculatorService],
-  exports: [FeeCalculatorService], // اکسپورت برای استفاده در سفارشات و مزایده
+  providers: [PlanFeeDiscountService, FeeCalculatorService],
+  exports: [FeeCalculatorService, PlanFeeDiscountService],
 })
 export class FeesModule {}

@@ -502,6 +502,12 @@ model Plan {
   description String?
   price       Int                @default(0)
   isActive    Boolean            @default(true)
+  /// مدت اعتبار اشتراک پس از خرید (روز)، مثلاً ۳۶۵ = یک سال
+  durationDays              Int @default(365)
+  /// تخفیف از کارمزد محاسبه‌شده برای فروش مستقیم (۰ تا ۹۰ درصد)
+  feeDiscountDirectPercent  Int @default(0)
+  /// تخفیف از کارمزد محاسبه‌شده برای مزایده (۰ تا ۹۰ درصد)
+  feeDiscountAuctionPercent Int @default(0)
   rules       PlanRule[]
   purchases   UserPlanPurchase[]
   createdAt   DateTime           @default(now())
@@ -525,6 +531,8 @@ model UserPlanPurchase {
   planId      String
   plan        Plan          @relation(fields: [planId], references: [id])
   status      String        @default("ACTIVE")
+  /// پایان اعتبار اشتراک؛ برای خریدهای جدید از روی plan.durationDays ست می‌شود
+  expiresAt   DateTime?
   quotaLedger QuotaLedger[]
   createdAt   DateTime      @default(now())
 }

@@ -7,6 +7,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
   MinLength,
@@ -41,6 +42,27 @@ export class CreatePlanDto {
   price!: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  durationDays?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(90)
+  feeDiscountDirectPercent?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(90)
+  feeDiscountAuctionPercent?: number;
+
+  @IsOptional()
   @IsBoolean()
   isActive?: boolean;
 
@@ -68,6 +90,27 @@ export class UpdatePlanDto {
   @IsInt()
   @Min(0)
   price?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  durationDays?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(90)
+  feeDiscountDirectPercent?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(90)
+  feeDiscountAuctionPercent?: number;
 
   @IsOptional()
   @IsBoolean()

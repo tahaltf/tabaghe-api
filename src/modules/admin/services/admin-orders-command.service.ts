@@ -1709,6 +1709,7 @@ export class AdminOrdersCommandService {
                 order.type === 'AUCTION' ? ListingType.AUCTION : ListingType.DIRECT,
                 order.listing.categoryId,
                 recalculatedFinalPrice,
+                { sellerId: order.sellerId },
               ),
             );
         const recalculatedSellerRevenue = Math.max(

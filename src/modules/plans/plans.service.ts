@@ -6,6 +6,16 @@ import {
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { ListingType, QuotaAction, QuotaReason } from '@prisma/client';
+import {
+  BUILTIN_FREE_PLAN_ID,
+  buildBuiltinFreePlan,
+} from './builtin-free-plan';
+
+function addDaysUtc(base: Date, days: number): Date {
+  const d = new Date(base.getTime());
+  d.setUTCDate(d.getUTCDate() + days);
+  return d;
+}
 
 @Injectable()
 export class PlansService {
@@ -16,13 +26,32 @@ export class PlansService {
 
   // تغییر نام برای هماهنگی با Controller
   async getActivePlans() {
-    return this.prisma.plan.findMany({
+    const freeDirectLimitSetting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'FREE_DIRECT_QUOTA' },
+    });
+    const freeDirectLimit = freeDirectLimitSetting
+      ? Number(freeDirectLimitSetting.value)
+      : 2;
+    const builtin = buildBuiltinFreePlan(
+      Number.isFinite(freeDirectLimit) ? freeDirectLimit : 2,
+    );
+
+    const dbPlans = await this.prisma.plan.findMany({
       where: { isActive: true },
       include: { rules: true },
+      orderBy: { price: 'asc' },
     });
+
+    return [builtin, ...dbPlans];
   }
 
   async buyPlan(userId: string, planId: string) {
+    if (planId === BUILTIN_FREE_PLAN_ID) {
+      throw new BadRequestException(
+        'پلن رایگان برای همه فعال است و نیازی به خرید ندارد.',
+      );
+    }
+
     return this.prisma.$transaction(async (tx) => {
       const plan = await tx.plan.findUnique({
         where: { id: planId },
@@ -33,14 +62,20 @@ export class PlansService {
         throw new NotFoundException('پلن مورد نظر یافت نشد یا غیرفعال است');
       }
 
-      // کسر مبلغ از کیف پول
-      await this.walletService.payFromAvailable(userId, plan.price, planId, tx);
+      const price = Number(plan.price);
+      if (price > 0) {
+        await this.walletService.payFromAvailable(userId, plan.price, planId, tx);
+      }
+
+      const durationDays = Math.max(1, plan.durationDays ?? 365);
+      const expiresAt = addDaysUtc(new Date(), durationDays);
 
       const purchase = await tx.userPlanPurchase.create({
         data: {
           userId,
           planId,
           status: 'ACTIVE',
+          expiresAt,
         },
       });
 
@@ -75,6 +110,8 @@ export class PlansService {
       orderBy: { createdAt: 'desc' },
     });
 
+    const now = new Date();
+
     const remainingByType: Record<ListingType, number> = {
       DIRECT: 0,
       AUCTION: 0,
@@ -83,6 +120,11 @@ export class PlansService {
 
     for (const p of purchases) {
       if (p.status !== 'ACTIVE') continue;
+      const duration = Math.max(1, p.plan.durationDays ?? 365);
+      const expiresAt = p.expiresAt ?? addDaysUtc(p.createdAt, duration);
+      if (expiresAt.getTime() <= now.getTime()) {
+        continue;
+      }
       for (const rule of p.plan.rules) {
         const used = await this.prisma.quotaLedger.count({
           where: {
@@ -123,8 +165,26 @@ export class PlansService {
     ]);
     const freeDirectRemaining = Math.max(0, freeDirectLimit - (commits - releases));
 
+    const purchasesView = purchases.map((p) => {
+      const duration = Math.max(1, p.plan.durationDays ?? 365);
+      const subscriptionExpiresAt = p.expiresAt ?? addDaysUtc(p.createdAt, duration);
+      const ms = subscriptionExpiresAt.getTime() - now.getTime();
+      const subscriptionDaysRemaining = Math.max(
+        0,
+        Math.ceil(ms / 86400000),
+      );
+      const subscriptionActive =
+        p.status === 'ACTIVE' && subscriptionExpiresAt.getTime() > now.getTime();
+      return {
+        ...p,
+        subscriptionExpiresAt,
+        subscriptionDaysRemaining,
+        subscriptionActive,
+      };
+    });
+
     return {
-      purchases,
+      purchases: purchasesView,
       remainingByType,
       freeDirectLimit,
       freeDirectRemaining,

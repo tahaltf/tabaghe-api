@@ -569,7 +569,8 @@ export class AuctionService {
       const platformFee = await this.feeCalculator.calculateFee(
         ListingType.AUCTION,
         auction.listing.categoryId,
-        totalAmount
+        totalAmount,
+        { sellerId: auction.listing.authorId },
       );
 
       await this.walletService.payAuctionFinal(

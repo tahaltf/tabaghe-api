@@ -32,6 +32,9 @@ export class AdminPlansService {
         description: dto.description,
         price: dto.price,
         isActive: dto.isActive ?? true,
+        durationDays: dto.durationDays ?? 365,
+        feeDiscountDirectPercent: dto.feeDiscountDirectPercent ?? 0,
+        feeDiscountAuctionPercent: dto.feeDiscountAuctionPercent ?? 0,
         rules: {
           create: dto.rules.map((r) => ({ type: r.type, count: r.count })),
         },
@@ -52,6 +55,9 @@ export class AdminPlansService {
           description: dto.description ?? undefined,
           price: dto.price ?? undefined,
           isActive: dto.isActive ?? undefined,
+          durationDays: dto.durationDays ?? undefined,
+          feeDiscountDirectPercent: dto.feeDiscountDirectPercent ?? undefined,
+          feeDiscountAuctionPercent: dto.feeDiscountAuctionPercent ?? undefined,
         },
       });
 
