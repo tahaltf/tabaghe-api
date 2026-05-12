@@ -225,7 +225,7 @@ async function bootstrap() {
           'https://tabagheh.com',   
           'https://www.tabagheh.com'
 	], 
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS', // حتما OPTIONS اضافه شود
     credentials: true,
   });
 
