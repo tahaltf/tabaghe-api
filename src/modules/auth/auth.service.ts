@@ -126,6 +126,7 @@ export class AuthService {
   }
 
   private notifyAdminAboutLogin(phone: string): void {
+    this.logger.log(`Sending admin login alert SMS for ${phone}.`);
     this.smsService.sendAdminLoginAlert(phone).catch((error: unknown) => {
       this.logger.warn(
         `Failed to send admin login alert SMS for ${phone}: ${

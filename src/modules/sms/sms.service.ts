@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { AppSettingsService } from '../../shared/settings/app-settings.service';
 
@@ -7,6 +7,8 @@ const ADMIN_LOGIN_ALERT_TEMPLATE_ID = 176584;
 
 @Injectable()
 export class SmsService {
+  private readonly logger = new Logger(SmsService.name);
+
   constructor(private readonly appSettings: AppSettingsService) {}
 
   async sendByTemplate(
@@ -32,11 +34,20 @@ export class SmsService {
         },
       });
 
-      if (response.data.status !== 1) {
-        console.warn('SMS.IR returned non-success status:', response.data.message);
+      const status = Number(response.data?.status);
+      if (status !== 1) {
+        const message = response.data?.message || 'SMS.IR returned non-success status';
+        this.logger.warn(
+          `SMS.IR rejected template ${templateId} for ${phone}: ${message}`,
+        );
+        throw new InternalServerErrorException(message);
       }
+      this.logger.log(`SMS.IR accepted template ${templateId} for ${phone}.`);
       return response.data;
     } catch (error: any) {
+      if (error instanceof InternalServerErrorException) {
+        throw error;
+      }
       const errorDetail = error.response?.data;
       throw new InternalServerErrorException(
         errorDetail?.message || 'خطا در برقراری ارتباط با سامانه پیامک',
