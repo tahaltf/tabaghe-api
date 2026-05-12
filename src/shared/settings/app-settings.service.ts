@@ -12,7 +12,7 @@ export class AppSettingsService {
   }
 
   getApiUrl(): string {
-    return this.configService.get<string>('API_URL') ?? 'https://tabagheh.com';
+    return this.configService.get<string>('API_URL') ?? 'https://api.tabagheh.com';
   }
 
   getFrontendAppUrl(): string {

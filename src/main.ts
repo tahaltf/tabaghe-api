@@ -138,6 +138,38 @@ function flattenValidationErrors(errors: ValidationError[]): string[] {
   return out;
 }
 
+function normalizeCorsOrigin(origin: string): string | null {
+  const trimmed = origin.trim();
+  if (!trimmed) return null;
+
+  try {
+    return new URL(trimmed).origin;
+  } catch {
+    return trimmed.replace(/\/+$/, '');
+  }
+}
+
+function getTabaghehFrontendOrigins(frontendAppUrl: string): string[] {
+  const frontendOrigin = normalizeCorsOrigin(frontendAppUrl);
+  const origins = [
+    frontendOrigin,
+    'http://localhost:4200',
+    'https://tabagheh.com',
+    'https://www.tabagheh.com',
+  ];
+
+  return origins.filter((origin): origin is string => Boolean(origin));
+}
+
+function buildCorsOrigins(frontendAppUrl: string): string[] {
+  const configuredOrigins = (process.env.FRONTEND_ORIGINS || '')
+    .split(',')
+    .map(normalizeCorsOrigin)
+    .filter((origin): origin is string => Boolean(origin));
+
+  return [...new Set([...configuredOrigins, ...getTabaghehFrontendOrigins(frontendAppUrl)])];
+}
+
 async function isPortFree(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const tester = createServer();
@@ -160,11 +192,11 @@ async function resolveAvailablePort(startPort: number, maxAttempts: number): Pro
 }
 
 async function bootstrap() {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
   if (process.env.NODE_ENV === 'production') {
     validateProductionEnv();
   }
-
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   // ۱. امنیت: جلوگیری از حملات رایج وب با تنظیم هدرهای HTTP
   app.use(
@@ -180,11 +212,8 @@ async function bootstrap() {
     defaultVersion: '1', // خروجی: /api/v1/...
   });
 
-  const corsOrigins = (process.env.FRONTEND_ORIGINS || '')
-    .split(',')
-    .map((x) => x.trim())
-    .filter(Boolean);
   const frontendAppUrl = (process.env.FRONTEND_APP_URL || 'https://tabagheh.com').trim();
+  const corsOrigins = buildCorsOrigins(frontendAppUrl);
 
   // ۳. تنظیمات CORS هماهنگ با Angular
   app.enableCors({
