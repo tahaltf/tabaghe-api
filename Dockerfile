@@ -1,18 +1,14 @@
-FROM node:20-alpine
+# به جای دانلود از اینترنت، از ایمیج موجود روی سرورت استفاده می‌کنیم
+FROM tabagheh-backend:latest
+
 WORKDIR /app
-COPY package*.json ./
-RUN npm install
+
+# فقط کدهای جدید رو کپی می‌کنیم (چون پکیج‌ها قبلاً نصب شدن)
 COPY . .
 
-ARG DATABASE_URL="postgresql://temp:temp@localhost:5432/temp"
-ENV DATABASE_URL=$DATABASE_URL
-
-RUN npx prisma generate
-RUN npm run build
-
-# اضافه کردن این دستور برای اینکه بفهمیم فایل‌ها کجا ساخته شدن (توی لاگ بیلد نشون میده)
-RUN ls -R dist
+# اجرای بیلد نهایی
+RUN npx prisma generate && \
+    npm run build
 
 EXPOSE 3000
-# تغییر موقت استارت آپ برای پیدا کردن فایل اصلی
 CMD ["node", "dist/src/main.js"]
