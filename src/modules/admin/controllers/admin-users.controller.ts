@@ -1,7 +1,9 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   DefaultValuePipe,
+  Delete,
   Get,
   NotFoundException,
   Param,
@@ -93,6 +95,28 @@ export class AdminUsersQueryController {
     @Body() dto: AdminCreateUserDto,
   ) {
     return this.service.createUser(actor, dto);
+  }
+
+  @Get(':id/plan')
+  getUserPlan(@CurrentUser() actor: AuthenticatedUser, @Param('id') id: string) {
+    return this.service.getUserPlanInfo(actor, id);
+  }
+
+  @Patch(':id/plan')
+  setUserPlan(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() body: { planId?: string },
+  ) {
+    if (!body?.planId || typeof body.planId !== 'string' || !body.planId.trim()) {
+      throw new BadRequestException('شناسه پلن الزامی است');
+    }
+    return this.service.assignPlanToUser(actor, id, body.planId.trim());
+  }
+
+  @Delete(':id/plan')
+  cancelUserPlan(@CurrentUser() actor: AuthenticatedUser, @Param('id') id: string) {
+    return this.service.cancelActiveUserPlan(actor, id);
   }
 
   /**

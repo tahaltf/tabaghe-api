@@ -16,8 +16,18 @@ export class QuotaService {
     listingType: ListingType,
     listingId: string,
   ) {
-    // فعلا فروش پلن/سهمیه غیرفعال است؛ محدودیت ثبت آگهی اعمال نشود.
-    return;
+    // 1) فروش مستقیم را اول از سهمیه رایگان مصرف کن
+    if (listingType === ListingType.DIRECT) {
+      const freeLimit = await this.getFreeDirectLimit(tx);
+      const remaining = await this.getRemainingFreeDirect(tx, userId, freeLimit);
+      if (remaining > 0) {
+        await this.commitFreeDirect(tx, userId, listingType, listingId);
+        return;
+      }
+    }
+
+    // 2) سپس از پلن‌های فعال
+    await this.consumeFromPlan(tx, userId, listingType, listingId);
   }
 
   async releaseOnReject(tx: Prisma.TransactionClient, listingId: string) {
@@ -112,10 +122,12 @@ export class QuotaService {
     listingType: ListingType,
     listingId: string,
   ) {
+    const now = new Date();
     const purchases = await tx.userPlanPurchase.findMany({
       where: {
         userId,
         status: 'ACTIVE',
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
       },
       include: {
         plan: {
@@ -130,8 +142,8 @@ export class QuotaService {
     });
 
     for (const purchase of purchases) {
-      const rule = purchase.plan.rules.find((r) => r.type === listingType);
-      if (!rule) continue;
+      const rule = purchase.plan?.rules?.find((r) => r.type === listingType);
+      if (!rule || rule.count <= 0) continue;
 
       const used = await tx.quotaLedger.count({
         where: {
@@ -157,8 +169,16 @@ export class QuotaService {
       }
     }
 
-    throw new ForbiddenException(
-      'سهمیه‌ای برای این نوع آگهی باقی نمانده است. پلن مناسب را تهیه کنید.',
-    );
+    throw new ForbiddenException(this.buildNoQuotaMessage(listingType));
+  }
+
+  private buildNoQuotaMessage(listingType: ListingType): string {
+    const typeLabel: Record<ListingType, string> = {
+      DIRECT: 'فروش مستقیم',
+      EXCHANGE: 'معاوضه',
+      AUCTION: 'مزایده',
+    };
+    const label = typeLabel[listingType] ?? listingType;
+    return `سهمیه‌ای برای آگهی ${label} باقی نمانده است. لطفاً از مسیر «پیشخوان → پلن‌ها و سهمیه» یک پلن مناسب تهیه کنید.`;
   }
 }

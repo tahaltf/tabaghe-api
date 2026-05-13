@@ -9,6 +9,23 @@ export type CalculateFeeOptions = {
   sellerId?: string;
 };
 
+export interface FeePreviewResult {
+  /** کارمزد پایه قبل از اعمال تخفیف پلن. */
+  baseFee: string;
+  /** کارمزد نهایی پس از اعمال تخفیف پلن. */
+  finalFee: string;
+  /** درصد تخفیف اعمال‌شده (۰–۹۰). */
+  discountPercent: number;
+  /** مبلغ صرفه‌جویی (baseFee - finalFee). */
+  discountAmount: string;
+  /** عنوان پلن اعمال‌کننده تخفیف، در صورت وجود. */
+  planTitle: string | null;
+  /** شناسه پلن اعمال‌کننده تخفیف، در صورت وجود. */
+  planId: string | null;
+  /** تاریخ انقضای اشتراک پلن، در صورت وجود. */
+  planExpiresAt: string | null;
+}
+
 @Injectable()
 export class FeeCalculatorService {
   constructor(
@@ -102,5 +119,41 @@ export class FeeCalculatorService {
     }
 
     return totalFee;
+  }
+
+  /**
+   * Returns a structured preview of the fee for a given listing scenario. Mirrors
+   * the calculation used at settlement time so the seller can see exactly how their
+   * active plan discount affects the platform fee before publishing the listing.
+   */
+  async previewFee(
+    listingType: ListingType,
+    categoryId: string | null,
+    amount: number | string | Decimal,
+    sellerId?: string,
+  ): Promise<FeePreviewResult> {
+    const baseFee = await this.calculateFee(listingType, categoryId, amount);
+    const discount = sellerId
+      ? await this.planFeeDiscount.getSellerDiscount(sellerId, listingType)
+      : {
+          discountPercent: 0,
+          planTitle: null,
+          planId: null,
+          expiresAt: null,
+        };
+
+    const mult = (100 - discount.discountPercent) / 100;
+    const finalFee = baseFee.mul(mult).floor();
+    const discountAmount = baseFee.minus(finalFee);
+
+    return {
+      baseFee: baseFee.toString(),
+      finalFee: finalFee.toString(),
+      discountPercent: discount.discountPercent,
+      discountAmount: discountAmount.toString(),
+      planTitle: discount.planTitle,
+      planId: discount.planId,
+      planExpiresAt: discount.expiresAt ? discount.expiresAt.toISOString() : null,
+    };
   }
 }

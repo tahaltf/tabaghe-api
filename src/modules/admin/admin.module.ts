@@ -25,6 +25,7 @@ import { AdminLogsController } from './controllers/admin-logs.controller';
 import { AdminPlatformWalletController } from './controllers/admin-platform-wallet.controller';
 import { AdminContactMessagesController } from './controllers/admin-contact-messages.controller';
 import { AdminBlogController } from './controllers/admin-blog.controller';
+import { AdminBadgesController } from './controllers/admin-badges.controller';
 
 // Services
 import { AdminDashboardService } from './services/admin-dashboard.service';
@@ -47,6 +48,7 @@ import { AdminLogsService } from './services/admin-logs.service';
 import { AdminPlatformWalletService } from './services/admin-platform-wallet.service';
 import { SmsService } from '../sms/sms.service';
 import { AdminBlogService } from './services/admin-blog.service';
+import { AdminBadgesService } from './services/admin-badges.service';
 import { OrdersModule } from '../orders/orders.module';
 
 @Module({
@@ -72,6 +74,7 @@ import { OrdersModule } from '../orders/orders.module';
     AdminPlatformWalletController,
     AdminContactMessagesController,
     AdminBlogController,
+    AdminBadgesController,
   ],
   providers: [
     AdminDashboardService,
@@ -93,6 +96,7 @@ import { OrdersModule } from '../orders/orders.module';
     AdminLogsService,
     AdminPlatformWalletService,
     AdminBlogService,
+    AdminBadgesService,
     SmsService,
   ],
 })
