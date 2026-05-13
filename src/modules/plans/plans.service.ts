@@ -29,12 +29,13 @@ export class PlansService {
     const freeDirectLimitSetting = await this.prisma.systemSetting.findUnique({
       where: { key: 'FREE_DIRECT_QUOTA' },
     });
-    const freeDirectLimit = freeDirectLimitSetting
+    const rawFree = freeDirectLimitSetting
       ? Number(freeDirectLimitSetting.value)
       : 2;
-    const builtin = buildBuiltinFreePlan(
-      Number.isFinite(freeDirectLimit) ? freeDirectLimit : 2,
-    );
+    const freeDirectLimit = Number.isFinite(rawFree)
+      ? Math.max(0, Math.floor(rawFree))
+      : 2;
+    const builtin = buildBuiltinFreePlan(freeDirectLimit);
 
     const dbPlans = await this.prisma.plan.findMany({
       where: { isActive: true },
@@ -118,21 +119,40 @@ export class PlansService {
       EXCHANGE: 0,
     };
 
+    const purchaseIds = purchases.map((p) => p.id);
+    const commitByPurchaseAndType = new Map<string, number>();
+
+    if (purchaseIds.length > 0) {
+      const commitGroups = await this.prisma.quotaLedger.groupBy({
+        by: ['planPurchaseId', 'listingType'],
+        where: {
+          planPurchaseId: { in: purchaseIds },
+          action: QuotaAction.COMMIT,
+        },
+        _count: { _all: true },
+      });
+      for (const row of commitGroups) {
+        if (row.planPurchaseId) {
+          commitByPurchaseAndType.set(
+            `${row.planPurchaseId}:${row.listingType}`,
+            row._count._all,
+          );
+        }
+      }
+    }
+
     for (const p of purchases) {
+      if (!p.plan) continue;
       if (p.status !== 'ACTIVE') continue;
+      const rules = p.plan.rules ?? [];
       const duration = Math.max(1, p.plan.durationDays ?? 365);
       const expiresAt = p.expiresAt ?? addDaysUtc(p.createdAt, duration);
       if (expiresAt.getTime() <= now.getTime()) {
         continue;
       }
-      for (const rule of p.plan.rules) {
-        const used = await this.prisma.quotaLedger.count({
-          where: {
-            planPurchaseId: p.id,
-            listingType: rule.type,
-            action: QuotaAction.COMMIT,
-          },
-        });
+      for (const rule of rules) {
+        const used =
+          commitByPurchaseAndType.get(`${p.id}:${rule.type}`) ?? 0;
         const left = Math.max(0, rule.count - used);
         remainingByType[rule.type] = (remainingByType[rule.type] ?? 0) + left;
       }
@@ -141,8 +161,11 @@ export class PlansService {
     const freeDirectLimitSetting = await this.prisma.systemSetting.findUnique({
       where: { key: 'FREE_DIRECT_QUOTA' },
     });
-    const freeDirectLimit = freeDirectLimitSetting
+    const rawFreeLimit = freeDirectLimitSetting
       ? Number(freeDirectLimitSetting.value)
+      : 2;
+    const freeDirectLimit = Number.isFinite(rawFreeLimit)
+      ? Math.max(0, Math.floor(rawFreeLimit))
       : 2;
 
     const [commits, releases] = await Promise.all([
@@ -166,6 +189,29 @@ export class PlansService {
     const freeDirectRemaining = Math.max(0, freeDirectLimit - (commits - releases));
 
     const purchasesView = purchases.map((p) => {
+      if (!p.plan) {
+        const subscriptionExpiresAt = p.expiresAt ?? p.createdAt;
+        const ms = subscriptionExpiresAt.getTime() - now.getTime();
+        return {
+          ...p,
+          plan: {
+            id: '',
+            title: 'پلن (نامشخص)',
+            description: null as string | null,
+            price: 0,
+            isActive: false,
+            rules: [] as { id: string; planId: string; type: ListingType; count: number }[],
+            createdAt: p.createdAt,
+            updatedAt: p.createdAt,
+            durationDays: 0,
+            feeDiscountDirectPercent: 0,
+            feeDiscountAuctionPercent: 0,
+          },
+          subscriptionExpiresAt,
+          subscriptionDaysRemaining: Math.max(0, Math.ceil(ms / 86400000)),
+          subscriptionActive: false,
+        };
+      }
       const duration = Math.max(1, p.plan.durationDays ?? 365);
       const subscriptionExpiresAt = p.expiresAt ?? addDaysUtc(p.createdAt, duration);
       const ms = subscriptionExpiresAt.getTime() - now.getTime();

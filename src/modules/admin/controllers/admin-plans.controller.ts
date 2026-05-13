@@ -26,6 +26,11 @@ export class AdminPlansController {
     return this.service.list();
   }
 
+  @Get(':id')
+  getOne(@Param('id') id: string) {
+    return this.service.findOne(id);
+  }
+
   @Post()
   create(@Body() dto: CreatePlanDto) {
     return this.service.create(dto);

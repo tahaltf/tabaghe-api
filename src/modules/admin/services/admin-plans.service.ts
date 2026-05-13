@@ -1,11 +1,12 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { ListingType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
-import { CreatePlanDto, UpdatePlanDto } from '../dto/admin-plan.dto';
+import { CreatePlanDto, PlanRuleDto, UpdatePlanDto } from '../dto/admin-plan.dto';
 
 const PLAN_INCLUDE = {
   rules: true,
@@ -13,6 +14,16 @@ const PLAN_INCLUDE = {
 } satisfies Prisma.PlanInclude;
 
 export type AdminPlanItem = Prisma.PlanGetPayload<{ include: typeof PLAN_INCLUDE }>;
+
+/** چند ردیف با یک نوع آگهی را به یک ردیف با جمع تعداد تبدیل می‌کند (مطابق @@unique([planId, type])). */
+function mergeRulesByType(rules: PlanRuleDto[]): Array<{ type: ListingType; count: number }> {
+  const map = new Map<ListingType, number>();
+  for (const r of rules) {
+    const n = Math.max(0, Math.floor(Number(r.count) || 0));
+    map.set(r.type, (map.get(r.type) ?? 0) + n);
+  }
+  return Array.from(map.entries()).map(([type, count]) => ({ type, count }));
+}
 
 @Injectable()
 export class AdminPlansService {
@@ -25,7 +36,20 @@ export class AdminPlansService {
     });
   }
 
+  async findOne(id: string): Promise<AdminPlanItem> {
+    const plan = await this.prisma.plan.findUnique({
+      where: { id },
+      include: PLAN_INCLUDE,
+    });
+    if (!plan) throw new NotFoundException('پلن یافت نشد');
+    return plan;
+  }
+
   async create(dto: CreatePlanDto): Promise<AdminPlanItem> {
+    const merged = mergeRulesByType(dto.rules);
+    if (merged.length === 0) {
+      throw new BadRequestException('حداقل یک قاعدهٔ سهمیه با تعداد معتبر لازم است');
+    }
     return this.prisma.plan.create({
       data: {
         title: dto.title,
@@ -36,7 +60,7 @@ export class AdminPlansService {
         feeDiscountDirectPercent: dto.feeDiscountDirectPercent ?? 0,
         feeDiscountAuctionPercent: dto.feeDiscountAuctionPercent ?? 0,
         rules: {
-          create: dto.rules.map((r) => ({ type: r.type, count: r.count })),
+          create: merged.map((r) => ({ type: r.type, count: r.count })),
         },
       },
       include: PLAN_INCLUDE,
@@ -62,9 +86,13 @@ export class AdminPlansService {
       });
 
       if (dto.rules && dto.rules.length > 0) {
+        const merged = mergeRulesByType(dto.rules);
+        if (merged.length === 0) {
+          throw new BadRequestException('حداقل یک قاعدهٔ سهمیه با تعداد معتبر لازم است');
+        }
         await tx.planRule.deleteMany({ where: { planId: id } });
         await tx.planRule.createMany({
-          data: dto.rules.map((r) => ({ planId: id, type: r.type, count: r.count })),
+          data: merged.map((r) => ({ planId: id, type: r.type, count: r.count })),
         });
       }
 

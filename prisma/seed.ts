@@ -6,6 +6,7 @@ async function main() {
     console.log('🚀 شروع عملیات جامع Seed برای استارتاپ طبقه...');
 
     // ۱. پاک‌سازی داده‌های قبلی برای جلوگیری از تداخل
+    await prisma.userPlanPurchase.deleteMany();
     await prisma.planRule.deleteMany();
     await prisma.plan.deleteMany();
     await prisma.category.deleteMany();
