@@ -15,7 +15,9 @@ const KYC_REQUEST_SELECT = {
   updatedAt: true,
 } satisfies Prisma.UserSelect;
 
-export type KycRequest = Prisma.UserGetPayload<{ select: typeof KYC_REQUEST_SELECT }>;
+export type KycRequest = Prisma.UserGetPayload<{
+  select: typeof KYC_REQUEST_SELECT;
+}>;
 
 @Injectable()
 export class AdminUsersService {
@@ -63,15 +65,15 @@ export class AdminUsersService {
   ): Promise<{ id: string; status: UserStatus; isVerified: boolean }> {
     return this.prisma.$transaction(async (tx) => {
       const updatedUser = await tx.user.update({
-      where: { id: targetUserId },
-      data: {
-        status: UserStatus.REJECTED,
-        isVerified: false,
-        kycRejectionReason: reason,
-        kycReviewedAt: new Date(),
-      },
-      select: { id: true, status: true, isVerified: true },
-    });
+        where: { id: targetUserId },
+        data: {
+          status: UserStatus.REJECTED,
+          isVerified: false,
+          kycRejectionReason: reason,
+          kycReviewedAt: new Date(),
+        },
+        select: { id: true, status: true, isVerified: true },
+      });
 
       await this.notificationService.create({
         userId: targetUserId,

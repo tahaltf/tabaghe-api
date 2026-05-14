@@ -25,13 +25,18 @@ const PLACEHOLDER_VALUES = new Set([
 ]);
 
 function isPlaceholderEnvValue(key: string, value: string): boolean {
-  const normalizedValue = value.trim().replace(/^["']|["']$/g, '').toLowerCase();
+  const normalizedValue = value
+    .trim()
+    .replace(/^["']|["']$/g, '')
+    .toLowerCase();
 
   if (PLACEHOLDER_VALUES.has(normalizedValue)) return true;
   if (normalizedValue.startsWith('replace-with-')) return true;
   if (normalizedValue.startsWith('your-')) return true;
 
-  return key === 'DATABASE_URL' && /user:(pass|password)@host/i.test(normalizedValue);
+  return (
+    key === 'DATABASE_URL' && /user:(pass|password)@host/i.test(normalizedValue)
+  );
 }
 
 export function validateProductionEnv() {
@@ -48,6 +53,8 @@ export function validateProductionEnv() {
   }
 
   if (placeholders.length) {
-    throw new Error(`Production env vars still contain placeholder values: ${placeholders.join(', ')}`);
+    throw new Error(
+      `Production env vars still contain placeholder values: ${placeholders.join(', ')}`,
+    );
   }
 }

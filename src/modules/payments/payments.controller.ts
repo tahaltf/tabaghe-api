@@ -81,14 +81,18 @@ export class PaymentsController {
         query,
       );
       const target = this.resolveReturnTarget(query);
-      if (result.orderId) target.searchParams.set('orderId', String(result.orderId));
-      if (result.repairId) target.searchParams.set('repairId', String(result.repairId));
+      if (result.orderId)
+        target.searchParams.set('orderId', String(result.orderId));
+      if (result.repairId)
+        target.searchParams.set('repairId', String(result.repairId));
       if (result.kind) target.searchParams.set('kind', String(result.kind));
       target.searchParams.set('result', String(result.result));
       target.searchParams.set('ok', String(result.ok));
-      if (result.authority) target.searchParams.set('authority', String(result.authority));
+      if (result.authority)
+        target.searchParams.set('authority', String(result.authority));
       if (result.refId) target.searchParams.set('refId', String(result.refId));
-      if (result.message) target.searchParams.set('message', String(result.message));
+      if (result.message)
+        target.searchParams.set('message', String(result.message));
       return res.redirect(302, target.toString());
     } catch (err: unknown) {
       const target = this.resolveReturnTarget(query);
@@ -105,8 +109,13 @@ export class PaymentsController {
   private buildCallbackBase(req: Request): string {
     const protoHeader = req.headers['x-forwarded-proto'];
     const hostHeader = req.headers['x-forwarded-host'];
-    const protocol = (Array.isArray(protoHeader) ? protoHeader[0] : protoHeader) || req.protocol || 'https';
-    const host = (Array.isArray(hostHeader) ? hostHeader[0] : hostHeader) || req.get('host');
+    const protocol =
+      (Array.isArray(protoHeader) ? protoHeader[0] : protoHeader) ||
+      req.protocol ||
+      'https';
+    const host =
+      (Array.isArray(hostHeader) ? hostHeader[0] : hostHeader) ||
+      req.get('host');
     if (!host) return this.appSettings.getPaymentGatewayConfig().callbackUrl;
     return `${protocol}://${host}/api/v1/payments/callback/zibal`;
   }

@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum } from 'class-validator';
+import { IsString, IsOptional } from 'class-validator';
 
 export class CreateTicketDto {
   @IsString() subject: string;

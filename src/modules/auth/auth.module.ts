@@ -15,7 +15,8 @@ import { SmsService } from '../sms/sms.service';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET') ?? 'fallback_access_secret_key',
+        secret:
+          config.get<string>('JWT_SECRET') ?? 'fallback_access_secret_key',
         signOptions: { expiresIn: '7d' },
       }),
     }),

@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { Listing, ListingStatus, NotificationType, Prisma } from '@prisma/client';
+import {
+  Listing,
+  ListingStatus,
+  NotificationType,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { QuotaService } from '../../quota/quota.service';
 import { RejectListingDto } from '../dto/reject-listing.dto';
@@ -24,7 +29,9 @@ const ADMIN_LISTING_INCLUDE = {
   },
 } satisfies Prisma.ListingInclude;
 
-export type AdminListing = Prisma.ListingGetPayload<{ include: typeof ADMIN_LISTING_INCLUDE }>;
+export type AdminListing = Prisma.ListingGetPayload<{
+  include: typeof ADMIN_LISTING_INCLUDE;
+}>;
 
 @Injectable()
 export class ListingAdminService {
@@ -83,10 +90,7 @@ export class ListingAdminService {
     });
   }
 
-  async setStatus(
-    listingId: string,
-    status: ListingStatus,
-  ): Promise<Listing> {
+  async setStatus(listingId: string, status: ListingStatus): Promise<Listing> {
     const data: Prisma.ListingUpdateInput = {
       status,
     };

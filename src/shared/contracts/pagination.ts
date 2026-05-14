@@ -49,7 +49,10 @@ export function buildPaginationMeta(
   };
 }
 
-export function toSkipTake(query: PaginationQueryDto): { skip: number; take: number } {
+export function toSkipTake(query: PaginationQueryDto): {
+  skip: number;
+  take: number;
+} {
   const page = query.page ?? DEFAULT_PAGE;
   const pageSize = query.pageSize ?? DEFAULT_PAGE_SIZE;
   return {

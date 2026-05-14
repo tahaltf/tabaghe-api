@@ -1,9 +1,20 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
-import { CommonService } from "./common-module.service";
+import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
+import type { Request } from 'express';
+import { CommonService } from './common-module.service';
+import { buildClientNetworkHint } from './client-network-hint.util';
 
 @Controller('common')
 export class CommonController {
   constructor(private readonly commonService: CommonService) {}
+
+  /**
+   * کشور اتصال از هدرهای لبه (مثل Cloudflare) — بدون سرویس Geo خارجی.
+   * برای nginx می‌توان هدر `X-Tabaghe-Client-Country` را با geoip2 پر کرد.
+   */
+  @Get('client-network')
+  clientNetwork(@Req() req: Request) {
+    return buildClientNetworkHint(req);
+  }
 
   @Get('provinces')
   async provinces() {
@@ -61,13 +72,16 @@ export class CommonController {
   }
 
   @Post('contact-us')
-  async submitContact(@Body() body: {
-    name: string;
-    phone: string;
-    email?: string;
-    subject: string;
-    message: string;
-  }) {
+  async submitContact(
+    @Body()
+    body: {
+      name: string;
+      phone: string;
+      email?: string;
+      subject: string;
+      message: string;
+    },
+  ) {
     return this.commonService.submitContactMessage(body);
   }
 }

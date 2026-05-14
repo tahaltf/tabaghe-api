@@ -27,7 +27,8 @@ function translateValidationConstraintMessage(raw: string): string {
     ],
     [
       /^each value in nested property (.+) must be either object or array$/i,
-      (_: string, g1: string) => `هر مقدار در فیلد تو در تو «${g1}» باید شی یا آرایه باشد`,
+      (_: string, g1: string) =>
+        `هر مقدار در فیلد تو در تو «${g1}» باید شی یا آرایه باشد`,
     ],
   ] as const;
   for (const [re, repl] of fullLine) {
@@ -36,9 +37,18 @@ function translateValidationConstraintMessage(raw: string): string {
   }
 
   const phrasePairs: Array<[RegExp, string]> = [
-    [/must be longer than or equal to (\d+) characters/gi, 'طول باید حداقل $1 کاراکتر باشد'],
-    [/must be shorter than or equal to (\d+) characters/gi, 'طول باید حداکثر $1 کاراکتر باشد'],
-    [/must be a number conforming to the specified constraints/gi, 'باید عدد معتبر باشد'],
+    [
+      /must be longer than or equal to (\d+) characters/gi,
+      'طول باید حداقل $1 کاراکتر باشد',
+    ],
+    [
+      /must be shorter than or equal to (\d+) characters/gi,
+      'طول باید حداکثر $1 کاراکتر باشد',
+    ],
+    [
+      /must be a number conforming to the specified constraints/gi,
+      'باید عدد معتبر باشد',
+    ],
     [/must be an integer number/gi, 'باید عدد صحیح باشد'],
     [/must be a positive number/gi, 'باید عدد مثبت باشد'],
     [/must be a negative number/gi, 'باید عدد منفی باشد'],
@@ -52,7 +62,10 @@ function translateValidationConstraintMessage(raw: string): string {
     [/should not be empty/gi, 'نباید خالی باشد'],
     [/must not be less than ([0-9.]+)/gi, 'نباید کمتر از $1 باشد'],
     [/must not be greater than ([0-9.]+)/gi, 'نباید بیشتر از $1 باشد'],
-    [/must match \/(.*)\/ regular expression/gi, 'با قالب درخواستی مطابقت ندارد'],
+    [
+      /must match \/(.*)\/ regular expression/gi,
+      'با قالب درخواستی مطابقت ندارد',
+    ],
     [/is not valid phone number/gi, 'شماره تلفن معتبر نیست'],
     [/is not a valid phone number/gi, 'شماره تلفن معتبر نیست'],
   ];
@@ -116,7 +129,9 @@ function collectValidationMessages(
         if (WHITELIST_VIOLATION_RE.test(raw)) {
           whitelistPaths.push(prop);
         } else {
-          otherLines.push(`${prop} ${translateValidationConstraintMessage(msg)}`);
+          otherLines.push(
+            `${prop} ${translateValidationConstraintMessage(msg)}`,
+          );
         }
       }
     }
@@ -167,7 +182,12 @@ function buildCorsOrigins(frontendAppUrl: string): string[] {
     .map(normalizeCorsOrigin)
     .filter((origin): origin is string => Boolean(origin));
 
-  return [...new Set([...configuredOrigins, ...getTabaghehFrontendOrigins(frontendAppUrl)])];
+  return [
+    ...new Set([
+      ...configuredOrigins,
+      ...getTabaghehFrontendOrigins(frontendAppUrl),
+    ]),
+  ];
 }
 
 async function isPortFree(port: number): Promise<boolean> {
@@ -178,17 +198,24 @@ async function isPortFree(port: number): Promise<boolean> {
       .once('listening', () => {
         tester.close(() => resolve(true));
       })
-      .listen(port, '0.0.0.0');
+      // بدون host تا مثل Express/Nest روی همان ترکیب IPv4/IPv6 گوش کند؛
+      // listen(3000,'0.0.0.0') گاهی در حالی که ::3000 اشغال است اشتباه «آزاد» برمی‌گرداند.
+      .listen(port);
   });
 }
 
-async function resolveAvailablePort(startPort: number, maxAttempts: number): Promise<number> {
+async function resolveAvailablePort(
+  startPort: number,
+  maxAttempts: number,
+): Promise<number> {
   let candidate = startPort;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     if (await isPortFree(candidate)) return candidate;
     candidate += 1;
   }
-  throw new Error(`Could not find an available port from ${startPort} to ${candidate - 1}.`);
+  throw new Error(
+    `Could not find an available port from ${startPort} to ${candidate - 1}.`,
+  );
 }
 
 async function bootstrap() {
@@ -212,7 +239,9 @@ async function bootstrap() {
     defaultVersion: '1', // خروجی: /api/v1/...
   });
 
-  const frontendAppUrl = (process.env.FRONTEND_APP_URL || 'https://tabagheh.com').trim();
+  const frontendAppUrl = (
+    process.env.FRONTEND_APP_URL || 'https://tabagheh.com'
+  ).trim();
   const corsOrigins = buildCorsOrigins(frontendAppUrl);
 
   // ۳. تنظیمات CORS هماهنگ با Angular
@@ -222,9 +251,9 @@ async function bootstrap() {
       : [
           frontendAppUrl,
           'http://localhost:4200',
-          'https://tabagheh.com',   
-          'https://www.tabagheh.com'
-	], 
+          'https://tabagheh.com',
+          'https://www.tabagheh.com',
+        ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS', // حتما OPTIONS اضافه شود
     credentials: true,
   });
@@ -260,9 +289,16 @@ async function bootstrap() {
   const activePort = await resolveAvailablePort(preferredPort, maxPortAttempts);
 
   await app.listen(activePort);
-  console.log(`🚀 Tabagheh API is running on: http://localhost:${activePort}/api/v1`);
+  console.log(
+    `🚀 Tabagheh API is running on: http://localhost:${activePort}/api/v1`,
+  );
   if (activePort !== preferredPort) {
-    console.warn(`⚠️ Preferred port ${preferredPort} was busy. Switched to port ${activePort}.`);
+    console.warn(
+      `⚠️ Preferred port ${preferredPort} was busy. Switched to port ${activePort}.`,
+    );
   }
 }
-bootstrap();
+bootstrap().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

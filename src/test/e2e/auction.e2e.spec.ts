@@ -59,18 +59,51 @@ describe('Auction E2E', () => {
 
     const seller = await prisma.user.upsert({
       where: { phone: sellerPhone },
-      create: { phone: sellerPhone, role: 'ADMIN', isActive: true, isVerified: true, trustScore: 100 },
-      update: { role: 'ADMIN', isActive: true, isVerified: true, trustScore: 100 },
+      create: {
+        phone: sellerPhone,
+        role: 'ADMIN',
+        isActive: true,
+        isVerified: true,
+        trustScore: 100,
+      },
+      update: {
+        role: 'ADMIN',
+        isActive: true,
+        isVerified: true,
+        trustScore: 100,
+      },
     });
     const b1 = await prisma.user.upsert({
       where: { phone: bidder1Phone },
-      create: { phone: bidder1Phone, role: 'USER', isActive: true, isVerified: true, trustScore: 100 },
-      update: { role: 'USER', isActive: true, isVerified: true, trustScore: 100 },
+      create: {
+        phone: bidder1Phone,
+        role: 'USER',
+        isActive: true,
+        isVerified: true,
+        trustScore: 100,
+      },
+      update: {
+        role: 'USER',
+        isActive: true,
+        isVerified: true,
+        trustScore: 100,
+      },
     });
     const b2 = await prisma.user.upsert({
       where: { phone: bidder2Phone },
-      create: { phone: bidder2Phone, role: 'USER', isActive: true, isVerified: true, trustScore: 100 },
-      update: { role: 'USER', isActive: true, isVerified: true, trustScore: 100 },
+      create: {
+        phone: bidder2Phone,
+        role: 'USER',
+        isActive: true,
+        isVerified: true,
+        trustScore: 100,
+      },
+      update: {
+        role: 'USER',
+        isActive: true,
+        isVerified: true,
+        trustScore: 100,
+      },
     });
 
     await prisma.wallet.upsert({
@@ -80,18 +113,30 @@ describe('Auction E2E', () => {
     });
     await prisma.wallet.upsert({
       where: { userId: b1.id },
-      create: { userId: b1.id, balanceAvailable: 1_000_000_000, balanceBlocked: 0 },
+      create: {
+        userId: b1.id,
+        balanceAvailable: 1_000_000_000,
+        balanceBlocked: 0,
+      },
       update: { balanceAvailable: 1_000_000_000 },
     });
     await prisma.wallet.upsert({
       where: { userId: b2.id },
-      create: { userId: b2.id, balanceAvailable: 1_000_000_000, balanceBlocked: 0 },
+      create: {
+        userId: b2.id,
+        balanceAvailable: 1_000_000_000,
+        balanceBlocked: 0,
+      },
       update: { balanceAvailable: 1_000_000_000 },
     });
 
     const category = await prisma.category.upsert({
       where: { slug: 'test-auction' },
-      create: { slug: 'test-auction', title: 'Test Auction', auctionDepositPercent: 10 },
+      create: {
+        slug: 'test-auction',
+        title: 'Test Auction',
+        auctionDepositPercent: 10,
+      },
       update: { title: 'Test Auction', auctionDepositPercent: 10 },
     });
     const province = await prisma.location.create({
@@ -226,7 +271,9 @@ describe('Auction E2E', () => {
     await prisma.wallet.create({
       data: { userId: seller.id, balanceAvailable: 0, balanceBlocked: 0 },
     });
-    const category = await prisma.category.findFirst({ where: { slug: 'test-auction' } });
+    const category = await prisma.category.findFirst({
+      where: { slug: 'test-auction' },
+    });
     const province = await prisma.location.create({
       data: { name: 'Tehran6', type: 'PROVINCE' },
     });
@@ -325,7 +372,9 @@ describe('Auction E2E', () => {
       data: { userId: seller.id, balanceAvailable: 0, balanceBlocked: 0 },
     });
 
-    const category = await prisma.category.findFirst({ where: { slug: 'test-auction' } });
+    const category = await prisma.category.findFirst({
+      where: { slug: 'test-auction' },
+    });
     const province = await prisma.location.create({
       data: { name: 'Tehran2', type: 'PROVINCE' },
     });
@@ -439,7 +488,9 @@ describe('Auction E2E', () => {
       data: { userId: seller.id, balanceAvailable: 0, balanceBlocked: 0 },
     });
 
-    const category = await prisma.category.findFirst({ where: { slug: 'test-auction' } });
+    const category = await prisma.category.findFirst({
+      where: { slug: 'test-auction' },
+    });
     const province = await prisma.location.create({
       data: { name: 'Tehran3', type: 'PROVINCE' },
     });
@@ -536,7 +587,9 @@ describe('Auction E2E', () => {
     await prisma.wallet.create({
       data: { userId: seller.id, balanceAvailable: 0, balanceBlocked: 0 },
     });
-    const category = await prisma.category.findFirst({ where: { slug: 'test-auction' } });
+    const category = await prisma.category.findFirst({
+      where: { slug: 'test-auction' },
+    });
     const province = await prisma.location.create({
       data: { name: 'Tehran4', type: 'PROVINCE' },
     });
@@ -625,7 +678,9 @@ describe('Auction E2E', () => {
     await prisma.wallet.create({
       data: { userId: seller.id, balanceAvailable: 0, balanceBlocked: 0 },
     });
-    const category = await prisma.category.findFirst({ where: { slug: 'test-auction' } });
+    const category = await prisma.category.findFirst({
+      where: { slug: 'test-auction' },
+    });
     const province = await prisma.location.create({
       data: { name: 'Tehran5', type: 'PROVINCE' },
     });
@@ -700,7 +755,8 @@ describe('Auction E2E', () => {
     });
     expect(['DECLINED', 'EXPIRED']).toContain(latestOffer?.status);
     // exactly one terminal marker must be set on the same row
-    const terminalMarks = Number(!!latestOffer?.declinedAt) + Number(!!latestOffer?.expiredAt);
+    const terminalMarks =
+      Number(!!latestOffer?.declinedAt) + Number(!!latestOffer?.expiredAt);
     expect(terminalMarks).toBe(1);
 
     const finalAuction = await prisma.listingAuction.findUnique({
@@ -710,4 +766,3 @@ describe('Auction E2E', () => {
     expect(finalAuction?.settlementStatus).toBe('FAILED');
   });
 });
-

@@ -1,4 +1,10 @@
-import { IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsEnum,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import { TicketStatus } from '@prisma/client';
 
 export class AdminReplyTicketDto {

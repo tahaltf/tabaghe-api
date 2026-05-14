@@ -18,7 +18,10 @@ import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { bannerMulterOptions } from '../../../common/upload/banner-upload.config';
 import { AdminBlogService } from '../services/admin-blog.service';
-import { AdminCreateBlogPostDto, AdminUpdateBlogPostDto } from '../dto/admin-blog.dto';
+import {
+  AdminCreateBlogPostDto,
+  AdminUpdateBlogPostDto,
+} from '../dto/admin-blog.dto';
 
 @Controller('admin/blog-posts')
 @UseGuards(JwtAuthGuard, RolesGuard)

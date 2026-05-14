@@ -19,12 +19,14 @@ export class ChatsService {
 
     // 👈 لاجیک جدید: تعیین نقش‌ها
     let buyerId: string;
-    let sellerId: string = listing.authorId;
+    const sellerId: string = listing.authorId;
 
     if (listing.authorId === userId) {
       // اگر صاحب آگهی چت را باز کرده، باید مشخص باشد با کدام مشتری/پیشنهاد دهنده کار دارد
       if (!targetUserId) {
-        throw new BadRequestException('برای شروع چت توسط صاحب آگهی، مشخص کردن مخاطب الزامی است');
+        throw new BadRequestException(
+          'برای شروع چت توسط صاحب آگهی، مشخص کردن مخاطب الزامی است',
+        );
       }
       buyerId = targetUserId;
     } else {
@@ -45,8 +47,12 @@ export class ChatsService {
       },
       include: {
         listing: { select: { title: true, thumbnail: true, id: true } },
-        buyer: { select: { firstName: true, lastName: true, id: true, avatar: true } },
-        seller: { select: { firstName: true, lastName: true, id: true, avatar: true } },
+        buyer: {
+          select: { firstName: true, lastName: true, id: true, avatar: true },
+        },
+        seller: {
+          select: { firstName: true, lastName: true, id: true, avatar: true },
+        },
         messages: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
     });
@@ -60,8 +66,12 @@ export class ChatsService {
         },
         include: {
           listing: { select: { title: true, thumbnail: true, id: true } },
-          buyer: { select: { firstName: true, lastName: true, id: true, avatar: true } },
-          seller: { select: { firstName: true, lastName: true, id: true, avatar: true } },
+          buyer: {
+            select: { firstName: true, lastName: true, id: true, avatar: true },
+          },
+          seller: {
+            select: { firstName: true, lastName: true, id: true, avatar: true },
+          },
           messages: true,
         },
       });
@@ -80,8 +90,12 @@ export class ChatsService {
       },
       include: {
         listing: { select: { title: true, thumbnail: true, id: true } },
-        buyer: { select: { firstName: true, lastName: true, id: true, avatar: true } },
-        seller: { select: { firstName: true, lastName: true, id: true, avatar: true } },
+        buyer: {
+          select: { firstName: true, lastName: true, id: true, avatar: true },
+        },
+        seller: {
+          select: { firstName: true, lastName: true, id: true, avatar: true },
+        },
         messages: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
       orderBy: { updatedAt: 'desc' },
@@ -140,11 +154,18 @@ export class ChatsService {
       where: { id: normalizedChatId },
     });
     if (!conversation) throw new NotFoundException('مکالمه یافت نشد');
-    if (conversation.buyerId !== senderId && conversation.sellerId !== senderId) {
+    if (
+      conversation.buyerId !== senderId &&
+      conversation.sellerId !== senderId
+    ) {
       throw new ForbiddenException('شما عضو این مکالمه نیستید');
     }
     const message = await this.prisma.message.create({
-      data: { conversationId: normalizedChatId, senderId: senderId, content: normalizedContent },
+      data: {
+        conversationId: normalizedChatId,
+        senderId: senderId,
+        content: normalizedContent,
+      },
     });
     await this.prisma.conversation.update({
       where: { id: normalizedChatId },

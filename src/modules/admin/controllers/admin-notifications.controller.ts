@@ -1,11 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Post,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { Prisma, UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -43,7 +36,9 @@ export class AdminNotificationsController {
       this.prisma.notification.findMany({
         where,
         include: {
-          user: { select: { id: true, phone: true, firstName: true, lastName: true } },
+          user: {
+            select: { id: true, phone: true, firstName: true, lastName: true },
+          },
         },
         orderBy: { createdAt: 'desc' },
         skip: (p - 1) * ps,

@@ -17,7 +17,10 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { AdminSettingsService } from '../services/admin-settings.service';
-import { BulkUpsertSettingsDto, UpsertSettingDto } from '../dto/admin-setting.dto';
+import {
+  BulkUpsertSettingsDto,
+  UpsertSettingDto,
+} from '../dto/admin-setting.dto';
 import { bannerMulterOptions } from '../../../common/upload/banner-upload.config';
 import { brandLogoMulterOptions } from '../../../common/upload/brand-logo-upload.config';
 

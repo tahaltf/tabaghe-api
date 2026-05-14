@@ -30,10 +30,14 @@ export class ZibalGateway implements PaymentGateway {
 
   constructor(private readonly appSettings: AppSettingsService) {}
 
-  async requestPayment(payload: GatewayRequestPayload): Promise<GatewayRequestResult> {
+  async requestPayment(
+    payload: GatewayRequestPayload,
+  ): Promise<GatewayRequestResult> {
     const cfg = this.appSettings.getPaymentGatewayConfig();
     // App amounts are stored in toman, while Zibal expects rial.
-    const amountInRial = Math.round(payload.amount * ZibalGateway.TOMAN_TO_RIAL);
+    const amountInRial = Math.round(
+      payload.amount * ZibalGateway.TOMAN_TO_RIAL,
+    );
     const body = {
       merchant: cfg.merchant,
       amount: amountInRial,
@@ -45,7 +49,10 @@ export class ZibalGateway implements PaymentGateway {
 
     let data: ZibalRequestResponse;
     try {
-      data = await this.postToZibalWithRetry<ZibalRequestResponse>(cfg.requestUrl, body);
+      data = await this.postToZibalWithRetry<ZibalRequestResponse>(
+        cfg.requestUrl,
+        body,
+      );
     } catch (err) {
       this.rethrowZibalHttpError(err, 'request');
     }
@@ -64,7 +71,9 @@ export class ZibalGateway implements PaymentGateway {
     };
   }
 
-  async verifyPayment(payload: GatewayVerifyPayload): Promise<GatewayVerifyResult> {
+  async verifyPayment(
+    payload: GatewayVerifyPayload,
+  ): Promise<GatewayVerifyResult> {
     const cfg = this.appSettings.getPaymentGatewayConfig();
     // Verification amount from app is toman; convert to rial for gateway check.
     const expectedAmountInRial = Math.round(
@@ -77,7 +86,10 @@ export class ZibalGateway implements PaymentGateway {
 
     let data: ZibalVerifyResponse;
     try {
-      data = await this.postToZibalWithRetry<ZibalVerifyResponse>(cfg.verifyUrl, body);
+      data = await this.postToZibalWithRetry<ZibalVerifyResponse>(
+        cfg.verifyUrl,
+        body,
+      );
     } catch (err) {
       this.rethrowZibalHttpError(err, 'verify');
     }
@@ -89,12 +101,17 @@ export class ZibalGateway implements PaymentGateway {
     return {
       success,
       refId: data?.refNumber ? String(data.refNumber) : undefined,
-      message: !amountMatches ? 'مبلغ تایید شده با سفارش یکسان نیست' : data?.message,
+      message: !amountMatches
+        ? 'مبلغ تایید شده با سفارش یکسان نیست'
+        : data?.message,
       raw: data,
     };
   }
 
-  private rethrowZibalHttpError(err: unknown, context: 'request' | 'verify'): never {
+  private rethrowZibalHttpError(
+    err: unknown,
+    context: 'request' | 'verify',
+  ): never {
     const code = this.resolveNetworkErrnoCode(err);
     if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') {
       throw new BadGatewayException(
@@ -111,7 +128,12 @@ export class ZibalGateway implements PaymentGateway {
       response?: { data?: unknown };
     };
     const body = ax.response?.data;
-    if (body && typeof body === 'object' && body !== null && 'message' in body) {
+    if (
+      body &&
+      typeof body === 'object' &&
+      body !== null &&
+      'message' in body
+    ) {
       const m = (body as { message?: unknown }).message;
       if (typeof m === 'string' && m.trim()) {
         throw new BadGatewayException(m);
@@ -120,13 +142,20 @@ export class ZibalGateway implements PaymentGateway {
     if (typeof ax.message === 'string' && ax.message.trim()) {
       throw new BadGatewayException(
         ax.message ||
-          (context === 'verify' ? 'خطا در تأیید تراکنش زیبال' : 'خطا در درخواست زیبال'),
+          (context === 'verify'
+            ? 'خطا در تأیید تراکنش زیبال'
+            : 'خطا در درخواست زیبال'),
       );
     }
-    throw err instanceof Error ? err : new BadGatewayException('خطای ناشناخته در ارتباط با زیبال');
+    throw err instanceof Error
+      ? err
+      : new BadGatewayException('خطای ناشناخته در ارتباط با زیبال');
   }
 
-  private async postToZibalWithRetry<T>(url: string, body: unknown): Promise<T> {
+  private async postToZibalWithRetry<T>(
+    url: string,
+    body: unknown,
+  ): Promise<T> {
     let lastError: unknown;
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
@@ -135,7 +164,8 @@ export class ZibalGateway implements PaymentGateway {
       } catch (err) {
         lastError = err;
         const code = this.resolveNetworkErrnoCode(err);
-        const transient = code === 'ENOTFOUND' || code === 'EAI_AGAIN' || code === 'ETIMEDOUT';
+        const transient =
+          code === 'ENOTFOUND' || code === 'EAI_AGAIN' || code === 'ETIMEDOUT';
         if (!transient || attempt === 2) break;
         await this.sleep(350);
       }

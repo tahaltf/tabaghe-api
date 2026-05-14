@@ -10,12 +10,32 @@ export class OrdersCommandService {
     return this.ordersService.handleUniversalOrder(userId, dto);
   }
 
-  updateTrackingCode(userId: string, orderId: string, trackingCode: string, videoPath?: string) {
-    return this.ordersService.updateTrackingCode(userId, orderId, trackingCode, videoPath);
+  updateTrackingCode(
+    userId: string,
+    orderId: string,
+    trackingCode: string,
+    videoPath?: string,
+  ) {
+    return this.ordersService.updateTrackingCode(
+      userId,
+      orderId,
+      trackingCode,
+      videoPath,
+    );
   }
 
-  submitReturnTrackingCode(userId: string, orderId: string, trackingCode: string, videoPath?: string) {
-    return this.ordersService.submitReturnTrackingCode(userId, orderId, trackingCode, videoPath);
+  submitReturnTrackingCode(
+    userId: string,
+    orderId: string,
+    trackingCode: string,
+    videoPath?: string,
+  ) {
+    return this.ordersService.submitReturnTrackingCode(
+      userId,
+      orderId,
+      trackingCode,
+      videoPath,
+    );
   }
 
   confirmReturnReceipt(userId: string, orderId: string) {
@@ -26,7 +46,12 @@ export class OrdersCommandService {
     return this.ordersService.confirmOrder(userId, orderId);
   }
 
-  disputeOrder(userId: string, orderId: string, reason: string, videoPath?: string) {
+  disputeOrder(
+    userId: string,
+    orderId: string,
+    reason: string,
+    videoPath?: string,
+  ) {
     return this.ordersService.disputeOrder(userId, orderId, reason, videoPath);
   }
 }

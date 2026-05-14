@@ -48,18 +48,51 @@ describe('Exchange E2E', () => {
 
     const owner = await prisma.user.upsert({
       where: { phone: '09120001001' },
-      create: { phone: '09120001001', role: 'USER', isActive: true, isVerified: true, trustScore: 100 },
-      update: { role: 'USER', isActive: true, isVerified: true, trustScore: 100 },
+      create: {
+        phone: '09120001001',
+        role: 'USER',
+        isActive: true,
+        isVerified: true,
+        trustScore: 100,
+      },
+      update: {
+        role: 'USER',
+        isActive: true,
+        isVerified: true,
+        trustScore: 100,
+      },
     });
     const offerer1 = await prisma.user.upsert({
       where: { phone: '09120001002' },
-      create: { phone: '09120001002', role: 'USER', isActive: true, isVerified: true, trustScore: 100 },
-      update: { role: 'USER', isActive: true, isVerified: true, trustScore: 100 },
+      create: {
+        phone: '09120001002',
+        role: 'USER',
+        isActive: true,
+        isVerified: true,
+        trustScore: 100,
+      },
+      update: {
+        role: 'USER',
+        isActive: true,
+        isVerified: true,
+        trustScore: 100,
+      },
     });
     const offerer2 = await prisma.user.upsert({
       where: { phone: '09120001003' },
-      create: { phone: '09120001003', role: 'USER', isActive: true, isVerified: true, trustScore: 100 },
-      update: { role: 'USER', isActive: true, isVerified: true, trustScore: 100 },
+      create: {
+        phone: '09120001003',
+        role: 'USER',
+        isActive: true,
+        isVerified: true,
+        trustScore: 100,
+      },
+      update: {
+        role: 'USER',
+        isActive: true,
+        isVerified: true,
+        trustScore: 100,
+      },
     });
 
     ownerId = owner.id;
@@ -91,7 +124,11 @@ describe('Exchange E2E', () => {
       data: { name: `Tehran-ex-${Date.now()}`, type: 'PROVINCE' },
     });
     const city = await prisma.location.create({
-      data: { name: `Tehran-ex-city-${Date.now()}`, type: 'CITY', parentId: province.id },
+      data: {
+        name: `Tehran-ex-city-${Date.now()}`,
+        type: 'CITY',
+        parentId: province.id,
+      },
     });
 
     const listing = await prisma.listing.create({
@@ -121,7 +158,7 @@ describe('Exchange E2E', () => {
     listingId = listing.id;
   });
 
-  const unwrap = <T,>(body: any): T => {
+  const unwrap = <T>(body: any): T => {
     // Some endpoints are returned as-is, some are wrapped like { data }, and some may be double-wrapped.
     let cur: any = body;
     for (let i = 0; i < 3; i++) {
@@ -133,9 +170,16 @@ describe('Exchange E2E', () => {
 
   const pickOffersPayload = (body: any): { items: any[] } => {
     // Be defensive across possible response wrappers.
-    const candidates = [body, body?.data, body?.data?.data, body?.data?.result, body?.result];
+    const candidates = [
+      body,
+      body?.data,
+      body?.data?.data,
+      body?.data?.result,
+      body?.result,
+    ];
     for (const c of candidates) {
-      if (c && typeof c === 'object' && Array.isArray((c as any).items)) return c as any;
+      if (c && typeof c === 'object' && Array.isArray((c as any).items))
+        return c as any;
     }
     // In this codebase, paginated endpoints are enveloped as { success, data: items[], meta: { pagination } }
     if (body && typeof body === 'object' && Array.isArray(body.data)) {
@@ -217,7 +261,9 @@ describe('Exchange E2E', () => {
         trustScore: 100,
       },
     });
-    await prisma.wallet.create({ data: { userId: stranger.id, balanceAvailable: 0, balanceBlocked: 0 } });
+    await prisma.wallet.create({
+      data: { userId: stranger.id, balanceAvailable: 0, balanceBlocked: 0 },
+    });
 
     await request(app.getHttpServer())
       .get(`/exchange/offers/${offerId}`)
@@ -240,8 +286,14 @@ describe('Exchange E2E', () => {
       .send({})
       .expect(201);
 
-    const updated1 = await prisma.exchangeOffer.findUnique({ where: { id: offer1.id }, select: { status: true } });
-    const updated2 = await prisma.exchangeOffer.findUnique({ where: { id: offer2.id }, select: { status: true } });
+    const updated1 = await prisma.exchangeOffer.findUnique({
+      where: { id: offer1.id },
+      select: { status: true },
+    });
+    const updated2 = await prisma.exchangeOffer.findUnique({
+      where: { id: offer2.id },
+      select: { status: true },
+    });
     expect(updated1?.status).toBe('ACCEPTED');
     expect(updated2?.status).toBe('WAITLISTED');
   });
@@ -262,7 +314,8 @@ describe('Exchange E2E', () => {
     const offererPayload = pickOffersPayload(offererRes.body);
     expect(Array.isArray(offererPayload?.items)).toBe(true);
     // should only include offers made by offerer2
-    expect(offererPayload.items.every((x: any) => x.offererId === offerer2Id)).toBe(true);
+    expect(
+      offererPayload.items.every((x: any) => x.offererId === offerer2Id),
+    ).toBe(true);
   });
 });
-

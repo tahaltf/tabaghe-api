@@ -44,7 +44,10 @@ export class GodadminBootstrapService implements OnModuleInit {
 
     // Do not override password when it already exists.
     if (!existing.passwordHash) {
-      updateData.passwordHash = await bcrypt.hash(GODADMIN_DEFAULT_PASSWORD, 10);
+      updateData.passwordHash = await bcrypt.hash(
+        GODADMIN_DEFAULT_PASSWORD,
+        10,
+      );
     }
 
     await this.prisma.user.update({

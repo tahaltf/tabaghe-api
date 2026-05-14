@@ -1,8 +1,4 @@
-import {
-    Controller,
-    Get,
-    UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, UseGuards } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -14,37 +10,38 @@ import Decimal from 'decimal.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
 export class AdminLedgerController {
-    constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-    @Get('inconsistencies')
-    async findInconsistencies() {
-        const wallets = await this.prisma.wallet.findMany({
-            include: { transactions: true },
+  @Get('inconsistencies')
+  async findInconsistencies() {
+    const wallets = await this.prisma.wallet.findMany({
+      include: { transactions: true },
+    });
+
+    const inconsistencies = [];
+
+    for (const wallet of wallets) {
+      const txSum = wallet.transactions.reduce(
+        (acc, tx) => acc.plus(tx.amount),
+        new Decimal(0),
+      );
+
+      const actual = new Decimal(wallet.balanceAvailable).plus(
+        wallet.balanceBlocked,
+      );
+
+      if (!txSum.equals(actual)) {
+        inconsistencies.push({
+          userId: wallet.userId,
+          calculated: txSum.toString(),
+          actual: actual.toString(),
         });
-
-        const inconsistencies = [];
-
-        for (const wallet of wallets) {
-            const txSum = wallet.transactions.reduce(
-                (acc, tx) => acc.plus(tx.amount),
-                new Decimal(0),
-            );
-
-            const actual = new Decimal(wallet.balanceAvailable)
-                .plus(wallet.balanceBlocked);
-
-            if (!txSum.equals(actual)) {
-                inconsistencies.push({
-                    userId: wallet.userId,
-                    calculated: txSum.toString(),
-                    actual: actual.toString(),
-                });
-            }
-        }
-
-        return {
-            count: inconsistencies.length,
-            inconsistencies,
-        };
+      }
     }
+
+    return {
+      count: inconsistencies.length,
+      inconsistencies,
+    };
+  }
 }

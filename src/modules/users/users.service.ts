@@ -36,7 +36,9 @@ const MY_PROFILE_SELECT = {
   kycReviewedAt: true,
 } satisfies Prisma.UserSelect;
 
-export type MyProfile = Prisma.UserGetPayload<{ select: typeof MY_PROFILE_SELECT }>;
+export type MyProfile = Prisma.UserGetPayload<{
+  select: typeof MY_PROFILE_SELECT;
+}>;
 
 export interface DashboardStats {
   activeAuctions: number;
@@ -63,35 +65,47 @@ export class UsersService {
   }
 
   async getDashboardStats(userId: string): Promise<DashboardStats> {
-    const [activeBids, finishedBids, exchangeOffersReceived, activeListings, wallet] =
-      await Promise.all([
-        this.prisma.auctionBid.findMany({
-          where: { bidderId: userId, auction: { status: AuctionStatus.ACTIVE } },
-          distinct: ['listingId'],
-          include: {
-            auction: { include: { bids: { orderBy: { amount: 'desc' }, take: 1 } } },
+    const [
+      activeBids,
+      finishedBids,
+      exchangeOffersReceived,
+      activeListings,
+      wallet,
+    ] = await Promise.all([
+      this.prisma.auctionBid.findMany({
+        where: { bidderId: userId, auction: { status: AuctionStatus.ACTIVE } },
+        distinct: ['listingId'],
+        include: {
+          auction: {
+            include: { bids: { orderBy: { amount: 'desc' }, take: 1 } },
           },
-        }),
-        this.prisma.auctionBid.findMany({
-          where: { bidderId: userId, auction: { status: AuctionStatus.FINISHED } },
-          distinct: ['listingId'],
-          include: {
-            auction: { include: { bids: { orderBy: { amount: 'desc' }, take: 1 } } },
+        },
+      }),
+      this.prisma.auctionBid.findMany({
+        where: {
+          bidderId: userId,
+          auction: { status: AuctionStatus.FINISHED },
+        },
+        distinct: ['listingId'],
+        include: {
+          auction: {
+            include: { bids: { orderBy: { amount: 'desc' }, take: 1 } },
           },
-        }),
-        this.prisma.exchangeOffer.count({
-          where: {
-            listing: { authorId: userId },
-            status: {
-              in: [ExchangeOfferStatus.PENDING, ExchangeOfferStatus.WAITLISTED],
-            },
+        },
+      }),
+      this.prisma.exchangeOffer.count({
+        where: {
+          listing: { authorId: userId },
+          status: {
+            in: [ExchangeOfferStatus.PENDING, ExchangeOfferStatus.WAITLISTED],
           },
-        }),
-        this.prisma.listing.count({
-          where: { authorId: userId, status: ListingStatus.APPROVED },
-        }),
-        this.prisma.wallet.findUnique({ where: { userId } }),
-      ]);
+        },
+      }),
+      this.prisma.listing.count({
+        where: { authorId: userId, status: ListingStatus.APPROVED },
+      }),
+      this.prisma.wallet.findUnique({ where: { userId } }),
+    ]);
 
     const highestBidderCount = activeBids.reduce((acc, bid) => {
       const topBid = bid.auction?.bids[0];
@@ -99,8 +113,7 @@ export class UsersService {
     }, 0);
 
     const wonBidsCount = finishedBids.reduce(
-      (acc, bid) =>
-        bid.auction?.bids[0]?.bidderId === userId ? acc + 1 : acc,
+      (acc, bid) => (bid.auction?.bids[0]?.bidderId === userId ? acc + 1 : acc),
       0,
     );
 
@@ -161,7 +174,10 @@ export class UsersService {
         select: MY_PROFILE_SELECT,
       });
     } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
         const targetFields = Array.isArray(err.meta?.target)
           ? err.meta?.target.map((x) => String(x))
           : [];
@@ -201,7 +217,10 @@ export class UsersService {
         select: MY_PROFILE_SELECT,
       });
     } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
         throw new BadRequestException('این ایمیل قبلاً ثبت شده است.');
       }
       throw err;
@@ -214,7 +233,11 @@ export class UsersService {
     return String(value).toLowerCase() === 'true';
   }
 
-  async acceptTerms(userId: string, ip?: string, userAgent?: string): Promise<MyProfile> {
+  async acceptTerms(
+    userId: string,
+    ip?: string,
+    userAgent?: string,
+  ): Promise<MyProfile> {
     const now = new Date();
     const updated = await this.prisma.user.update({
       where: { id: userId },

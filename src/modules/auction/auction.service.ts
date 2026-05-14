@@ -101,14 +101,18 @@ export class AuctionService {
       policy = null;
     }
     const categoryId = listingId
-      ? (await tx.listing.findUnique({
-          where: { id: listingId },
-          select: { categoryId: true },
-        }))?.categoryId
+      ? (
+          await tx.listing.findUnique({
+            where: { id: listingId },
+            select: { categoryId: true },
+          })
+        )?.categoryId
       : null;
 
     const fromGlobal = Number(policy?.global?.[policyKey]);
-    const fromCategory = categoryId ? Number(policy?.categories?.[categoryId]?.[policyKey]) : NaN;
+    const fromCategory = categoryId
+      ? Number(policy?.categories?.[categoryId]?.[policyKey])
+      : NaN;
     let fromTier = NaN;
     if (basePrice && Array.isArray(policy?.priceTiers)) {
       const price = basePrice.toNumber();
@@ -131,10 +135,16 @@ export class AuctionService {
     return this.getNumericSetting(tx, settingKey, fallback);
   }
 
-  private async getAuctionDepositPercent(tx: any, listingId: string): Promise<Decimal> {
+  private async getAuctionDepositPercent(
+    tx: any,
+    listingId: string,
+  ): Promise<Decimal> {
     const listing = await tx.listing.findUnique({
       where: { id: listingId },
-      select: { categoryId: true, category: { select: { auctionDepositPercent: true } } },
+      select: {
+        categoryId: true,
+        category: { select: { auctionDepositPercent: true } },
+      },
     });
     if (!listing) throw new NotFoundException('آگهی یافت نشد');
 
@@ -148,12 +158,18 @@ export class AuctionService {
       select: { auctionDepositPercent: true },
     });
 
-    const percent = feeRule?.auctionDepositPercent ?? listing.category?.auctionDepositPercent ?? 10;
+    const percent =
+      feeRule?.auctionDepositPercent ??
+      listing.category?.auctionDepositPercent ??
+      10;
     const dec = new Decimal(percent);
     return dec.gt(0) ? dec : new Decimal(10);
   }
 
-  private async getFixedDepositAmount(tx: any, listingId: string): Promise<Decimal> {
+  private async getFixedDepositAmount(
+    tx: any,
+    listingId: string,
+  ): Promise<Decimal> {
     const auction = await tx.listingAuction.findUnique({
       where: { listingId },
       select: { basePrice: true },
@@ -181,7 +197,10 @@ export class AuctionService {
       .mul(depositPercent)
       .div(100)
       .toDecimalPlaces(0, Decimal.ROUND_CEIL);
-    const clamped = Decimal.max(new Decimal(minDeposit), Decimal.min(raw, new Decimal(maxDeposit)));
+    const clamped = Decimal.max(
+      new Decimal(minDeposit),
+      Decimal.min(raw, new Decimal(maxDeposit)),
+    );
     return clamped;
   }
 
@@ -248,7 +267,10 @@ export class AuctionService {
         listingId,
         new Decimal(auction.basePrice),
       );
-      if (!bidder.isVerified || Number(bidder.trustScore ?? 0) < minTrustScore) {
+      if (
+        !bidder.isVerified ||
+        Number(bidder.trustScore ?? 0) < minTrustScore
+      ) {
         throw new ForbiddenException(
           'به دلیل وضعیت اعتماد حساب، امکان شرکت در مزایده برای شما فعال نیست. لطفاً با پشتیبانی تماس بگیرید.',
         );
@@ -273,7 +295,9 @@ export class AuctionService {
         where: { bidderId: userId, createdAt: { gte: oneMinuteAgo } },
       });
       if (recentBidsCount >= maxBidsPerMinute) {
-        throw new ForbiddenException('تعداد ثبت پیشنهاد شما در این دقیقه بیش از حد مجاز است');
+        throw new ForbiddenException(
+          'تعداد ثبت پیشنهاد شما در این دقیقه بیش از حد مجاز است',
+        );
       }
 
       const maxActiveAuctions = await this.getPolicyNumber(
@@ -292,7 +316,9 @@ export class AuctionService {
         },
       });
       if (activeAuctionParticipations >= maxActiveAuctions) {
-        throw new ForbiddenException('تعداد مزایده‌های فعال شما به سقف مجاز رسیده است');
+        throw new ForbiddenException(
+          'تعداد مزایده‌های فعال شما به سقف مجاز رسیده است',
+        );
       }
 
       const currentHighest = auction.highestBidAmount
@@ -312,7 +338,9 @@ export class AuctionService {
       }
 
       if (auction.highestBidderId === userId) {
-        throw new BadRequestException('شما در حال حاضر بالاترین پیشنهاد را دارید');
+        throw new BadRequestException(
+          'شما در حال حاضر بالاترین پیشنهاد را دارید',
+        );
       }
 
       // Anti-fraud v2 (behavioral guard): excessive re-bidding churn in short window
@@ -326,10 +354,16 @@ export class AuctionService {
       );
       const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
       const rebidsCount = await tx.auctionBid.count({
-        where: { listingId, bidderId: userId, createdAt: { gte: tenMinutesAgo } },
+        where: {
+          listingId,
+          bidderId: userId,
+          createdAt: { gte: tenMinutesAgo },
+        },
       });
       if (rebidsCount >= maxRebidsPer10Min) {
-        throw new ForbiddenException('به دلیل رفتار غیرعادی در ثبت پیشنهاد، موقتاً امکان ادامه مزایده محدود شد');
+        throw new ForbiddenException(
+          'به دلیل رفتار غیرعادی در ثبت پیشنهاد، موقتاً امکان ادامه مزایده محدود شد',
+        );
       }
 
       // Anti-fraud v2 (sanity guard): abnormal jump beyond configured multiplier
@@ -344,7 +378,9 @@ export class AuctionService {
         );
         const maxAllowed = currentHighest.mul(maxJumpMultiplier);
         if (bidAmount.gt(maxAllowed)) {
-          throw new BadRequestException('افزایش قیمت پیشنهادی بیش از حد مجاز این مزایده است');
+          throw new BadRequestException(
+            'افزایش قیمت پیشنهادی بیش از حد مجاز این مزایده است',
+          );
         }
       }
 
@@ -359,12 +395,19 @@ export class AuctionService {
         where: { listingId, bidderId: userId, status: AuctionBidStatus.ACTIVE },
         orderBy: { amount: 'desc' },
       });
-      const alreadyBlocked = new Decimal(myCurrentActiveBid?.blockedAmount ?? 0);
+      const alreadyBlocked = new Decimal(
+        myCurrentActiveBid?.blockedAmount ?? 0,
+      );
       const diff = depositAmount.minus(alreadyBlocked);
       if (diff.gt(0)) {
         await this.walletService.blockAmount(userId, diff, listingId, tx);
       } else if (diff.lt(0)) {
-        await this.walletService.unblockAmount(userId, diff.abs(), listingId, tx);
+        await this.walletService.unblockAmount(
+          userId,
+          diff.abs(),
+          listingId,
+          tx,
+        );
       }
       if (myCurrentActiveBid) {
         await tx.auctionBid.update({
@@ -383,13 +426,21 @@ export class AuctionService {
         },
       });
 
-      const { topBids, activeBids } = await this.getTopActiveBids(tx, listingId);
+      const { topBids, activeBids } = await this.getTopActiveBids(
+        tx,
+        listingId,
+      );
       const topIds = new Set(topBids.map((b: any) => b.id));
       for (const bid of activeBids) {
         if (topIds.has(bid.id)) continue;
         const blocked = new Decimal(bid.blockedAmount ?? 0);
         if (blocked.gt(0)) {
-          await this.walletService.unblockAmount(bid.bidderId, blocked, listingId, tx);
+          await this.walletService.unblockAmount(
+            bid.bidderId,
+            blocked,
+            listingId,
+            tx,
+          );
         }
         await tx.auctionBid.update({
           where: { id: bid.id },
@@ -480,7 +531,9 @@ export class AuctionService {
         data: {
           status: AuctionStatus.FINISHED,
           settlementStatus: AuctionSettlementStatus.PENDING,
-          paymentDeadline: new Date(Date.now() + deadlineHours * 60 * 60 * 1000),
+          paymentDeadline: new Date(
+            Date.now() + deadlineHours * 60 * 60 * 1000,
+          ),
           finishedAt: new Date(),
         },
       });
@@ -497,7 +550,12 @@ export class AuctionService {
       for (const bid of nonWinnerActiveBids) {
         const blocked = new Decimal(bid.blockedAmount ?? 0);
         if (blocked.gt(0)) {
-          await this.walletService.unblockAmount(bid.bidderId, blocked, listingId, tx);
+          await this.walletService.unblockAmount(
+            bid.bidderId,
+            blocked,
+            listingId,
+            tx,
+          );
         }
         await tx.auctionBid.update({
           where: { id: bid.id },
@@ -555,7 +613,11 @@ export class AuctionService {
       }
 
       const winnerBid = await tx.auctionBid.findFirst({
-        where: { listingId, bidderId: payerId, status: AuctionBidStatus.ACTIVE },
+        where: {
+          listingId,
+          bidderId: payerId,
+          status: AuctionBidStatus.ACTIVE,
+        },
         orderBy: { amount: 'desc' },
       });
       if (!winnerBid) {
@@ -580,7 +642,7 @@ export class AuctionService {
         blockedDeposit,
         platformFee, // 👈 جایگزین 0 شد
         listingId,
-        tx
+        tx,
       );
 
       const activeOtherBids = await tx.auctionBid.findMany({
@@ -643,17 +705,23 @@ export class AuctionService {
     });
 
     for (const auction of expiredAuctions) {
-      const finishTimestamp = auction.finishedAt ? new Date(auction.finishedAt).getTime() : 0;
+      const finishTimestamp = auction.finishedAt
+        ? new Date(auction.finishedAt).getTime()
+        : 0;
       const deadlineTimestamp = auction.paymentDeadline
         ? new Date(auction.paymentDeadline).getTime()
         : 0;
-      const deadlineHours = deadlineTimestamp > finishTimestamp
-        ? (deadlineTimestamp - finishTimestamp) / (60 * 60 * 1000)
-        : DEFAULT_WINNER_PAYMENT_DEADLINE_HOURS;
-      const isSecondChanceRound = deadlineHours <= SECOND_CHANCE_PAYMENT_DEADLINE_HOURS + 1;
+      const deadlineHours =
+        deadlineTimestamp > finishTimestamp
+          ? (deadlineTimestamp - finishTimestamp) / (60 * 60 * 1000)
+          : DEFAULT_WINNER_PAYMENT_DEADLINE_HOURS;
+      const isSecondChanceRound =
+        deadlineHours <= SECOND_CHANCE_PAYMENT_DEADLINE_HOURS + 1;
       await this.processNextWinner(
         auction.listingId,
-        isSecondChanceRound ? { mode: 'second_chance_timeout' } : { mode: 'penalize' },
+        isSecondChanceRound
+          ? { mode: 'second_chance_timeout' }
+          : { mode: 'penalize' },
       );
     }
   }
@@ -679,7 +747,9 @@ export class AuctionService {
       throw new BadRequestException('این مزایده در وضعیت قابل پاسخ‌گویی نیست');
     }
     if (auction.highestBidderId !== userId) {
-      throw new ForbiddenException('فقط برنده فعلی می‌تواند پیشنهاد شانس دوم را رد کند');
+      throw new ForbiddenException(
+        'فقط برنده فعلی می‌تواند پیشنهاد شانس دوم را رد کند',
+      );
     }
 
     return this.processNextWinner(listingId, {
@@ -696,7 +766,9 @@ export class AuctionService {
       | { mode: 'second_chance_timeout' } = { mode: 'penalize' },
   ) {
     await this.prisma.$transaction(async (tx) => {
-      const auction = await tx.listingAuction.findUnique({ where: { listingId } });
+      const auction = await tx.listingAuction.findUnique({
+        where: { listingId },
+      });
       if (!auction) return;
       if (
         auction.status !== AuctionStatus.FINISHED ||
@@ -733,13 +805,17 @@ export class AuctionService {
       // decline: OFFERED -> DECLINED (فقط توسط همان کاربر)
       // timeout: OFFERED -> EXPIRED (فقط در کران زمانی)
       if ((isDecline || isSecondChanceTimeout) && auction.highestBidderId) {
-        const transitionUserId = isDecline ? options.actingUserId : auction.highestBidderId;
+        const transitionUserId = isDecline
+          ? options.actingUserId
+          : auction.highestBidderId;
         const offerTransition = await tx.secondChanceOffer.updateMany({
           where: {
             listingId,
             userId: transitionUserId,
             status: SecondChanceOfferStatus.OFFERED,
-            ...(isDecline ? { expiresAt: { gt: now } } : { expiresAt: { lte: now } }),
+            ...(isDecline
+              ? { expiresAt: { gt: now } }
+              : { expiresAt: { lte: now } }),
           },
           data: isDecline
             ? {
@@ -808,7 +884,10 @@ export class AuctionService {
       if (!nextWinner) {
         await tx.listingAuction.update({
           where: { listingId },
-          data: { settlementStatus: AuctionSettlementStatus.FAILED, paymentDeadline: null },
+          data: {
+            settlementStatus: AuctionSettlementStatus.FAILED,
+            paymentDeadline: null,
+          },
         });
         return;
       }
@@ -827,7 +906,9 @@ export class AuctionService {
           highestBidderId: ranking[0]?.bidderId ?? nextWinner.bidderId,
           secondBidderId: ranking[1]?.bidderId ?? null,
           thirdBidderId: ranking[2]?.bidderId ?? null,
-          paymentDeadline: new Date(Date.now() + deadlineHours * 60 * 60 * 1000),
+          paymentDeadline: new Date(
+            Date.now() + deadlineHours * 60 * 60 * 1000,
+          ),
           settlementStatus: AuctionSettlementStatus.PENDING,
           finishedAt: new Date(),
         },
@@ -856,7 +937,8 @@ export class AuctionService {
             ? 'SECOND_CHANCE_FROM_DECLINE'
             : 'SECOND_CHANCE_FROM_TIMEOUT',
         listingId,
-        fromUserId: currentWinnerBid?.bidderId ?? auction.highestBidderId ?? null,
+        fromUserId:
+          currentWinnerBid?.bidderId ?? auction.highestBidderId ?? null,
         toUserId: nextWinner.bidderId,
         amount: Number(nextWinner.amount),
       });
@@ -920,7 +1002,9 @@ export class AuctionService {
         data: {
           status: AuctionStatus.FINISHED,
           settlementStatus: AuctionSettlementStatus.PENDING,
-          paymentDeadline: new Date(Date.now() + deadlineHours * 60 * 60 * 1000),
+          paymentDeadline: new Date(
+            Date.now() + deadlineHours * 60 * 60 * 1000,
+          ),
           finishedAt: new Date(),
           highestBidderId: userId,
           highestBidAmount: amount,
@@ -963,7 +1047,8 @@ export class AuctionService {
         : 0;
 
     const isOwner = !!viewerUserId && viewerUserId === auction.listing.authorId;
-    const isHighestBidder = !!viewerUserId && viewerUserId === auction.highestBidderId;
+    const isHighestBidder =
+      !!viewerUserId && viewerUserId === auction.highestBidderId;
     // ID برندگان فقط به خود کاربر (اگر برنده/دومه) و مالک آگهی نمایش داده میشه.
     // برای کاربران عمومی، فقط اطلاع از وجود/مبلغ میدیم نه هویت.
     return {
@@ -972,7 +1057,8 @@ export class AuctionService {
       auctionStatus: auction.status,
       basePrice: auction.basePrice,
       highestBid: auction.highestBidAmount,
-      highestBidderId: isOwner || isHighestBidder ? auction.highestBidderId : null,
+      highestBidderId:
+        isOwner || isHighestBidder ? auction.highestBidderId : null,
       isHighestBidder,
       bidCount,
       minBidIncrement: auction.minBidIncrement,
@@ -990,7 +1076,8 @@ export class AuctionService {
       where: { listingId },
       select: { listing: { select: { authorId: true } } },
     });
-    const isOwner = !!auction && !!viewerUserId && auction.listing.authorId === viewerUserId;
+    const isOwner =
+      !!auction && !!viewerUserId && auction.listing.authorId === viewerUserId;
 
     const rows = await this.prisma.auctionBid.findMany({
       where: { listingId },
@@ -1047,11 +1134,17 @@ export class AuctionService {
       throw new ForbiddenException('شما هیچ پیشنهادی در این مزایده ندارید');
     }
     if (listing.auction.highestBidderId !== userId) {
-      throw new ForbiddenException('فقط برنده فعلی مجاز به ادامه پرداخت مزایده است');
+      throw new ForbiddenException(
+        'فقط برنده فعلی مجاز به ادامه پرداخت مزایده است',
+      );
     }
 
-    const finishedAt = listing.auction.finishedAt ? new Date(listing.auction.finishedAt).getTime() : 0;
-    const deadlineAt = listing.auction.paymentDeadline ? new Date(listing.auction.paymentDeadline).getTime() : 0;
+    const finishedAt = listing.auction.finishedAt
+      ? new Date(listing.auction.finishedAt).getTime()
+      : 0;
+    const deadlineAt = listing.auction.paymentDeadline
+      ? new Date(listing.auction.paymentDeadline).getTime()
+      : 0;
     const windowHours =
       finishedAt > 0 && deadlineAt > finishedAt
         ? (deadlineAt - finishedAt) / (60 * 60 * 1000)
@@ -1074,8 +1167,14 @@ export class AuctionService {
     }
 
     const bidAmount = new Decimal(userBid.amount);
-    const depositPercent = await this.getAuctionDepositPercent(this.prisma, listingId);
-    const blockedAmount = await this.getFixedDepositAmount(this.prisma, listingId);
+    const depositPercent = await this.getAuctionDepositPercent(
+      this.prisma,
+      listingId,
+    );
+    const blockedAmount = await this.getFixedDepositAmount(
+      this.prisma,
+      listingId,
+    );
     const payableAmount = bidAmount.minus(blockedAmount);
 
     return {

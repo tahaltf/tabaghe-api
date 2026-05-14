@@ -18,16 +18,23 @@ const LOCATION_SELECT = {
   parentId: true,
   createdAt: true,
   parent: { select: { id: true, name: true } },
-  _count: { select: { children: true, provinceListings: true, cityListings: true } },
+  _count: {
+    select: { children: true, provinceListings: true, cityListings: true },
+  },
 } satisfies Prisma.LocationSelect;
 
-export type AdminLocationItem = Prisma.LocationGetPayload<{ select: typeof LOCATION_SELECT }>;
+export type AdminLocationItem = Prisma.LocationGetPayload<{
+  select: typeof LOCATION_SELECT;
+}>;
 
 @Injectable()
 export class AdminLocationsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(type?: LocationType, search?: string): Promise<AdminLocationItem[]> {
+  async list(
+    type?: LocationType,
+    search?: string,
+  ): Promise<AdminLocationItem[]> {
     const where: Prisma.LocationWhereInput = {};
     if (type) where.type = type;
     if (search) {
@@ -46,9 +53,14 @@ export class AdminLocationsService {
       throw new BadRequestException('برای شهر، انتخاب استان الزامی است');
     }
     if (dto.parentId) {
-      const parent = await this.prisma.location.findUnique({ where: { id: dto.parentId } });
+      const parent = await this.prisma.location.findUnique({
+        where: { id: dto.parentId },
+      });
       if (!parent) throw new BadRequestException('والد یافت نشد');
-      if (dto.type === LocationType.CITY && parent.type !== LocationType.PROVINCE) {
+      if (
+        dto.type === LocationType.CITY &&
+        parent.type !== LocationType.PROVINCE
+      ) {
         throw new BadRequestException('والد شهر باید از نوع استان باشد');
       }
     }
@@ -84,7 +96,11 @@ export class AdminLocationsService {
       where: { id },
       select: {
         _count: {
-          select: { children: true, provinceListings: true, cityListings: true },
+          select: {
+            children: true,
+            provinceListings: true,
+            cityListings: true,
+          },
         },
       },
     });
@@ -94,7 +110,9 @@ export class AdminLocationsService {
       throw new ConflictException('ابتدا شهرهای زیرمجموعه را حذف کنید');
     }
     if (provinceListings > 0 || cityListings > 0) {
-      throw new ConflictException('این موقعیت در آگهی‌ها استفاده شده و قابل حذف نیست');
+      throw new ConflictException(
+        'این موقعیت در آگهی‌ها استفاده شده و قابل حذف نیست',
+      );
     }
     await this.prisma.location.delete({ where: { id } });
     return { id };

@@ -9,7 +9,10 @@ function ensureDir(): void {
   }
 }
 
-export function appendJsonLog(fileName: string, payload: Record<string, unknown>): void {
+export function appendJsonLog(
+  fileName: string,
+  payload: Record<string, unknown>,
+): void {
   try {
     ensureDir();
     const line = `${JSON.stringify(payload)}\n`;
@@ -19,7 +22,10 @@ export function appendJsonLog(fileName: string, payload: Record<string, unknown>
   }
 }
 
-export function readRecentJsonLogs(fileName: string, limit = 200): Record<string, unknown>[] {
+export function readRecentJsonLogs(
+  fileName: string,
+  limit = 200,
+): Record<string, unknown>[] {
   try {
     const fullPath = join(LOG_DIR, fileName);
     if (!existsSync(fullPath)) return [];
@@ -27,13 +33,16 @@ export function readRecentJsonLogs(fileName: string, limit = 200): Record<string
       .split('\n')
       .map((x) => x.trim())
       .filter(Boolean);
-    return lines.slice(-Math.max(1, limit)).reverse().map((line) => {
-      try {
-        return JSON.parse(line) as Record<string, unknown>;
-      } catch {
-        return { raw: line };
-      }
-    });
+    return lines
+      .slice(-Math.max(1, limit))
+      .reverse()
+      .map((line) => {
+        try {
+          return JSON.parse(line) as Record<string, unknown>;
+        } catch {
+          return { raw: line };
+        }
+      });
   } catch {
     return [];
   }

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from "../infrastructure/prisma/prisma.service";
+import { PrismaService } from '../infrastructure/prisma/prisma.service';
 
 @Injectable()
 export class CommonService {
@@ -10,7 +10,7 @@ export class CommonService {
     return this.prisma.location.findMany({
       where: { type: 'PROVINCE' },
       orderBy: { name: 'asc' },
-      select: { id: true, name: true }
+      select: { id: true, name: true },
     });
   }
 
@@ -19,7 +19,7 @@ export class CommonService {
     return this.prisma.location.findMany({
       where: { parentId: provinceId, type: 'CITY' },
       orderBy: { name: 'asc' },
-      select: { id: true, name: true }
+      select: { id: true, name: true },
     });
   }
 
@@ -35,7 +35,13 @@ export class CommonService {
         icon: true,
         children: {
           orderBy: { title: 'asc' },
-          select: { id: true, title: true, slug: true, icon: true, parentId: true },
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            icon: true,
+            parentId: true,
+          },
         },
       },
     });
@@ -111,16 +117,27 @@ export class CommonService {
     for (const key of PUBLIC_KEYS) map[key] = '';
     for (const row of rows) map[row.key] = row.value;
 
-    let platformAddresses: Array<{ id: string; label: string; address: string; postalCode: string }> = [];
+    let platformAddresses: Array<{
+      id: string;
+      label: string;
+      address: string;
+      postalCode: string;
+    }> = [];
     try {
       const parsed = JSON.parse(map.PLATFORM_ADDRESSES || '[]');
       if (Array.isArray(parsed)) {
         platformAddresses = parsed
           .map((x, idx) => ({
-            id: typeof x?.id === 'string' && x.id.trim() ? x.id.trim() : `addr-${idx + 1}`,
+            id:
+              typeof x?.id === 'string' && x.id.trim()
+                ? x.id.trim()
+                : `addr-${idx + 1}`,
             label: typeof x?.label === 'string' ? x.label.trim() : '',
             address: typeof x?.address === 'string' ? x.address.trim() : '',
-            postalCode: typeof x?.postalCode === 'string' ? x.postalCode.replace(/[^\d]/g, '') : '',
+            postalCode:
+              typeof x?.postalCode === 'string'
+                ? x.postalCode.replace(/[^\d]/g, '')
+                : '',
           }))
           .filter((x) => x.address);
       }
@@ -128,7 +145,8 @@ export class CommonService {
       platformAddresses = [];
     }
 
-    const primaryAddress = map.PLATFORM_ADDRESS || platformAddresses[0]?.address || null;
+    const primaryAddress =
+      map.PLATFORM_ADDRESS || platformAddresses[0]?.address || null;
 
     return {
       homepageBanner: map.HOMEPAGE_BANNER || null,
@@ -143,8 +161,12 @@ export class CommonService {
       supportEmail: map.SUPPORT_EMAIL || null,
       platformAddress: primaryAddress,
       platformAddresses,
-      platformLatitude: map.PLATFORM_LATITUDE ? Number(map.PLATFORM_LATITUDE) : null,
-      platformLongitude: map.PLATFORM_LONGITUDE ? Number(map.PLATFORM_LONGITUDE) : null,
+      platformLatitude: map.PLATFORM_LATITUDE
+        ? Number(map.PLATFORM_LATITUDE)
+        : null,
+      platformLongitude: map.PLATFORM_LONGITUDE
+        ? Number(map.PLATFORM_LONGITUDE)
+        : null,
       verificationFee: map.VERIFICATION_FEE ? Number(map.VERIFICATION_FEE) : 0,
       shippingCost: map.SHIPPING_COST ? Number(map.SHIPPING_COST) : 0,
       bankCardNumber: map.BANK_CARD_NUMBER || null,

@@ -12,15 +12,21 @@ export class AppSettingsService {
   }
 
   getApiUrl(): string {
-    return this.configService.get<string>('API_URL') ?? 'https://api.tabagheh.com';
+    return (
+      this.configService.get<string>('API_URL') ?? 'https://api.tabagheh.com'
+    );
   }
 
   getFrontendAppUrl(): string {
-    return this.configService.get<string>('FRONTEND_APP_URL') ?? 'https://tabagheh.com';
+    return (
+      this.configService.get<string>('FRONTEND_APP_URL') ??
+      'https://tabagheh.com'
+    );
   }
 
   getPaymentGatewayConfig() {
-    const merchant = this.configService.get<string>('ZIBAL_MERCHANT') ?? 'zibal';
+    const merchant =
+      this.configService.get<string>('ZIBAL_MERCHANT') ?? 'zibal';
     const requestUrl =
       this.configService.get<string>('ZIBAL_REQUEST_URL') ??
       'https://gateway.zibal.ir/v1/request';

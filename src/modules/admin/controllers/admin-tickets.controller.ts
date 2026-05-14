@@ -37,7 +37,10 @@ export class AdminTicketsController {
   }
 
   @Post('user/:userId')
-  createForUser(@Param('userId') userId: string, @Body() dto: AdminCreateTicketDto) {
+  createForUser(
+    @Param('userId') userId: string,
+    @Body() dto: AdminCreateTicketDto,
+  ) {
     return this.service.createForUser(userId, dto);
   }
 

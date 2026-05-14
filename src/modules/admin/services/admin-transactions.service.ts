@@ -42,8 +42,12 @@ export class AdminTransactionsService {
       where.OR = [
         { referenceId: { contains: s } },
         { wallet: { user: { phone: { contains: s } } } },
-        { wallet: { user: { firstName: { contains: s, mode: 'insensitive' } } } },
-        { wallet: { user: { lastName: { contains: s, mode: 'insensitive' } } } },
+        {
+          wallet: { user: { firstName: { contains: s, mode: 'insensitive' } } },
+        },
+        {
+          wallet: { user: { lastName: { contains: s, mode: 'insensitive' } } },
+        },
       ];
     }
 

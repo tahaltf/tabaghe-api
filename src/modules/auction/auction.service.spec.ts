@@ -16,7 +16,10 @@ describe('AuctionService', () => {
 
   const walletMock = {};
   const feeMock = {};
-  const gatewayMock = { emitBidPlaced: jest.fn(), emitAuctionFinished: jest.fn() };
+  const gatewayMock = {
+    emitBidPlaced: jest.fn(),
+    emitAuctionFinished: jest.fn(),
+  };
   const eventsMock = { emit: jest.fn(), emitAsync: jest.fn() };
 
   beforeEach(async () => {

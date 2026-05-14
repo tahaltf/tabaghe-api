@@ -1,5 +1,13 @@
 import { UserRole } from '@prisma/client';
-import { IsBoolean, IsEnum, IsNotEmpty, IsOptional, IsString, Length, Matches } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Length,
+  Matches,
+} from 'class-validator';
 
 export class AdminCreateUserDto {
   @IsString()

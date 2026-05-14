@@ -1,4 +1,11 @@
-import { Controller, DefaultValuePipe, Get, ParseIntPipe, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  DefaultValuePipe,
+  Get,
+  ParseIntPipe,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -12,22 +19,30 @@ export class AdminLogsController {
   constructor(private readonly logs: AdminLogsService) {}
 
   @Get('errors')
-  errors(@Query('limit', new DefaultValuePipe(200), ParseIntPipe) limit: number) {
+  errors(
+    @Query('limit', new DefaultValuePipe(200), ParseIntPipe) limit: number,
+  ) {
     return this.logs.listAppErrors(limit);
   }
 
   @Get('terms-consents')
-  termsConsents(@Query('limit', new DefaultValuePipe(200), ParseIntPipe) limit: number) {
+  termsConsents(
+    @Query('limit', new DefaultValuePipe(200), ParseIntPipe) limit: number,
+  ) {
     return this.logs.listTermsConsents(limit);
   }
 
   @Get('auction-ledger')
-  auctionLedger(@Query('limit', new DefaultValuePipe(500), ParseIntPipe) limit: number) {
+  auctionLedger(
+    @Query('limit', new DefaultValuePipe(500), ParseIntPipe) limit: number,
+  ) {
     return this.logs.listAuctionLedger(limit);
   }
 
   @Get('auction-timeline')
-  auctionTimeline(@Query('limit', new DefaultValuePipe(500), ParseIntPipe) limit: number) {
+  auctionTimeline(
+    @Query('limit', new DefaultValuePipe(500), ParseIntPipe) limit: number,
+  ) {
     return this.logs.listAuctionTimeline(limit);
   }
 }

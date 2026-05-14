@@ -1,4 +1,8 @@
-﻿import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+﻿import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { OrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OrdersStateMachineService } from './orders-state-machine.service';
@@ -23,10 +27,16 @@ export class OrdersAdminService {
     hubToBuyerTrackingCode?: string,
     hubToSellerTrackingCode?: string,
   ) {
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
     if (!order) throw new NotFoundException('سفارش یافت نشد');
 
-    this.stateMachine.assertTransition(order.status, nextStatus, 'admin-hub-update');
+    this.stateMachine.assertTransition(
+      order.status,
+      nextStatus,
+      'admin-hub-update',
+    );
 
     return this.prisma.order.update({
       where: { id: orderId },
@@ -67,25 +77,35 @@ export class OrdersAdminService {
     });
     if (!existing) throw new NotFoundException('سفارش یافت نشد');
     if (existing.type !== 'EXCHANGE') {
-      throw new BadRequestException('این عملیات فقط برای سفارش معاوضه مجاز است');
+      throw new BadRequestException(
+        'این عملیات فقط برای سفارش معاوضه مجاز است',
+      );
     }
     if (
       existing.status !== OrderStatus.SHIPPED_TO_HUB &&
       existing.status !== OrderStatus.RECEIVED_AT_HUB &&
       existing.status !== OrderStatus.CHECKING_AT_HUB
     ) {
-      throw new BadRequestException('سفارش در وضعیت مناسب برای ثبت دریافت مرسوله در هاب نیست');
+      throw new BadRequestException(
+        'سفارش در وضعیت مناسب برای ثبت دریافت مرسوله در هاب نیست',
+      );
     }
 
-    const prev = (existing.exchangeHubInspection as Record<string, unknown> | null) ?? {};
+    const prev =
+      (existing.exchangeHubInspection as Record<string, unknown> | null) ?? {};
     const next = {
       ...prev,
       sellerReceivedAtHub:
-        dto.side === 'LISTING' ? dto.received : Boolean(prev['sellerReceivedAtHub']),
+        dto.side === 'LISTING'
+          ? dto.received
+          : Boolean(prev['sellerReceivedAtHub']),
       buyerReceivedAtHub:
-        dto.side === 'OFFER' ? dto.received : Boolean(prev['buyerReceivedAtHub']),
+        dto.side === 'OFFER'
+          ? dto.received
+          : Boolean(prev['buyerReceivedAtHub']),
     };
-    const bothReceived = Boolean(next.sellerReceivedAtHub) && Boolean(next.buyerReceivedAtHub);
+    const bothReceived =
+      Boolean(next.sellerReceivedAtHub) && Boolean(next.buyerReceivedAtHub);
     const targetStatus =
       existing.status === OrderStatus.CHECKING_AT_HUB
         ? OrderStatus.CHECKING_AT_HUB

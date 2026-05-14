@@ -26,10 +26,7 @@ export class AdminLocationsController {
   constructor(private readonly service: AdminLocationsService) {}
 
   @Get()
-  list(
-    @Query('type') type?: LocationType,
-    @Query('search') search?: string,
-  ) {
+  list(@Query('type') type?: LocationType, @Query('search') search?: string) {
     return this.service.list(type, search);
   }
 

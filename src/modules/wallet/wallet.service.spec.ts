@@ -11,7 +11,9 @@ describe('WalletService - refundExchangeExtraOnCancel', () => {
     const tx: any = {
       wallet: {
         upsert: jest.fn().mockResolvedValue({}),
-        findUnique: jest.fn(async ({ where }: any) => ({ id: `${where.userId}-wallet-id` })),
+        findUnique: jest.fn(async ({ where }: any) => ({
+          id: `${where.userId}-wallet-id`,
+        })),
       },
       walletTransaction: {
         create: jest.fn().mockResolvedValue({}),
@@ -51,7 +53,9 @@ describe('WalletService - refundExchangeExtraOnCancel', () => {
     // دو تراکنش: seller PENALTY و buyer REFUND
     expect(tx.walletTransaction.create).toHaveBeenCalledTimes(2);
 
-    const [sellerTx, buyerTx] = tx.walletTransaction.create.mock.calls.map((c: any) => c[0]);
+    const [sellerTx, buyerTx] = tx.walletTransaction.create.mock.calls.map(
+      (c: any) => c[0],
+    );
 
     expect(sellerTx.data.walletId).toBe('seller-1-wallet-id');
     expect(sellerTx.data.type).toBe(WalletTransactionType.PENALTY);
@@ -70,7 +74,9 @@ describe('WalletService - refundExchangeExtraOnCancel', () => {
     const tx: any = {
       wallet: {
         upsert: jest.fn().mockResolvedValue({}),
-        findUnique: jest.fn(async ({ where }: any) => ({ id: `${where.userId}-wallet-id` })),
+        findUnique: jest.fn(async ({ where }: any) => ({
+          id: `${where.userId}-wallet-id`,
+        })),
       },
       walletTransaction: {
         create: jest.fn().mockResolvedValue({}),
@@ -108,7 +114,9 @@ describe('WalletService - refundExchangeExtraOnCancel', () => {
     );
 
     expect(tx.walletTransaction.create).toHaveBeenCalledTimes(2);
-    const [buyerTx, sellerTx] = tx.walletTransaction.create.mock.calls.map((c: any) => c[0]);
+    const [buyerTx, sellerTx] = tx.walletTransaction.create.mock.calls.map(
+      (c: any) => c[0],
+    );
 
     expect(buyerTx.data.walletId).toBe('buyer-1-wallet-id');
     expect(buyerTx.data.type).toBe(WalletTransactionType.PENALTY);
@@ -119,4 +127,3 @@ describe('WalletService - refundExchangeExtraOnCancel', () => {
     expect(sellerTx.data.amount).toBe(123);
   });
 });
-

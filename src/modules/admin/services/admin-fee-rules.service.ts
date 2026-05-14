@@ -1,22 +1,24 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ListingType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
-import {
-  CreateFeeRuleDto,
-  UpdateFeeRuleDto,
-} from '../dto/admin-fee-rule.dto';
+import { CreateFeeRuleDto, UpdateFeeRuleDto } from '../dto/admin-fee-rule.dto';
 
 const FEE_INCLUDE = {
   category: { select: { id: true, title: true } },
 } satisfies Prisma.FeeRuleInclude;
 
-export type AdminFeeRuleItem = Prisma.FeeRuleGetPayload<{ include: typeof FEE_INCLUDE }>;
+export type AdminFeeRuleItem = Prisma.FeeRuleGetPayload<{
+  include: typeof FEE_INCLUDE;
+}>;
 
 @Injectable()
 export class AdminFeeRulesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list(listingType?: ListingType, categoryId?: string): Promise<AdminFeeRuleItem[]> {
+  list(
+    listingType?: ListingType,
+    categoryId?: string,
+  ): Promise<AdminFeeRuleItem[]> {
     const where: Prisma.FeeRuleWhereInput = {};
     if (listingType) where.listingType = listingType;
     if (categoryId) where.categoryId = categoryId;

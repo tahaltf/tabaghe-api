@@ -87,9 +87,12 @@ export class PlanFeeDiscountService {
 
       const raw =
         listingType === ListingType.DIRECT
-          ? p.plan.feeDiscountDirectPercent ?? 0
-          : p.plan.feeDiscountAuctionPercent ?? 0;
-      const discountPct = Math.max(0, Math.min(90, Math.floor(Number(raw) || 0)));
+          ? (p.plan.feeDiscountDirectPercent ?? 0)
+          : (p.plan.feeDiscountAuctionPercent ?? 0);
+      const discountPct = Math.max(
+        0,
+        Math.min(90, Math.floor(Number(raw) || 0)),
+      );
       if (discountPct > best.discountPercent) {
         best = {
           discountPercent: discountPct,

@@ -29,7 +29,10 @@ const ALL_RESOURCES: AdminBadgeResource[] = [
 
 const EPOCH = new Date(0);
 
-function lastSeenKey(adminUserId: string, resource: AdminBadgeResource): string {
+function lastSeenKey(
+  adminUserId: string,
+  resource: AdminBadgeResource,
+): string {
   return `ADMIN_BADGE_LAST_SEEN_${adminUserId}_${resource}`;
 }
 
@@ -78,7 +81,10 @@ export class AdminBadgesService {
    * Marks a resource (or all resources) as seen for the admin by setting
    * lastSeenAt to NOW. Returns the new timestamp.
    */
-  async markSeen(adminUserId: string, resource: string | undefined): Promise<{
+  async markSeen(
+    adminUserId: string,
+    resource: string | undefined,
+  ): Promise<{
     resource: AdminBadgeResource | 'all';
     lastSeenAt: string;
   }> {
@@ -106,7 +112,9 @@ export class AdminBadgesService {
 
     const map: Partial<Record<AdminBadgeResource, Date>> = {};
     for (const row of rows) {
-      const resource = ALL_RESOURCES.find((r) => row.key === lastSeenKey(adminUserId, r));
+      const resource = ALL_RESOURCES.find(
+        (r) => row.key === lastSeenKey(adminUserId, r),
+      );
       if (!resource) continue;
       const date = new Date(row.value || '');
       if (!Number.isNaN(date.getTime())) {
@@ -141,25 +149,38 @@ export class AdminBadgesService {
     try {
       switch (resource) {
         case 'users':
-          return this.prisma.user.count({ where: { createdAt: { gt: since } } });
+          return this.prisma.user.count({
+            where: { createdAt: { gt: since } },
+          });
 
         case 'listings':
-          return this.prisma.listing.count({ where: { createdAt: { gt: since } } });
+          return this.prisma.listing.count({
+            where: { createdAt: { gt: since } },
+          });
 
         case 'orders':
-          return this.prisma.order.count({ where: { createdAt: { gt: since } } });
+          return this.prisma.order.count({
+            where: { createdAt: { gt: since } },
+          });
 
         case 'walletRequests':
           return this.prisma.walletTransaction.count({
             where: {
               createdAt: { gt: since },
               status: WalletTransactionStatus.PENDING,
-              type: { in: [WalletTransactionType.DEPOSIT, WalletTransactionType.WITHDRAW_REQUEST] },
+              type: {
+                in: [
+                  WalletTransactionType.DEPOSIT,
+                  WalletTransactionType.WITHDRAW_REQUEST,
+                ],
+              },
             },
           });
 
         case 'tickets':
-          return this.prisma.ticket.count({ where: { createdAt: { gt: since } } });
+          return this.prisma.ticket.count({
+            where: { createdAt: { gt: since } },
+          });
 
         case 'complaints':
           return this.prisma.order.count({
@@ -170,7 +191,9 @@ export class AdminBadgesService {
           });
 
         case 'repairs':
-          return this.prisma.repairRequest.count({ where: { createdAt: { gt: since } } });
+          return this.prisma.repairRequest.count({
+            where: { createdAt: { gt: since } },
+          });
 
         case 'contactMessages':
           return this.countUnreadContactMessages();

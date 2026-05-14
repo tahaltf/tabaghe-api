@@ -65,7 +65,10 @@ export const repairShipVideoMulterOptions: MulterOptions = {
   }),
   fileFilter: (_req, file, cb) => {
     if (!VIDEO_MIME.test(file.mimetype)) {
-      return cb(new BadRequestException('فقط فایل‌های ویدیویی مجاز هستند'), false);
+      return cb(
+        new BadRequestException('فقط فایل‌های ویدیویی مجاز هستند'),
+        false,
+      );
     }
     cb(null, true);
   },

@@ -71,18 +71,17 @@ export class ListingCommandService {
                   },
                 }
               : undefined,
-          exchange:
-            this.shouldCreateExchange(dto)
-              ? {
-                  create: {
-                    desiredCategoryId: dto.exchange?.desiredCategoryId ?? '',
-                    desiredTitle: dto.exchange?.desiredTitle ?? '',
-                    desiredDescription: dto.exchange?.desiredDescription,
-                    ownValue: dto.exchange?.ownValue ?? 0,
-                    extraPaymentAmount: dto.exchange?.extraPaymentAmount ?? 0,
-                  },
-                }
-              : undefined,
+          exchange: this.shouldCreateExchange(dto)
+            ? {
+                create: {
+                  desiredCategoryId: dto.exchange?.desiredCategoryId ?? '',
+                  desiredTitle: dto.exchange?.desiredTitle ?? '',
+                  desiredDescription: dto.exchange?.desiredDescription,
+                  ownValue: dto.exchange?.ownValue ?? 0,
+                  extraPaymentAmount: dto.exchange?.extraPaymentAmount ?? 0,
+                },
+              }
+            : undefined,
           auction:
             dto.type === ListingType.AUCTION && auctionEndDate
               ? {
@@ -120,7 +119,7 @@ export class ListingCommandService {
     const auctionEndDate =
       currentType === ListingType.AUCTION && dto.auction?.endDatetime
         ? new Date(dto.auction.endDatetime)
-        : listing.auction?.endDatetime ?? undefined;
+        : (listing.auction?.endDatetime ?? undefined);
 
     return this.prisma.listing.update({
       where: { id: listingId },
@@ -147,7 +146,12 @@ export class ListingCommandService {
         ...(dto.cityId && { city: { connect: { id: dto.cityId } } }),
         direct: this.buildDirectUpsert(currentType, dto, listing),
         exchange: this.buildExchangeUpsert(currentType, dto, listing),
-        auction: this.buildAuctionUpsert(currentType, dto, listing, auctionEndDate),
+        auction: this.buildAuctionUpsert(
+          currentType,
+          dto,
+          listing,
+          auctionEndDate,
+        ),
       },
     });
   }
@@ -181,11 +185,15 @@ export class ListingCommandService {
       dto.auction?.minBidIncrement !== undefined &&
       dto.auction.minBidIncrement < 5000
     ) {
-      throw new BadRequestException('حداقل گام افزایش مزایده باید حداقل ۵۰۰۰ باشد');
+      throw new BadRequestException(
+        'حداقل گام افزایش مزایده باید حداقل ۵۰۰۰ باشد',
+      );
     }
     const end = new Date(dto.auction.endDatetime);
     if (end.getTime() <= Date.now()) {
-      throw new BadRequestException('زمان پایان مزایده نمی‌تواند در گذشته باشد');
+      throw new BadRequestException(
+        'زمان پایان مزایده نمی‌تواند در گذشته باشد',
+      );
     }
     return end;
   }
@@ -197,11 +205,14 @@ export class ListingCommandService {
   ): void {
     const type = resolvedType ?? dto.type;
     if (!type) {
-      throw new BadRequestException('نوع آگهی مشخص نیست. لطفاً نوع آگهی را انتخاب کنید.');
+      throw new BadRequestException(
+        'نوع آگهی مشخص نیست. لطفاً نوع آگهی را انتخاب کنید.',
+      );
     }
 
     const missing: string[] = [];
-    const hasText = (v: unknown) => typeof v === 'string' && v.trim().length > 0;
+    const hasText = (v: unknown) =>
+      typeof v === 'string' && v.trim().length > 0;
 
     if (!isUpdate || dto.title !== undefined) {
       if (!hasText(dto.title)) missing.push('عنوان آگهی');
@@ -223,7 +234,10 @@ export class ListingCommandService {
       }
     }
 
-    if (type === ListingType.EXCHANGE || (type === ListingType.DIRECT && dto.direct?.allowExchange)) {
+    if (
+      type === ListingType.EXCHANGE ||
+      (type === ListingType.DIRECT && dto.direct?.allowExchange)
+    ) {
       if (!hasText(dto.exchange?.desiredTitle)) {
         missing.push('نام کالای درخواستی برای معاوضه');
       }
@@ -251,7 +265,8 @@ export class ListingCommandService {
 
   private shouldCreateExchange(dto: CreateListingDto): boolean {
     if (dto.type === ListingType.EXCHANGE) return true;
-    if (dto.type === ListingType.DIRECT && dto.direct?.allowExchange) return true;
+    if (dto.type === ListingType.DIRECT && dto.direct?.allowExchange)
+      return true;
     return false;
   }
 
@@ -259,7 +274,9 @@ export class ListingCommandService {
     listingId: string,
     userId: string,
   ): Promise<Listing> {
-    const listing = await this.prisma.listing.findUnique({ where: { id: listingId } });
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+    });
     if (!listing) throw new NotFoundException('آگهی یافت نشد');
     if (listing.authorId !== userId) {
       throw new ForbiddenException('شما مالک این آگهی نیستید');
@@ -282,7 +299,9 @@ export class ListingCommandService {
     }
 
     if (listing.type === ListingType.AUCTION) {
-      const bidCount = await this.prisma.auctionBid.count({ where: { listingId } });
+      const bidCount = await this.prisma.auctionBid.count({
+        where: { listingId },
+      });
       if (bidCount > 0) {
         throw new BadRequestException(
           'روی این مزایده پیشنهاد مالی ثبت شده است و دیگر قابل تغییر یا حذف نیست.',

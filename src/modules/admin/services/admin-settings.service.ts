@@ -1,8 +1,15 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { existsSync, unlink } from 'fs';
 import { join } from 'path';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
-import { BulkUpsertSettingsDto, UpsertSettingDto } from '../dto/admin-setting.dto';
+import {
+  BulkUpsertSettingsDto,
+  UpsertSettingDto,
+} from '../dto/admin-setting.dto';
 import { BANNER_UPLOAD_PATH } from '../../../common/upload/banner-upload.config';
 import { BRAND_LOGO_UPLOAD_PATH } from '../../../common/upload/brand-logo-upload.config';
 
@@ -69,7 +76,8 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   SHIPPING_COST: 'هزینه ارسال پیش‌فرض (تومان)',
   SELLER_SHIP_DEADLINE_MINUTES: 'مهلت ارسال فروشنده پس از پرداخت (دقیقه)',
   BUYER_CONFIRM_DEADLINE_MINUTES: 'مهلت تایید/شکایت خریدار پس از ارسال (دقیقه)',
-  EXCHANGE_NO_SHIPMENT_COMPENSATION: 'مبلغ دلجویی برای طرف ارسال‌کننده در صورت عدم ارسال طرف مقابل (تومان)',
+  EXCHANGE_NO_SHIPMENT_COMPENSATION:
+    'مبلغ دلجویی برای طرف ارسال‌کننده در صورت عدم ارسال طرف مقابل (تومان)',
   PLATFORM_ADDRESS: 'آدرس دفتر / هاب طبقه',
   PLATFORM_ADDRESSES: 'لیست آدرس‌های هاب طبقه با کد پستی (JSON)',
   SUPPORT_PHONE: 'شماره پشتیبانی',
@@ -80,7 +88,8 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   MANUAL_CARD_TRANSFER_MAX: 'حداکثر مبلغ مجاز کارت‌به‌کارت (تومان)',
   TERMS_CONDITIONS: 'متن قوانین و مقررات (نمایش به کاربران)',
   ABOUT_US: 'متن صفحه درباره ما',
-  REPAIR_ALLOWED_CATEGORY_IDS: 'لیست دسته‌بندی‌های مجاز برای ثبت تعمیرات (JSON)',
+  REPAIR_ALLOWED_CATEGORY_IDS:
+    'لیست دسته‌بندی‌های مجاز برای ثبت تعمیرات (JSON)',
   PLATFORM_LATITUDE: 'مختصات جغرافیایی عرض (Latitude) مرکز طبقه',
   PLATFORM_LONGITUDE: 'مختصات جغرافیایی طول (Longitude) مرکز طبقه',
   SMS_NOTIFICATION_RULES: 'پالیسی نوتیف/پیامک به ازای نوع رویداد (JSON)',
@@ -98,12 +107,16 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   SYSTEM_INTRO_CONTENT: 'محتوای صفحه معرفی سامانه',
   AUCTION_DEPOSIT_MIN: 'حداقل ودیعه ورود مزایده (تومان)',
   AUCTION_DEPOSIT_MAX: 'حداکثر ودیعه ورود مزایده (تومان)',
-  AUCTION_MAX_BIDS_PER_MINUTE: 'حداکثر تعداد ثبت پیشنهاد برای هر کاربر در هر دقیقه',
-  AUCTION_MAX_ACTIVE_AUCTIONS_PER_USER: 'حداکثر تعداد مزایده‌های فعال قابل مشارکت برای هر کاربر',
+  AUCTION_MAX_BIDS_PER_MINUTE:
+    'حداکثر تعداد ثبت پیشنهاد برای هر کاربر در هر دقیقه',
+  AUCTION_MAX_ACTIVE_AUCTIONS_PER_USER:
+    'حداکثر تعداد مزایده‌های فعال قابل مشارکت برای هر کاربر',
   AUCTION_MIN_TRUST_SCORE: 'حداقل امتیاز اعتماد برای مشارکت در مزایده',
-  AUCTION_ALERT_PENDING_THRESHOLD: 'آستانه هشدار تعداد مزایده‌های در انتظار تسویه',
+  AUCTION_ALERT_PENDING_THRESHOLD:
+    'آستانه هشدار تعداد مزایده‌های در انتظار تسویه',
   AUCTION_ALERT_FAILED_THRESHOLD: 'آستانه هشدار تعداد مزایده‌های شکست‌خورده',
-  AUCTION_ALERT_COOLDOWN_MINUTES: 'حداقل فاصله زمانی بین alertهای سلامت مزایده (دقیقه)',
+  AUCTION_ALERT_COOLDOWN_MINUTES:
+    'حداقل فاصله زمانی بین alertهای سلامت مزایده (دقیقه)',
 };
 
 @Injectable()
@@ -141,10 +154,13 @@ export class AdminSettingsService {
           result[key] = minutes;
           continue;
         }
-        const legacyDays = Number(byKey.get('SELLER_SHIP_DEADLINE_DAYS')?.value ?? '');
-        result[key] = Number.isFinite(legacyDays) && legacyDays > 0
-          ? String(Math.floor(legacyDays * 24 * 60))
-          : '';
+        const legacyDays = Number(
+          byKey.get('SELLER_SHIP_DEADLINE_DAYS')?.value ?? '',
+        );
+        result[key] =
+          Number.isFinite(legacyDays) && legacyDays > 0
+            ? String(Math.floor(legacyDays * 24 * 60))
+            : '';
         continue;
       }
       if (key === SETTING_KEYS.BUYER_CONFIRM_DEADLINE_MINUTES) {
@@ -153,10 +169,13 @@ export class AdminSettingsService {
           result[key] = minutes;
           continue;
         }
-        const legacyDays = Number(byKey.get('BUYER_CONFIRM_DEADLINE_DAYS')?.value ?? '');
-        result[key] = Number.isFinite(legacyDays) && legacyDays > 0
-          ? String(Math.floor(legacyDays * 24 * 60))
-          : '';
+        const legacyDays = Number(
+          byKey.get('BUYER_CONFIRM_DEADLINE_DAYS')?.value ?? '',
+        );
+        result[key] =
+          Number.isFinite(legacyDays) && legacyDays > 0
+            ? String(Math.floor(legacyDays * 24 * 60))
+            : '';
         continue;
       }
       result[key] = byKey.get(key)?.value ?? '';
@@ -176,7 +195,8 @@ export class AdminSettingsService {
   async upsertMany(dto: BulkUpsertSettingsDto) {
     return this.prisma.$transaction(
       dto.items.map((item) => {
-        const description = item.description ?? KNOWN_DESCRIPTIONS[item.key] ?? null;
+        const description =
+          item.description ?? KNOWN_DESCRIPTIONS[item.key] ?? null;
         return this.prisma.systemSetting.upsert({
           where: { key: item.key },
           update: { value: item.value, description },
@@ -187,7 +207,9 @@ export class AdminSettingsService {
   }
 
   async remove(key: string) {
-    const existing = await this.prisma.systemSetting.findUnique({ where: { key } });
+    const existing = await this.prisma.systemSetting.findUnique({
+      where: { key },
+    });
     if (!existing) throw new NotFoundException('کلید تنظیمات یافت نشد');
 
     if (key === SETTING_KEYS.HOMEPAGE_BANNER && existing.value) {
@@ -243,12 +265,14 @@ export class AdminSettingsService {
   }
 
   async setUserAppLogo(filename: string) {
-    if (!filename) throw new BadRequestException('فایل لوگوی کاربر نامعتبر است');
+    if (!filename)
+      throw new BadRequestException('فایل لوگوی کاربر نامعتبر است');
     return this.setBrandLogoByKey(SETTING_KEYS.USER_APP_LOGO, filename);
   }
 
   async setAdminPanelLogo(filename: string) {
-    if (!filename) throw new BadRequestException('فایل لوگوی ادمین نامعتبر است');
+    if (!filename)
+      throw new BadRequestException('فایل لوگوی ادمین نامعتبر است');
     return this.setBrandLogoByKey(SETTING_KEYS.ADMIN_PANEL_LOGO, filename);
   }
 
@@ -300,7 +324,11 @@ export class AdminSettingsService {
     try {
       const safeName = filename.split(/[\\/]/).pop();
       if (!safeName) return;
-      const fullPath = join(process.cwd(), BANNER_UPLOAD_PATH.replace(/^\.\//, ''), safeName);
+      const fullPath = join(
+        process.cwd(),
+        BANNER_UPLOAD_PATH.replace(/^\.\//, ''),
+        safeName,
+      );
       if (existsSync(fullPath)) {
         unlink(fullPath, () => undefined);
       }
@@ -313,7 +341,11 @@ export class AdminSettingsService {
     try {
       const safeName = filename.split(/[\\/]/).pop();
       if (!safeName) return;
-      const fullPath = join(process.cwd(), BRAND_LOGO_UPLOAD_PATH.replace(/^\.\//, ''), safeName);
+      const fullPath = join(
+        process.cwd(),
+        BRAND_LOGO_UPLOAD_PATH.replace(/^\.\//, ''),
+        safeName,
+      );
       if (existsSync(fullPath)) {
         unlink(fullPath, () => undefined);
       }
@@ -323,7 +355,9 @@ export class AdminSettingsService {
   }
 
   private async setBrandLogoByKey(key: string, filename: string) {
-    const previous = await this.prisma.systemSetting.findUnique({ where: { key } });
+    const previous = await this.prisma.systemSetting.findUnique({
+      where: { key },
+    });
     if (previous?.value && previous.value !== filename) {
       this.deleteBrandLogoFile(previous.value);
     }
@@ -336,7 +370,9 @@ export class AdminSettingsService {
   }
 
   private async clearBrandLogoByKey(key: string) {
-    const existing = await this.prisma.systemSetting.findUnique({ where: { key } });
+    const existing = await this.prisma.systemSetting.findUnique({
+      where: { key },
+    });
     if (existing?.value) this.deleteBrandLogoFile(existing.value);
 
     await this.prisma.systemSetting.upsert({

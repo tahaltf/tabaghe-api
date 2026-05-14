@@ -1,29 +1,29 @@
 import {
-    IsBoolean,
-    IsDateString,
-    IsNumber,
-    IsOptional,
-    Min,
+  IsBoolean,
+  IsDateString,
+  IsNumber,
+  IsOptional,
+  Min,
 } from 'class-validator';
 
 export class CreateListingAuctionDto {
-    @IsNumber()
-    @Min(1)
-    basePrice: number;
+  @IsNumber()
+  @Min(1)
+  basePrice: number;
 
-    @IsNumber()
-    @Min(1)
-    minBidIncrement: number;
+  @IsNumber()
+  @Min(1)
+  minBidIncrement: number;
 
-    @IsDateString()
-    endDatetime: string;
+  @IsDateString()
+  endDatetime: string;
 
-    @IsOptional()
-    @IsBoolean()
-    buyNowEnabled?: boolean;
+  @IsOptional()
+  @IsBoolean()
+  buyNowEnabled?: boolean;
 
-    @IsOptional()
-    @IsNumber()
-    @Min(1)
-    buyNowPrice?: number;
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  buyNowPrice?: number;
 }

@@ -83,14 +83,20 @@ const DETAIL_INCLUDE = {
   },
 } satisfies Prisma.ListingInclude;
 
-export type ListingListItem = Prisma.ListingGetPayload<{ include: typeof LIST_ITEM_INCLUDE }>;
-export type ListingDetail = Prisma.ListingGetPayload<{ include: typeof DETAIL_INCLUDE }>;
+export type ListingListItem = Prisma.ListingGetPayload<{
+  include: typeof LIST_ITEM_INCLUDE;
+}>;
+export type ListingDetail = Prisma.ListingGetPayload<{
+  include: typeof DETAIL_INCLUDE;
+}>;
 
 @Injectable()
 export class ListingQueryService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(query: ListListingsDto): Promise<PaginatedResult<ListingListItem>> {
+  async findAll(
+    query: ListListingsDto,
+  ): Promise<PaginatedResult<ListingListItem>> {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
     const skip = (page - 1) * pageSize;
@@ -98,9 +104,12 @@ export class ListingQueryService {
     const where = this.buildPublicWhere(query);
     const orderBy = this.buildOrderBy(query.sort);
 
-    const useRelevanceSort = !!query.search?.trim() && (!query.sort || query.sort === 'newest');
-    const takeForRanking = useRelevanceSort ? Math.max(pageSize * 4, 60) : pageSize;
-    const [rawItems, total] = await this.prisma.$transaction([
+    const useRelevanceSort =
+      !!query.search?.trim() && (!query.sort || query.sort === 'newest');
+    const takeForRanking = useRelevanceSort
+      ? Math.max(pageSize * 4, 60)
+      : pageSize;
+    const [rawItems, total] = await Promise.all([
       this.prisma.listing.findMany({
         where,
         include: LIST_ITEM_INCLUDE,
@@ -111,7 +120,10 @@ export class ListingQueryService {
       this.prisma.listing.count({ where }),
     ]);
     const items = useRelevanceSort
-      ? this.rankByRelevance(query.search ?? '', rawItems).slice(skip, skip + pageSize)
+      ? this.rankByRelevance(query.search ?? '', rawItems).slice(
+          skip,
+          skip + pageSize,
+        )
       : rawItems;
 
     return {
@@ -143,7 +155,10 @@ export class ListingQueryService {
       const isExchangePending =
         listing.type === 'EXCHANGE' &&
         (os === OrderStatus.PENDING || os === OrderStatus.AWAITING_PAYMENT);
-      if (!isExchangePending && (os === OrderStatus.PENDING || os === OrderStatus.AWAITING_PAYMENT)) {
+      if (
+        !isExchangePending &&
+        (os === OrderStatus.PENDING || os === OrderStatus.AWAITING_PAYMENT)
+      ) {
         const isBuyer = viewerId && listing.order.buyerId === viewerId;
         const isSeller = viewerId && listing.authorId === viewerId;
         if (!isBuyer && !isSeller && !isStaff) {
@@ -155,7 +170,9 @@ export class ListingQueryService {
     if (listing.status !== ListingStatus.APPROVED) {
       const isOwner = viewerId && listing.authorId === viewerId;
       if (!isOwner && !isStaff) {
-        throw new NotFoundException('این آگهی هنوز منتشر نشده یا در دسترس نیست.');
+        throw new NotFoundException(
+          'این آگهی هنوز منتشر نشده یا در دسترس نیست.',
+        );
       }
     }
 
@@ -167,13 +184,15 @@ export class ListingQueryService {
         where: { id: listing.authorId },
         select: { phone: true },
       });
-      (listing as typeof listing & { author: { phone?: string | null } }).author.phone =
-        ownerPhone?.phone ?? null;
+      (
+        listing as typeof listing & { author: { phone?: string | null } }
+      ).author.phone = ownerPhone?.phone ?? null;
     }
 
-    const { order: _omitOrder, ...listingWithoutOrder } = listing as typeof listing & {
+    const { order, ...listingWithoutOrder } = listing as typeof listing & {
       order?: { status: OrderStatus; buyerId: string } | null;
     };
+    void order;
     return listingWithoutOrder as ListingDetail;
   }
 
@@ -186,7 +205,7 @@ export class ListingQueryService {
     const skip = (page - 1) * pageSize;
 
     const where: Prisma.ListingWhereInput = { authorId: userId };
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await Promise.all([
       this.prisma.listing.findMany({
         where,
         include: LIST_ITEM_INCLUDE,
@@ -214,7 +233,10 @@ export class ListingQueryService {
     const isExchangePending =
       listing.type === 'EXCHANGE' &&
       (os === OrderStatus.PENDING || os === OrderStatus.AWAITING_PAYMENT);
-    if (!isExchangePending && (os === OrderStatus.PENDING || os === OrderStatus.AWAITING_PAYMENT)) {
+    if (
+      !isExchangePending &&
+      (os === OrderStatus.PENDING || os === OrderStatus.AWAITING_PAYMENT)
+    ) {
       return false;
     }
     return true;
@@ -285,9 +307,7 @@ export class ListingQueryService {
     return where;
   }
 
-  private buildOrderBy(
-    sort?: string,
-  ): Prisma.ListingOrderByWithRelationInput {
+  private buildOrderBy(sort?: string): Prisma.ListingOrderByWithRelationInput {
     switch (sort) {
       case 'price_asc':
         return { direct: { price: 'asc' } };
@@ -300,9 +320,14 @@ export class ListingQueryService {
     }
   }
 
-  private rankByRelevance(search: string, items: ListingListItem[]): ListingListItem[] {
+  private rankByRelevance(
+    search: string,
+    items: ListingListItem[],
+  ): ListingListItem[] {
     const q = this.normalize(search);
-    return [...items].sort((a, b) => this.relevanceScore(q, b) - this.relevanceScore(q, a));
+    return [...items].sort(
+      (a, b) => this.relevanceScore(q, b) - this.relevanceScore(q, a),
+    );
   }
 
   private relevanceScore(query: string, item: ListingListItem): number {

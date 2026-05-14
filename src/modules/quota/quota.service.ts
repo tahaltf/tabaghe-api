@@ -19,7 +19,11 @@ export class QuotaService {
     // 1) فروش مستقیم را اول از سهمیه رایگان مصرف کن
     if (listingType === ListingType.DIRECT) {
       const freeLimit = await this.getFreeDirectLimit(tx);
-      const remaining = await this.getRemainingFreeDirect(tx, userId, freeLimit);
+      const remaining = await this.getRemainingFreeDirect(
+        tx,
+        userId,
+        freeLimit,
+      );
       if (remaining > 0) {
         await this.commitFreeDirect(tx, userId, listingType, listingId);
         return;

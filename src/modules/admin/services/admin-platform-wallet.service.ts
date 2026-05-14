@@ -1,5 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { OrderStatus, RepairRequestStatus, WalletTransactionStatus, WalletTransactionType } from '@prisma/client';
+import {
+  OrderStatus,
+  RepairRequestStatus,
+  WalletTransactionStatus,
+  WalletTransactionType,
+} from '@prisma/client';
 import Decimal from 'decimal.js';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { PlatformCreditSource } from '../dto/admin-platform-wallet.dto';
@@ -7,13 +12,19 @@ import { PlatformCreditSource } from '../dto/admin-platform-wallet.dto';
 const PROFIT_WITHDRAWN_KEY = 'PLATFORM_PROFIT_WITHDRAWN';
 const PROFIT_USER_CREDITS_KEY = 'PLATFORM_PROFIT_USER_CREDITS';
 const PROFIT_LEDGER_KEY = 'PLATFORM_PROFIT_LEDGER';
-const REALIZED_ORDER_STATUSES: OrderStatus[] = [OrderStatus.COMPLETED, OrderStatus.DELIVERED];
+const REALIZED_ORDER_STATUSES: OrderStatus[] = [
+  OrderStatus.COMPLETED,
+  OrderStatus.DELIVERED,
+];
 const INTERNAL_PROFIT_MARK = '[INTERNAL_PROFIT]';
 type PlatformHistoryRange = 'today' | '7d' | '30d' | '90d' | '365d' | 'all';
 type PlatformHistorySide = 'IN' | 'OUT' | 'ALL';
 
 interface PlatformLedgerEntry {
-  type: 'WITHDRAW_PROFIT' | 'CREDIT_USER_FROM_PROFIT' | 'CREDIT_USER_FROM_EXTERNAL';
+  type:
+    | 'WITHDRAW_PROFIT'
+    | 'CREDIT_USER_FROM_PROFIT'
+    | 'CREDIT_USER_FROM_EXTERNAL';
   amount: number;
   note?: string | null;
   userId?: string | null;
@@ -34,7 +45,9 @@ export class AdminPlatformWalletService {
       withdrawn,
       userCredits,
     ] = await Promise.all([
-      this.prisma.wallet.aggregate({ _sum: { balanceAvailable: true, balanceBlocked: true } }),
+      this.prisma.wallet.aggregate({
+        _sum: { balanceAvailable: true, balanceBlocked: true },
+      }),
       this.prisma.order.aggregate({
         where: { status: { in: REALIZED_ORDER_STATUSES } },
         _sum: { platformFee: true },
@@ -61,11 +74,17 @@ export class AdminPlatformWalletService {
       this.getNumericSetting(PROFIT_USER_CREDITS_KEY),
     ]);
 
-    const repairProfit = repairs.reduce((acc, r) => acc.plus(this.extractInternalProfit(r.adminNote)), new Decimal(0));
+    const repairProfit = repairs.reduce(
+      (acc, r) => acc.plus(this.extractInternalProfit(r.adminNote)),
+      new Decimal(0),
+    );
     const commission = new Decimal(commissionAgg._sum.platformFee ?? 0);
     const verification = new Decimal(verificationAgg._sum.verificationFee ?? 0);
     const penalties = new Decimal(penaltiesAgg._sum.amount ?? 0);
-    const accrued = commission.plus(verification).plus(penalties).plus(repairProfit);
+    const accrued = commission
+      .plus(verification)
+      .plus(penalties)
+      .plus(repairProfit);
     const deductions = withdrawn.plus(userCredits);
     const profitBalance = Decimal.max(accrued.minus(deductions), 0);
 
@@ -101,8 +120,10 @@ export class AdminPlatformWalletService {
     const summary = await this.getSummary();
     const balance = new Decimal(summary.profitWallet.balance);
     const amountDec = new Decimal(amount);
-    if (amountDec.lte(0)) throw new BadRequestException('مبلغ برداشت نامعتبر است');
-    if (balance.lt(amountDec)) throw new BadRequestException('موجودی سود طبقه کافی نیست');
+    if (amountDec.lte(0))
+      throw new BadRequestException('مبلغ برداشت نامعتبر است');
+    if (balance.lt(amountDec))
+      throw new BadRequestException('موجودی سود طبقه کافی نیست');
 
     await this.incrementSetting(PROFIT_WITHDRAWN_KEY, amountDec);
     await this.appendLedger({
@@ -114,7 +135,10 @@ export class AdminPlatformWalletService {
     await this.prisma.systemSetting.upsert({
       where: { key: 'PLATFORM_PROFIT_LAST_WITHDRAW_NOTE' },
       update: { value: note?.trim() || '' },
-      create: { key: 'PLATFORM_PROFIT_LAST_WITHDRAW_NOTE', value: note?.trim() || '' },
+      create: {
+        key: 'PLATFORM_PROFIT_LAST_WITHDRAW_NOTE',
+        value: note?.trim() || '',
+      },
     });
 
     return this.getSummary();
@@ -127,7 +151,8 @@ export class AdminPlatformWalletService {
     note?: string,
   ) {
     const amountDec = new Decimal(amount);
-    if (amountDec.lte(0)) throw new BadRequestException('مبلغ شارژ نامعتبر است');
+    if (amountDec.lte(0))
+      throw new BadRequestException('مبلغ شارژ نامعتبر است');
 
     if (source === PlatformCreditSource.PROFIT) {
       const summary = await this.getSummary();
@@ -139,7 +164,11 @@ export class AdminPlatformWalletService {
     await this.prisma.$transaction(async (tx) => {
       const wallet = await tx.wallet.upsert({
         where: { userId },
-        create: { userId, balanceAvailable: amountDec.toNumber(), balanceBlocked: 0 },
+        create: {
+          userId,
+          balanceAvailable: amountDec.toNumber(),
+          balanceBlocked: 0,
+        },
         update: { balanceAvailable: { increment: amountDec.toString() } },
       });
 
@@ -179,14 +208,16 @@ export class AdminPlatformWalletService {
     return this.getSummary();
   }
 
-  async getHistory(params: {
-    range?: PlatformHistoryRange;
-    page?: number;
-    pageSize?: number;
-    search?: string;
-    side?: PlatformHistorySide;
-    source?: string;
-  } = {}) {
+  async getHistory(
+    params: {
+      range?: PlatformHistoryRange;
+      page?: number;
+      pageSize?: number;
+      search?: string;
+      side?: PlatformHistorySide;
+      source?: string;
+    } = {},
+  ) {
     const range = params.range ?? '30d';
     const page = Math.max(1, params.page ?? 1);
     const pageSize = Math.min(200, Math.max(1, params.pageSize ?? 20));
@@ -308,17 +339,26 @@ export class AdminPlatformWalletService {
 
     const filtered = rows.filter((r) => {
       if (sideFilter !== 'ALL' && r.side !== sideFilter) return false;
-      if (sourceFilter && !r.source.toLowerCase().includes(sourceFilter)) return false;
+      if (sourceFilter && !r.source.toLowerCase().includes(sourceFilter))
+        return false;
       if (search) {
-        const hay = `${r.source} ${r.referenceId ?? ''} ${r.note ?? ''}`.toLowerCase();
+        const hay =
+          `${r.source} ${r.referenceId ?? ''} ${r.note ?? ''}`.toLowerCase();
         if (!hay.includes(search)) return false;
       }
       return true;
     });
 
-    filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    const inTotal = filtered.filter((r) => r.side === 'IN').reduce((acc, r) => acc.plus(r.amount), new Decimal(0));
-    const outTotal = filtered.filter((r) => r.side === 'OUT').reduce((acc, r) => acc.plus(r.amount), new Decimal(0));
+    filtered.sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+    const inTotal = filtered
+      .filter((r) => r.side === 'IN')
+      .reduce((acc, r) => acc.plus(r.amount), new Decimal(0));
+    const outTotal = filtered
+      .filter((r) => r.side === 'OUT')
+      .reduce((acc, r) => acc.plus(r.amount), new Decimal(0));
     const total = filtered.length;
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
     const items = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -347,7 +387,9 @@ export class AdminPlatformWalletService {
   }
 
   private extractInternalProfit(adminNote: string | null | undefined): Decimal {
-    const line = (adminNote ?? '').split('\n').find((x) => x.trim().startsWith(INTERNAL_PROFIT_MARK));
+    const line = (adminNote ?? '')
+      .split('\n')
+      .find((x) => x.trim().startsWith(INTERNAL_PROFIT_MARK));
     if (!line) return new Decimal(0);
     const value = line.trim().slice(INTERNAL_PROFIT_MARK.length).trim();
     const parsed = new Decimal(value || 0);
@@ -363,7 +405,11 @@ export class AdminPlatformWalletService {
     return num.isFinite() ? Decimal.max(num, 0) : new Decimal(0);
   }
 
-  private async incrementSetting(key: string, amount: Decimal, tx?: PrismaService | any) {
+  private async incrementSetting(
+    key: string,
+    amount: Decimal,
+    tx?: PrismaService | any,
+  ) {
     const prisma = tx ?? this.prisma;
     const current = await prisma.systemSetting.findUnique({
       where: { key },
@@ -386,7 +432,10 @@ export class AdminPlatformWalletService {
       d.setHours(0, 0, 0, 0);
       return d;
     }
-    const map: Record<Exclude<PlatformHistoryRange, 'all' | 'today'>, number> = {
+    const map: Record<
+      Exclude<PlatformHistoryRange, 'all' | 'today'>,
+      number
+    > = {
       '7d': 7,
       '30d': 30,
       '90d': 90,
@@ -416,13 +465,17 @@ export class AdminPlatformWalletService {
     });
   }
 
-  private async readLedgerEntries(since: Date | null): Promise<PlatformLedgerEntry[]> {
+  private async readLedgerEntries(
+    since: Date | null,
+  ): Promise<PlatformLedgerEntry[]> {
     const current = await this.prisma.systemSetting.findUnique({
       where: { key: PROFIT_LEDGER_KEY },
       select: { value: true },
     });
     try {
-      const rows = current?.value ? (JSON.parse(current.value) as PlatformLedgerEntry[]) : [];
+      const rows = current?.value
+        ? (JSON.parse(current.value) as PlatformLedgerEntry[])
+        : [];
       if (!Array.isArray(rows)) return [];
       return rows.filter((r) => !since || new Date(r.createdAt) >= since);
     } catch {
@@ -430,4 +483,3 @@ export class AdminPlatformWalletService {
     }
   }
 }
-

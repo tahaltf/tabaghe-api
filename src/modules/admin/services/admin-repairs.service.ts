@@ -32,17 +32,38 @@ export type AdminRepairItem = Prisma.RepairRequestGetPayload<{
 }>;
 
 /** Admin-side valid next statuses for each repair status. */
-const ALLOWED_ADMIN_TRANSITIONS: Record<RepairRequestStatus, RepairRequestStatus[]> = {
+const ALLOWED_ADMIN_TRANSITIONS: Record<
+  RepairRequestStatus,
+  RepairRequestStatus[]
+> = {
   PENDING_REVIEW: [RepairRequestStatus.APPROVED, RepairRequestStatus.REJECTED],
   REJECTED: [],
   APPROVED: [RepairRequestStatus.CANCELLED],
-  DELIVERY_TIME_SELECTED: [RepairRequestStatus.RECEIVED_AT_HUB, RepairRequestStatus.CANCELLED],
-  AWAITING_DELIVERY: [RepairRequestStatus.RECEIVED_AT_HUB, RepairRequestStatus.CANCELLED],
-  RECEIVED_AT_HUB: [RepairRequestStatus.UNDER_INSPECTION, RepairRequestStatus.CANCELLED],
-  UNDER_INSPECTION: [RepairRequestStatus.RESULT_READY, RepairRequestStatus.CANCELLED],
+  DELIVERY_TIME_SELECTED: [
+    RepairRequestStatus.RECEIVED_AT_HUB,
+    RepairRequestStatus.CANCELLED,
+  ],
+  AWAITING_DELIVERY: [
+    RepairRequestStatus.RECEIVED_AT_HUB,
+    RepairRequestStatus.CANCELLED,
+  ],
+  RECEIVED_AT_HUB: [
+    RepairRequestStatus.UNDER_INSPECTION,
+    RepairRequestStatus.CANCELLED,
+  ],
+  UNDER_INSPECTION: [
+    RepairRequestStatus.RESULT_READY,
+    RepairRequestStatus.CANCELLED,
+  ],
   RESULT_READY: [RepairRequestStatus.CANCELLED],
-  IN_PROGRESS: [RepairRequestStatus.READY_TO_SHIP, RepairRequestStatus.CANCELLED],
-  READY_TO_SHIP: [RepairRequestStatus.SHIPPED_BACK, RepairRequestStatus.CANCELLED],
+  IN_PROGRESS: [
+    RepairRequestStatus.READY_TO_SHIP,
+    RepairRequestStatus.CANCELLED,
+  ],
+  READY_TO_SHIP: [
+    RepairRequestStatus.SHIPPED_BACK,
+    RepairRequestStatus.CANCELLED,
+  ],
   SHIPPED_BACK: [RepairRequestStatus.COMPLETED],
   COMPLETED: [],
   CANCELLED: [],
@@ -55,7 +76,11 @@ export class AdminRepairsService {
     private readonly notifications: NotificationService,
   ) {}
 
-  private appendTaggedNote(base: string | null | undefined, marker: string, text?: string | null): string | null {
+  private appendTaggedNote(
+    base: string | null | undefined,
+    marker: string,
+    text?: string | null,
+  ): string | null {
     const current = (base ?? '').trim();
     const note = (text ?? '').trim();
     if (!note) return current || null;
@@ -67,12 +92,19 @@ export class AdminRepairsService {
     return [cleaned, `${marker} ${note}`].filter(Boolean).join('\n\n').trim();
   }
 
-  private extractTaggedNote(text: string | null | undefined, marker: string): string | null {
-    const raw = (text ?? '').split('\n').find((line) => line.trim().startsWith(marker));
+  private extractTaggedNote(
+    text: string | null | undefined,
+    marker: string,
+  ): string | null {
+    const raw = (text ?? '')
+      .split('\n')
+      .find((line) => line.trim().startsWith(marker));
     if (!raw) return null;
     const extracted = raw.trim().slice(marker.length).trim();
     if (!extracted) return null;
-    const normalized = extracted.replace(/^(note|message|text|adminNote)\s*[:=]\s*/i, '').trim();
+    const normalized = extracted
+      .replace(/^(note|message|text|adminNote)\s*[:=]\s*/i, '')
+      .trim();
     return normalized || null;
   }
 
@@ -81,11 +113,13 @@ export class AdminRepairsService {
       .split('\n')
       .filter((line) => {
         const t = line.trim();
-        return !t.startsWith(USER_SHIPPING_NOTE_MARK)
-          && !t.startsWith(ADMIN_RETURN_NOTE_MARK)
-          && !t.startsWith(ADMIN_RETURN_PICKUP_TIME_MARK)
-          && !t.startsWith(ADMIN_RETURN_PICKUP_SLOTS_MARK)
-          && !t.startsWith(INTERNAL_PROFIT_MARK);
+        return (
+          !t.startsWith(USER_SHIPPING_NOTE_MARK) &&
+          !t.startsWith(ADMIN_RETURN_NOTE_MARK) &&
+          !t.startsWith(ADMIN_RETURN_PICKUP_TIME_MARK) &&
+          !t.startsWith(ADMIN_RETURN_PICKUP_SLOTS_MARK) &&
+          !t.startsWith(INTERNAL_PROFIT_MARK)
+        );
       })
       .join('\n')
       .trim();
@@ -96,7 +130,9 @@ export class AdminRepairsService {
   // Queries
   // ---------------------------------------------------------------------------
 
-  async list(query: AdminRepairListQueryDto): Promise<PaginatedResult<AdminRepairItem>> {
+  async list(
+    query: AdminRepairListQueryDto,
+  ): Promise<PaginatedResult<AdminRepairItem>> {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
     const skip = (page - 1) * pageSize;
@@ -137,15 +173,29 @@ export class AdminRepairsService {
     return {
       ...repair,
       adminNote: this.stripTaggedNotes(repair.adminNote),
-      userShippingNote: this.extractTaggedNote(repair.adminNote, USER_SHIPPING_NOTE_MARK),
-      adminReturnNote: this.extractTaggedNote(repair.adminNote, ADMIN_RETURN_NOTE_MARK),
-      inPersonPickupTime: this.extractTaggedNote(repair.adminNote, ADMIN_RETURN_PICKUP_TIME_MARK),
+      userShippingNote: this.extractTaggedNote(
+        repair.adminNote,
+        USER_SHIPPING_NOTE_MARK,
+      ),
+      adminReturnNote: this.extractTaggedNote(
+        repair.adminNote,
+        ADMIN_RETURN_NOTE_MARK,
+      ),
+      inPersonPickupTime: this.extractTaggedNote(
+        repair.adminNote,
+        ADMIN_RETURN_PICKUP_TIME_MARK,
+      ),
       inPersonPickupSlots: (() => {
-        const raw = this.extractTaggedNote(repair.adminNote, ADMIN_RETURN_PICKUP_SLOTS_MARK);
+        const raw = this.extractTaggedNote(
+          repair.adminNote,
+          ADMIN_RETURN_PICKUP_SLOTS_MARK,
+        );
         if (!raw) return null;
         try {
           const parsed = JSON.parse(raw);
-          return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : null;
+          return Array.isArray(parsed)
+            ? parsed.filter((x) => typeof x === 'string')
+            : null;
         } catch {
           return null;
         }
@@ -157,11 +207,17 @@ export class AdminRepairsService {
   // Approve with slots & note
   // ---------------------------------------------------------------------------
 
-  async approve(id: string, dto: AdminApproveRepairDto): Promise<AdminRepairItem> {
-    const hasSlots = Array.isArray(dto.availableSlots) && dto.availableSlots.length > 0;
+  async approve(
+    id: string,
+    dto: AdminApproveRepairDto,
+  ): Promise<AdminRepairItem> {
+    const hasSlots =
+      Array.isArray(dto.availableSlots) && dto.availableSlots.length > 0;
     const allowPostalDropOff = dto.allowPostalDropOff !== false;
     if (!hasSlots && !allowPostalDropOff) {
-      throw new BadRequestException('حداقل یک زمان پیشنهادی یا گزینه ارسال پستی باید فعال باشد');
+      throw new BadRequestException(
+        'حداقل یک زمان پیشنهادی یا گزینه ارسال پستی باید فعال باشد',
+      );
     }
     // basic validation: each slot's from < to
     for (const slot of dto.availableSlots) {
@@ -185,7 +241,10 @@ export class AdminRepairsService {
     });
   }
 
-  async reject(id: string, dto: AdminRejectRepairDto): Promise<AdminRepairItem> {
+  async reject(
+    id: string,
+    dto: AdminRejectRepairDto,
+  ): Promise<AdminRepairItem> {
     return this.transitionAndNotify({
       id,
       next: RepairRequestStatus.REJECTED,
@@ -215,7 +274,10 @@ export class AdminRepairsService {
     });
   }
 
-  async setResult(id: string, dto: AdminSetResultDto): Promise<AdminRepairItem> {
+  async setResult(
+    id: string,
+    dto: AdminSetResultDto,
+  ): Promise<AdminRepairItem> {
     const existing = await this.prisma.repairRequest.findUnique({
       where: { id },
       select: { adminNote: true },
@@ -255,13 +317,16 @@ export class AdminRepairsService {
     dto: AdminShipBackDto,
     video?: Express.Multer.File,
   ): Promise<AdminRepairItem> {
-    const returnMethod = dto.returnMethod === 'IN_PERSON' ? 'IN_PERSON' : 'SHIP';
+    const returnMethod =
+      dto.returnMethod === 'IN_PERSON' ? 'IN_PERSON' : 'SHIP';
     if (returnMethod === 'SHIP' && !(dto.trackingCode ?? '').trim()) {
       throw new BadRequestException('کد رهگیری برای ارسال پستی الزامی است');
     }
     if (returnMethod === 'IN_PERSON' && !dto.inPersonPickupTime) {
       if (!dto.inPersonPickupSlots?.length) {
-        throw new BadRequestException('حداقل یک زمان تحویل حضوری باید مشخص شود');
+        throw new BadRequestException(
+          'حداقل یک زمان تحویل حضوری باید مشخص شود',
+        );
       }
     }
     const existing = await this.prisma.repairRequest.findUnique({
@@ -272,11 +337,18 @@ export class AdminRepairsService {
       id,
       next: RepairRequestStatus.SHIPPED_BACK,
       extra: {
-        returnTrackingCode: returnMethod === 'IN_PERSON' ? 'IN_PERSON_PICKUP' : dto.trackingCode!.trim(),
+        returnTrackingCode:
+          returnMethod === 'IN_PERSON'
+            ? 'IN_PERSON_PICKUP'
+            : dto.trackingCode!.trim(),
         returnVideo: returnMethod === 'IN_PERSON' ? null : video?.filename,
         adminNote: this.appendTaggedNote(
           this.appendTaggedNote(
-            this.appendTaggedNote(existing?.adminNote, ADMIN_RETURN_NOTE_MARK, dto.note),
+            this.appendTaggedNote(
+              existing?.adminNote,
+              ADMIN_RETURN_NOTE_MARK,
+              dto.note,
+            ),
             ADMIN_RETURN_PICKUP_TIME_MARK,
             returnMethod === 'IN_PERSON' ? dto.inPersonPickupTime : null,
           ),
@@ -286,12 +358,16 @@ export class AdminRepairsService {
             : null,
         ),
       },
-      title: returnMethod === 'IN_PERSON' ? 'زمان تحویل حضوری ثبت شد' : 'کالا برای شما ارسال شد',
-      message: returnMethod === 'IN_PERSON'
-        ? (dto.inPersonPickupSlots?.length
-          ? 'زمان‌های تحویل حضوری کالای شما ثبت شد. لطفاً یکی را انتخاب کنید.'
-          : `زمان تحویل حضوری کالای شما برای ${dto.inPersonPickupTime} ثبت شد.`)
-        : `کالای شما با کد رهگیری ${dto.trackingCode} ارسال شد.`,
+      title:
+        returnMethod === 'IN_PERSON'
+          ? 'زمان تحویل حضوری ثبت شد'
+          : 'کالا برای شما ارسال شد',
+      message:
+        returnMethod === 'IN_PERSON'
+          ? dto.inPersonPickupSlots?.length
+            ? 'زمان‌های تحویل حضوری کالای شما ثبت شد. لطفاً یکی را انتخاب کنید.'
+            : `زمان تحویل حضوری کالای شما برای ${dto.inPersonPickupTime} ثبت شد.`
+          : `کالای شما با کد رهگیری ${dto.trackingCode} ارسال شد.`,
     });
   }
 

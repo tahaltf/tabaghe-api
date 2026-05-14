@@ -1,6 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
-import { AdminCreateBlogPostDto, AdminUpdateBlogPostDto } from '../dto/admin-blog.dto';
+import {
+  AdminCreateBlogPostDto,
+  AdminUpdateBlogPostDto,
+} from '../dto/admin-blog.dto';
 
 type BlogPost = {
   id: string;
@@ -112,7 +115,10 @@ export class AdminBlogService {
     return base || `post-${Date.now()}`;
   }
 
-  private async makeUniqueSlug(base: string, excludeId?: string): Promise<string> {
+  private async makeUniqueSlug(
+    base: string,
+    excludeId?: string,
+  ): Promise<string> {
     const exists = async (slug: string): Promise<boolean> => {
       const row = await this.prisma.blogPost.findUnique({
         where: { slug },

@@ -1,6 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
 import { OrderStatus } from '@prisma/client';
-import { AdminEscrowAction, ResolveOrderEscrowDto } from '../dto/admin-order.dto';
+import {
+  AdminEscrowAction,
+  ResolveOrderEscrowDto,
+} from '../dto/admin-order.dto';
 import { FinalizeExchangeHubInspectionDto } from '../dto/admin-order.dto';
 import { AdminOrdersCommandService } from './admin-orders-command.service';
 
@@ -53,25 +56,30 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
       wallet: {
         upsert: jest
           .fn()
-          .mockImplementation(async ({ where }: { where: { userId: string } }) => {
-            if (where.userId === 'buyer-1') {
+          .mockImplementation(
+            async ({ where }: { where: { userId: string } }) => {
+              if (where.userId === 'buyer-1') {
+                return {
+                  balanceBlocked: params?.buyerBlocked ?? 200,
+                  balanceAvailable: params?.buyerAvailable ?? 500,
+                };
+              }
               return {
-                balanceBlocked: params?.buyerBlocked ?? 200,
-                balanceAvailable: params?.buyerAvailable ?? 500,
+                balanceBlocked: params?.sellerBlocked ?? 0,
+                balanceAvailable: params?.sellerAvailable ?? 500,
               };
-            }
-            return {
-              balanceBlocked: params?.sellerBlocked ?? 0,
-              balanceAvailable: params?.sellerAvailable ?? 500,
-            };
-          }),
+            },
+          ),
         update: jest.fn().mockResolvedValue({}),
       },
       walletTransaction: {
         create: jest.fn().mockResolvedValue({}),
       },
       order: {
-        update: jest.fn().mockResolvedValue({ id: 'ord-1', status: OrderStatus.VERIFIED_AT_HUB }),
+        update: jest.fn().mockResolvedValue({
+          id: 'ord-1',
+          status: OrderStatus.VERIFIED_AT_HUB,
+        }),
       },
     };
 
@@ -80,12 +88,18 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
         findUnique: jest.fn().mockResolvedValue(makeOrder()),
       },
       notification: { createMany: jest.fn().mockResolvedValue({ count: 2 }) },
-      $transaction: jest.fn(async (cb: (trx: typeof tx) => Promise<unknown>) => cb(tx)),
+      $transaction: jest.fn(async (cb: (trx: typeof tx) => Promise<unknown>) =>
+        cb(tx),
+      ),
     };
 
-    const appSettings = { getApiUrl: jest.fn().mockReturnValue('https://api.example.com') };
+    const appSettings = {
+      getApiUrl: jest.fn().mockReturnValue('https://api.example.com'),
+    };
     const feeCalculator = {};
-    const orderReputation = { recordTerminalOutcome: jest.fn().mockResolvedValue(undefined) };
+    const orderReputation = {
+      recordTerminalOutcome: jest.fn().mockResolvedValue(undefined),
+    };
 
     const service = new AdminOrdersCommandService(
       prisma as never,
@@ -120,7 +134,10 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
     });
     expect(tx.order.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ sellerRevenue: 200, status: OrderStatus.VERIFIED_AT_HUB }),
+        data: expect.objectContaining({
+          sellerRevenue: 200,
+          status: OrderStatus.VERIFIED_AT_HUB,
+        }),
       }),
     );
   });
@@ -169,9 +186,9 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
     dto.listingSettlementAmount = 350;
     dto.listingSettlementDirection = 'DEBIT';
 
-    await expect(service.finalizeExchangeHubInspection('ord-1', dto)).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(
+      service.finalizeExchangeHubInspection('ord-1', dto),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('handles reverse settlement from seller to buyer using seller blocked then available', async () => {
@@ -214,14 +231,20 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
 });
 
 describe('AdminOrdersCommandService - exchange release escrow', () => {
-  function makeReleaseService(orderOverrides?: Partial<Record<string, unknown>>) {
+  function makeReleaseService(
+    orderOverrides?: Partial<Record<string, unknown>>,
+  ) {
     const orderRecord = {
       id: 'ord-release-1',
       type: 'EXCHANGE',
       buyerId: 'buyer-1',
       sellerId: 'seller-1',
       listingId: 'lst-1',
-      listing: { title: 'listing title', sellerRequiresVerification: true, categoryId: 'cat-1' },
+      listing: {
+        title: 'listing title',
+        sellerRequiresVerification: true,
+        categoryId: 'cat-1',
+      },
       finalPrice: 0,
       status: OrderStatus.SHIPPED_TO_BUYER,
       sellerRevenue: 400,
@@ -239,10 +262,15 @@ describe('AdminOrdersCommandService - exchange release escrow', () => {
     const tx = {
       order: {
         findUnique: jest.fn().mockResolvedValue(orderRecord),
-        update: jest.fn().mockResolvedValue({ id: orderRecord.id, status: OrderStatus.COMPLETED }),
+        update: jest.fn().mockResolvedValue({
+          id: orderRecord.id,
+          status: OrderStatus.COMPLETED,
+        }),
       },
       exchangeOffer: {
-        findUnique: jest.fn().mockResolvedValue({ extraPayment: 500, isPayerMe: false }),
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ extraPayment: 500, isPayerMe: false }),
       },
       wallet: {
         upsert: jest.fn().mockResolvedValue({}),
@@ -256,14 +284,20 @@ describe('AdminOrdersCommandService - exchange release escrow', () => {
     };
 
     const prisma = {
-      $transaction: jest.fn(async (cb: (trx: typeof tx) => Promise<unknown>) => cb(tx)),
+      $transaction: jest.fn(async (cb: (trx: typeof tx) => Promise<unknown>) =>
+        cb(tx),
+      ),
       notification: {
         createMany: jest.fn().mockResolvedValue({ count: 2 }),
       },
     };
-    const appSettings = { getApiUrl: jest.fn().mockReturnValue('https://api.example.com') };
+    const appSettings = {
+      getApiUrl: jest.fn().mockReturnValue('https://api.example.com'),
+    };
     const feeCalculator = {};
-    const orderReputation = { recordTerminalOutcome: jest.fn().mockResolvedValue(undefined) };
+    const orderReputation = {
+      recordTerminalOutcome: jest.fn().mockResolvedValue(undefined),
+    };
     const service = new AdminOrdersCommandService(
       prisma as never,
       appSettings as never,
@@ -279,7 +313,9 @@ describe('AdminOrdersCommandService - exchange release escrow', () => {
       totalAmount: 500,
       verificationFee: 20,
     });
-    const dto: ResolveOrderEscrowDto = { action: AdminEscrowAction.RELEASE_TO_SELLER };
+    const dto: ResolveOrderEscrowDto = {
+      action: AdminEscrowAction.RELEASE_TO_SELLER,
+    };
 
     await service.resolveEscrow('ord-release-1', dto);
 

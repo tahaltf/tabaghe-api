@@ -1,4 +1,11 @@
-import { IsArray, IsInt, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsArray,
+  IsInt,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 export class AdminSmsBroadcastDto {
   @IsInt()

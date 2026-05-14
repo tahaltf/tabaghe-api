@@ -9,7 +9,10 @@ import { ListingType } from '@prisma/client';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../shared/contracts/auth';
-import { FeeCalculatorService, FeePreviewResult } from './fee-calculator.service';
+import {
+  FeeCalculatorService,
+  FeePreviewResult,
+} from './fee-calculator.service';
 
 interface FeePreviewBody {
   listingType: ListingType;

@@ -54,10 +54,15 @@ export class RepairService {
     if (!raw) return [];
     try {
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : [];
+      return Array.isArray(parsed)
+        ? parsed.filter((x) => typeof x === 'string')
+        : [];
     } catch {
       // fall back to comma-separated values
-      return raw.split(',').map((s) => s.trim()).filter(Boolean);
+      return raw
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
     }
   }
 
@@ -73,7 +78,9 @@ export class RepairService {
   }
 
   private async ensureOwnership(userId: string, repairId: string) {
-    const repair = await this.prisma.repairRequest.findUnique({ where: { id: repairId } });
+    const repair = await this.prisma.repairRequest.findUnique({
+      where: { id: repairId },
+    });
     if (!repair) throw new NotFoundException('درخواست تعمیر یافت نشد');
     if (repair.userId !== userId) throw new ForbiddenException('عدم دسترسی');
     return repair;
@@ -89,7 +96,9 @@ export class RepairService {
     });
 
     if (!setting?.value?.trim()) {
-      throw new BadRequestException('دسته‌بندی مجاز تعمیرات توسط ادمین تنظیم نشده است');
+      throw new BadRequestException(
+        'دسته‌بندی مجاز تعمیرات توسط ادمین تنظیم نشده است',
+      );
     }
 
     let allowedIds: string[] = [];
@@ -103,7 +112,9 @@ export class RepairService {
     }
 
     if (!allowedIds.length) {
-      throw new BadRequestException('هیچ دسته‌بندی مجاز تعمیراتی فعال نشده است');
+      throw new BadRequestException(
+        'هیچ دسته‌بندی مجاز تعمیراتی فعال نشده است',
+      );
     }
 
     const where: Prisma.CategoryWhereInput =
@@ -123,12 +134,18 @@ export class RepairService {
     });
 
     const byId = categories.find((c) => c.id === input);
-    if (byId) return byId.parent ? `${byId.parent.title} / ${byId.title}` : byId.title;
+    if (byId)
+      return byId.parent ? `${byId.parent.title} / ${byId.title}` : byId.title;
 
     const byTitle = categories.find((c) => c.title === input);
-    if (byTitle) return byTitle.parent ? `${byTitle.parent.title} / ${byTitle.title}` : byTitle.title;
+    if (byTitle)
+      return byTitle.parent
+        ? `${byTitle.parent.title} / ${byTitle.title}`
+        : byTitle.title;
 
-    throw new BadRequestException('دسته‌بندی انتخاب‌شده برای تعمیرات معتبر نیست');
+    throw new BadRequestException(
+      'دسته‌بندی انتخاب‌شده برای تعمیرات معتبر نیست',
+    );
   }
 
   private async notifyOwner(
@@ -151,7 +168,11 @@ export class RepairService {
     }
   }
 
-  private appendTaggedNote(base: string | null | undefined, marker: string, text?: string | null): string | null {
+  private appendTaggedNote(
+    base: string | null | undefined,
+    marker: string,
+    text?: string | null,
+  ): string | null {
     const current = (base ?? '').trim();
     const note = (text ?? '').trim();
     if (!note) return current || null;
@@ -163,14 +184,21 @@ export class RepairService {
     return [cleaned, `${marker} ${note}`].filter(Boolean).join('\n\n').trim();
   }
 
-  private extractTaggedNote(text: string | null | undefined, marker: string): string | null {
-    const raw = (text ?? '').split('\n').find((line) => line.trim().startsWith(marker));
+  private extractTaggedNote(
+    text: string | null | undefined,
+    marker: string,
+  ): string | null {
+    const raw = (text ?? '')
+      .split('\n')
+      .find((line) => line.trim().startsWith(marker));
     if (!raw) return null;
     const extracted = raw.trim().slice(marker.length).trim();
     if (!extracted) return null;
     // Sometimes client payloads may prepend field labels (e.g. "note:", "message:")
     // into text notes. Strip known key prefixes before exposing to user.
-    const normalized = extracted.replace(/^(note|message|text|adminNote)\s*[:=]\s*/i, '').trim();
+    const normalized = extracted
+      .replace(/^(note|message|text|adminNote)\s*[:=]\s*/i, '')
+      .trim();
     return normalized || null;
   }
 
@@ -179,12 +207,14 @@ export class RepairService {
       .split('\n')
       .filter((line) => {
         const t = line.trim();
-        return !t.startsWith(USER_SHIPPING_NOTE_MARK)
-          && !t.startsWith(ADMIN_RETURN_NOTE_MARK)
-          && !t.startsWith(ADMIN_RETURN_PICKUP_TIME_MARK)
-          && !t.startsWith(ADMIN_RETURN_PICKUP_SLOTS_MARK)
-          && !t.startsWith(USER_RETURN_PICKUP_TIME_MARK)
-          && !t.startsWith(INTERNAL_PROFIT_MARK);
+        return (
+          !t.startsWith(USER_SHIPPING_NOTE_MARK) &&
+          !t.startsWith(ADMIN_RETURN_NOTE_MARK) &&
+          !t.startsWith(ADMIN_RETURN_PICKUP_TIME_MARK) &&
+          !t.startsWith(ADMIN_RETURN_PICKUP_SLOTS_MARK) &&
+          !t.startsWith(USER_RETURN_PICKUP_TIME_MARK) &&
+          !t.startsWith(INTERNAL_PROFIT_MARK)
+        );
       })
       .join('\n')
       .trim();
@@ -201,16 +231,24 @@ export class RepairService {
     imageFiles: Express.Multer.File[] = [],
     videoFiles: Express.Multer.File[] = [],
   ) {
-    if (imageFiles.length > 6) throw new BadRequestException('حداکثر ۶ عکس مجاز است');
-    if (videoFiles.length > 2) throw new BadRequestException('حداکثر ۲ ویدیو مجاز است');
+    if (imageFiles.length > 6)
+      throw new BadRequestException('حداکثر ۶ عکس مجاز است');
+    if (videoFiles.length > 2)
+      throw new BadRequestException('حداکثر ۲ ویدیو مجاز است');
 
     const images = imageFiles.map((f) => f.filename);
     const videos = videoFiles.map((f) => f.filename);
 
-    const normalizedDeviceType = await this.resolveRepairDeviceType(dto.deviceType);
+    const normalizedDeviceType = await this.resolveRepairDeviceType(
+      dto.deviceType,
+    );
 
     // trackingCode is unique; in the rare event of collision, retry a few times.
-    let repair: { id: string; trackingCode: string; status: RepairRequestStatus } & Record<string, any>;
+    let repair: {
+      id: string;
+      trackingCode: string;
+      status: RepairRequestStatus;
+    } & Record<string, any>;
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
         repair = await this.prisma.repairRequest.create({
@@ -228,8 +266,7 @@ export class RepairService {
         });
         break;
       } catch (e: any) {
-        const isUnique =
-          typeof e?.code === 'string' && e.code === 'P2002';
+        const isUnique = typeof e?.code === 'string' && e.code === 'P2002';
         if (!isUnique || attempt === 4) throw e;
       }
     }
@@ -282,7 +319,9 @@ export class RepairService {
     const nextImages = [...keepImages, ...newImages].slice(0, 6);
     const nextVideos = [...keepVideos, ...newVideos].slice(0, 2);
 
-    const normalizedDeviceType = await this.resolveRepairDeviceType(dto.deviceType);
+    const normalizedDeviceType = await this.resolveRepairDeviceType(
+      dto.deviceType,
+    );
 
     return this.prisma.repairRequest.update({
       where: { id: repairId },
@@ -313,7 +352,7 @@ export class RepairService {
     const skip = (page - 1) * pageSize;
 
     const where = { userId };
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await Promise.all([
       this.prisma.repairRequest.findMany({
         where,
         skip,
@@ -382,25 +421,44 @@ export class RepairService {
     });
 
     const paymentMeta =
-      paymentTx?.meta && typeof paymentTx.meta === 'object' && !Array.isArray(paymentTx.meta)
+      paymentTx?.meta &&
+      typeof paymentTx.meta === 'object' &&
+      !Array.isArray(paymentTx.meta)
         ? (paymentTx.meta as Record<string, unknown>)
         : null;
 
-    const userShippingNote = this.extractTaggedNote(repair.adminNote, USER_SHIPPING_NOTE_MARK);
-    const adminReturnNote = this.extractTaggedNote(repair.adminNote, ADMIN_RETURN_NOTE_MARK);
-    const inPersonPickupTime = this.extractTaggedNote(repair.adminNote, ADMIN_RETURN_PICKUP_TIME_MARK);
-    const inPersonPickupSlotsRaw = this.extractTaggedNote(repair.adminNote, ADMIN_RETURN_PICKUP_SLOTS_MARK);
+    const userShippingNote = this.extractTaggedNote(
+      repair.adminNote,
+      USER_SHIPPING_NOTE_MARK,
+    );
+    const adminReturnNote = this.extractTaggedNote(
+      repair.adminNote,
+      ADMIN_RETURN_NOTE_MARK,
+    );
+    const inPersonPickupTime = this.extractTaggedNote(
+      repair.adminNote,
+      ADMIN_RETURN_PICKUP_TIME_MARK,
+    );
+    const inPersonPickupSlotsRaw = this.extractTaggedNote(
+      repair.adminNote,
+      ADMIN_RETURN_PICKUP_SLOTS_MARK,
+    );
     const inPersonPickupSlots = (() => {
       if (!inPersonPickupSlotsRaw) return null;
       try {
         const parsed = JSON.parse(inPersonPickupSlotsRaw);
         if (!Array.isArray(parsed)) return null;
-        return parsed.filter((x): x is string => typeof x === 'string' && !!x.trim());
+        return parsed.filter(
+          (x): x is string => typeof x === 'string' && !!x.trim(),
+        );
       } catch {
         return null;
       }
     })();
-    const selectedPickupTime = this.extractTaggedNote(repair.adminNote, USER_RETURN_PICKUP_TIME_MARK);
+    const selectedPickupTime = this.extractTaggedNote(
+      repair.adminNote,
+      USER_RETURN_PICKUP_TIME_MARK,
+    );
 
     return {
       ...repair,
@@ -417,7 +475,9 @@ export class RepairService {
             paymentSource:
               paymentMeta?.paymentSource === 'GATEWAY' ? 'GATEWAY' : 'WALLET',
             refId: paymentMeta?.refId ? String(paymentMeta.refId) : null,
-            authority: paymentMeta?.authority ? String(paymentMeta.authority) : null,
+            authority: paymentMeta?.authority
+              ? String(paymentMeta.authority)
+              : null,
           }
         : null,
     };
@@ -430,17 +490,26 @@ export class RepairService {
   async selectSlot(userId: string, repairId: string, dto: SelectRepairSlotDto) {
     const repair = await this.ensureOwnership(userId, repairId);
     if (repair.status !== RepairRequestStatus.APPROVED) {
-      throw new BadRequestException('ابتدا باید درخواست شما توسط ادمین تایید شود');
+      throw new BadRequestException(
+        'ابتدا باید درخواست شما توسط ادمین تایید شود',
+      );
     }
 
     const selected = new Date(dto.selectedDeliveryTime);
-    if (isNaN(selected.getTime())) throw new BadRequestException('زمان نامعتبر');
+    if (isNaN(selected.getTime()))
+      throw new BadRequestException('زمان نامعتبر');
 
     // Validate that the selected datetime lies inside one of the advertised slots
     // (we compare against the start time only for simplicity, clients should send
     // the precise "from" date-time of the slot).
-    const slots = (repair.availableSlots as Array<{ date: string; from: string; to: string }> | null) ?? [];
-    const selectedMethod = dto.selectedDeliveryMethod === 'IN_PERSON' ? 'IN_PERSON' : 'SHIP';
+    const slots =
+      (repair.availableSlots as Array<{
+        date: string;
+        from: string;
+        to: string;
+      }> | null) ?? [];
+    const selectedMethod =
+      dto.selectedDeliveryMethod === 'IN_PERSON' ? 'IN_PERSON' : 'SHIP';
     if (slots.length) {
       const within = slots.some((s) => {
         const fromIso = `${s.date}T${s.from}:00`;
@@ -449,7 +518,10 @@ export class RepairService {
         const to = new Date(toIso);
         return selected >= from && selected <= to;
       });
-      if (!within) throw new BadRequestException('زمان انتخابی خارج از بازه‌های پیشنهادی است');
+      if (!within)
+        throw new BadRequestException(
+          'زمان انتخابی خارج از بازه‌های پیشنهادی است',
+        );
     }
 
     const selectedIdx = slots.findIndex((s) => {
@@ -469,7 +541,8 @@ export class RepairService {
           selectedMethod === 'IN_PERSON'
             ? RepairRequestStatus.AWAITING_DELIVERY
             : RepairRequestStatus.DELIVERY_TIME_SELECTED,
-        shippingTrackingCode: selectedMethod === 'IN_PERSON' ? 'IN_PERSON_PICKUP' : null,
+        shippingTrackingCode:
+          selectedMethod === 'IN_PERSON' ? 'IN_PERSON_PICKUP' : null,
       },
     });
 
@@ -511,7 +584,11 @@ export class RepairService {
       data: {
         shippingTrackingCode: dto.trackingCode,
         shippingVideo: video.filename,
-        adminNote: this.appendTaggedNote(repair.adminNote, USER_SHIPPING_NOTE_MARK, dto.note),
+        adminNote: this.appendTaggedNote(
+          repair.adminNote,
+          USER_SHIPPING_NOTE_MARK,
+          dto.note,
+        ),
         status: RepairRequestStatus.AWAITING_DELIVERY,
       },
     });
@@ -521,7 +598,11 @@ export class RepairService {
       updated.trackingCode,
       'کالا ارسال شد',
       'ارسال کالا به هاب طبقه ثبت شد. پس از دریافت توسط تیم ما به شما اطلاع داده می‌شود.',
-      { repairId, status: updated.status, shippingTrackingCode: dto.trackingCode },
+      {
+        repairId,
+        status: updated.status,
+        shippingTrackingCode: dto.trackingCode,
+      },
     );
 
     return updated;
@@ -563,7 +644,9 @@ export class RepairService {
           // Allow manual return address even when user has saved addresses.
           returnAddress = manual;
         } else {
-          throw new BadRequestException('لطفاً یک آدرس برای بازگشت کالا انتخاب کنید');
+          throw new BadRequestException(
+            'لطفاً یک آدرس برای بازگشت کالا انتخاب کنید',
+          );
         }
       } else {
         if (manual.length < 10) {
@@ -595,7 +678,10 @@ export class RepairService {
       where: { id: repairId },
       data: {
         userCostApproved: true,
-        status: estimated > 0 ? RepairRequestStatus.RESULT_READY : RepairRequestStatus.IN_PROGRESS,
+        status:
+          estimated > 0
+            ? RepairRequestStatus.RESULT_READY
+            : RepairRequestStatus.IN_PROGRESS,
       },
     });
     await this.notifyOwner(
@@ -612,7 +698,10 @@ export class RepairService {
 
   async payForRepair(userId: string, repairId: string, dto: RepairPayDto) {
     const repair = await this.ensureOwnership(userId, repairId);
-    if (repair.status !== RepairRequestStatus.RESULT_READY || !repair.userCostApproved) {
+    if (
+      repair.status !== RepairRequestStatus.RESULT_READY ||
+      !repair.userCostApproved
+    ) {
       throw new BadRequestException('ابتدا باید نتیجه کارشناسی را تایید کنید');
     }
     const amount = Number(repair.estimatedCost ?? 0);
@@ -665,7 +754,8 @@ export class RepairService {
       paid: true,
       method: 'GATEWAY',
       paymentUrl: initiated.paymentUrl,
-      message: 'لینک پرداخت صادر شد. شروع تعمیر بعد از پرداخت موفق انجام می‌شود.',
+      message:
+        'لینک پرداخت صادر شد. شروع تعمیر بعد از پرداخت موفق انجام می‌شود.',
     };
   }
 
@@ -673,7 +763,11 @@ export class RepairService {
   // User confirms receipt of the returned device
   // ---------------------------------------------------------------------------
 
-  async confirmReturnDelivery(userId: string, repairId: string, dto?: ConfirmReturnDeliveryDto) {
+  async confirmReturnDelivery(
+    userId: string,
+    repairId: string,
+    dto?: ConfirmReturnDeliveryDto,
+  ) {
     const repair = await this.ensureOwnership(userId, repairId);
     if (repair.status !== RepairRequestStatus.SHIPPED_BACK) {
       throw new BadRequestException('کالا هنوز برای شما ارسال نشده است');
@@ -682,7 +776,10 @@ export class RepairService {
     let nextAdminNote = repair.adminNote;
     if (repair.returnTrackingCode === 'IN_PERSON_PICKUP') {
       const selected = (dto?.selectedPickupTime ?? '').trim();
-      const slotsRaw = this.extractTaggedNote(repair.adminNote, ADMIN_RETURN_PICKUP_SLOTS_MARK);
+      const slotsRaw = this.extractTaggedNote(
+        repair.adminNote,
+        ADMIN_RETURN_PICKUP_SLOTS_MARK,
+      );
       if (slotsRaw) {
         let slots: string[] = [];
         try {
@@ -694,7 +791,9 @@ export class RepairService {
           slots = [];
         }
         if (!selected) {
-          throw new BadRequestException('لطفاً زمان تحویل حضوری را انتخاب کنید');
+          throw new BadRequestException(
+            'لطفاً زمان تحویل حضوری را انتخاب کنید',
+          );
         }
         if (slots.length && !slots.includes(selected)) {
           throw new BadRequestException('زمان انتخابی معتبر نیست');
@@ -702,7 +801,11 @@ export class RepairService {
       } else if (!selected) {
         throw new BadRequestException('لطفاً زمان تحویل حضوری را انتخاب کنید');
       }
-      nextAdminNote = this.appendTaggedNote(nextAdminNote, USER_RETURN_PICKUP_TIME_MARK, selected);
+      nextAdminNote = this.appendTaggedNote(
+        nextAdminNote,
+        USER_RETURN_PICKUP_TIME_MARK,
+        selected,
+      );
     }
 
     const updated = await this.prisma.repairRequest.update({
@@ -794,7 +897,11 @@ export class RepairService {
         row.trackingCode,
         'فرایند تعمیر تکمیل شد',
         'به‌دلیل عدم ثبت تایید دریافت تا ۳ روز پس از ارسال برگشتی، درخواست به‌صورت خودکار تکمیل شد.',
-        { repairId: row.id, status: RepairRequestStatus.COMPLETED, autoCompleted: true },
+        {
+          repairId: row.id,
+          status: RepairRequestStatus.COMPLETED,
+          autoCompleted: true,
+        },
       );
     }
   }

@@ -7,8 +7,7 @@ import type { MulterOptions } from '@nestjs/platform-express/multer/interfaces/m
 
 const UPLOAD_PATH = './uploads/brand';
 /** jpg ممکن است به‌صورت image/jpg ارسال شود */
-const ALLOWED_MIME =
-  /^(image\/(jpe?g|png|webp|gif|svg\+xml))$/i;
+const ALLOWED_MIME = /^(image\/(jpe?g|png|webp|gif|svg\+xml))$/i;
 
 /**
  * تصویر لوگوی جایگزین وقتی تصویر آگهی لود نمی‌شود (تنظیم ادمین).
@@ -27,7 +26,9 @@ export const brandLogoMulterOptions: MulterOptions = {
   fileFilter: (_req, file, cb) => {
     if (!ALLOWED_MIME.test(file.mimetype)) {
       return cb(
-        new BadRequestException('فقط فایل‌های تصویری (jpg, png, webp, gif, svg) مجاز هستند'),
+        new BadRequestException(
+          'فقط فایل‌های تصویری (jpg, png, webp, gif, svg) مجاز هستند',
+        ),
         false,
       );
     }

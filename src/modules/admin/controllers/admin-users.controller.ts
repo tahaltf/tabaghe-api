@@ -39,7 +39,10 @@ export class AdminUsersQueryController {
   ) {}
 
   @Get()
-  list(@CurrentUser() actor: AuthenticatedUser, @Query() query: AdminUserListQueryDto) {
+  list(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Query() query: AdminUserListQueryDto,
+  ) {
     return this.service.list(actor, query);
   }
 
@@ -98,7 +101,10 @@ export class AdminUsersQueryController {
   }
 
   @Get(':id/plan')
-  getUserPlan(@CurrentUser() actor: AuthenticatedUser, @Param('id') id: string) {
+  getUserPlan(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
     return this.service.getUserPlanInfo(actor, id);
   }
 
@@ -108,14 +114,21 @@ export class AdminUsersQueryController {
     @Param('id') id: string,
     @Body() body: { planId?: string },
   ) {
-    if (!body?.planId || typeof body.planId !== 'string' || !body.planId.trim()) {
+    if (
+      !body?.planId ||
+      typeof body.planId !== 'string' ||
+      !body.planId.trim()
+    ) {
       throw new BadRequestException('شناسه پلن الزامی است');
     }
     return this.service.assignPlanToUser(actor, id, body.planId.trim());
   }
 
   @Delete(':id/plan')
-  cancelUserPlan(@CurrentUser() actor: AuthenticatedUser, @Param('id') id: string) {
+  cancelUserPlan(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
     return this.service.cancelActiveUserPlan(actor, id);
   }
 
@@ -128,7 +141,11 @@ export class AdminUsersQueryController {
     const user = await this.prisma.user.findUnique({
       where: { id },
       select: {
-        id: true, phone: true, role: true, status: true, isVerified: true,
+        id: true,
+        phone: true,
+        role: true,
+        status: true,
+        isVerified: true,
       },
     });
     if (!user) throw new NotFoundException('کاربر پیدا نشد');

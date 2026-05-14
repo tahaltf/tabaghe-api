@@ -13,6 +13,7 @@ import {
   ListingType,
   OrderStatus,
   OrderType,
+  SecondChanceOfferStatus,
   ListingStatus,
   NotificationType,
   Prisma,
@@ -20,7 +21,7 @@ import {
   WalletTransactionType,
 } from '@prisma/client';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { WalletService } from "../wallet/wallet.service";
+import { WalletService } from '../wallet/wallet.service';
 import { FeeCalculatorService } from '../fees/fee-calculator.service';
 import Decimal from 'decimal.js';
 import { OrdersStateMachineService } from './orders-state-machine.service';
@@ -38,7 +39,8 @@ export class OrdersService {
   private static readonly EXCHANGE_NO_PAYMENT_TIMEOUT_HOURS = 24;
   private static readonly EXCHANGE_SECOND_PAYMENT_TIMEOUT_HOURS = 48;
   private static readonly EXCHANGE_SHIPMENT_TIMEOUT_HOURS = 48;
-  private static readonly DEFAULT_EXCHANGE_RETURN_CONFIRM_DEADLINE_MINUTES = 48 * 60;
+  private static readonly DEFAULT_EXCHANGE_RETURN_CONFIRM_DEADLINE_MINUTES =
+    48 * 60;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -67,7 +69,7 @@ export class OrdersService {
     const whereClause =
       type === 'BUY' ? { buyerId: userId } : { sellerId: userId };
 
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await Promise.all([
       this.prisma.order.findMany({
         where: whereClause,
         skip,
@@ -101,11 +103,25 @@ export class OrdersService {
           },
           seller:
             type === 'BUY'
-              ? { select: { id: true, firstName: true, lastName: true, avatar: true } }
+              ? {
+                  select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    avatar: true,
+                  },
+                }
               : undefined,
           buyer:
             type === 'SELL'
-              ? { select: { id: true, firstName: true, lastName: true, avatar: true } }
+              ? {
+                  select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    avatar: true,
+                  },
+                }
               : undefined,
         },
         orderBy: { createdAt: 'desc' },
@@ -175,10 +191,7 @@ export class OrdersService {
     const [exchangeOffers, rawBids] = await Promise.all([
       this.prisma.exchangeOffer.findMany({
         where: {
-          OR: [
-            { offererId: userId },
-            { listing: { authorId: userId } },
-          ],
+          OR: [{ offererId: userId }, { listing: { authorId: userId } }],
         },
         skip,
         take: pageSize,
@@ -193,7 +206,14 @@ export class OrdersService {
           isPayerMe: true,
           createdAt: true,
           listing: {
-            select: { id: true, title: true, thumbnail: true, gallery: true, status: true, authorId: true },
+            select: {
+              id: true,
+              title: true,
+              thumbnail: true,
+              gallery: true,
+              status: true,
+              authorId: true,
+            },
           },
           offerer: {
             select: {
@@ -224,7 +244,12 @@ export class OrdersService {
               endDatetime: true,
               status: true,
               listing: {
-                select: { id: true, title: true, thumbnail: true, status: true },
+                select: {
+                  id: true,
+                  title: true,
+                  thumbnail: true,
+                  status: true,
+                },
               },
             },
           },
@@ -246,7 +271,9 @@ export class OrdersService {
           },
         })
       : [];
-    const orderByOfferId = new Map(linkedOrders.map((o) => [o.exchangeOfferId, o]));
+    const orderByOfferId = new Map(
+      linkedOrders.map((o) => [o.exchangeOfferId, o]),
+    );
     const exchangeOffersWithPaymentState = exchangeOffers.map((offer) => {
       const linked = orderByOfferId.get(offer.id);
       const isOfferer = offer.offererId === userId;
@@ -289,7 +316,7 @@ export class OrdersService {
       orderType,
       exchangeOfferId,
       exchangeRequestId,
-      requiresVerification
+      requiresVerification,
     } = dto;
 
     const finalExchangeId = exchangeOfferId || exchangeRequestId;
@@ -300,7 +327,7 @@ export class OrdersService {
       let finalPrice = 0;
       let shippingCost = 0;
       let sellerId = '';
-      let buyerId = userId;
+      const buyerId = userId;
       let categoryId = '';
       let verificationFee = 0;
       let platformAddress = null;
@@ -308,15 +335,29 @@ export class OrdersService {
       let auctionBlockedDeposit = 0;
       let auctionWinnerBidId: string | null = null;
 
-      const feeSetting = await tx.systemSetting.findUnique({ where: { key: 'VERIFICATION_FEE' } });
-      const shippingSetting = await tx.systemSetting.findUnique({ where: { key: 'SHIPPING_COST' } });
-      const sellerShipDeadlineSetting = await tx.systemSetting.findFirst({
-        where: { key: { in: ['SELLER_SHIP_DEADLINE_MINUTES', 'SELLER_SHIP_DEADLINE_DAYS'] } },
+      const feeSetting = await tx.systemSetting.findUnique({
+        where: { key: 'VERIFICATION_FEE' },
       });
-      const addressSetting = await tx.systemSetting.findUnique({ where: { key: 'PLATFORM_ADDRESS' } });
-      const hubAddress = addressSetting ? addressSetting.value : 'تهران، دفتر مرکزی پردازش و کارشناسی طبقه';
+      const shippingSetting = await tx.systemSetting.findUnique({
+        where: { key: 'SHIPPING_COST' },
+      });
+      const sellerShipDeadlineSetting = await tx.systemSetting.findFirst({
+        where: {
+          key: {
+            in: ['SELLER_SHIP_DEADLINE_MINUTES', 'SELLER_SHIP_DEADLINE_DAYS'],
+          },
+        },
+      });
+      const addressSetting = await tx.systemSetting.findUnique({
+        where: { key: 'PLATFORM_ADDRESS' },
+      });
+      const hubAddress = addressSetting
+        ? addressSetting.value
+        : 'تهران، دفتر مرکزی پردازش و کارشناسی طبقه';
       const hubFee = feeSetting ? Number(feeSetting.value) : 250000;
-      const shippingFee = shippingSetting ? Number(shippingSetting.value) : 50000;
+      const shippingFee = shippingSetting
+        ? Number(shippingSetting.value)
+        : 50000;
       const sellerShipDeadlineMinutes = this.parsePositiveIntSetting(
         sellerShipDeadlineSetting?.value,
         OrdersService.DEFAULT_SELLER_SHIP_DEADLINE_MINUTES,
@@ -328,11 +369,12 @@ export class OrdersService {
       if (orderType === 'EXCHANGE') {
         const offer = await tx.exchangeOffer.findUnique({
           where: { id: finalExchangeId },
-          include: { listing: { include: { direct: true } } }
+          include: { listing: { include: { direct: true } } },
         });
 
         if (!offer) throw new NotFoundException('درخواست معاوضه یافت نشد');
-        if (offer.status !== 'ACCEPTED') throw new BadRequestException('این معاوضه هنوز تایید نشده است');
+        if (offer.status !== 'ACCEPTED')
+          throw new BadRequestException('این معاوضه هنوز تایید نشده است');
 
         listingId = offer.listingId;
         categoryId = offer.listing.categoryId;
@@ -366,7 +408,9 @@ export class OrdersService {
             throw new BadRequestException('موجودی کیف پول شما کافی نیست');
           }
 
-          const otherUserId = isBuyer ? offer.listing.authorId : offer.offererId;
+          const otherUserId = isBuyer
+            ? offer.listing.authorId
+            : offer.offererId;
           const peerEscrowAmount = Math.max(0, totalPayable - verificationFee);
 
           await this.walletService.transferToEscrow(
@@ -385,7 +429,9 @@ export class OrdersService {
         let currentPhone = null;
         let currentPostal = null;
         if (addressId) {
-          const fetchedAddress = await tx.address.findUnique({ where: { id: addressId } });
+          const fetchedAddress = await tx.address.findUnique({
+            where: { id: addressId },
+          });
           if (fetchedAddress) {
             currentAddressStr = `${fetchedAddress.province}، ${fetchedAddress.city}، ${fetchedAddress.fullAddress}`;
             currentPhone = fetchedAddress.phone;
@@ -395,15 +441,19 @@ export class OrdersService {
 
         // 🔍 بررسی اینکه آیا طرف مقابل قبلاً سفارش را ایجاد کرده است یا نه؟
         const existingExchangeOrder = await tx.order.findFirst({
-          where: { exchangeOfferId: finalExchangeId }
+          where: { exchangeOfferId: finalExchangeId },
         });
 
         if (existingExchangeOrder) {
           const updateData: any = {};
-          const verificationFeePerSide = Number(existingExchangeOrder.verificationFee || 0);
+          const verificationFeePerSide = Number(
+            existingExchangeOrder.verificationFee || 0,
+          );
           const extraPayment = Number(offer.extraPayment || 0);
-          const buyerDue = verificationFeePerSide + (offer.isPayerMe ? extraPayment : 0);
-          const sellerDue = verificationFeePerSide + (!offer.isPayerMe ? extraPayment : 0);
+          const buyerDue =
+            verificationFeePerSide + (offer.isPayerMe ? extraPayment : 0);
+          const sellerDue =
+            verificationFeePerSide + (!offer.isPayerMe ? extraPayment : 0);
           const expectedTotal = buyerDue + sellerDue;
           const currentTotal = Number(existingExchangeOrder.totalAmount || 0);
           const isExchangeIncomplete = currentTotal < expectedTotal;
@@ -411,15 +461,25 @@ export class OrdersService {
           if (isBuyer) {
             // اگر تسویه کامل نشده باشد، وجود آدرس به معنی پرداخت قطعی نیست
             // (ممکن است attempt قبلی ناموفق/ناتمام بوده باشد).
-            if (existingExchangeOrder.shippingAddress && !isExchangeIncomplete) {
-              throw new BadRequestException('شما قبلاً پرداخت خود را انجام داده‌اید');
+            if (
+              existingExchangeOrder.shippingAddress &&
+              !isExchangeIncomplete
+            ) {
+              throw new BadRequestException(
+                'شما قبلاً پرداخت خود را انجام داده‌اید',
+              );
             }
             updateData.shippingAddress = currentAddressStr;
             updateData.shippingPhone = currentPhone;
             updateData.shippingPostalCode = currentPostal;
           } else {
-            if (existingExchangeOrder.sellerShippingAddress && !isExchangeIncomplete) {
-              throw new BadRequestException('شما قبلاً پرداخت خود را انجام داده‌اید');
+            if (
+              existingExchangeOrder.sellerShippingAddress &&
+              !isExchangeIncomplete
+            ) {
+              throw new BadRequestException(
+                'شما قبلاً پرداخت خود را انجام داده‌اید',
+              );
             }
             updateData.sellerShippingAddress = currentAddressStr;
             updateData.sellerShippingPhone = currentPhone;
@@ -428,7 +488,8 @@ export class OrdersService {
 
           // در کیف پول، مبلغ همین لحظه واقعاً پرداخت می‌شود؛ در درگاه بعد از callback.
           if (paymentMethod === 'WALLET') {
-            updateData.totalAmount = Number(existingExchangeOrder.totalAmount) + totalPayable;
+            updateData.totalAmount =
+              Number(existingExchangeOrder.totalAmount) + totalPayable;
           }
           if (isExchangeIncomplete) {
             updateData.status = OrderStatus.AWAITING_PAYMENT;
@@ -436,12 +497,18 @@ export class OrdersService {
           if (orderType !== 'EXCHANGE') {
             updateData.paymentMethod = paymentMethod;
           }
-          const updatedOrder = await tx.order.update({ where: { id: existingExchangeOrder.id }, data: updateData });
+          const updatedOrder = await tx.order.update({
+            where: { id: existingExchangeOrder.id },
+            data: updateData,
+          });
 
           const bothSidesProvidedAddress =
-            !!updatedOrder.shippingAddress && !!updatedOrder.sellerShippingAddress;
+            !!updatedOrder.shippingAddress &&
+            !!updatedOrder.sellerShippingAddress;
           if (bothSidesProvidedAddress && paymentMethod === 'WALLET') {
-            const deadline = new Date(Date.now() + sellerShipDeadlineMinutes * 60 * 1000);
+            const deadline = new Date(
+              Date.now() + sellerShipDeadlineMinutes * 60 * 1000,
+            );
             await tx.order.update({
               where: { id: updatedOrder.id },
               data: {
@@ -461,11 +528,7 @@ export class OrdersService {
           }
 
           return updatedOrder;
-
-        }
-
-
-        else {
+        } else {
           // ✨ نفر اولی است که چک‌اوت می‌کند، پس سفارش را می‌سازیم
 
           // 🎯 حل مشکل کارمزد: همیشه کل مبلغ سرک (مابه‌التفاوت) را ملاک محاسبه قرار می‌دهیم
@@ -476,7 +539,9 @@ export class OrdersService {
 
           // دریافتی نهایی (در صورت وجود مابه‌التفاوت) منهای کارمزد شما
           const sellerRev = offer.isPayerMe
-            ? new Decimal(totalExchangeExtraPayment).minus(platformCommission).toString()
+            ? new Decimal(totalExchangeExtraPayment)
+                .minus(platformCommission)
+                .toString()
             : '0';
 
           const orderPayload: any = {
@@ -515,10 +580,9 @@ export class OrdersService {
           const createdOrder = await tx.order.create({ data: orderPayload });
           return createdOrder;
         }
-
       }
-        // -----------------------------------------------------
-        // سناریو ۲: مزایده
+      // -----------------------------------------------------
+      // سناریو ۲: مزایده
       // -----------------------------------------------------
       else if (orderType === 'AUCTION') {
         const listing = await tx.listing.findUnique({
@@ -535,25 +599,37 @@ export class OrdersService {
             },
           },
         });
-        if (!listing || !listing.auction || !listing.auction.bids[0]) throw new BadRequestException('اطلاعات مزایده یافت نشد');
+        if (!listing || !listing.auction || !listing.auction.bids[0])
+          throw new BadRequestException('اطلاعات مزایده یافت نشد');
         if (listing.auction.status !== AuctionStatus.FINISHED) {
           throw new BadRequestException('این مزایده هنوز نهایی نشده است');
         }
-        if (listing.auction.settlementStatus !== AuctionSettlementStatus.PENDING) {
-          throw new BadRequestException('وضعیت تسویه این مزایده قابل پرداخت نیست');
+        if (
+          listing.auction.settlementStatus !== AuctionSettlementStatus.PENDING
+        ) {
+          throw new BadRequestException(
+            'وضعیت تسویه این مزایده قابل پرداخت نیست',
+          );
         }
         if (listing.auction.highestBidderId !== userId) {
-          throw new ForbiddenException('فقط برنده فعلی مزایده می‌تواند پرداخت و سفارش را نهایی کند');
+          throw new ForbiddenException(
+            'فقط برنده فعلی مزایده می‌تواند پرداخت و سفارش را نهایی کند',
+          );
         }
         // اگر این پرداخت در پنجره شانس دوم باشد، باید پیشنهاد رسمی شانس دوم وجود داشته باشد و همان لحظه ACCEPTED شود.
         const now = new Date();
-        const finishedAt = listing.auction.finishedAt ? new Date(listing.auction.finishedAt).getTime() : 0;
-        const deadlineAt = listing.auction.paymentDeadline ? new Date(listing.auction.paymentDeadline).getTime() : 0;
+        const finishedAt = listing.auction.finishedAt
+          ? new Date(listing.auction.finishedAt).getTime()
+          : 0;
+        const deadlineAt = listing.auction.paymentDeadline
+          ? new Date(listing.auction.paymentDeadline).getTime()
+          : 0;
         const windowHours =
           finishedAt > 0 && deadlineAt > finishedAt
             ? (deadlineAt - finishedAt) / (60 * 60 * 1000)
             : null;
-        const isSecondChanceRound = windowHours != null && windowHours <= 24 + 1;
+        const isSecondChanceRound =
+          windowHours != null && windowHours <= 24 + 1;
 
         const offered = await tx.secondChanceOffer.findFirst({
           where: {
@@ -565,7 +641,9 @@ export class OrdersService {
           orderBy: { createdAt: 'desc' },
         });
         if (isSecondChanceRound && !offered) {
-          throw new ForbiddenException('این پرداخت فقط با پیشنهاد شانس دوم معتبر امکان‌پذیر است');
+          throw new ForbiddenException(
+            'این پرداخت فقط با پیشنهاد شانس دوم معتبر امکان‌پذیر است',
+          );
         }
         if (offered) {
           const accepted = await tx.secondChanceOffer.updateMany({
@@ -582,35 +660,44 @@ export class OrdersService {
         }
 
         const winnerBidAmount = Number(listing.auction.bids[0].amount);
-        const guaranteeBlocked = Number(listing.auction.bids[0].blockedAmount || 0);
+        const guaranteeBlocked = Number(
+          listing.auction.bids[0].blockedAmount || 0,
+        );
         auctionWinnerBidId = listing.auction.bids[0].id;
         finalPrice = winnerBidAmount;
         auctionBlockedDeposit = Math.max(0, guaranteeBlocked);
 
         sellerId = listing.authorId;
         categoryId = listing.categoryId;
-        if (sellerId === userId) throw new ForbiddenException('شما نمی‌توانید آگهی خودتان را بخرید.');
+        if (sellerId === userId)
+          throw new ForbiddenException('شما نمی‌توانید آگهی خودتان را بخرید.');
 
-        shippingCost = listing.shippingPayer === 'BUYER_PREPAID' ? shippingFee : 0;
-        sellerRequestedVerification = listing.sellerRequiresVerification || false;
+        shippingCost =
+          listing.shippingPayer === 'BUYER_PREPAID' ? shippingFee : 0;
+        sellerRequestedVerification =
+          listing.sellerRequiresVerification || false;
       }
-        // -----------------------------------------------------
-        // سناریو ۳: خرید مستقیم
+      // -----------------------------------------------------
+      // سناریو ۳: خرید مستقیم
       // -----------------------------------------------------
       else {
         const listing = await tx.listing.findUnique({
           where: { id: listingId },
-          include: { direct: true }
+          include: { direct: true },
         });
-        if (!listing || listing.status !== 'APPROVED') throw new BadRequestException('آگهی یافت نشد یا فروخته شده');
+        if (!listing || listing.status !== 'APPROVED')
+          throw new BadRequestException('آگهی یافت نشد یا فروخته شده');
 
         finalPrice = Number(listing.direct?.price || 0);
         sellerId = listing.authorId;
         categoryId = listing.categoryId;
-        if (sellerId === userId) throw new ForbiddenException('شما نمی‌توانید آگهی خودتان را بخرید.');
+        if (sellerId === userId)
+          throw new ForbiddenException('شما نمی‌توانید آگهی خودتان را بخرید.');
 
-        shippingCost = listing.shippingPayer === 'BUYER_PREPAID' ? shippingFee : 0;
-        sellerRequestedVerification = listing.sellerRequiresVerification || false;
+        shippingCost =
+          listing.shippingPayer === 'BUYER_PREPAID' ? shippingFee : 0;
+        sellerRequestedVerification =
+          listing.sellerRequiresVerification || false;
       }
 
       // --- بررسی سفارش‌های قبلی این آگهی (ضد سوءاستفاده) ---
@@ -625,17 +712,23 @@ export class OrdersService {
 
       if (existingOrders.length) {
         const hasActiveNonCancelable = existingOrders.some(
-          (o) => o.status !== OrderStatus.PENDING && o.status !== OrderStatus.CANCELLED,
+          (o) =>
+            o.status !== OrderStatus.PENDING &&
+            o.status !== OrderStatus.CANCELLED,
         );
         if (hasActiveNonCancelable) {
-          throw new BadRequestException('این کالا در حال حاضر به فروش رسیده و در جریان است.');
+          throw new BadRequestException(
+            'این کالا در حال حاضر به فروش رسیده و در جریان است.',
+          );
         }
 
         const someoneElseHasPending = existingOrders.some(
           (o) => o.status === OrderStatus.PENDING && o.buyerId !== buyerId,
         );
         if (someoneElseHasPending) {
-          throw new BadRequestException('این کالا در حال پرداخت توسط کاربر دیگری است.');
+          throw new BadRequestException(
+            'این کالا در حال پرداخت توسط کاربر دیگری است.',
+          );
         }
 
         await tx.order.deleteMany({
@@ -664,20 +757,24 @@ export class OrdersService {
       }
 
       // مبلغ کل پرداختی خریدار
-      const totalPayable = (
+      const totalPayable =
         orderType === 'AUCTION'
-          ? Math.max(0, finalPrice - auctionBlockedDeposit) + shippingCost + feeChargedToBuyer
-          : finalPrice + shippingCost + feeChargedToBuyer
-      );
+          ? Math.max(0, finalPrice - auctionBlockedDeposit) +
+            shippingCost +
+            feeChargedToBuyer
+          : finalPrice + shippingCost + feeChargedToBuyer;
 
-      const platformFee = orderType === 'EXCHANGE'
-        ? 0
-        : await this.feeCalculator.calculateFee(
-            orderType === 'AUCTION' ? ListingType.AUCTION : ListingType.DIRECT,
-            categoryId,
-            finalPrice,
-            { sellerId },
-          );
+      const platformFee =
+        orderType === 'EXCHANGE'
+          ? 0
+          : await this.feeCalculator.calculateFee(
+              orderType === 'AUCTION'
+                ? ListingType.AUCTION
+                : ListingType.DIRECT,
+              categoryId,
+              finalPrice,
+              { sellerId },
+            );
 
       // 🎯 لاجیک طلایی واریزی فروشنده
       const sellerRevenue = new Decimal(finalPrice)
@@ -687,7 +784,8 @@ export class OrdersService {
         .toString();
 
       // 👇 متغیر جدید برای سیستم امانی (مجموع کارمزد پلتفرم + هزینه کارشناسی)
-      const totalPlatformCut = Number(platformFee) + feeChargedToSeller + feeChargedToBuyer;
+      const totalPlatformCut =
+        Number(platformFee) + feeChargedToSeller + feeChargedToBuyer;
 
       if (paymentMethod === 'WALLET' && totalPayable > 0) {
         const wallet = await tx.wallet.findUnique({ where: { userId } });
@@ -757,7 +855,12 @@ export class OrdersService {
           for (const bid of otherActiveBids) {
             const blocked = Number(bid.blockedAmount || 0);
             if (blocked > 0) {
-              await this.walletService.unblockAmount(bid.bidderId, blocked, listingId, tx);
+              await this.walletService.unblockAmount(
+                bid.bidderId,
+                blocked,
+                listingId,
+                tx,
+              );
             }
             await tx.auctionBid.update({
               where: { id: bid.id },
@@ -808,7 +911,9 @@ export class OrdersService {
         platformFee: platformFee,
         status: orderStatus,
         paymentMethod: paymentMethod,
-        requiresVerification: Boolean(isHubRequired || orderType === 'EXCHANGE'),
+        requiresVerification: Boolean(
+          isHubRequired || orderType === 'EXCHANGE',
+        ),
         verificationFee: verificationFee,
         platformAddress: platformAddress,
       };
@@ -819,12 +924,16 @@ export class OrdersService {
         orderStatus !== OrderStatus.PENDING &&
         orderStatus !== OrderStatus.AWAITING_PAYMENT
       ) {
-        const deadline = new Date(Date.now() + sellerShipDeadlineMinutes * 60 * 1000);
+        const deadline = new Date(
+          Date.now() + sellerShipDeadlineMinutes * 60 * 1000,
+        );
         orderPayload.shippingDeadline = deadline;
       }
 
       if (addressId) {
-        const fetchedAddress = await tx.address.findUnique({ where: { id: addressId } });
+        const fetchedAddress = await tx.address.findUnique({
+          where: { id: addressId },
+        });
         if (fetchedAddress) {
           orderPayload.shippingAddress = `${fetchedAddress.province}، ${fetchedAddress.city}، ${fetchedAddress.fullAddress}`;
           orderPayload.shippingPhone = fetchedAddress.phone;
@@ -844,7 +953,10 @@ export class OrdersService {
             data: { settlementStatus: AuctionSettlementStatus.PAID },
           });
         }
-        await tx.listing.update({ where: { id: listingId }, data: { status: ListingStatus.SOLD } });
+        await tx.listing.update({
+          where: { id: listingId },
+          data: { status: ListingStatus.SOLD },
+        });
       }
 
       return createdOrder;
@@ -852,9 +964,20 @@ export class OrdersService {
 
     // در معاوضه، مبلغ قابل پرداخت هر طرف جداگانه در PaymentsService محاسبه می‌شود
     // و ممکن است totalAmount سفارش (در لحظه ساخت/به‌روزرسانی) معیار خوبی نباشد.
-    if (paymentMethod === 'GATEWAY' && (order.type === OrderType.EXCHANGE || Number(order.totalAmount) > 0)) {
-      const initiated = await this.paymentsService.initiateOrderPayment(order.id, userId);
-      paymentUrl = initiated.paymentUrl;
+    if (
+      paymentMethod === 'GATEWAY' &&
+      (order.type === OrderType.EXCHANGE || Number(order.totalAmount) > 0)
+    ) {
+      try {
+        const initiated = await this.paymentsService.initiateOrderPayment(
+          order.id,
+          userId,
+        );
+        paymentUrl = initiated.paymentUrl;
+      } catch (err) {
+        await this.releaseOrderAfterFailedGatewayInit(order.id);
+        throw err;
+      }
     }
 
     const shouldNotifyPurchase =
@@ -867,11 +990,16 @@ export class OrdersService {
 
     return {
       ...order,
-      paymentUrl: paymentUrl
+      paymentUrl: paymentUrl,
     };
-  }  // 4. ثبت کد رهگیری
+  } // 4. ثبت کد رهگیری
   // =================================================================
-  async updateTrackingCode(userId: string, orderId: string, trackingCode: string, videoPath?: string) {
+  async updateTrackingCode(
+    userId: string,
+    orderId: string,
+    trackingCode: string,
+    videoPath?: string,
+  ) {
     if (!/^\d{24}$/.test(trackingCode)) {
       throw new BadRequestException('کد رهگیری باید دقیقاً ۲۴ رقم باشد.');
     }
@@ -899,44 +1027,65 @@ export class OrdersService {
 
     if (
       order.type === OrderType.EXCHANGE &&
-      (!order.shippingAddress || !order.sellerShippingAddress ||
-        !([OrderStatus.AWAITING_SHIPMENT_TO_HUB, OrderStatus.SHIPPED_TO_HUB] as OrderStatus[]).includes(order.status))
+      (!order.shippingAddress ||
+        !order.sellerShippingAddress ||
+        !(
+          [
+            OrderStatus.AWAITING_SHIPMENT_TO_HUB,
+            OrderStatus.SHIPPED_TO_HUB,
+          ] as OrderStatus[]
+        ).includes(order.status))
     ) {
-      throw new BadRequestException('ارسال کالا پس از تکمیل پرداخت هر دو طرف فعال می‌شود');
+      throw new BadRequestException(
+        'ارسال کالا پس از تکمیل پرداخت هر دو طرف فعال می‌شود',
+      );
     }
 
     // منطق هوشمند: آیا کالا باید به هاب برود یا مستقیم به خریدار؟
-    const needsHub = order.type === OrderType.EXCHANGE ||
+    const needsHub =
+      order.type === OrderType.EXCHANGE ||
       order.requiresVerification ||
       order.listing?.sellerRequiresVerification;
 
-    updateData.status = needsHub ? OrderStatus.SHIPPED_TO_HUB : OrderStatus.SHIPPED;
+    updateData.status = needsHub
+      ? OrderStatus.SHIPPED_TO_HUB
+      : OrderStatus.SHIPPED;
 
     // جایگذاری صحیح کد رهگیری و ویدیو بر اساس شخص ارسال‌کننده
     if (isSeller) {
       if (order.trackingCode) {
-        throw new BadRequestException('شما قبلاً کد رهگیری این ارسال را ثبت کرده‌اید');
+        throw new BadRequestException(
+          'شما قبلاً کد رهگیری این ارسال را ثبت کرده‌اید',
+        );
       }
       updateData.trackingCode = trackingCode;
       updateData.packagingVideo = videoPath;
     } else if (order.type === OrderType.EXCHANGE && isBuyer) {
       if (order.sellerTrackingCode) {
-        throw new BadRequestException('شما قبلاً کد رهگیری این ارسال را ثبت کرده‌اید');
+        throw new BadRequestException(
+          'شما قبلاً کد رهگیری این ارسال را ثبت کرده‌اید',
+        );
       }
       updateData.sellerTrackingCode = trackingCode;
       updateData.buyerPackagingVideo = videoPath;
     } else {
-      throw new ForbiddenException('شما مجاز به ثبت اطلاعات ارسال برای این سفارش نیستید');
+      throw new ForbiddenException(
+        'شما مجاز به ثبت اطلاعات ارسال برای این سفارش نیستید',
+      );
     }
 
     // در معاوضه: بعد از ثبت اولین ارسال، طرف مقابل ۴۸ ساعت فرصت دارد ارسال خودش را ثبت کند.
     if (order.type === OrderType.EXCHANGE) {
       const sellerTrackingAfter = isSeller ? trackingCode : order.trackingCode;
-      const buyerTrackingAfter = isBuyer ? trackingCode : order.sellerTrackingCode;
-      const onlyOneSideShipped = Boolean(sellerTrackingAfter) !== Boolean(buyerTrackingAfter);
+      const buyerTrackingAfter = isBuyer
+        ? trackingCode
+        : order.sellerTrackingCode;
+      const onlyOneSideShipped =
+        Boolean(sellerTrackingAfter) !== Boolean(buyerTrackingAfter);
       if (onlyOneSideShipped) {
         updateData.shippingDeadline = new Date(
-          Date.now() + OrdersService.EXCHANGE_SHIPMENT_TIMEOUT_HOURS * 60 * 60 * 1000,
+          Date.now() +
+            OrdersService.EXCHANGE_SHIPMENT_TIMEOUT_HOURS * 60 * 60 * 1000,
         );
       }
     }
@@ -960,16 +1109,22 @@ export class OrdersService {
       throw new BadRequestException('ویدیوی بسته‌بندی مرجوعی الزامی است.');
     }
 
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
     if (!order) throw new NotFoundException('سفارش یافت نشد');
     if (order.type === OrderType.EXCHANGE) {
-      throw new BadRequestException('ثبت مرجوعی برای سفارش معاوضه در این مرحله مجاز نیست');
+      throw new BadRequestException(
+        'ثبت مرجوعی برای سفارش معاوضه در این مرحله مجاز نیست',
+      );
     }
     if (order.buyerId !== userId) {
       throw new ForbiddenException('فقط خریدار می‌تواند مرجوعی را ثبت کند');
     }
     if (order.status !== OrderStatus.RETURN_REQUESTED) {
-      throw new BadRequestException('این سفارش در وضعیت مناسب برای ثبت مرجوعی نیست');
+      throw new BadRequestException(
+        'این سفارش در وضعیت مناسب برای ثبت مرجوعی نیست',
+      );
     }
     if (order.returnTrackingCode) {
       throw new BadRequestException('کد رهگیری مرجوعی قبلاً ثبت شده است');
@@ -990,20 +1145,34 @@ export class OrdersService {
     return this.prisma.$transaction(async (tx) => {
       const order = await tx.order.findUnique({
         where: { id: orderId },
-        include: { listing: { select: { title: true, sellerRequiresVerification: true } } },
+        include: {
+          listing: {
+            select: { title: true, sellerRequiresVerification: true },
+          },
+        },
       });
       if (!order) throw new NotFoundException('سفارش یافت نشد');
       if (order.sellerId !== sellerId) {
-        throw new ForbiddenException('فقط فروشنده می‌تواند دریافت مرجوعی را تایید کند');
+        throw new ForbiddenException(
+          'فقط فروشنده می‌تواند دریافت مرجوعی را تایید کند',
+        );
       }
       if (order.type === OrderType.EXCHANGE) {
-        throw new BadRequestException('تایید مرجوعی برای سفارش معاوضه در این مرحله مجاز نیست');
+        throw new BadRequestException(
+          'تایید مرجوعی برای سفارش معاوضه در این مرحله مجاز نیست',
+        );
       }
       if (order.status !== OrderStatus.RETURN_SHIPPED) {
-        throw new BadRequestException('این سفارش در وضعیت مناسب برای تایید مرجوعی نیست');
+        throw new BadRequestException(
+          'این سفارش در وضعیت مناسب برای تایید مرجوعی نیست',
+        );
       }
 
-      this.stateMachine.assertTransition(order.status, OrderStatus.CANCELLED, 'confirm-return-receipt');
+      this.stateMachine.assertTransition(
+        order.status,
+        OrderStatus.CANCELLED,
+        'confirm-return-receipt',
+      );
 
       const sellerRevenue = Number(order.sellerRevenue || 0);
       const totalAmount = Number(order.totalAmount || 0);
@@ -1013,7 +1182,10 @@ export class OrdersService {
         order.requiresVerification && !order.listing?.sellerRequiresVerification
           ? verificationFee
           : 0;
-      const refundableToBuyer = Math.max(0, totalAmount - shippingCost - verificationChargedToBuyer);
+      const refundableToBuyer = Math.max(
+        0,
+        totalAmount - shippingCost - verificationChargedToBuyer,
+      );
 
       /** یک بار مصرف: جلوگیری از دوبار کلیک / فراخوانی همزمان و بازپرداخت تکراری */
       const claimed = await tx.order.updateMany({
@@ -1025,7 +1197,8 @@ export class OrdersService {
         },
         data: {
           status: OrderStatus.CANCELLED,
-          cancelReason: 'مرجوعی توسط فروشنده تحویل گرفته شد و بازگشت وجه انجام شد',
+          cancelReason:
+            'مرجوعی توسط فروشنده تحویل گرفته شد و بازگشت وجه انجام شد',
           returnConfirmedAt: new Date(),
           returnConfirmedBy: sellerId,
         },
@@ -1036,9 +1209,13 @@ export class OrdersService {
           select: { returnConfirmedAt: true, status: true },
         });
         if (cur?.returnConfirmedAt || cur?.status === OrderStatus.CANCELLED) {
-          throw new BadRequestException('مرجوعی قبلاً تایید شده و بازگشت وجه ثبت شده است');
+          throw new BadRequestException(
+            'مرجوعی قبلاً تایید شده و بازگشت وجه ثبت شده است',
+          );
         }
-        throw new BadRequestException('این سفارش در وضعیت مناسب برای تایید مرجوعی نیست');
+        throw new BadRequestException(
+          'این سفارش در وضعیت مناسب برای تایید مرجوعی نیست',
+        );
       }
 
       await this.orderReputation.recordTerminalOutcome(
@@ -1074,7 +1251,8 @@ export class OrdersService {
               kind: 'order-escrow',
               phase: 'seller_blocked_debit',
               debitReason: 'seller-confirmed-return',
-              description: 'کسر از موجودی بلوکه فروشنده پس از تایید دریافت مرجوعی',
+              description:
+                'کسر از موجودی بلوکه فروشنده پس از تایید دریافت مرجوعی',
             },
           },
         });
@@ -1103,7 +1281,8 @@ export class OrdersService {
               refundReason: 'seller-confirmed-return',
               shippingCostExcluded: shippingCost,
               verificationFeeExcluded: verificationChargedToBuyer,
-              description: 'بازگشت وجه مرجوعی به خریدار (بدون هزینه ارسال و کارشناسی پرداخت‌شده)',
+              description:
+                'بازگشت وجه مرجوعی به خریدار (بدون هزینه ارسال و کارشناسی پرداخت‌شده)',
             },
           },
         });
@@ -1167,19 +1346,30 @@ export class OrdersService {
         if (order.status === OrderStatus.COMPLETED) {
           throw new BadRequestException('این سفارش قبلاً تسویه شده است');
         }
-        const inspection = (order.exchangeHubInspection as Record<string, unknown> | null) ?? null;
+        const inspection =
+          (order.exchangeHubInspection as Record<string, unknown> | null) ??
+          null;
         const isReturnBothFlow =
           inspection?.['resolution'] === 'RETURN_BOTH_TO_SENDERS' &&
-          (order.status === OrderStatus.CANCELLED || order.status === OrderStatus.REJECTED_AT_HUB);
-        const refundableAlreadyReleased = Boolean(inspection?.['refundsReleasedAt']);
+          (order.status === OrderStatus.CANCELLED ||
+            order.status === OrderStatus.REJECTED_AT_HUB);
+        const refundableAlreadyReleased = Boolean(
+          inspection?.['refundsReleasedAt'],
+        );
 
         if (!isReturnBothFlow) {
-          this.stateMachine.assertTransition(order.status, OrderStatus.COMPLETED, 'confirm-order-exchange');
+          this.stateMachine.assertTransition(
+            order.status,
+            OrderStatus.COMPLETED,
+            'confirm-order-exchange',
+          );
         }
 
         if (isReturnBothFlow) {
           if (refundableAlreadyReleased) {
-            throw new BadRequestException('بازگشت وجه این مرجوعی قبلاً انجام شده است');
+            throw new BadRequestException(
+              'بازگشت وجه این مرجوعی قبلاً انجام شده است',
+            );
           }
 
           if (isBuyer) {
@@ -1189,7 +1379,9 @@ export class OrdersService {
               );
             }
             if (order.buyerConfirmedDelivery) {
-              throw new BadRequestException('شما قبلاً دریافت کالای مرجوعی خود را تایید کرده‌اید');
+              throw new BadRequestException(
+                'شما قبلاً دریافت کالای مرجوعی خود را تایید کرده‌اید',
+              );
             }
           }
           if (isSeller) {
@@ -1199,7 +1391,9 @@ export class OrdersService {
               );
             }
             if (order.sellerConfirmedDelivery) {
-              throw new BadRequestException('شما قبلاً دریافت کالای مرجوعی خود را تایید کرده‌اید');
+              throw new BadRequestException(
+                'شما قبلاً دریافت کالای مرجوعی خود را تایید کرده‌اید',
+              );
             }
           }
 
@@ -1221,29 +1415,35 @@ export class OrdersService {
           if (!bothConfirmed) {
             const mergedInspection = {
               ...inspection,
-              buyerReturnReceived: Boolean(afterAck.buyerConfirmedDelivery || isBuyer),
-              sellerReturnReceived: Boolean(afterAck.sellerConfirmedDelivery || isSeller),
+              buyerReturnReceived: Boolean(
+                afterAck.buyerConfirmedDelivery || isBuyer,
+              ),
+              sellerReturnReceived: Boolean(
+                afterAck.sellerConfirmedDelivery || isSeller,
+              ),
               awaitingReturnConfirmations: true,
             };
             return tx.order.update({
               where: { id: orderId },
               data: {
-                exchangeHubInspection: mergedInspection as Prisma.InputJsonValue,
+                exchangeHubInspection:
+                  mergedInspection as Prisma.InputJsonValue,
               },
             });
           }
 
-          const exchangeOffer =
-            order.exchangeOfferId
-              ? await tx.exchangeOffer.findUnique({
-                  where: { id: order.exchangeOfferId },
-                  select: { extraPayment: true, isPayerMe: true },
-                })
-              : null;
+          const exchangeOffer = order.exchangeOfferId
+            ? await tx.exchangeOffer.findUnique({
+                where: { id: order.exchangeOfferId },
+                select: { extraPayment: true, isPayerMe: true },
+              })
+            : null;
           const verificationFee = Number(order.verificationFee || 0);
           const extra = Number(exchangeOffer?.extraPayment || 0);
-          const buyerShare = verificationFee + (exchangeOffer?.isPayerMe ? extra : 0);
-          const sellerShare = verificationFee + (!exchangeOffer?.isPayerMe ? extra : 0);
+          const buyerShare =
+            verificationFee + (exchangeOffer?.isPayerMe ? extra : 0);
+          const sellerShare =
+            verificationFee + (!exchangeOffer?.isPayerMe ? extra : 0);
           const buyerRefundable = Math.max(0, buyerShare - verificationFee);
           const sellerRefundable = Math.max(0, sellerShare - verificationFee);
 
@@ -1273,7 +1473,9 @@ export class OrdersService {
               cancelReason: [
                 order.cancelReason ?? 'مرجوعی دوطرفه معاوضه',
                 'دریافت مرجوعی توسط هر دو طرف تایید شد و سهم پرداختی (بدون هزینه کارشناسی) آزاد شد.',
-              ].filter(Boolean).join('\n'),
+              ]
+                .filter(Boolean)
+                .join('\n'),
             },
           });
         }
@@ -1294,7 +1496,9 @@ export class OrdersService {
             );
           }
           if (order.buyerConfirmedDelivery) {
-            throw new BadRequestException('شما قبلاً دریافت کالای خود را تایید کرده‌اید');
+            throw new BadRequestException(
+              'شما قبلاً دریافت کالای خود را تایید کرده‌اید',
+            );
           }
         }
         if (isSeller) {
@@ -1304,7 +1508,9 @@ export class OrdersService {
             );
           }
           if (order.sellerConfirmedDelivery) {
-            throw new BadRequestException('شما قبلاً دریافت کالای خود را تایید کرده‌اید');
+            throw new BadRequestException(
+              'شما قبلاً دریافت کالای خود را تایید کرده‌اید',
+            );
           }
         }
 
@@ -1339,8 +1545,14 @@ export class OrdersService {
             select: { balanceBlocked: true },
           }),
         ]);
-        const sellerBlocked = Math.max(0, Number(sellerWallet?.balanceBlocked || 0));
-        const buyerBlocked = Math.max(0, Number(buyerWallet?.balanceBlocked || 0));
+        const sellerBlocked = Math.max(
+          0,
+          Number(sellerWallet?.balanceBlocked || 0),
+        );
+        const buyerBlocked = Math.max(
+          0,
+          Number(buyerWallet?.balanceBlocked || 0),
+        );
         const sellerRelease = sellerBlocked;
         const buyerRelease = buyerBlocked;
 
@@ -1382,11 +1594,17 @@ export class OrdersService {
         return completedExchange;
       }
 
-      if (order.buyerId !== userId) throw new BadRequestException('شما خریدار این سفارش نیستید');
+      if (order.buyerId !== userId)
+        throw new BadRequestException('شما خریدار این سفارش نیستید');
 
       // اجازه نمیدیم سفارشی که قبلا تکمیل شده دوباره تایید بشه
-    if (order.status === OrderStatus.COMPLETED) throw new BadRequestException('این سفارش قبلاً تسویه شده است');
-      this.stateMachine.assertTransition(order.status, OrderStatus.COMPLETED, 'confirm-order');
+      if (order.status === OrderStatus.COMPLETED)
+        throw new BadRequestException('این سفارش قبلاً تسویه شده است');
+      this.stateMachine.assertTransition(
+        order.status,
+        OrderStatus.COMPLETED,
+        'confirm-order',
+      );
 
       // 🎯 حل مشکل کیف پول: واریز درآمد خالص (بدون کارمزد پلتفرم) به فروشنده
       const amountToRelease = Number(order.sellerRevenue);
@@ -1404,7 +1622,7 @@ export class OrdersService {
 
       await tx.user.update({
         where: { id: order.sellerId },
-        data: { trustScore: { increment: 2 } }
+        data: { trustScore: { increment: 2 } },
       });
 
       // 🎯 تغییر وضعیت به تکمیل شده (تسویه نهایی)
@@ -1447,8 +1665,24 @@ export class OrdersService {
           },
         },
         // phone رو بعداً بر اساس شرایط اضافه/حذف میکنیم.
-        buyer: { select: { id: true, firstName: true, lastName: true, avatar: true, phone: true } },
-        seller: { select: { id: true, firstName: true, lastName: true, avatar: true, phone: true } },
+        buyer: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            avatar: true,
+            phone: true,
+          },
+        },
+        seller: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            avatar: true,
+            phone: true,
+          },
+        },
       },
     });
 
@@ -1507,12 +1741,10 @@ export class OrdersService {
       }
     }
 
-    let exchangePaymentSources:
-      | {
-          buyer: 'GATEWAY' | 'WALLET' | 'UNKNOWN';
-          seller: 'GATEWAY' | 'WALLET' | 'UNKNOWN';
-        }
-      | null = null;
+    let exchangePaymentSources: {
+      buyer: 'GATEWAY' | 'WALLET' | 'UNKNOWN';
+      seller: 'GATEWAY' | 'WALLET' | 'UNKNOWN';
+    } | null = null;
     if (order.type === OrderType.EXCHANGE) {
       const inferred: {
         buyer: 'GATEWAY' | 'WALLET' | 'UNKNOWN';
@@ -1595,9 +1827,12 @@ export class OrdersService {
           return typeof note === 'string' && note.trim().length > 0;
         }) ?? null;
 
-      const hubShipmentNoteRaw = (hubShipmentNotification?.meta as Record<string, unknown> | null)?.['note'];
+      const hubShipmentNoteRaw = (
+        hubShipmentNotification?.meta as Record<string, unknown> | null
+      )?.['note'];
       hubShipmentNote =
-        typeof hubShipmentNoteRaw === 'string' && hubShipmentNoteRaw.trim().length > 0
+        typeof hubShipmentNoteRaw === 'string' &&
+        hubShipmentNoteRaw.trim().length > 0
           ? hubShipmentNoteRaw.trim()
           : null;
       hubShipmentNotedAt = hubShipmentNotification?.createdAt ?? null;
@@ -1617,25 +1852,37 @@ export class OrdersService {
     // شماره تلفن طرف مقابل فقط بعد از SHIPPED/DELIVERED (یعنی نیاز واقعی
     // ارتباط هست) قابل مشاهده‌ست. قبل از اون، شماره حذف میشه.
     const contactReleased =
-      order.status === 'SHIPPED' || order.status === 'DELIVERED' ||
-      order.status === 'COMPLETED' || order.status === 'DISPUTED' ||
-      order.status === OrderStatus.RETURN_REQUESTED || order.status === OrderStatus.RETURN_SHIPPED;
+      order.status === 'SHIPPED' ||
+      order.status === 'DELIVERED' ||
+      order.status === 'COMPLETED' ||
+      order.status === 'DISPUTED' ||
+      order.status === OrderStatus.RETURN_REQUESTED ||
+      order.status === OrderStatus.RETURN_SHIPPED;
 
     const stripPhone = (u: { phone?: string | null } | null) =>
       u ? { ...u, phone: contactReleased ? u.phone : null } : u;
 
-    if (order.buyer) order.buyer = stripPhone(order.buyer) as typeof order.buyer;
-    if (order.seller) order.seller = stripPhone(order.seller) as typeof order.seller;
+    if (order.buyer)
+      order.buyer = stripPhone(order.buyer) as typeof order.buyer;
+    if (order.seller)
+      order.seller = stripPhone(order.seller) as typeof order.seller;
 
     // حالت هاب (کالا قبل از ارسال به خریدار باید به طبقه ارسال بشه).
     // در این حالت آدرس واقعی خریدار به فروشنده نمایش داده نمیشه و کلاً
     // اطلاعات طرف مقابل ماسک می‌مونه.
     if (needsHub && isSellerView) {
-      const hubAddress = order.platformAddress || 'تهران، دفتر مرکزی پردازش و کارشناسی طبقه';
+      const hubAddress =
+        order.platformAddress || 'تهران، دفتر مرکزی پردازش و کارشناسی طبقه';
       const maskedOrder: any = {
         ...order,
         buyer: order.buyer
-          ? { id: order.buyer.id, firstName: 'خریدار', lastName: '', avatar: null, phone: null }
+          ? {
+              id: order.buyer.id,
+              firstName: 'خریدار',
+              lastName: '',
+              avatar: null,
+              phone: null,
+            }
           : null,
       };
       maskedOrder.shippingAddress = {
@@ -1659,17 +1906,28 @@ export class OrdersService {
     }
 
     return order;
-  }  // =================================================================
+  } // =================================================================
   // 7. ثبت شکایت (Dispute) ✅ اصلاح شده برای حل ارور includes
   // =================================================================
-  async disputeOrder(buyerId: string, orderId: string, reason: string, videoPath?: string) {
+  async disputeOrder(
+    buyerId: string,
+    orderId: string,
+    reason: string,
+    videoPath?: string,
+  ) {
     return this.prisma.$transaction(async (tx) => {
-      const order = await tx.order.findUnique({ where: { id: orderId }, include: { listing: true } });
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: { listing: true },
+      });
 
       if (!order) throw new NotFoundException('سفارش یافت نشد');
-      if (order.buyerId !== buyerId) throw new BadRequestException('شما خریدار نیستید');
+      if (order.buyerId !== buyerId)
+        throw new BadRequestException('شما خریدار نیستید');
       if (order.type === OrderType.EXCHANGE) {
-        throw new BadRequestException('برای معاملات معاوضه امکان ثبت شکایت در این مرحله وجود ندارد');
+        throw new BadRequestException(
+          'برای معاملات معاوضه امکان ثبت شکایت در این مرحله وجود ندارد',
+        );
       }
 
       // ✅ اصلاح شده: استفاده از شرط صریح به جای includes
@@ -1683,17 +1941,26 @@ export class OrdersService {
 
       // اگر سفارش از مسیر کارشناسی با موفقیت عبور کرده باشد، ثبت شکایت در این فاز مجاز نیست.
       const wasInspectedAndApproved =
-        Boolean(order.requiresVerification || order.listing?.sellerRequiresVerification) &&
+        Boolean(
+          order.requiresVerification ||
+          order.listing?.sellerRequiresVerification,
+        ) &&
         [
           OrderStatus.SHIPPED_TO_BUYER,
           OrderStatus.SHIPPED,
           OrderStatus.DELIVERED,
         ].includes(order.status);
       if (wasInspectedAndApproved) {
-        throw new BadRequestException('برای سفارش کارشناسی‌شده و ارسال‌شده، امکان ثبت شکایت وجود ندارد');
+        throw new BadRequestException(
+          'برای سفارش کارشناسی‌شده و ارسال‌شده، امکان ثبت شکایت وجود ندارد',
+        );
       }
 
-      this.stateMachine.assertTransition(order.status, OrderStatus.DISPUTED, 'dispute-order');
+      this.stateMachine.assertTransition(
+        order.status,
+        OrderStatus.DISPUTED,
+        'dispute-order',
+      );
       await tx.order.update({
         where: { id: orderId },
         data: {
@@ -1705,7 +1972,9 @@ export class OrdersService {
       });
 
       const apiUrl = this.appSettings.getApiUrl();
-      const videoLink = videoPath ? `\n🎥 ویدیو: ${apiUrl}/uploads/orders/${videoPath}` : '';
+      const videoLink = videoPath
+        ? `\n🎥 ویدیو: ${apiUrl}/uploads/orders/${videoPath}`
+        : '';
 
       const ticketMessage = `🚨 **اعلام مغایرت سفارش**\nکالا: ${order.listing.title}\nعلت: ${reason}\n${videoLink}`;
 
@@ -1715,8 +1984,8 @@ export class OrdersService {
           subject: `شکایت سفارش #${order.id.slice(-6)}`,
           status: 'OPEN',
           messages: {
-            create: { senderRole: 'USER', message: ticketMessage }
-          }
+            create: { senderRole: 'USER', message: ticketMessage },
+          },
         },
         select: { id: true },
       });
@@ -1766,7 +2035,9 @@ export class OrdersService {
       await this.getExchangeNoShipmentCompensation();
     const expiredOrders = await this.prisma.order.findMany({
       where: {
-        status: { in: [OrderStatus.PAID, OrderStatus.AWAITING_SHIPMENT_TO_HUB] },
+        status: {
+          in: [OrderStatus.PAID, OrderStatus.AWAITING_SHIPMENT_TO_HUB],
+        },
         shippingDeadline: { lt: now },
       },
     });
@@ -1775,8 +2046,12 @@ export class OrdersService {
       try {
         await this.prisma.$transaction(async (tx) => {
           const sellerSent = Boolean(order.trackingCode);
-          const buyerSentForExchange = order.type === OrderType.EXCHANGE && Boolean(order.sellerTrackingCode);
-          const exchangeOnlyOneSent = order.type === OrderType.EXCHANGE && (sellerSent !== buyerSentForExchange);
+          const buyerSentForExchange =
+            order.type === OrderType.EXCHANGE &&
+            Boolean(order.sellerTrackingCode);
+          const exchangeOnlyOneSent =
+            order.type === OrderType.EXCHANGE &&
+            sellerSent !== buyerSentForExchange;
 
           if (order.type === OrderType.EXCHANGE && exchangeOnlyOneSent) {
             const exchangeOffer = order.exchangeOfferId
@@ -1787,10 +2062,18 @@ export class OrdersService {
               : null;
             const verificationFee = Number(order.verificationFee || 0);
             const extra = Number(exchangeOffer?.extraPayment || 0);
-            const buyerShare = verificationFee + (exchangeOffer?.isPayerMe ? extra : 0);
-            const sellerShare = verificationFee + (!exchangeOffer?.isPayerMe ? extra : 0);
-            const buyerRefundableExtra = Math.max(0, buyerShare - verificationFee);
-            const sellerRefundableExtra = Math.max(0, sellerShare - verificationFee);
+            const buyerShare =
+              verificationFee + (exchangeOffer?.isPayerMe ? extra : 0);
+            const sellerShare =
+              verificationFee + (!exchangeOffer?.isPayerMe ? extra : 0);
+            const buyerRefundableExtra = Math.max(
+              0,
+              buyerShare - verificationFee,
+            );
+            const sellerRefundableExtra = Math.max(
+              0,
+              sellerShare - verificationFee,
+            );
 
             // بازگشت مابه‌التفاوت (بدون کارشناسی) به پرداخت‌کننده واقعی.
             await this.walletService.refundExchangeExtraOnCancel(tx, {
@@ -1810,7 +2093,11 @@ export class OrdersService {
             if (senderTotalPaid > 0) {
               await tx.wallet.upsert({
                 where: { userId: senderId },
-                create: { userId: senderId, balanceAvailable: senderTotalPaid, balanceBlocked: 0 },
+                create: {
+                  userId: senderId,
+                  balanceAvailable: senderTotalPaid,
+                  balanceBlocked: 0,
+                },
                 update: { balanceAvailable: { increment: senderTotalPaid } },
               });
               await tx.walletTransaction.create({
@@ -1832,7 +2119,9 @@ export class OrdersService {
             // ۲۰٪ از هزینه کارشناسیِ طرفی که ارسال نکرده، به فرستنده پرداخت می‌شود.
             const compensation = Math.max(
               0,
-              Math.floor((verificationFee * exchangeNoShipmentCompensationPercent) / 100),
+              Math.floor(
+                (verificationFee * exchangeNoShipmentCompensationPercent) / 100,
+              ),
             );
             if (compensation > 0) {
               await this.creditExchangeCompensation(
@@ -1885,7 +2174,11 @@ export class OrdersService {
             order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
               ? OrderStatus.REJECTED_AT_HUB
               : OrderStatus.CANCELLED;
-          this.stateMachine.assertTransition(order.status, targetStatus, 'auto-cancel-expired');
+          this.stateMachine.assertTransition(
+            order.status,
+            targetStatus,
+            'auto-cancel-expired',
+          );
           const prevShipCancel = order.status;
           await tx.order.update({
             where: { id: order.id },
@@ -1898,7 +2191,10 @@ export class OrdersService {
               ...(order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
                 ? {
                     exchangeHubInspection: {
-                      ...(order.exchangeHubInspection as Record<string, unknown> | null),
+                      ...(order.exchangeHubInspection as Record<
+                        string,
+                        unknown
+                      > | null),
                       resolution: 'RETURN_BOTH_TO_SENDERS',
                       singleSideNoShipmentTimeout: true,
                       awaitingReturnConfirmations: false,
@@ -1956,7 +2252,11 @@ export class OrdersService {
             where: { exchangeOfferId: offer.id },
           });
 
-          if (linkedOrder && linkedOrder.status !== OrderStatus.AWAITING_PAYMENT && linkedOrder.status !== OrderStatus.PENDING) {
+          if (
+            linkedOrder &&
+            linkedOrder.status !== OrderStatus.AWAITING_PAYMENT &&
+            linkedOrder.status !== OrderStatus.PENDING
+          ) {
             return;
           }
 
@@ -1970,11 +2270,19 @@ export class OrdersService {
           const currentTotal = Number(linkedOrder?.totalAmount || 0);
 
           const buyerAddressProvided = Boolean(linkedOrder?.shippingAddress);
-          const sellerAddressProvided = Boolean(linkedOrder?.sellerShippingAddress);
-          const noOneStartedCheckout = !linkedOrder || (!buyerAddressProvided && !sellerAddressProvided && currentTotal <= 0);
+          const sellerAddressProvided = Boolean(
+            linkedOrder?.sellerShippingAddress,
+          );
+          const noOneStartedCheckout =
+            !linkedOrder ||
+            (!buyerAddressProvided &&
+              !sellerAddressProvided &&
+              currentTotal <= 0);
           const oneSideProgressed =
             !!linkedOrder &&
-            (buyerAddressProvided || sellerAddressProvided || currentTotal > 0) &&
+            (buyerAddressProvided ||
+              sellerAddressProvided ||
+              currentTotal > 0) &&
             currentTotal < expectedTotal;
 
           const noPaymentDeadlineMs =
@@ -1982,11 +2290,16 @@ export class OrdersService {
             OrdersService.EXCHANGE_NO_PAYMENT_TIMEOUT_HOURS * 60 * 60 * 1000;
           const secondPaymentDeadlineMs = linkedOrder
             ? new Date(linkedOrder.updatedAt).getTime() +
-              OrdersService.EXCHANGE_SECOND_PAYMENT_TIMEOUT_HOURS * 60 * 60 * 1000
+              OrdersService.EXCHANGE_SECOND_PAYMENT_TIMEOUT_HOURS *
+                60 *
+                60 *
+                1000
             : 0;
 
-          const shouldCancelForNoPayment = noOneStartedCheckout && now >= noPaymentDeadlineMs;
-          const shouldCancelForSecondPaymentDelay = oneSideProgressed && now >= secondPaymentDeadlineMs;
+          const shouldCancelForNoPayment =
+            noOneStartedCheckout && now >= noPaymentDeadlineMs;
+          const shouldCancelForSecondPaymentDelay =
+            oneSideProgressed && now >= secondPaymentDeadlineMs;
           if (!shouldCancelForNoPayment && !shouldCancelForSecondPaymentDelay) {
             return;
           }
@@ -2000,8 +2313,12 @@ export class OrdersService {
             Boolean(linkedOrder?.sellerShippingAddress) &&
             !Boolean(linkedOrder?.shippingAddress);
 
-          const buyerRefundAmount = shouldRefundBuyerFullShare ? buyerShare : buyerRefundable;
-          const sellerRefundAmount = shouldRefundSellerFullShare ? sellerShare : sellerRefundable;
+          const buyerRefundAmount = shouldRefundBuyerFullShare
+            ? buyerShare
+            : buyerRefundable;
+          const sellerRefundAmount = shouldRefundSellerFullShare
+            ? sellerShare
+            : sellerRefundable;
 
           if (linkedOrder?.shippingAddress && buyerRefundAmount > 0) {
             await tx.wallet.upsert({
@@ -2066,9 +2383,15 @@ export class OrdersService {
           if (linkedOrder) {
             let payerToPenalize: string | null = null;
             if (shouldCancelForSecondPaymentDelay) {
-              if (linkedOrder.shippingAddress && !linkedOrder.sellerShippingAddress) {
+              if (
+                linkedOrder.shippingAddress &&
+                !linkedOrder.sellerShippingAddress
+              ) {
                 payerToPenalize = linkedOrder.sellerId;
-              } else if (linkedOrder.sellerShippingAddress && !linkedOrder.shippingAddress) {
+              } else if (
+                linkedOrder.sellerShippingAddress &&
+                !linkedOrder.shippingAddress
+              ) {
                 payerToPenalize = linkedOrder.buyerId;
               }
             }
@@ -2152,14 +2475,18 @@ export class OrdersService {
           }
         });
       } catch (error) {
-        console.error(`Error auto-canceling exchange timeout for offer ${offer.id}:`, error);
+        console.error(
+          `Error auto-canceling exchange timeout for offer ${offer.id}:`,
+          error,
+        );
       }
     }
   }
 
   @Cron(CronExpression.EVERY_HOUR)
   async autoConfirmOrders() {
-    const buyerConfirmDeadlineMinutes = await this.getBuyerConfirmDeadlineMinutes();
+    const buyerConfirmDeadlineMinutes =
+      await this.getBuyerConfirmDeadlineMinutes();
     const threshold = new Date(
       Date.now() - buyerConfirmDeadlineMinutes * 60 * 1000,
     );
@@ -2167,7 +2494,13 @@ export class OrdersService {
       where: {
         // در ارسال از هاب (معامله تاییدشده) وضعیت SHIPPED_TO_BUYER داریم.
         // برای UX یکپارچه، اگر کاربر تایید دریافت نکند، این وضعیت هم باید مشمول تایید خودکار شود.
-        status: { in: [OrderStatus.SHIPPED_TO_BUYER, OrderStatus.SHIPPED, OrderStatus.DELIVERED] },
+        status: {
+          in: [
+            OrderStatus.SHIPPED_TO_BUYER,
+            OrderStatus.SHIPPED,
+            OrderStatus.DELIVERED,
+          ],
+        },
         updatedAt: { lte: threshold },
       },
     });
@@ -2176,9 +2509,15 @@ export class OrdersService {
       try {
         if (order.type === OrderType.EXCHANGE) {
           await this.prisma.$transaction(async (tx) => {
-            const locked = await tx.order.findUnique({ where: { id: order.id } });
+            const locked = await tx.order.findUnique({
+              where: { id: order.id },
+            });
             if (!locked) return;
-            if (locked.status === OrderStatus.COMPLETED || locked.status === OrderStatus.CANCELLED) return;
+            if (
+              locked.status === OrderStatus.COMPLETED ||
+              locked.status === OrderStatus.CANCELLED
+            )
+              return;
 
             const [sellerWallet, buyerWallet] = await Promise.all([
               tx.wallet.findUnique({
@@ -2190,8 +2529,14 @@ export class OrdersService {
                 select: { balanceBlocked: true },
               }),
             ]);
-            const sellerBlocked = Math.max(0, Number(sellerWallet?.balanceBlocked || 0));
-            const buyerBlocked = Math.max(0, Number(buyerWallet?.balanceBlocked || 0));
+            const sellerBlocked = Math.max(
+              0,
+              Number(sellerWallet?.balanceBlocked || 0),
+            );
+            const buyerBlocked = Math.max(
+              0,
+              Number(buyerWallet?.balanceBlocked || 0),
+            );
             if (sellerBlocked > 0) {
               await this.walletService.releaseEscrow(
                 locked.sellerId,
@@ -2244,7 +2589,8 @@ export class OrdersService {
   @Cron(CronExpression.EVERY_HOUR)
   async autoReleaseExchangeReturnEscrow() {
     const now = new Date();
-    const deadlineMinutes = await this.getExchangeReturnConfirmDeadlineMinutes();
+    const deadlineMinutes =
+      await this.getExchangeReturnConfirmDeadlineMinutes();
     const orders = await this.prisma.order.findMany({
       where: {
         type: OrderType.EXCHANGE,
@@ -2252,9 +2598,24 @@ export class OrdersService {
         hubToBuyerTrackingCode: { not: null },
         hubToSellerTrackingCode: { not: null },
         AND: [
-          { exchangeHubInspection: { path: ['resolution'], equals: 'RETURN_BOTH_TO_SENDERS' } },
-          { exchangeHubInspection: { path: ['awaitingReturnConfirmations'], equals: true } },
-          { exchangeHubInspection: { path: ['refundsReleasedAt'], equals: null } },
+          {
+            exchangeHubInspection: {
+              path: ['resolution'],
+              equals: 'RETURN_BOTH_TO_SENDERS',
+            },
+          },
+          {
+            exchangeHubInspection: {
+              path: ['awaitingReturnConfirmations'],
+              equals: true,
+            },
+          },
+          {
+            exchangeHubInspection: {
+              path: ['refundsReleasedAt'],
+              equals: null,
+            },
+          },
         ],
       },
       select: {
@@ -2291,7 +2652,9 @@ export class OrdersService {
           });
           if (!locked) return;
 
-          const inspection = (locked.exchangeHubInspection as Record<string, unknown> | null) ?? {};
+          const inspection =
+            (locked.exchangeHubInspection as Record<string, unknown> | null) ??
+            {};
           if (
             locked.type !== OrderType.EXCHANGE ||
             locked.status !== OrderStatus.CANCELLED ||
@@ -2302,12 +2665,16 @@ export class OrdersService {
             return;
           }
 
-          const returnShipmentCompletedAtRaw = inspection['returnShipmentCompletedAt'];
+          const returnShipmentCompletedAtRaw =
+            inspection['returnShipmentCompletedAt'];
           const returnShipmentCompletedAt =
             typeof returnShipmentCompletedAtRaw === 'string'
               ? new Date(returnShipmentCompletedAtRaw)
               : null;
-          if (!returnShipmentCompletedAt || Number.isNaN(returnShipmentCompletedAt.getTime())) {
+          if (
+            !returnShipmentCompletedAt ||
+            Number.isNaN(returnShipmentCompletedAt.getTime())
+          ) {
             return;
           }
           const autoReleaseAt = new Date(
@@ -2319,7 +2686,10 @@ export class OrdersService {
             where: {
               userId: { in: [locked.buyerId, locked.sellerId] },
               status: 'OPEN',
-              subject: { contains: `[ORDER:${locked.id}]`, mode: 'insensitive' },
+              subject: {
+                contains: `[ORDER:${locked.id}]`,
+                mode: 'insensitive',
+              },
             },
           });
           if (openTickets > 0) return;
@@ -2333,8 +2703,10 @@ export class OrdersService {
 
           const verificationFee = Number(locked.verificationFee || 0);
           const extra = Number(exchangeOffer?.extraPayment || 0);
-          const buyerShare = verificationFee + (exchangeOffer?.isPayerMe ? extra : 0);
-          const sellerShare = verificationFee + (!exchangeOffer?.isPayerMe ? extra : 0);
+          const buyerShare =
+            verificationFee + (exchangeOffer?.isPayerMe ? extra : 0);
+          const sellerShare =
+            verificationFee + (!exchangeOffer?.isPayerMe ? extra : 0);
           const buyerRefundable = Math.max(0, buyerShare - verificationFee);
           const sellerRefundable = Math.max(0, sellerShare - verificationFee);
 
@@ -2376,7 +2748,10 @@ export class OrdersService {
                 title: 'آزادسازی خودکار وجه مرجوعی',
                 message:
                   'با پایان مهلت تایید دریافت و نبود اختلاف فعال، سهم پرداختی شما (بدون هزینه کارشناسی) آزاد شد.',
-                meta: { orderId: locked.id, autoRelease: true } as Prisma.InputJsonValue,
+                meta: {
+                  orderId: locked.id,
+                  autoRelease: true,
+                } as Prisma.InputJsonValue,
               },
               {
                 userId: locked.sellerId,
@@ -2384,13 +2759,19 @@ export class OrdersService {
                 title: 'آزادسازی خودکار وجه مرجوعی',
                 message:
                   'با پایان مهلت تایید دریافت و نبود اختلاف فعال، سهم پرداختی شما (بدون هزینه کارشناسی) آزاد شد.',
-                meta: { orderId: locked.id, autoRelease: true } as Prisma.InputJsonValue,
+                meta: {
+                  orderId: locked.id,
+                  autoRelease: true,
+                } as Prisma.InputJsonValue,
               },
             ],
           });
         });
       } catch (error) {
-        console.error(`Error auto-releasing exchange return escrow for order ${order.id}:`, error);
+        console.error(
+          `Error auto-releasing exchange return escrow for order ${order.id}:`,
+          error,
+        );
       }
     }
   }
@@ -2406,7 +2787,11 @@ export class OrdersService {
 
   private async getBuyerConfirmDeadlineMinutes(): Promise<number> {
     const setting = await this.prisma.systemSetting.findFirst({
-      where: { key: { in: ['BUYER_CONFIRM_DEADLINE_MINUTES', 'BUYER_CONFIRM_DEADLINE_DAYS'] } },
+      where: {
+        key: {
+          in: ['BUYER_CONFIRM_DEADLINE_MINUTES', 'BUYER_CONFIRM_DEADLINE_DAYS'],
+        },
+      },
       orderBy: { key: 'asc' },
     });
     return this.parsePositiveIntSetting(
@@ -2443,7 +2828,8 @@ export class OrdersService {
       },
       orderBy: { key: 'asc' },
     });
-    const fallback = OrdersService.DEFAULT_EXCHANGE_RETURN_CONFIRM_DEADLINE_MINUTES;
+    const fallback =
+      OrdersService.DEFAULT_EXCHANGE_RETURN_CONFIRM_DEADLINE_MINUTES;
     const parsed = this.parsePositiveIntSetting(setting?.value, fallback);
     if (setting?.key === 'EXCHANGE_RETURN_CONFIRM_DEADLINE_HOURS') {
       return parsed * 60;
@@ -2482,6 +2868,49 @@ export class OrdersService {
           description: 'پرداخت جبرانی بابت عدم ارسال طرف مقابل',
         },
       },
+    });
+  }
+
+  /**
+   * اگر پس از commit تراکنش، درگاه لینک پرداخت ندهد، سفارش در AWAITING_PAYMENT
+   * می‌ماند و checkout بعدی با «این کالا … در جریان است» بلاک می‌شود. این متد
+   * سفارش را حذف می‌کند (هنوز پرداخت ثبت نشده). معاوضه: اگر حداقل یک پرداخت
+   * در سفارش ثبت شده باشد، دست نمی‌زند.
+   */
+  private async releaseOrderAfterFailedGatewayInit(
+    orderId: string,
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.order.findUnique({ where: { id: orderId } });
+      if (!locked) return;
+      if (
+        locked.status !== OrderStatus.AWAITING_PAYMENT &&
+        locked.status !== OrderStatus.PENDING
+      ) {
+        return;
+      }
+      if (
+        locked.type === OrderType.EXCHANGE &&
+        Number(locked.totalAmount ?? 0) > 0
+      ) {
+        return;
+      }
+
+      if (locked.type === OrderType.AUCTION) {
+        await tx.secondChanceOffer.updateMany({
+          where: {
+            listingId: locked.listingId,
+            userId: locked.buyerId,
+            status: SecondChanceOfferStatus.ACCEPTED,
+          },
+          data: {
+            status: SecondChanceOfferStatus.OFFERED,
+            acceptedAt: null,
+          },
+        });
+      }
+
+      await tx.order.delete({ where: { id: locked.id } });
     });
   }
 

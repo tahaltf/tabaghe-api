@@ -2,7 +2,10 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
+  Logger,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { ListingType, QuotaAction, QuotaReason } from '@prisma/client';
@@ -19,6 +22,8 @@ function addDaysUtc(base: Date, days: number): Date {
 
 @Injectable()
 export class PlansService {
+  private readonly logger = new Logger(PlansService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly walletService: WalletService,
@@ -37,13 +42,96 @@ export class PlansService {
       : 2;
     const builtin = buildBuiltinFreePlan(freeDirectLimit);
 
-    const dbPlans = await this.prisma.plan.findMany({
-      where: { isActive: true },
-      include: { rules: true },
-      orderBy: { price: 'asc' },
-    });
+    try {
+      const dbPlans = await this.prisma.plan.findMany({
+        where: { isActive: true },
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          price: true,
+          isActive: true,
+          durationDays: true,
+          feeDiscountDirectPercent: true,
+          feeDiscountAuctionPercent: true,
+          createdAt: true,
+          updatedAt: true,
+          rules: {
+            select: { id: true, planId: true, type: true, count: true },
+            orderBy: { type: 'asc' },
+          },
+        },
+        orderBy: { price: 'asc' },
+      });
 
-    return [builtin, ...dbPlans];
+      return [
+        this.toPublicBuiltinPlan(builtin),
+        ...dbPlans.map((p) => this.toPublicDbPlan(p)),
+      ];
+    } catch (err) {
+      this.logger.error('getActivePlans failed', err);
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        (err.code === 'P2021' ||
+          err.code === 'P2022' ||
+          err.message?.includes('does not exist'))
+      ) {
+        throw new ServiceUnavailableException(
+          'جدول یا ستون پلن در دیتابیس با Prisma هم‌خوان نیست. روی سرور `npx prisma migrate deploy` را اجرا کنید.',
+        );
+      }
+      throw err;
+    }
+  }
+
+  private toPublicBuiltinPlan(
+    builtin: ReturnType<typeof buildBuiltinFreePlan>,
+  ) {
+    return {
+      ...builtin,
+      createdAt: builtin.createdAt.toISOString(),
+      updatedAt: builtin.updatedAt.toISOString(),
+    };
+  }
+
+  private toPublicDbPlan(
+    plan: Prisma.PlanGetPayload<{
+      select: {
+        id: true;
+        title: true;
+        description: true;
+        price: true;
+        isActive: true;
+        durationDays: true;
+        feeDiscountDirectPercent: true;
+        feeDiscountAuctionPercent: true;
+        createdAt: true;
+        updatedAt: true;
+        rules: {
+          select: { id: true; planId: true; type: true; count: true };
+        };
+      };
+    }>,
+  ) {
+    return {
+      id: plan.id,
+      title: plan.title,
+      description: plan.description,
+      price: plan.price,
+      isActive: plan.isActive,
+      isBuiltinFree: false as const,
+      durationDays: plan.durationDays,
+      feeDiscountDirectPercent: plan.feeDiscountDirectPercent,
+      feeDiscountAuctionPercent: plan.feeDiscountAuctionPercent,
+      createdAt: plan.createdAt.toISOString(),
+      updatedAt: plan.updatedAt.toISOString(),
+      rules: plan.rules.map((r) => ({
+        id: r.id,
+        planId: r.planId,
+        type: r.type,
+        count: r.count,
+      })),
+    };
   }
 
   async buyPlan(userId: string, planId: string) {
@@ -65,7 +153,12 @@ export class PlansService {
 
       const price = Number(plan.price);
       if (price > 0) {
-        await this.walletService.payFromAvailable(userId, plan.price, planId, tx);
+        await this.walletService.payFromAvailable(
+          userId,
+          plan.price,
+          planId,
+          tx,
+        );
       }
 
       const durationDays = Math.max(1, plan.durationDays ?? 365);
@@ -151,8 +244,7 @@ export class PlansService {
         continue;
       }
       for (const rule of rules) {
-        const used =
-          commitByPurchaseAndType.get(`${p.id}:${rule.type}`) ?? 0;
+        const used = commitByPurchaseAndType.get(`${p.id}:${rule.type}`) ?? 0;
         const left = Math.max(0, rule.count - used);
         remainingByType[rule.type] = (remainingByType[rule.type] ?? 0) + left;
       }
@@ -186,7 +278,10 @@ export class PlansService {
         },
       }),
     ]);
-    const freeDirectRemaining = Math.max(0, freeDirectLimit - (commits - releases));
+    const freeDirectRemaining = Math.max(
+      0,
+      freeDirectLimit - (commits - releases),
+    );
 
     const purchasesView = purchases.map((p) => {
       if (!p.plan) {
@@ -200,7 +295,12 @@ export class PlansService {
             description: null as string | null,
             price: 0,
             isActive: false,
-            rules: [] as { id: string; planId: string; type: ListingType; count: number }[],
+            rules: [] as {
+              id: string;
+              planId: string;
+              type: ListingType;
+              count: number;
+            }[],
             createdAt: p.createdAt,
             updatedAt: p.createdAt,
             durationDays: 0,
@@ -213,14 +313,13 @@ export class PlansService {
         };
       }
       const duration = Math.max(1, p.plan.durationDays ?? 365);
-      const subscriptionExpiresAt = p.expiresAt ?? addDaysUtc(p.createdAt, duration);
+      const subscriptionExpiresAt =
+        p.expiresAt ?? addDaysUtc(p.createdAt, duration);
       const ms = subscriptionExpiresAt.getTime() - now.getTime();
-      const subscriptionDaysRemaining = Math.max(
-        0,
-        Math.ceil(ms / 86400000),
-      );
+      const subscriptionDaysRemaining = Math.max(0, Math.ceil(ms / 86400000));
       const subscriptionActive =
-        p.status === 'ACTIVE' && subscriptionExpiresAt.getTime() > now.getTime();
+        p.status === 'ACTIVE' &&
+        subscriptionExpiresAt.getTime() > now.getTime();
       return {
         ...p,
         subscriptionExpiresAt,

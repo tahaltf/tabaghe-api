@@ -1,10 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import {
-  JwtPayload,
-  TokenPair,
-} from '../../../shared/contracts/auth';
+import { JwtPayload, TokenPair } from '../../../shared/contracts/auth';
 
 const ACCESS_TOKEN_TTL = '7d';
 const REFRESH_TOKEN_TTL = '30d';
@@ -51,7 +48,8 @@ export class TokenService {
 
   accessSecret(): string {
     return (
-      this.configService.get<string>('JWT_SECRET') ?? 'fallback_access_secret_key'
+      this.configService.get<string>('JWT_SECRET') ??
+      'fallback_access_secret_key'
     );
   }
 

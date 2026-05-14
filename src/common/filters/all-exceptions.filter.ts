@@ -42,11 +42,15 @@ function mapStatusToCode(status: number): ApiErrorCode {
     case HttpStatus.TOO_MANY_REQUESTS:
       return ApiErrorCode.RATE_LIMITED;
     default:
-      return status >= 500 ? ApiErrorCode.INTERNAL_ERROR : ApiErrorCode.BAD_REQUEST;
+      return status >= 500
+        ? ApiErrorCode.INTERNAL_ERROR
+        : ApiErrorCode.BAD_REQUEST;
   }
 }
 
-function extractFieldErrors(messages: string[]): Record<string, string[]> | undefined {
+function extractFieldErrors(
+  messages: string[],
+): Record<string, string[]> | undefined {
   const fieldErrors: Record<string, string[]> = {};
   let hasField = false;
   for (const m of messages) {
@@ -102,7 +106,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
     }
 
     const isHttp = exception instanceof HttpException;
-    const status = isHttp ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
+    const status = isHttp
+      ? exception.getStatus()
+      : HttpStatus.INTERNAL_SERVER_ERROR;
     const isProd = process.env.NODE_ENV === 'production';
 
     let message = 'درخواست ناموفق بود';

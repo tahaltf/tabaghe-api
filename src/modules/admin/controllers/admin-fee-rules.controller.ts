@@ -14,10 +14,7 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { AdminFeeRulesService } from '../services/admin-fee-rules.service';
-import {
-  CreateFeeRuleDto,
-  UpdateFeeRuleDto,
-} from '../dto/admin-fee-rule.dto';
+import { CreateFeeRuleDto, UpdateFeeRuleDto } from '../dto/admin-fee-rule.dto';
 
 @Controller('admin/fee-rules')
 @UseGuards(JwtAuthGuard, RolesGuard)

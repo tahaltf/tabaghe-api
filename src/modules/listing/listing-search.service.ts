@@ -113,7 +113,7 @@ export class ListingSearchService {
 
     void viewerUserId;
 
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await Promise.all([
       this.prisma.listing.findMany({
         where,
         skip,

@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import {
   WalletTransactionType,
@@ -83,9 +87,11 @@ export class WalletService {
           typeof meta['listingId'] === 'string'
         );
       })
-      .map((t) => ((t.meta as Record<string, unknown>)['listingId'] as string));
+      .map((t) => (t.meta as Record<string, unknown>)['listingId'] as string);
 
-    const uniqueSellerBlockedListingIds = Array.from(new Set(sellerBlockedListingIds));
+    const uniqueSellerBlockedListingIds = Array.from(
+      new Set(sellerBlockedListingIds),
+    );
     const exchangeOrdersForFix = uniqueSellerBlockedListingIds.length
       ? await this.prisma.order.findMany({
           where: {
@@ -148,34 +154,36 @@ export class WalletService {
         );
       })
       .map((t) => {
-      let safeMeta: Record<string, unknown> | null = null;
-      if (t.meta && typeof t.meta === 'object' && !Array.isArray(t.meta)) {
-        safeMeta = {};
-        for (const [k, v] of Object.entries(t.meta as Record<string, unknown>)) {
-          if (ALLOWED_META_KEYS.has(k)) safeMeta[k] = v;
+        let safeMeta: Record<string, unknown> | null = null;
+        if (t.meta && typeof t.meta === 'object' && !Array.isArray(t.meta)) {
+          safeMeta = {};
+          for (const [k, v] of Object.entries(
+            t.meta as Record<string, unknown>,
+          )) {
+            if (ALLOWED_META_KEYS.has(k)) safeMeta[k] = v;
+          }
         }
-      }
-      let normalizedAmount = Number(t.amount || 0);
-      const rawMeta = t.meta as Record<string, unknown> | null;
-      if (
-        rawMeta &&
-        rawMeta['kind'] === 'order-escrow' &&
-        rawMeta['phase'] === 'seller_blocked' &&
-        typeof rawMeta['listingId'] === 'string'
-      ) {
-        const match = exchangeOrderByListingId.get(rawMeta['listingId']);
-        // سفارش‌های قدیمی معاوضه که platformFee اشتباه خورده‌اند:
-        // مقدار بلوکه را در نمایش به مقدار صحیح (sellerRevenue + platformFee) نرمال می‌کنیم.
+        let normalizedAmount = Number(t.amount || 0);
+        const rawMeta = t.meta as Record<string, unknown> | null;
         if (
-          match &&
-          match.platformFee > 0 &&
-          Math.abs(normalizedAmount - match.sellerRevenue) < 1
+          rawMeta &&
+          rawMeta['kind'] === 'order-escrow' &&
+          rawMeta['phase'] === 'seller_blocked' &&
+          typeof rawMeta['listingId'] === 'string'
         ) {
-          normalizedAmount = match.sellerRevenue + match.platformFee;
+          const match = exchangeOrderByListingId.get(rawMeta['listingId']);
+          // سفارش‌های قدیمی معاوضه که platformFee اشتباه خورده‌اند:
+          // مقدار بلوکه را در نمایش به مقدار صحیح (sellerRevenue + platformFee) نرمال می‌کنیم.
+          if (
+            match &&
+            match.platformFee > 0 &&
+            Math.abs(normalizedAmount - match.sellerRevenue) < 1
+          ) {
+            normalizedAmount = match.sellerRevenue + match.platformFee;
+          }
         }
-      }
-      return { ...t, amount: normalizedAmount, meta: safeMeta };
-    });
+        return { ...t, amount: normalizedAmount, meta: safeMeta };
+      });
 
     return { ...wallet, transactions: safeTxns };
   }
@@ -325,7 +333,10 @@ export class WalletService {
       });
     }
 
-    const auctionListingTitle = await this.listingTitleForWalletTx(prisma, refId);
+    const auctionListingTitle = await this.listingTitleForWalletTx(
+      prisma,
+      refId,
+    );
 
     if (remainderDec.gt(0)) {
       await prisma.wallet.update({
@@ -344,7 +355,9 @@ export class WalletService {
             kind: 'auction-escrow',
             phase: 'buyer_remainder',
             listingId: refId,
-            ...(auctionListingTitle ? { listingTitle: auctionListingTitle } : {}),
+            ...(auctionListingTitle
+              ? { listingTitle: auctionListingTitle }
+              : {}),
             description: auctionListingTitle
               ? `پرداخت مابه‌التفاوت مزایده از کیف پول — «${auctionListingTitle}». این مبلغ برای تکمیل خرید از ودیعه قبلی کسر شد.`
               : 'پرداخت مابه‌التفاوت مزایده از کیف پول؛ برای تکمیل خرید پس از برنده شدن.',
@@ -400,13 +413,18 @@ export class WalletService {
     platformFee: number | string | Decimal,
     refId: string,
     tx?: Prisma.TransactionClient,
-    opts?: { isExchangeEscrow?: boolean; blockedAmount?: number | string | Decimal },
+    opts?: {
+      isExchangeEscrow?: boolean;
+      blockedAmount?: number | string | Decimal;
+    },
   ) {
     const prisma = tx || this.prisma;
     const amountDec = new Decimal(amount);
     const feeDec = new Decimal(platformFee);
     const blockedAmountDec =
-      opts?.blockedAmount !== undefined ? new Decimal(opts.blockedAmount) : amountDec.minus(feeDec);
+      opts?.blockedAmount !== undefined
+        ? new Decimal(opts.blockedAmount)
+        : amountDec.minus(feeDec);
     const sellerRevenue = blockedAmountDec;
     const isExchangeEscrow = Boolean(opts?.isExchangeEscrow);
     const listingTitle = await this.listingTitleForWalletTx(prisma, refId);
@@ -426,7 +444,9 @@ export class WalletService {
       throw new BadRequestException('مبلغ بلوکه فروشنده نامعتبر است');
     }
     if (blockedAmountDec.gt(amountDec)) {
-      throw new BadRequestException('مبلغ بلوکه فروشنده نمی‌تواند بیشتر از مبلغ پرداختی باشد');
+      throw new BadRequestException(
+        'مبلغ بلوکه فروشنده نمی‌تواند بیشتر از مبلغ پرداختی باشد',
+      );
     }
 
     await prisma.wallet.update({
@@ -448,9 +468,9 @@ export class WalletService {
           listingId: refId,
           ...(listingTitle ? { listingTitle } : {}),
           paymentSource: 'WALLET',
-            description: isExchangeEscrow
-              ? `پرداخت سهم معاوضه (کارشناسی/مابه‌التفاوت) برای ${titleQuoted} از کیف پول ثبت شد.`
-              : `پرداخت خرید برای ${titleQuoted} از کیف پول ثبت شد.`,
+          description: isExchangeEscrow
+            ? `پرداخت سهم معاوضه (کارشناسی/مابه‌التفاوت) برای ${titleQuoted} از کیف پول ثبت شد.`
+            : `پرداخت خرید برای ${titleQuoted} از کیف پول ثبت شد.`,
         },
       },
     });
@@ -503,13 +523,18 @@ export class WalletService {
     platformFee: number | string | Decimal,
     refId: string,
     tx?: Prisma.TransactionClient,
-    opts?: { isExchangeEscrow?: boolean; blockedAmount?: number | string | Decimal },
+    opts?: {
+      isExchangeEscrow?: boolean;
+      blockedAmount?: number | string | Decimal;
+    },
   ) {
     const prisma = tx || this.prisma;
     const amountDec = new Decimal(amount);
     const feeDec = new Decimal(platformFee);
     const blockedAmountDec =
-      opts?.blockedAmount !== undefined ? new Decimal(opts.blockedAmount) : amountDec.minus(feeDec);
+      opts?.blockedAmount !== undefined
+        ? new Decimal(opts.blockedAmount)
+        : amountDec.minus(feeDec);
     const sellerRevenue = blockedAmountDec;
 
     if (amountDec.lte(0)) {
@@ -519,7 +544,9 @@ export class WalletService {
       throw new BadRequestException('مبلغ بلوکه فروشنده نامعتبر است');
     }
     if (blockedAmountDec.gt(amountDec)) {
-      throw new BadRequestException('مبلغ بلوکه فروشنده نمی‌تواند بیشتر از مبلغ پرداختی باشد');
+      throw new BadRequestException(
+        'مبلغ بلوکه فروشنده نمی‌تواند بیشتر از مبلغ پرداختی باشد',
+      );
     }
     if (sellerRevenue.lt(0)) {
       throw new BadRequestException('کارمزد از مبلغ پرداخت بیشتر است');
@@ -676,7 +703,8 @@ export class WalletService {
               kind: 'exchange-return-refund',
               orderId,
               listingId,
-              description: 'بازگشت مابه‌التفاوت معاوضه به پرداخت‌کننده (بدون هزینه کارشناسی)',
+              description:
+                'بازگشت مابه‌التفاوت معاوضه به پرداخت‌کننده (بدون هزینه کارشناسی)',
             } as Prisma.InputJsonValue,
           },
         });
@@ -732,7 +760,8 @@ export class WalletService {
               kind: 'exchange-return-refund',
               orderId,
               listingId,
-              description: 'بازگشت مابه‌التفاوت معاوضه به پرداخت‌کننده (بدون هزینه کارشناسی)',
+              description:
+                'بازگشت مابه‌التفاوت معاوضه به پرداخت‌کننده (بدون هزینه کارشناسی)',
             } as Prisma.InputJsonValue,
           },
         });
@@ -824,12 +853,14 @@ export class WalletService {
     return created;
   }
 
-  async getDepositRequestsAdmin(params: {
-    status?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL';
-    page?: number;
-    pageSize?: number;
-    search?: string;
-  } = {}) {
+  async getDepositRequestsAdmin(
+    params: {
+      status?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL';
+      page?: number;
+      pageSize?: number;
+      search?: string;
+    } = {},
+  ) {
     const page = Math.max(1, params.page ?? 1);
     const pageSize = Math.min(100, Math.max(5, params.pageSize ?? 20));
     const statusFilter = this.resolveStatusFilter(params.status);
@@ -1031,12 +1062,14 @@ export class WalletService {
     });
   }
 
-  async getWithdrawRequestsAdmin(params: {
-    status?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL';
-    page?: number;
-    pageSize?: number;
-    search?: string;
-  } = {}) {
+  async getWithdrawRequestsAdmin(
+    params: {
+      status?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL';
+      page?: number;
+      pageSize?: number;
+      search?: string;
+    } = {},
+  ) {
     const page = Math.max(1, params.page ?? 1);
     const pageSize = Math.min(100, Math.max(5, params.pageSize ?? 20));
     const statusCfg = this.resolveWithdrawFilter(params.status);
@@ -1189,7 +1222,12 @@ export class WalletService {
       }
     });
   }
-  async payFromAvailable(userId: string, amount: number | string | Decimal, referenceId: string, tx?: Prisma.TransactionClient) {
+  async payFromAvailable(
+    userId: string,
+    amount: number | string | Decimal,
+    referenceId: string,
+    tx?: Prisma.TransactionClient,
+  ) {
     const prisma = tx || this.prisma;
     const amountDec = new Decimal(amount);
     const wallet = await prisma.wallet.findUnique({ where: { userId } });

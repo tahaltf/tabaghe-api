@@ -36,4 +36,3 @@ describe('Auction timeout policy (unit)', () => {
     });
   });
 });
-

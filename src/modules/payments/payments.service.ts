@@ -60,9 +60,14 @@ export class PaymentsService {
       throw new BadRequestException('فقط خریدار می‌تواند پرداخت را آغاز کند');
     }
     if (isExchange && !isOrderBuyer && !isOrderSeller) {
-      throw new BadRequestException('فقط طرفین معاوضه می‌توانند پرداخت را آغاز کنند');
+      throw new BadRequestException(
+        'فقط طرفین معاوضه می‌توانند پرداخت را آغاز کنند',
+      );
     }
-    if (order.status !== OrderStatus.AWAITING_PAYMENT && order.status !== OrderStatus.PENDING) {
+    if (
+      order.status !== OrderStatus.AWAITING_PAYMENT &&
+      order.status !== OrderStatus.PENDING
+    ) {
       throw new BadRequestException('این سفارش در وضعیت قابل پرداخت نیست');
     }
 
@@ -88,7 +93,9 @@ export class PaymentsService {
       callbackUrl,
       orderId: order.id,
       description: `پرداخت سفارش ${order.id}`,
-      mobile: isOrderBuyer ? (order.buyer?.phone ?? undefined) : (order.seller?.phone ?? undefined),
+      mobile: isOrderBuyer
+        ? (order.buyer?.phone ?? undefined)
+        : (order.seller?.phone ?? undefined),
     });
 
     if (order.status === OrderStatus.PENDING) {
@@ -118,9 +125,14 @@ export class PaymentsService {
     });
     if (!repair) throw new NotFoundException('درخواست تعمیر یافت نشد');
     if (repair.userId !== userId) {
-      throw new BadRequestException('فقط صاحب درخواست می‌تواند پرداخت را آغاز کند');
+      throw new BadRequestException(
+        'فقط صاحب درخواست می‌تواند پرداخت را آغاز کند',
+      );
     }
-    if (repair.status !== RepairRequestStatus.RESULT_READY || !repair.userCostApproved) {
+    if (
+      repair.status !== RepairRequestStatus.RESULT_READY ||
+      !repair.userCostApproved
+    ) {
       throw new BadRequestException('این درخواست در وضعیت قابل پرداخت نیست');
     }
     const amount = Number(repair.estimatedCost ?? 0);
@@ -211,11 +223,16 @@ export class PaymentsService {
     };
   }
 
-  async processGatewayCallback(gatewayName: string, query: Record<string, unknown>) {
+  async processGatewayCallback(
+    gatewayName: string,
+    query: Record<string, unknown>,
+  ) {
     if (gatewayName !== 'zibal') {
       throw new BadRequestException('درگاه نامعتبر است');
     }
-    const kind = String(query.kind ?? 'ORDER').trim().toUpperCase();
+    const kind = String(query.kind ?? 'ORDER')
+      .trim()
+      .toUpperCase();
     const orderId = String(query.orderId ?? '').trim();
     const payerId = String(query.payerId ?? '').trim();
     const repairId = String(query.repairId ?? '').trim();
@@ -241,12 +258,23 @@ export class PaymentsService {
     if (kind === 'WALLET') {
       return this.processWalletTopupCallback({ authority, successFlag });
     }
-    return this.processOrderCallback({ orderId, authority, successFlag, payerId });
+    return this.processOrderCallback({
+      orderId,
+      authority,
+      successFlag,
+      payerId,
+    });
   }
 
-  private async getSellerShipDeadlineMinutes(tx: Prisma.TransactionClient): Promise<number> {
+  private async getSellerShipDeadlineMinutes(
+    tx: Prisma.TransactionClient,
+  ): Promise<number> {
     const setting = await tx.systemSetting.findFirst({
-      where: { key: { in: ['SELLER_SHIP_DEADLINE_MINUTES', 'SELLER_SHIP_DEADLINE_DAYS'] } },
+      where: {
+        key: {
+          in: ['SELLER_SHIP_DEADLINE_MINUTES', 'SELLER_SHIP_DEADLINE_DAYS'],
+        },
+      },
       orderBy: { key: 'asc' },
     });
     const parsed = Number(setting?.value ?? '');
@@ -262,10 +290,15 @@ export class PaymentsService {
   }) {
     const { orderId, authority, successFlag, payerId } = params;
 
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
     if (!order) throw new NotFoundException('سفارش مرتبط با پرداخت پیدا نشد');
 
-    if (order.status !== OrderStatus.AWAITING_PAYMENT && order.status !== OrderStatus.PENDING) {
+    if (
+      order.status !== OrderStatus.AWAITING_PAYMENT &&
+      order.status !== OrderStatus.PENDING
+    ) {
       return {
         result: 'ALREADY_PROCESSED',
         ok: true,
@@ -309,13 +342,19 @@ export class PaymentsService {
     await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const locked = await tx.order.findUnique({ where: { id: order.id } });
       if (!locked) throw new NotFoundException('سفارش یافت نشد');
-      if (locked.status !== OrderStatus.AWAITING_PAYMENT && locked.status !== OrderStatus.PENDING) {
+      if (
+        locked.status !== OrderStatus.AWAITING_PAYMENT &&
+        locked.status !== OrderStatus.PENDING
+      ) {
         return;
       }
 
       const paidAmount = expectedAmount;
       let payeeUserId = locked.sellerId;
-      let platformCut = Math.max(0, Number(locked.totalAmount) - Number(locked.sellerRevenue));
+      let platformCut = Math.max(
+        0,
+        Number(locked.totalAmount) - Number(locked.sellerRevenue),
+      );
       const isExchangeOrder = locked.type === 'EXCHANGE';
       let blockedAmount = paidAmount;
       if (locked.type === 'EXCHANGE' && payerId) {
@@ -329,7 +368,10 @@ export class PaymentsService {
         // در معاوضه، مبلغ پرداختی باید کامل برای طرف مقابل بلوکه شود
         // و نباید از لاگ بلوکه‌ی امانی کارمزدی کسر شود.
         platformCut = 0;
-        blockedAmount = Math.max(0, paidAmount - Number(locked.verificationFee || 0));
+        blockedAmount = Math.max(
+          0,
+          paidAmount - Number(locked.verificationFee || 0),
+        );
       }
 
       await this.walletService.creditExternalPaymentToEscrow(
@@ -341,7 +383,8 @@ export class PaymentsService {
         { isExchangeEscrow: isExchangeOrder, blockedAmount },
       );
 
-      const payerUserId = locked.type === 'EXCHANGE' && payerId ? payerId : locked.buyerId;
+      const payerUserId =
+        locked.type === 'EXCHANGE' && payerId ? payerId : locked.buyerId;
       const payerWallet = await tx.wallet.upsert({
         where: { userId: payerUserId },
         create: {
@@ -372,12 +415,12 @@ export class PaymentsService {
             ...(listingTitle ? { listingTitle } : {}),
             paymentSource: 'GATEWAY',
             description: isExchangeOrder
-              ? (listingTitle
+              ? listingTitle
                 ? `پرداخت سهم معاوضه (کارشناسی/مابه‌التفاوت) برای «${listingTitle}» از درگاه ثبت شد.`
-                : 'پرداخت سهم معاوضه (کارشناسی/مابه‌التفاوت) از درگاه ثبت شد.')
-              : (listingTitle
+                : 'پرداخت سهم معاوضه (کارشناسی/مابه‌التفاوت) از درگاه ثبت شد.'
+              : listingTitle
                 ? `پرداخت خرید برای «${listingTitle}» از درگاه ثبت شد.`
-                : 'پرداخت خرید از درگاه ثبت شد.'),
+                : 'پرداخت خرید از درگاه ثبت شد.',
           },
         },
       });
@@ -387,8 +430,11 @@ export class PaymentsService {
           ? OrderStatus.AWAITING_SHIPMENT_TO_HUB
           : OrderStatus.PAID;
 
-      const sellerShipDeadlineMinutes = await this.getSellerShipDeadlineMinutes(tx);
-      const deadline = new Date(Date.now() + sellerShipDeadlineMinutes * 60 * 1000);
+      const sellerShipDeadlineMinutes =
+        await this.getSellerShipDeadlineMinutes(tx);
+      const deadline = new Date(
+        Date.now() + sellerShipDeadlineMinutes * 60 * 1000,
+      );
 
       if (locked.type === 'EXCHANGE') {
         const offer = locked.exchangeOfferId
@@ -404,7 +450,9 @@ export class PaymentsService {
         const expectedTotal = buyerShare + sellerShare;
         const nextTotal = Number(locked.totalAmount || 0) + paidAmount;
         const bothPaid = nextTotal >= expectedTotal;
-        paidStatus = bothPaid ? OrderStatus.AWAITING_SHIPMENT_TO_HUB : OrderStatus.AWAITING_PAYMENT;
+        paidStatus = bothPaid
+          ? OrderStatus.AWAITING_SHIPMENT_TO_HUB
+          : OrderStatus.AWAITING_PAYMENT;
       }
 
       const nextPaidTotal =
@@ -421,7 +469,10 @@ export class PaymentsService {
         },
       });
 
-      if (locked.type !== 'EXCHANGE' || paidStatus === OrderStatus.AWAITING_SHIPMENT_TO_HUB) {
+      if (
+        locked.type !== 'EXCHANGE' ||
+        paidStatus === OrderStatus.AWAITING_SHIPMENT_TO_HUB
+      ) {
         await tx.listing.update({
           where: { id: locked.listingId },
           data: { status: ListingStatus.SOLD },
@@ -477,7 +528,10 @@ export class PaymentsService {
         authority,
       };
     }
-    if (repair.status !== RepairRequestStatus.RESULT_READY || !repair.userCostApproved) {
+    if (
+      repair.status !== RepairRequestStatus.RESULT_READY ||
+      !repair.userCostApproved
+    ) {
       return {
         result: 'INVALID_STATE',
         ok: false,
@@ -513,10 +567,15 @@ export class PaymentsService {
     }
 
     await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const locked = await tx.repairRequest.findUnique({ where: { id: repair.id } });
+      const locked = await tx.repairRequest.findUnique({
+        where: { id: repair.id },
+      });
       if (!locked) throw new NotFoundException('درخواست تعمیر پیدا نشد');
       if (locked.status === RepairRequestStatus.IN_PROGRESS) return;
-      if (locked.status !== RepairRequestStatus.RESULT_READY || !locked.userCostApproved) {
+      if (
+        locked.status !== RepairRequestStatus.RESULT_READY ||
+        !locked.userCostApproved
+      ) {
         throw new BadRequestException('وضعیت پرداخت تعمیر نامعتبر است');
       }
 
@@ -580,7 +639,9 @@ export class PaymentsService {
         AND: [
           whereByAuthority,
           { status: WalletTransactionStatus.PENDING },
-          { meta: { path: ['kind'], equals: PaymentsService.WALLET_TOPUP_KIND } },
+          {
+            meta: { path: ['kind'], equals: PaymentsService.WALLET_TOPUP_KIND },
+          },
         ],
       },
     });
@@ -591,7 +652,12 @@ export class PaymentsService {
           AND: [
             whereByAuthority,
             { status: WalletTransactionStatus.SUCCESS },
-            { meta: { path: ['kind'], equals: PaymentsService.WALLET_TOPUP_KIND } },
+            {
+              meta: {
+                path: ['kind'],
+                equals: PaymentsService.WALLET_TOPUP_KIND,
+              },
+            },
           ],
         },
       });
@@ -655,7 +721,8 @@ export class PaymentsService {
       const locked = await tx.walletTransaction.findUnique({
         where: { id: transaction.id },
       });
-      if (!locked || locked.status !== WalletTransactionStatus.PENDING) return null;
+      if (!locked || locked.status !== WalletTransactionStatus.PENDING)
+        return null;
 
       await tx.wallet.update({
         where: { id: locked.walletId },
@@ -716,7 +783,10 @@ export class PaymentsService {
     return normalized === '1' || normalized === 'true';
   }
 
-  private async getExchangeParticipantDue(orderId: string, payerId: string): Promise<number> {
+  private async getExchangeParticipantDue(
+    orderId: string,
+    payerId: string,
+  ): Promise<number> {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       select: {
@@ -729,7 +799,9 @@ export class PaymentsService {
     });
     if (!order) throw new NotFoundException('سفارش یافت نشد');
     if (!order.exchangeOfferId) {
-      throw new BadRequestException('شناسه پیشنهاد معاوضه برای این سفارش موجود نیست');
+      throw new BadRequestException(
+        'شناسه پیشنهاد معاوضه برای این سفارش موجود نیست',
+      );
     }
     const offer = await this.prisma.exchangeOffer.findUnique({
       where: { id: order.exchangeOfferId },
@@ -739,8 +811,10 @@ export class PaymentsService {
 
     const verification = Number(order.verificationFee || 0);
     const extra = Number(offer.extraPayment || 0);
-    if (payerId === order.buyerId) return verification + (offer.isPayerMe ? extra : 0);
-    if (payerId === order.sellerId) return verification + (!offer.isPayerMe ? extra : 0);
+    if (payerId === order.buyerId)
+      return verification + (offer.isPayerMe ? extra : 0);
+    if (payerId === order.sellerId)
+      return verification + (!offer.isPayerMe ? extra : 0);
     throw new BadRequestException('پرداخت‌کننده مجاز این سفارش نیست');
   }
 

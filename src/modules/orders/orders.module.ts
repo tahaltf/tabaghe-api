@@ -15,7 +15,13 @@ import { OrdersStateMachineService } from './orders-state-machine.service';
 import { OrderReputationService } from './order-reputation.service';
 
 @Module({
-  imports: [WalletModule, FeesModule, PaymentsModule, NotificationModule, ExchangeModule],
+  imports: [
+    WalletModule,
+    FeesModule,
+    PaymentsModule,
+    NotificationModule,
+    ExchangeModule,
+  ],
   controllers: [OrdersController, OrdersAdminController],
   providers: [
     OrdersService,

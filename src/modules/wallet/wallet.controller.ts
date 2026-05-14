@@ -52,7 +52,8 @@ export class WalletController {
   async requestDeposit(
     @Req() req: any,
     @UploadedFile() file: Express.Multer.File | undefined,
-    @Body() body: { amount: number; trackingCode?: string; description?: string },
+    @Body()
+    body: { amount: number; trackingCode?: string; description?: string },
   ) {
     return this.walletService.requestDeposit(req.user.id, {
       amount: body.amount,

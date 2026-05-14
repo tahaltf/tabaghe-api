@@ -3,7 +3,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { NotificationType, Prisma, TicketStatus, UserRole } from '@prisma/client';
+import {
+  NotificationType,
+  Prisma,
+  TicketStatus,
+  UserRole,
+} from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { NotificationService } from '../../notification/notification.service';
 import {
@@ -29,8 +34,12 @@ const TICKET_DETAIL_INCLUDE = {
   messages: { orderBy: { createdAt: 'asc' } },
 } satisfies Prisma.TicketInclude;
 
-export type AdminTicketItem = Prisma.TicketGetPayload<{ include: typeof TICKET_INCLUDE }>;
-export type AdminTicketDetail = Prisma.TicketGetPayload<{ include: typeof TICKET_DETAIL_INCLUDE }>;
+export type AdminTicketItem = Prisma.TicketGetPayload<{
+  include: typeof TICKET_INCLUDE;
+}>;
+export type AdminTicketDetail = Prisma.TicketGetPayload<{
+  include: typeof TICKET_DETAIL_INCLUDE;
+}>;
 
 @Injectable()
 export class AdminTicketsService {
@@ -81,7 +90,10 @@ export class AdminTicketsService {
     return ticket;
   }
 
-  async createForUser(userId: string, dto: AdminCreateTicketDto): Promise<AdminTicketDetail> {
+  async createForUser(
+    userId: string,
+    dto: AdminCreateTicketDto,
+  ): Promise<AdminTicketDetail> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { id: true },
@@ -118,7 +130,10 @@ export class AdminTicketsService {
     return this.detail(created.id);
   }
 
-  async reply(id: string, dto: AdminReplyTicketDto): Promise<AdminTicketDetail> {
+  async reply(
+    id: string,
+    dto: AdminReplyTicketDto,
+  ): Promise<AdminTicketDetail> {
     const ticket = await this.prisma.ticket.findUnique({ where: { id } });
     if (!ticket) throw new NotFoundException('تیکت یافت نشد');
     if (ticket.status === TicketStatus.CLOSED) {

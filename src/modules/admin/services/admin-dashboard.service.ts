@@ -24,7 +24,12 @@ export interface ProfitSummary {
   last30: number;
   last90: number;
   allTime: number;
-  series: Array<{ date: string; profit: number; sales: number; orders: number }>;
+  series: Array<{
+    date: string;
+    profit: number;
+    sales: number;
+    orders: number;
+  }>;
 }
 
 /**
@@ -171,12 +176,24 @@ export class AdminDashboardService {
       this.prisma.order.count({ where: { status: { in: HUB_ACTIVE } } }),
       this.prisma.order.count({ where: { status: OrderStatus.COMPLETED } }),
       this.prisma.order.count({ where: { status: OrderStatus.DISPUTED } }),
-      this.prisma.order.count({ where: { status: OrderStatus.AWAITING_SHIPMENT_TO_HUB } }),
-      this.prisma.order.count({ where: { status: OrderStatus.SHIPPED_TO_HUB } }),
-      this.prisma.order.count({ where: { status: OrderStatus.RECEIVED_AT_HUB } }),
-      this.prisma.order.count({ where: { status: OrderStatus.CHECKING_AT_HUB } }),
-      this.prisma.order.count({ where: { status: OrderStatus.VERIFIED_AT_HUB } }),
-      this.prisma.order.count({ where: { status: OrderStatus.SHIPPED_TO_BUYER } }),
+      this.prisma.order.count({
+        where: { status: OrderStatus.AWAITING_SHIPMENT_TO_HUB },
+      }),
+      this.prisma.order.count({
+        where: { status: OrderStatus.SHIPPED_TO_HUB },
+      }),
+      this.prisma.order.count({
+        where: { status: OrderStatus.RECEIVED_AT_HUB },
+      }),
+      this.prisma.order.count({
+        where: { status: OrderStatus.CHECKING_AT_HUB },
+      }),
+      this.prisma.order.count({
+        where: { status: OrderStatus.VERIFIED_AT_HUB },
+      }),
+      this.prisma.order.count({
+        where: { status: OrderStatus.SHIPPED_TO_BUYER },
+      }),
 
       this.prisma.order.aggregate({
         where: { status: { in: REALIZED_ORDER_STATUSES } },
@@ -339,22 +356,37 @@ export class AdminDashboardService {
       this.prisma.order.count({ where: { createdAt: { gte: since } } }),
       this.prisma.user.count({ where: { lastLoginAt: { gte: since } } }),
       this.prisma.repairRequest.count({ where: { createdAt: { gte: since } } }),
-      this.prisma.wallet.aggregate({ _sum: { balanceAvailable: true, balanceBlocked: true } }),
+      this.prisma.wallet.aggregate({
+        _sum: { balanceAvailable: true, balanceBlocked: true },
+      }),
       this.prisma.order.aggregate({
-        where: { status: { in: REALIZED_ORDER_STATUSES }, createdAt: { gte: since } },
+        where: {
+          status: { in: REALIZED_ORDER_STATUSES },
+          createdAt: { gte: since },
+        },
         _sum: { platformFee: true },
       }),
       this.prisma.order.aggregate({
-        where: { requiresVerification: true, status: { in: REALIZED_ORDER_STATUSES }, createdAt: { gte: since } },
+        where: {
+          requiresVerification: true,
+          status: { in: REALIZED_ORDER_STATUSES },
+          createdAt: { gte: since },
+        },
         _sum: { verificationFee: true },
       }),
       this.prisma.walletTransaction.aggregate({
-        where: { type: WalletTransactionType.PENALTY, status: WalletTransactionStatus.SUCCESS, createdAt: { gte: since } },
+        where: {
+          type: WalletTransactionType.PENALTY,
+          status: WalletTransactionStatus.SUCCESS,
+          createdAt: { gte: since },
+        },
         _sum: { amount: true },
       }),
     ]);
 
-    const platformBalance = new Decimal(walletAgg._sum.balanceAvailable ?? 0).plus(walletAgg._sum.balanceBlocked ?? 0);
+    const platformBalance = new Decimal(
+      walletAgg._sum.balanceAvailable ?? 0,
+    ).plus(walletAgg._sum.balanceBlocked ?? 0);
     const blocked = new Decimal(walletAgg._sum.balanceBlocked ?? 0);
     const profit = new Decimal(profitAgg._sum.platformFee ?? 0)
       .plus(verificationAgg._sum.verificationFee ?? 0)
@@ -372,7 +404,9 @@ export class AdminDashboardService {
     };
   }
 
-  async getRevenueTimeseries(days = 30): Promise<
+  async getRevenueTimeseries(
+    days = 30,
+  ): Promise<
     Array<{ date: string; sales: number; commission: number; orders: number }>
   > {
     const safeDays = Math.max(1, Math.min(365, days));
@@ -441,9 +475,14 @@ export class AdminDashboardService {
       windowCount = all._count;
       series = await this.monthlySeriesAllTime();
     } else {
-      const since = startOfDay(new Date(now.getTime() - (windowDays - 1) * DAY_MS));
+      const since = startOfDay(
+        new Date(now.getTime() - (windowDays - 1) * DAY_MS),
+      );
       const orders = await this.prisma.order.findMany({
-        where: { createdAt: { gte: since }, status: { in: REALIZED_ORDER_STATUSES } },
+        where: {
+          createdAt: { gte: since },
+          status: { in: REALIZED_ORDER_STATUSES },
+        },
         select: { totalAmount: true, platformFee: true, createdAt: true },
       });
       const buckets = initDayBuckets(since, windowDays);
@@ -483,7 +522,10 @@ export class AdminDashboardService {
 
   private async sumProfit(since: Date): Promise<number> {
     const agg = await this.prisma.order.aggregate({
-      where: { createdAt: { gte: since }, status: { in: REALIZED_ORDER_STATUSES } },
+      where: {
+        createdAt: { gte: since },
+        status: { in: REALIZED_ORDER_STATUSES },
+      },
       _sum: { platformFee: true },
     });
     return new Decimal(agg._sum.platformFee ?? 0).toNumber();
@@ -497,10 +539,17 @@ export class AdminDashboardService {
     });
     if (orders.length === 0) return [];
 
-    const buckets = new Map<string, { profit: Decimal; sales: Decimal; orders: number }>();
+    const buckets = new Map<
+      string,
+      { profit: Decimal; sales: Decimal; orders: number }
+    >();
     for (const o of orders) {
       const key = o.createdAt.toISOString().slice(0, 7); // YYYY-MM
-      const b = buckets.get(key) ?? { profit: new Decimal(0), sales: new Decimal(0), orders: 0 };
+      const b = buckets.get(key) ?? {
+        profit: new Decimal(0),
+        sales: new Decimal(0),
+        orders: 0,
+      };
       b.profit = b.profit.plus(o.platformFee);
       b.sales = b.sales.plus(o.totalAmount);
       b.orders += 1;
@@ -534,21 +583,34 @@ function toDayKey(d: Date): string {
 }
 
 function initDayBuckets(since: Date, days: number) {
-  const map = new Map<string, { sales: Decimal; commission: Decimal; orders: number }>();
+  const map = new Map<
+    string,
+    { sales: Decimal; commission: Decimal; orders: number }
+  >();
   for (let i = 0; i < days; i++) {
     const d = new Date(since.getTime() + i * DAY_MS);
-    map.set(toDayKey(d), { sales: new Decimal(0), commission: new Decimal(0), orders: 0 });
+    map.set(toDayKey(d), {
+      sales: new Decimal(0),
+      commission: new Decimal(0),
+      orders: 0,
+    });
   }
   return map;
 }
 
 function rangeDays(range: ProfitRange): number | null {
   switch (range) {
-    case 'today': return 1;
-    case '7d': return 7;
-    case '30d': return 30;
-    case '90d': return 90;
-    case '365d': return 365;
-    case 'all': return null;
+    case 'today':
+      return 1;
+    case '7d':
+      return 7;
+    case '30d':
+      return 30;
+    case '90d':
+      return 90;
+    case '365d':
+      return 365;
+    case 'all':
+      return null;
   }
 }

@@ -34,10 +34,15 @@ export class ChatsController {
   @Post('message')
   async sendMessage(
     @CurrentUser() user: AuthenticatedUser,
-    @Body() body: { conversationId?: string; chatId?: string; content?: string },
+    @Body()
+    body: { conversationId?: string; chatId?: string; content?: string },
   ) {
     const conversationId = body.conversationId ?? body.chatId;
-    return this.chatsService.sendMessage(conversationId ?? '', user.id, body.content ?? '');
+    return this.chatsService.sendMessage(
+      conversationId ?? '',
+      user.id,
+      body.content ?? '',
+    );
   }
 
   @Post('conversations/:id/read')

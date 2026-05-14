@@ -45,7 +45,12 @@ export class AdminOrdersQueryController {
 
   @Patch(':id/status')
   updateStatus(@Param('id') id: string, @Body() dto: UpdateOrderStatusDto) {
-    return this.command.updateStatus(id, dto.status, dto.note, dto.rejectedReturnTrackingCode);
+    return this.command.updateStatus(
+      id,
+      dto.status,
+      dto.note,
+      dto.rejectedReturnTrackingCode,
+    );
   }
 
   @Patch(':id/exchange-hub-inspection')
@@ -57,10 +62,7 @@ export class AdminOrdersQueryController {
   }
 
   @Patch(':id/tracking-code')
-  setTrackingCode(
-    @Param('id') id: string,
-    @Body() dto: UpdateTrackingCodeDto,
-  ) {
+  setTrackingCode(@Param('id') id: string, @Body() dto: UpdateTrackingCodeDto) {
     return this.command.setTrackingCode(id, dto.trackingCode);
   }
 
@@ -89,10 +91,7 @@ export class AdminOrdersQueryController {
   }
 
   @Patch(':id/escrow')
-  resolveEscrow(
-    @Param('id') id: string,
-    @Body() dto: ResolveOrderEscrowDto,
-  ) {
+  resolveEscrow(@Param('id') id: string, @Body() dto: ResolveOrderEscrowDto) {
     return this.command.resolveEscrow(id, dto);
   }
 }

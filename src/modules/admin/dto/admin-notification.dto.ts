@@ -1,4 +1,13 @@
-import { IsArray, IsBoolean, IsNumber, IsOptional, IsString, MaxLength, MinLength, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsNumber,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 class SmsTemplateParameterDto {

@@ -1,4 +1,12 @@
-import { IsBoolean, IsEnum, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsIn,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import { OrderStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { IsNumber, Min } from 'class-validator';
@@ -118,7 +126,11 @@ export class FinalizeExchangeHubInspectionDto {
   offerItem!: ExchangeHubItemResult;
 
   @IsString()
-  @IsIn(['SHIP_TO_DESTINATIONS', 'RETURN_BOTH_TO_SENDERS', 'FINANCIAL_SETTLEMENT_THEN_SHIP'])
+  @IsIn([
+    'SHIP_TO_DESTINATIONS',
+    'RETURN_BOTH_TO_SENDERS',
+    'FINANCIAL_SETTLEMENT_THEN_SHIP',
+  ])
   resolution!: ExchangeHubResolution;
 
   @IsOptional()

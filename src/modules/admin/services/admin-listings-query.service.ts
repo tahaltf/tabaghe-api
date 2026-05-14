@@ -20,8 +20,12 @@ const LISTING_LIST_INCLUDE = {
       isVerified: true,
     },
   },
-  direct: { select: { price: true, allowExchange: true, shippingMethods: true } },
-  auction: { select: { basePrice: true, buyNowPrice: true, endDatetime: true } },
+  direct: {
+    select: { price: true, allowExchange: true, shippingMethods: true },
+  },
+  auction: {
+    select: { basePrice: true, buyNowPrice: true, endDatetime: true },
+  },
   exchange: {
     select: {
       desiredCategoryId: true,
@@ -36,7 +40,9 @@ const LISTING_LIST_INCLUDE = {
   },
 } satisfies Prisma.ListingInclude;
 
-export type AdminListingItem = Prisma.ListingGetPayload<{ include: typeof LISTING_LIST_INCLUDE }>;
+export type AdminListingItem = Prisma.ListingGetPayload<{
+  include: typeof LISTING_LIST_INCLUDE;
+}>;
 
 @Injectable()
 export class AdminListingsQueryService {
@@ -90,20 +96,39 @@ export class AdminListingsQueryService {
         city: { select: { id: true, name: true } },
         author: {
           select: {
-            id: true, firstName: true, lastName: true, phone: true,
-            email: true, avatar: true, isVerified: true,
+            id: true,
+            firstName: true,
+            lastName: true,
+            phone: true,
+            email: true,
+            avatar: true,
+            isVerified: true,
           },
         },
         direct: true,
         exchange: true,
         auction: {
           include: {
-            highestBidder: { select: { id: true, firstName: true, lastName: true, phone: true } },
+            highestBidder: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                phone: true,
+              },
+            },
             bids: {
               orderBy: { createdAt: 'desc' },
               take: 20,
               include: {
-                bidder: { select: { id: true, firstName: true, lastName: true, phone: true } },
+                bidder: {
+                  select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    phone: true,
+                  },
+                },
               },
             },
           },
@@ -111,7 +136,14 @@ export class AdminListingsQueryService {
         exchangeOffers: {
           orderBy: { createdAt: 'desc' },
           include: {
-            offerer: { select: { id: true, firstName: true, lastName: true, phone: true } },
+            offerer: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                phone: true,
+              },
+            },
           },
         },
         order: true,

@@ -18,11 +18,7 @@ import { AuthenticatedUser } from '../../shared/contracts/auth';
 import { nationalCardMulterOptions } from '../../common/upload/national-card-upload.config';
 import { CompleteProfileDto } from './dto/complete-profile.dto';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
-import {
-  DashboardStats,
-  MyProfile,
-  UsersService,
-} from './users.service';
+import { DashboardStats, MyProfile, UsersService } from './users.service';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard)
@@ -37,12 +33,16 @@ export class UsersController {
   @Get('dashboard-stats')
   @Header('Cache-Control', 'no-store, no-cache, must-revalidate')
   @Header('Pragma', 'no-cache')
-  getDashboardStats(@CurrentUser() user: AuthenticatedUser): Promise<DashboardStats> {
+  getDashboardStats(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<DashboardStats> {
     return this.usersService.getDashboardStats(user.id);
   }
 
   @Patch('complete-profile')
-  @UseInterceptors(FileInterceptor('nationalCardImage', nationalCardMulterOptions))
+  @UseInterceptors(
+    FileInterceptor('nationalCardImage', nationalCardMulterOptions),
+  )
   completeProfile(
     @CurrentUser() user: AuthenticatedUser,
     @UploadedFile() file: Express.Multer.File | undefined,
@@ -52,7 +52,9 @@ export class UsersController {
   }
 
   @Patch('settings')
-  @UseInterceptors(FileInterceptor('nationalCardImage', nationalCardMulterOptions))
+  @UseInterceptors(
+    FileInterceptor('nationalCardImage', nationalCardMulterOptions),
+  )
   updateSettings(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: UpdateSettingsDto,

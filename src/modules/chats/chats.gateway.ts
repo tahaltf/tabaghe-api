@@ -26,7 +26,9 @@ export class ChatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // احراز هویت سوکت با توکن JWT
   async handleConnection(client: Socket) {
     try {
-      const token = client.handshake.auth.token?.split(' ')[1] || client.handshake.headers.authorization?.split(' ')[1];
+      const token =
+        client.handshake.auth.token?.split(' ')[1] ||
+        client.handshake.headers.authorization?.split(' ')[1];
       if (!token) return client.disconnect();
 
       const payload = this.jwtService.verify(token, {
@@ -38,17 +40,20 @@ export class ChatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // کاربر را به اتاقی با نام ID خودش اضافه می‌کنیم تا پیام‌های خصوصی را دریافت کند
       client.join(userId);
-    } catch (err) {
+    } catch {
       client.disconnect();
     }
   }
 
-  handleDisconnect(client: Socket) {}
+  handleDisconnect(client: Socket) {
+    void client;
+  }
 
   @SubscribeMessage('sendMessage')
   async handleMessage(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: { conversationId: string; content: string; receiverId: string },
+    @MessageBody()
+    payload: { conversationId: string; content: string; receiverId: string },
   ) {
     const senderId = client.data.userId;
 

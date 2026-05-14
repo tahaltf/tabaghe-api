@@ -1,5 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { OrderType, Prisma, WalletTransactionStatus, WalletTransactionType } from '@prisma/client';
+import {
+  OrderType,
+  Prisma,
+  WalletTransactionStatus,
+  WalletTransactionType,
+} from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import {
   buildPaginationMeta,
@@ -17,13 +22,17 @@ const ORDER_LIST_INCLUDE = {
   },
 } satisfies Prisma.OrderInclude;
 
-export type AdminOrderItem = Prisma.OrderGetPayload<{ include: typeof ORDER_LIST_INCLUDE }>;
+export type AdminOrderItem = Prisma.OrderGetPayload<{
+  include: typeof ORDER_LIST_INCLUDE;
+}>;
 
 @Injectable()
 export class AdminOrdersQueryService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(query: AdminOrderListQueryDto): Promise<PaginatedResult<AdminOrderItem>> {
+  async list(
+    query: AdminOrderListQueryDto,
+  ): Promise<PaginatedResult<AdminOrderItem>> {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
     const skip = (page - 1) * pageSize;
@@ -80,7 +89,10 @@ export class AdminOrdersQueryService {
           : null,
     }));
 
-    return { items: items as AdminOrderItem[], pagination: buildPaginationMeta(page, pageSize, total) };
+    return {
+      items: items as AdminOrderItem[],
+      pagination: buildPaginationMeta(page, pageSize, total),
+    };
   }
 
   async detail(id: string) {
@@ -89,7 +101,11 @@ export class AdminOrdersQueryService {
       include: {
         listing: {
           select: {
-            id: true, title: true, type: true, thumbnail: true, gallery: true,
+            id: true,
+            title: true,
+            type: true,
+            thumbnail: true,
+            gallery: true,
             category: { select: { id: true, title: true } },
             direct: { select: { price: true } },
             auction: { select: { basePrice: true, highestBidAmount: true } },
@@ -97,14 +113,24 @@ export class AdminOrdersQueryService {
         },
         buyer: {
           select: {
-            id: true, firstName: true, lastName: true, phone: true, email: true,
-            nationalCode: true, avatar: true,
+            id: true,
+            firstName: true,
+            lastName: true,
+            phone: true,
+            email: true,
+            nationalCode: true,
+            avatar: true,
           },
         },
         seller: {
           select: {
-            id: true, firstName: true, lastName: true, phone: true, email: true,
-            shabaNumber: true, avatar: true,
+            id: true,
+            firstName: true,
+            lastName: true,
+            phone: true,
+            email: true,
+            shabaNumber: true,
+            avatar: true,
           },
         },
         reviews: true,
@@ -112,7 +138,10 @@ export class AdminOrdersQueryService {
     });
     if (!order) throw new NotFoundException('سفارش یافت نشد');
 
-    let exchangeOfferDetails: { extraPayment: number; isPayerMe: boolean } | null = null;
+    let exchangeOfferDetails: {
+      extraPayment: number;
+      isPayerMe: boolean;
+    } | null = null;
     let exchangeOffer: { title?: string | null } | null = null;
     if (order.type === OrderType.EXCHANGE && order.exchangeOfferId) {
       const offer = await this.prisma.exchangeOffer.findUnique({
@@ -130,12 +159,10 @@ export class AdminOrdersQueryService {
       }
     }
 
-    let exchangePaymentSources:
-      | {
-          buyer: 'GATEWAY' | 'WALLET' | 'UNKNOWN';
-          seller: 'GATEWAY' | 'WALLET' | 'UNKNOWN';
-        }
-      | null = null;
+    let exchangePaymentSources: {
+      buyer: 'GATEWAY' | 'WALLET' | 'UNKNOWN';
+      seller: 'GATEWAY' | 'WALLET' | 'UNKNOWN';
+    } | null = null;
     if (order.type === OrderType.EXCHANGE) {
       const inferred: {
         buyer: 'GATEWAY' | 'WALLET' | 'UNKNOWN';
@@ -178,6 +205,11 @@ export class AdminOrdersQueryService {
       exchangePaymentSources = inferred;
     }
 
-    return { ...order, exchangeOfferDetails, exchangeOffer, exchangePaymentSources };
+    return {
+      ...order,
+      exchangeOfferDetails,
+      exchangeOffer,
+      exchangePaymentSources,
+    };
   }
 }

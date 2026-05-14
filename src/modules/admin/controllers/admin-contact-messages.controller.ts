@@ -35,7 +35,12 @@ function parsePayload(raw: string | null | undefined): ContactMessagePayload {
   }
 }
 
-function serializeItem(item: { id: string; key: string; value: string | null; updatedAt: Date }) {
+function serializeItem(item: {
+  id: string;
+  key: string;
+  value: string | null;
+  updatedAt: Date;
+}) {
   const parsed = parsePayload(item.value);
   return {
     id: item.id,
@@ -58,7 +63,10 @@ export class AdminContactMessagesController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Get()
-  async list(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+  async list(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
     const p = Math.max(1, Number(page) || 1);
     const ps = Math.min(100, Math.max(1, Number(pageSize) || 20));
     const where = { key: { startsWith: 'CONTACT_MESSAGE_' } as any };
@@ -83,7 +91,12 @@ export class AdminContactMessagesController {
 
     return {
       items: items.map(serializeItem),
-      pagination: { page: p, pageSize: ps, total, totalPages: Math.max(1, Math.ceil(total / ps)) },
+      pagination: {
+        page: p,
+        pageSize: ps,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / ps)),
+      },
       stats: {
         total,
         unread: unreadCount,
@@ -92,8 +105,13 @@ export class AdminContactMessagesController {
   }
 
   @Patch(':id/read')
-  async toggleRead(@Param('id') id: string, @Body() body: { isRead?: boolean }) {
-    const existing = await this.prisma.systemSetting.findUnique({ where: { id } });
+  async toggleRead(
+    @Param('id') id: string,
+    @Body() body: { isRead?: boolean },
+  ) {
+    const existing = await this.prisma.systemSetting.findUnique({
+      where: { id },
+    });
     if (!existing || !existing.key.startsWith('CONTACT_MESSAGE_')) {
       throw new NotFoundException('پیام تماس یافت نشد');
     }
@@ -113,7 +131,9 @@ export class AdminContactMessagesController {
 
   @Delete(':id')
   async remove(@Param('id') id: string) {
-    const existing = await this.prisma.systemSetting.findUnique({ where: { id } });
+    const existing = await this.prisma.systemSetting.findUnique({
+      where: { id },
+    });
     if (!existing || !existing.key.startsWith('CONTACT_MESSAGE_')) {
       throw new NotFoundException('پیام تماس یافت نشد');
     }

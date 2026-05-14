@@ -30,15 +30,29 @@ export class OrderReputationService {
     if (order.tradeReputationAt) return;
 
     if (outcome === 'SUCCESS') {
-      await this.bumpUsers(tx, [order.buyerId, order.sellerId], TRADE_REPUTATION_SUCCESS_DELTA, 'cap');
+      await this.bumpUsers(
+        tx,
+        [order.buyerId, order.sellerId],
+        TRADE_REPUTATION_SUCCESS_DELTA,
+        'cap',
+      );
     } else {
-      if (!opts?.ignoreEarlyAbort && this.isEarlyAbortWithoutTrade(previousStatus)) return;
+      if (
+        !opts?.ignoreEarlyAbort &&
+        this.isEarlyAbortWithoutTrade(previousStatus)
+      )
+        return;
       const targets =
         opts?.failurePenalizeUserIds !== undefined
           ? opts.failurePenalizeUserIds
           : [order.buyerId, order.sellerId];
       if (targets.length > 0) {
-        await this.bumpUsers(tx, targets, -TRADE_REPUTATION_PENALTY_DELTA, 'floor');
+        await this.bumpUsers(
+          tx,
+          targets,
+          -TRADE_REPUTATION_PENALTY_DELTA,
+          'floor',
+        );
       }
     }
 
@@ -49,7 +63,9 @@ export class OrderReputationService {
   }
 
   private isEarlyAbortWithoutTrade(status: OrderStatus): boolean {
-    return status === OrderStatus.PENDING || status === OrderStatus.AWAITING_PAYMENT;
+    return (
+      status === OrderStatus.PENDING || status === OrderStatus.AWAITING_PAYMENT
+    );
   }
 
   private async bumpUsers(

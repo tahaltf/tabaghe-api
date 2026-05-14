@@ -33,4 +33,3 @@ export class PlatformCreditUserDto {
   @IsString()
   note?: string;
 }
-

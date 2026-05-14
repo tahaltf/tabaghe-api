@@ -29,7 +29,9 @@ const CATEGORY_SELECT = {
   _count: { select: { listings: true, children: true } },
 } satisfies Prisma.CategorySelect;
 
-export type AdminCategoryItem = Prisma.CategoryGetPayload<{ select: typeof CATEGORY_SELECT }>;
+export type AdminCategoryItem = Prisma.CategoryGetPayload<{
+  select: typeof CATEGORY_SELECT;
+}>;
 
 @Injectable()
 export class AdminCategoriesService {
@@ -140,7 +142,9 @@ export class AdminCategoriesService {
   }
 
   private async ensureParentExists(parentId: string): Promise<void> {
-    const parent = await this.prisma.category.findUnique({ where: { id: parentId } });
+    const parent = await this.prisma.category.findUnique({
+      where: { id: parentId },
+    });
     if (!parent) throw new BadRequestException('والد انتخاب‌شده یافت نشد');
   }
 }

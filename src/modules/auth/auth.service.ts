@@ -2,10 +2,7 @@ import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { User, UserRole, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import {
-  AuthSessionResponse,
-  JwtPayload,
-} from '../../shared/contracts/auth';
+import { AuthSessionResponse, JwtPayload } from '../../shared/contracts/auth';
 import { OtpIssueResult, OtpService } from './services/otp.service';
 import { TokenService } from './services/token.service';
 import { SmsService } from '../sms/sms.service';
@@ -58,7 +55,9 @@ export class AuthService {
     }
 
     if (user.role !== UserRole.ADMIN && user.role !== UserRole.GODADMIN) {
-      throw new UnauthorizedException('ورود با رمز عبور فقط برای ادمین مجاز است.');
+      throw new UnauthorizedException(
+        'ورود با رمز عبور فقط برای ادمین مجاز است.',
+      );
     }
 
     let isValid = false;
@@ -84,9 +83,12 @@ export class AuthService {
 
   async refresh(refreshToken: string): Promise<AuthSessionResponse> {
     const payload = this.tokenService.verifyRefresh(refreshToken);
-    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+    });
     if (!user) throw new UnauthorizedException('کاربر یافت نشد.');
-    if (!user.isActive) throw new UnauthorizedException('حساب کاربری غیرفعال است.');
+    if (!user.isActive)
+      throw new UnauthorizedException('حساب کاربری غیرفعال است.');
     return this.buildSession(user);
   }
 

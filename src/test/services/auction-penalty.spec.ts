@@ -23,7 +23,13 @@ describe.skip('Auction Penalty (integration — requires DB)', () => {
         WalletService,
         FeeCalculatorService,
         PrismaService,
-        { provide: AuctionGateway, useValue: { emitBidPlaced: jest.fn(), emitAuctionFinished: jest.fn() } },
+        {
+          provide: AuctionGateway,
+          useValue: {
+            emitBidPlaced: jest.fn(),
+            emitAuctionFinished: jest.fn(),
+          },
+        },
         { provide: EventEmitter2, useValue: { emit: jest.fn() } },
       ],
     }).compile();

@@ -26,14 +26,25 @@ import { OrdersQueryService } from './orders-query.service';
 const videoUploadConfig = {
   storage: diskStorage({
     destination: './uploads/orders/videos',
-    filename: (_req: unknown, file: Express.Multer.File, callback: (error: Error | null, filename: string) => void) => {
+    filename: (
+      _req: unknown,
+      file: Express.Multer.File,
+      callback: (error: Error | null, filename: string) => void,
+    ) => {
       const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
       callback(null, `video-${uniqueSuffix}${extname(file.originalname)}`);
     },
   }),
-  fileFilter: (_req: unknown, file: Express.Multer.File, callback: (error: Error | null, acceptFile: boolean) => void) => {
+  fileFilter: (
+    _req: unknown,
+    file: Express.Multer.File,
+    callback: (error: Error | null, acceptFile: boolean) => void,
+  ) => {
     if (!file.mimetype.match(/\/(mp4|mov|quicktime|x-msvideo|mpeg)$/)) {
-      return callback(new BadRequestException('فقط فایل‌های ویدیویی مجاز هستند'), false);
+      return callback(
+        new BadRequestException('فقط فایل‌های ویدیویی مجاز هستند'),
+        false,
+      );
     }
     callback(null, true);
   },
@@ -50,7 +61,10 @@ export class OrdersController {
 
   @Post()
   @UseGuards(IsVerifiedGuard)
-  createOrder(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateOrderDto) {
+  createOrder(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateOrderDto,
+  ) {
     return this.commandService.createOrder(user.id, dto);
   }
 
@@ -84,7 +98,10 @@ export class OrdersController {
   }
 
   @Get(':id')
-  getOrderById(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+  getOrderById(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
     return this.queryService.getOrderById(user.id, id);
   }
 
@@ -99,7 +116,12 @@ export class OrdersController {
     if (!trackingCode) {
       throw new BadRequestException('لطفا کد رهگیری را وارد کنید');
     }
-    return this.commandService.updateTrackingCode(user.id, id, trackingCode, video?.filename);
+    return this.commandService.updateTrackingCode(
+      user.id,
+      id,
+      trackingCode,
+      video?.filename,
+    );
   }
 
   @Patch(':id/return-shipping')
@@ -113,7 +135,12 @@ export class OrdersController {
     if (!trackingCode) {
       throw new BadRequestException('لطفا کد رهگیری را وارد کنید');
     }
-    return this.commandService.submitReturnTrackingCode(user.id, id, trackingCode, video?.filename);
+    return this.commandService.submitReturnTrackingCode(
+      user.id,
+      id,
+      trackingCode,
+      video?.filename,
+    );
   }
 
   @Patch(':id/confirm-return-receipt')
@@ -125,7 +152,10 @@ export class OrdersController {
   }
 
   @Patch(':id/confirm')
-  confirmOrderDelivery(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+  confirmOrderDelivery(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
     return this.commandService.confirmOrder(user.id, id);
   }
 
@@ -140,6 +170,11 @@ export class OrdersController {
     if (!reason || reason.trim().length < 5) {
       throw new BadRequestException('لطفاً دلیل مغایرت را کامل توضیح دهید.');
     }
-    return this.commandService.disputeOrder(user.id, id, reason, video?.filename);
+    return this.commandService.disputeOrder(
+      user.id,
+      id,
+      reason,
+      video?.filename,
+    );
   }
 }

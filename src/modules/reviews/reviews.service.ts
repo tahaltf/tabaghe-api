@@ -23,7 +23,9 @@ export class ReviewsService {
 
       // فقط برای سفارشات تحویل داده شده (موفق) امکان ثبت نظر وجود دارد
       if (order.status !== OrderStatus.DELIVERED) {
-        throw new BadRequestException('فقط برای سفارش‌های تحویل‌داده‌شده می‌توانید نظر ثبت کنید');
+        throw new BadRequestException(
+          'فقط برای سفارش‌های تحویل‌داده‌شده می‌توانید نظر ثبت کنید',
+        );
       }
 
       // ۲. تشخیص اینکه کاربر فرستنده کیست و گیرنده نظر کیست
@@ -31,7 +33,7 @@ export class ReviewsService {
       if (order.buyerId === userId) {
         revieweeId = order.sellerId; // خریدار دارد به فروشنده امتیاز می‌دهد
       } else if (order.sellerId === userId) {
-        revieweeId = order.buyerId;  // فروشنده دارد به خریدار امتیاز می‌دهد
+        revieweeId = order.buyerId; // فروشنده دارد به خریدار امتیاز می‌دهد
       } else {
         throw new ForbiddenException('شما طرف حساب این معامله نیستید');
       }
@@ -47,7 +49,9 @@ export class ReviewsService {
       });
 
       if (existingReview) {
-        throw new BadRequestException('شما قبلاً برای این معامله نظر خود را ثبت کرده‌اید');
+        throw new BadRequestException(
+          'شما قبلاً برای این معامله نظر خود را ثبت کرده‌اید',
+        );
       }
 
       // ۴. ثبت نظر جدید
@@ -67,7 +71,9 @@ export class ReviewsService {
         _avg: { rating: true },
       });
 
-      const newAverage = aggregates._avg.rating ? Number(aggregates._avg.rating.toFixed(1)) : dto.rating;
+      const newAverage = aggregates._avg.rating
+        ? Number(aggregates._avg.rating.toFixed(1))
+        : dto.rating;
 
       await tx.user.update({
         where: { id: revieweeId },
@@ -87,7 +93,9 @@ export class ReviewsService {
       this.prisma.review.findMany({
         where: { revieweeId: userId },
         include: {
-          reviewer: { select: { firstName: true, lastName: true, avatar: true } },
+          reviewer: {
+            select: { firstName: true, lastName: true, avatar: true },
+          },
           order: {
             include: { listing: { select: { title: true, type: true } } },
           },
@@ -116,8 +124,8 @@ export class ReviewsService {
       include: {
         reviewee: { select: { firstName: true, lastName: true, avatar: true } },
         order: {
-          include: { listing: { select: { title: true } } }
-        }
+          include: { listing: { select: { title: true } } },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });

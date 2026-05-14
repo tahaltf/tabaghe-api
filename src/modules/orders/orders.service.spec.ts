@@ -9,7 +9,13 @@ import { PaymentsService } from '../payments/payments.service';
 import { NotificationService } from '../notification/notification.service';
 import { OrderReputationService } from './order-reputation.service';
 import { ExchangeService } from '../exchange/exchange.service';
-import { ListingStatus, OrderStatus, OrderType, WalletTransactionStatus, WalletTransactionType } from '@prisma/client';
+import {
+  ListingStatus,
+  OrderStatus,
+  OrderType,
+  WalletTransactionStatus,
+  WalletTransactionType,
+} from '@prisma/client';
 
 describe('OrdersService', () => {
   let service: OrdersService;
@@ -25,7 +31,10 @@ describe('OrdersService', () => {
     refundExchangeExtraOnCancel: jest.fn(),
   };
   const feeMock = {};
-  const appSettingsMock = { getApiUrl: jest.fn(), getPaymentGatewayConfig: jest.fn() };
+  const appSettingsMock = {
+    getApiUrl: jest.fn(),
+    getPaymentGatewayConfig: jest.fn(),
+  };
   const paymentsMock = { initiateOrderPayment: jest.fn() };
   const notificationMock = { create: jest.fn() };
   const orderReputationMock = { recordTerminalOutcome: jest.fn() };
@@ -94,14 +103,18 @@ describe('OrdersService', () => {
         }),
       },
       wallet: {
-        findUnique: jest.fn().mockImplementation(async ({ where }: { where: { userId: string } }) => {
-          if (where.userId === 'buyer-1') return { balanceBlocked: 500 };
-          return { balanceBlocked: 0 };
-        }),
+        findUnique: jest
+          .fn()
+          .mockImplementation(
+            async ({ where }: { where: { userId: string } }) => {
+              if (where.userId === 'buyer-1') return { balanceBlocked: 500 };
+              return { balanceBlocked: 0 };
+            },
+          ),
       },
     };
-    prismaMock.$transaction.mockImplementation(async (cb: (trx: typeof tx) => Promise<unknown>) =>
-      cb(tx),
+    prismaMock.$transaction.mockImplementation(
+      async (cb: (trx: typeof tx) => Promise<unknown>) => cb(tx),
     );
 
     await service.confirmOrder('buyer-1', 'ord-1');
@@ -164,12 +177,14 @@ describe('OrdersService', () => {
         update: jest.fn().mockResolvedValue({}),
       },
       listing: {
-        update: jest.fn().mockResolvedValue({ id: listingId, status: ListingStatus.APPROVED }),
+        update: jest
+          .fn()
+          .mockResolvedValue({ id: listingId, status: ListingStatus.APPROVED }),
       },
     };
 
-    prismaMock.$transaction.mockImplementation(async (cb: (trx: typeof tx) => Promise<unknown>) =>
-      cb(tx),
+    prismaMock.$transaction.mockImplementation(
+      async (cb: (trx: typeof tx) => Promise<unknown>) => cb(tx),
     );
 
     walletMock.refundExchangeExtraOnCancel.mockResolvedValue(undefined);
@@ -280,8 +295,8 @@ describe('OrdersService', () => {
       },
     };
 
-    prismaMock.$transaction.mockImplementation(async (cb: (trx: typeof tx) => Promise<unknown>) =>
-      cb(tx),
+    prismaMock.$transaction.mockImplementation(
+      async (cb: (trx: typeof tx) => Promise<unknown>) => cb(tx),
     );
     walletMock.releaseEscrow.mockResolvedValue(undefined);
     orderReputationMock.recordTerminalOutcome.mockResolvedValue(undefined);
@@ -342,7 +357,11 @@ describe('OrdersService', () => {
       prismaMock.order.update = jest.fn();
 
       await expect(
-        service.updateTrackingCode('seller-1', 'ord-1', '123456789012345678901234'),
+        service.updateTrackingCode(
+          'seller-1',
+          'ord-1',
+          '123456789012345678901234',
+        ),
       ).rejects.toThrow('ویدیوی بسته‌بندی کالا الزامی است');
     });
 

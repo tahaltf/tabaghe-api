@@ -8,7 +8,9 @@ import {
 
 const SAVED_LISTING_INCLUDE = {
   category: { select: { id: true, title: true, slug: true } },
-  author: { select: { id: true, firstName: true, lastName: true, avatar: true } },
+  author: {
+    select: { id: true, firstName: true, lastName: true, avatar: true },
+  },
   direct: { select: { price: true, allowExchange: true } },
   auction: {
     select: {
@@ -20,7 +22,9 @@ const SAVED_LISTING_INCLUDE = {
   },
 } satisfies Prisma.ListingInclude;
 
-export type SavedListing = Prisma.ListingGetPayload<{ include: typeof SAVED_LISTING_INCLUDE }>;
+export type SavedListing = Prisma.ListingGetPayload<{
+  include: typeof SAVED_LISTING_INCLUDE;
+}>;
 
 @Injectable()
 export class ListingSavedService {
@@ -48,7 +52,7 @@ export class ListingSavedService {
     const skip = (page - 1) * pageSize;
 
     const where = { userId };
-    const [rows, total] = await this.prisma.$transaction([
+    const [rows, total] = await Promise.all([
       this.prisma.savedListing.findMany({
         where,
         include: { listing: { include: SAVED_LISTING_INCLUDE } },
@@ -65,7 +69,10 @@ export class ListingSavedService {
     };
   }
 
-  async isSaved(userId: string, listingId: string): Promise<{ saved: boolean }> {
+  async isSaved(
+    userId: string,
+    listingId: string,
+  ): Promise<{ saved: boolean }> {
     const existing = await this.prisma.savedListing.findUnique({
       where: { userId_listingId: { userId, listingId } },
       select: { id: true },

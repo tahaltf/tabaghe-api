@@ -12,7 +12,10 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
+import {
+  FileFieldsInterceptor,
+  FileInterceptor,
+} from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../shared/contracts/auth';
@@ -59,7 +62,12 @@ export class RepairController {
     @Body() dto: SubmitRepairDto,
     @UploadedFiles() files: RepairFiles = {},
   ) {
-    return this.service.submit(user.id, dto, files.images ?? [], files.videos ?? []);
+    return this.service.submit(
+      user.id,
+      dto,
+      files.images ?? [],
+      files.videos ?? [],
+    );
   }
 
   @Get('me')
@@ -98,7 +106,13 @@ export class RepairController {
     @Body() dto: SubmitRepairDto,
     @UploadedFiles() files: RepairFiles = {},
   ) {
-    return this.service.edit(user.id, id, dto, files.images ?? [], files.videos ?? []);
+    return this.service.edit(
+      user.id,
+      id,
+      dto,
+      files.images ?? [],
+      files.videos ?? [],
+    );
   }
 
   @Patch(':id/select-slot')

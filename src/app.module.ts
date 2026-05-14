@@ -45,7 +45,7 @@ import { ChatsModule } from './modules/chats/chats.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { AddressModule } from './modules/address/address.module';
 import { HealthModule } from './modules/health/health.module';
-import { ReviewsModule } from "./modules/reviews/reviews.module"; // 👈 باید ماژول هلث داشته باشی، نه فقط کنترلر
+import { ReviewsModule } from './modules/reviews/reviews.module'; // 👈 باید ماژول هلث داشته باشی، نه فقط کنترلر
 import { AdminModule } from './modules/admin/admin.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 

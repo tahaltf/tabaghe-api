@@ -1,4 +1,8 @@
-import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -92,7 +96,8 @@ export class SmsService {
 
       const status = Number(response.data?.status);
       if (status !== 1) {
-        const message = response.data?.message || 'SMS.IR returned non-success status';
+        const message =
+          response.data?.message || 'SMS.IR returned non-success status';
         this.logger.warn(
           `SMS.IR rejected template ${templateId} for ${phone}: ${message}`,
         );
@@ -115,13 +120,15 @@ export class SmsService {
   async sendOtp(phone: string, code: string) {
     const tidRaw = await this.resolveSetting(SMS_SETTING_KEYS.OTP_TEMPLATE_ID);
     const templateId = Number.parseInt(tidRaw ?? '', 10);
-    const templateIdFinal = Number.isFinite(templateId) && templateId > 0
-      ? templateId
-      : DEFAULT_OTP_TEMPLATE_ID;
+    const templateIdFinal =
+      Number.isFinite(templateId) && templateId > 0
+        ? templateId
+        : DEFAULT_OTP_TEMPLATE_ID;
 
     const paramName =
-      (await this.resolveSetting(SMS_SETTING_KEYS.OTP_CODE_PARAMETER_NAME))?.trim() ||
-      DEFAULT_OTP_CODE_PARAMETER;
+      (
+        await this.resolveSetting(SMS_SETTING_KEYS.OTP_CODE_PARAMETER_NAME)
+      )?.trim() || DEFAULT_OTP_CODE_PARAMETER;
 
     return this.sendByTemplate(phone, templateIdFinal, [
       { name: paramName, value: code },
@@ -149,9 +156,10 @@ export class SmsService {
       SMS_SETTING_KEYS.ADMIN_LOGIN_ALERT_TEMPLATE_ID,
     );
     const templateId = Number.parseInt(tidRaw ?? '', 10);
-    const templateIdFinal = Number.isFinite(templateId) && templateId > 0
-      ? templateId
-      : DEFAULT_ADMIN_LOGIN_TEMPLATE_ID;
+    const templateIdFinal =
+      Number.isFinite(templateId) && templateId > 0
+        ? templateId
+        : DEFAULT_ADMIN_LOGIN_TEMPLATE_ID;
 
     const paramName =
       (

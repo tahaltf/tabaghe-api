@@ -5,7 +5,6 @@ import {
 } from '@nestjs/common';
 import {
   DisputeOutcome,
-  ListingStatus,
   OrderStatus,
   Prisma,
   TicketStatus,
@@ -80,10 +79,7 @@ export class AdminDisputesService {
     const skip = (page - 1) * pageSize;
 
     const where: Prisma.OrderWhereInput = {
-      OR: [
-        { status: OrderStatus.DISPUTED },
-        { disputeReason: { not: null } },
-      ],
+      OR: [{ status: OrderStatus.DISPUTED }, { disputeReason: { not: null } }],
     };
 
     if (query.resolution === 'OPEN') {
@@ -110,9 +106,7 @@ export class AdminDisputesService {
 
     const dir: 'asc' | 'desc' = query.sortDir === 'asc' ? 'asc' : 'desc';
     const orderBy: Prisma.OrderOrderByWithRelationInput =
-      query.sortBy === 'createdAt'
-        ? { createdAt: dir }
-        : { disputedAt: dir };
+      query.sortBy === 'createdAt' ? { createdAt: dir } : { disputedAt: dir };
 
     const [items, total] = await Promise.all([
       this.prisma.order.findMany({
@@ -179,7 +173,6 @@ export class AdminDisputesService {
         throw new BadRequestException('وضعیت سفارش برای حل شکایت مناسب نیست');
       }
 
-      const total = Number(order.totalAmount);
       const sellerRevenue = Number(order.sellerRevenue);
 
       switch (dto.outcome) {
@@ -264,7 +257,10 @@ export class AdminDisputesService {
           break;
         }
         case DisputeOutcome.PARTIAL_REFUND: {
-          const refund = Math.max(0, Math.min(sellerRevenue, dto.refundToBuyer ?? 0));
+          const refund = Math.max(
+            0,
+            Math.min(sellerRevenue, dto.refundToBuyer ?? 0),
+          );
           if (refund > 0) {
             const buyerWallet = await tx.wallet.upsert({
               where: { userId: order.buyerId },

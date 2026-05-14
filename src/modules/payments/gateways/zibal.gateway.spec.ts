@@ -11,7 +11,9 @@ describe('ZibalGateway', () => {
       requestUrl: 'https://gateway.zibal.ir/v1/request',
       verifyUrl: 'https://gateway.zibal.ir/v1/verify',
     }),
-    buildZibalStartPayUrl: jest.fn((trackId: string) => `https://gateway.zibal.ir/start/${trackId}`),
+    buildZibalStartPayUrl: jest.fn(
+      (trackId: string) => `https://gateway.zibal.ir/start/${trackId}`,
+    ),
   };
 
   const gateway = new ZibalGateway(appSettingsMock as any);
@@ -34,7 +36,10 @@ describe('ZibalGateway', () => {
       mobile: '09120000000',
     });
 
-    const payload = mockedAxios.post.mock.calls[0][1] as Record<string, unknown>;
+    const payload = mockedAxios.post.mock.calls[0][1] as Record<
+      string,
+      unknown
+    >;
     expect(payload.amount).toBe(500000);
   });
 
@@ -53,7 +58,12 @@ describe('ZibalGateway', () => {
 
   it('verifies when gateway returns amount as numeric string (rial)', async () => {
     mockedAxios.post.mockResolvedValueOnce({
-      data: { result: 100, amount: '250000', refNumber: 'ref-1', message: 'ok' },
+      data: {
+        result: 100,
+        amount: '250000',
+        refNumber: 'ref-1',
+        message: 'ok',
+      },
     } as any);
 
     const result = await gateway.verifyPayment({

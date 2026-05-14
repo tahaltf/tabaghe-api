@@ -86,7 +86,10 @@ export class ListingController {
 
   @UseGuards(JwtAuthGuard)
   @Get(':id/is-saved')
-  checkIsSaved(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+  checkIsSaved(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.savedService.isSaved(user.id, id);
   }
 
@@ -110,10 +113,7 @@ export class ListingController {
 
   @UseGuards(JwtAuthGuard)
   @Post(':id/save')
-  toggleSave(
-    @Param('id') id: string,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
+  toggleSave(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.savedService.toggle(user.id, id);
   }
 
@@ -126,7 +126,9 @@ export class ListingController {
   ) {
     const listing = await this.queryService.findOne(id);
     if (listing.authorId === user.id) {
-      throw new ForbiddenException('شما نمی‌توانید در مزایده آگهی خودتان شرکت کنید');
+      throw new ForbiddenException(
+        'شما نمی‌توانید در مزایده آگهی خودتان شرکت کنید',
+      );
     }
     return this.auctionService.placeBid(user.id, id, body.amount);
   }

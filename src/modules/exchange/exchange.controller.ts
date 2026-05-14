@@ -9,11 +9,11 @@ import {
   UploadedFiles,
   UseGuards,
   UseInterceptors,
-} from "@nestjs/common";
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ExchangeService } from './exchange.service';
 import { CreateExchangeOfferDto } from './create-exchange-offer.dto';
-import { FilesInterceptor } from "@nestjs/platform-express";
+import { FilesInterceptor } from '@nestjs/platform-express';
 import { listingImagesMulterOptions } from '../../common/upload/listing-images-upload.config';
 
 @Controller('exchange')

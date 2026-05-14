@@ -1,9 +1,20 @@
-import { BadRequestException, Body, Controller, Get, Patch, Query, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Patch,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
-import { PlatformCreditUserDto, PlatformProfitWithdrawDto } from '../dto/admin-platform-wallet.dto';
+import {
+  PlatformCreditUserDto,
+  PlatformProfitWithdrawDto,
+} from '../dto/admin-platform-wallet.dto';
 import { AdminPlatformWalletService } from '../services/admin-platform-wallet.service';
 
 @Controller('admin/platform-wallet')
@@ -24,7 +35,12 @@ export class AdminPlatformWalletController {
 
   @Patch('credit-user')
   creditUser(@Body() dto: PlatformCreditUserDto) {
-    return this.service.creditUser(dto.userId, dto.amount, dto.source, dto.note);
+    return this.service.creditUser(
+      dto.userId,
+      dto.amount,
+      dto.source,
+      dto.note,
+    );
   }
 
   @Get('history')
@@ -36,7 +52,13 @@ export class AdminPlatformWalletController {
     @Query('side') side?: string,
     @Query('source') source?: string,
   ) {
-    const r = (range ?? '30d') as 'today' | '7d' | '30d' | '90d' | '365d' | 'all';
+    const r = (range ?? '30d') as
+      | 'today'
+      | '7d'
+      | '30d'
+      | '90d'
+      | '365d'
+      | 'all';
     const allowed = new Set(['today', '7d', '30d', '90d', '365d', 'all']);
     if (!allowed.has(r)) {
       throw new BadRequestException('بازه تاریخچه سود نامعتبر است');
@@ -55,4 +77,3 @@ export class AdminPlatformWalletController {
     });
   }
 }
-

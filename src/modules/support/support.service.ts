@@ -1,10 +1,7 @@
-import {
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { NotificationType, UserRole } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { CreateTicketDto } from "./dto/create-ticket.dto";
+import { CreateTicketDto } from './dto/create-ticket.dto';
 import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
@@ -40,7 +37,7 @@ export class SupportService {
     const skip = (page - 1) * pageSize;
 
     const where = { userId };
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await Promise.all([
       this.prisma.ticket.findMany({
         where,
         skip,
@@ -80,7 +77,7 @@ export class SupportService {
   async sendMessage(ticketId: string, userId: string, message: string) {
     // ابتدا مطمئن می‌شویم تیکت متعلق به همین کاربر است
     const ticket = await this.prisma.ticket.findFirst({
-      where: { id: ticketId, userId }
+      where: { id: ticketId, userId },
     });
 
     if (!ticket) throw new NotFoundException('تیکت یافت نشد');

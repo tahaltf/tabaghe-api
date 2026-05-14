@@ -7,14 +7,14 @@ import { ConfigModule } from '@nestjs/config'; // 👈 اضافه شد برای 
 import { SmsService } from '../sms/sms.service';
 
 @Module({
-    imports: [ConfigModule],
-    controllers: [NotificationController], // 👈 اضافه شد
-    providers: [
-        PrismaService,
-        SmsService,
-        NotificationService,
-        NotificationListener,
-    ],
-    exports: [NotificationService]
+  imports: [ConfigModule],
+  controllers: [NotificationController], // 👈 اضافه شد
+  providers: [
+    PrismaService,
+    SmsService,
+    NotificationService,
+    NotificationListener,
+  ],
+  exports: [NotificationService],
 })
 export class NotificationModule {}

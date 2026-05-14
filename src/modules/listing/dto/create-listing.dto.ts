@@ -32,7 +32,12 @@ const toBoolean = ({
   obj: unknown;
 }): boolean => {
   let raw: unknown = value;
-  if (obj && typeof obj === 'object' && !Array.isArray(obj) && !(obj instanceof Date)) {
+  if (
+    obj &&
+    typeof obj === 'object' &&
+    !Array.isArray(obj) &&
+    !(obj instanceof Date)
+  ) {
     const o = obj as Record<string, unknown>;
     if (Object.prototype.hasOwnProperty.call(o, key)) {
       raw = o[key];
@@ -136,7 +141,10 @@ class AuctionPayloadDto {
 }
 
 /** تبدیل به نمونهٔ کلاس برای ValidateNested + forbidNonWhitelisted در multipart */
-function toNested<T extends object>(Cls: new () => T, value: unknown): T | unknown {
+function toNested<T extends object>(
+  Cls: new () => T,
+  value: unknown,
+): T | unknown {
   let raw = value;
   if (typeof raw === 'string') {
     try {
@@ -146,14 +154,19 @@ function toNested<T extends object>(Cls: new () => T, value: unknown): T | unkno
     }
   }
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    return plainToInstance(Cls, raw as object, { enableImplicitConversion: true });
+    return plainToInstance(Cls, raw as object, {
+      enableImplicitConversion: true,
+    });
   }
   return raw;
 }
 
-const transformDirect = ({ value }: { value: unknown }) => toNested(DirectPayloadDto, value);
-const transformExchange = ({ value }: { value: unknown }) => toNested(ExchangePayloadDto, value);
-const transformAuction = ({ value }: { value: unknown }) => toNested(AuctionPayloadDto, value);
+const transformDirect = ({ value }: { value: unknown }) =>
+  toNested(DirectPayloadDto, value);
+const transformExchange = ({ value }: { value: unknown }) =>
+  toNested(ExchangePayloadDto, value);
+const transformAuction = ({ value }: { value: unknown }) =>
+  toNested(AuctionPayloadDto, value);
 
 export class CreateListingDto {
   @IsEnum(ListingType)

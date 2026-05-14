@@ -54,10 +54,7 @@ export class FeeCalculatorService {
         OR: [{ categoryId: categoryId }, { categoryId: null }],
         minPrice: { lte: targetAmount.toString() },
       },
-      orderBy: [
-        { categoryId: 'desc' },
-        { minPrice: 'desc' },
-      ],
+      orderBy: [{ categoryId: 'desc' }, { minPrice: 'desc' }],
     });
 
     if (rules.length === 0) {
@@ -153,7 +150,9 @@ export class FeeCalculatorService {
       discountAmount: discountAmount.toString(),
       planTitle: discount.planTitle,
       planId: discount.planId,
-      planExpiresAt: discount.expiresAt ? discount.expiresAt.toISOString() : null,
+      planExpiresAt: discount.expiresAt
+        ? discount.expiresAt.toISOString()
+        : null,
     };
   }
 }

@@ -14,7 +14,13 @@ import { ListingAdminService } from './services/listing-admin.service';
 import { ListingSearchService } from './listing-search.service';
 
 @Module({
-  imports: [PrismaModule, QuotaModule, AuctionModule, ExchangeModule, NotificationModule],
+  imports: [
+    PrismaModule,
+    QuotaModule,
+    AuctionModule,
+    ExchangeModule,
+    NotificationModule,
+  ],
   controllers: [
     ListingController,
     ListingAdminController,

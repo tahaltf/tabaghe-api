@@ -2,6 +2,11 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// منبع حقیقت مدل داده: همین فایل + پوشهٔ prisma/migrations.
+// — هم‌خوانی دیتابیس با اسکیما: فقط `npx prisma migrate deploy` (SQL اجرا می‌کند؛ Prisma Client را دوباره نمی‌سازد).
+// — به‌روز کردن TypeScript client بعد از تغییر schema.prisma: دستی `npx prisma generate` (یا بیلد Docker/CI).
+// — از `prisma db pull` / `db push` برای «سینک روزمره» در پروداکشن استفاده نکنید؛ اسکیما را با migration نگه دارید.
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")

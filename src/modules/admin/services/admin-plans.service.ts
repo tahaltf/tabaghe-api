@@ -6,17 +6,25 @@ import {
 } from '@nestjs/common';
 import { ListingType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
-import { CreatePlanDto, PlanRuleDto, UpdatePlanDto } from '../dto/admin-plan.dto';
+import {
+  CreatePlanDto,
+  PlanRuleDto,
+  UpdatePlanDto,
+} from '../dto/admin-plan.dto';
 
 const PLAN_INCLUDE = {
   rules: true,
   _count: { select: { purchases: true } },
 } satisfies Prisma.PlanInclude;
 
-export type AdminPlanItem = Prisma.PlanGetPayload<{ include: typeof PLAN_INCLUDE }>;
+export type AdminPlanItem = Prisma.PlanGetPayload<{
+  include: typeof PLAN_INCLUDE;
+}>;
 
 /** چند ردیف با یک نوع آگهی را به یک ردیف با جمع تعداد تبدیل می‌کند (مطابق @@unique([planId, type])). */
-function mergeRulesByType(rules: PlanRuleDto[]): Array<{ type: ListingType; count: number }> {
+function mergeRulesByType(
+  rules: PlanRuleDto[],
+): Array<{ type: ListingType; count: number }> {
   const map = new Map<ListingType, number>();
   for (const r of rules) {
     const n = Math.max(0, Math.floor(Number(r.count) || 0));
@@ -48,7 +56,9 @@ export class AdminPlansService {
   async create(dto: CreatePlanDto): Promise<AdminPlanItem> {
     const merged = mergeRulesByType(dto.rules);
     if (merged.length === 0) {
-      throw new BadRequestException('حداقل یک قاعدهٔ سهمیه با تعداد معتبر لازم است');
+      throw new BadRequestException(
+        'حداقل یک قاعدهٔ سهمیه با تعداد معتبر لازم است',
+      );
     }
     return this.prisma.plan.create({
       data: {
@@ -88,15 +98,24 @@ export class AdminPlansService {
       if (dto.rules && dto.rules.length > 0) {
         const merged = mergeRulesByType(dto.rules);
         if (merged.length === 0) {
-          throw new BadRequestException('حداقل یک قاعدهٔ سهمیه با تعداد معتبر لازم است');
+          throw new BadRequestException(
+            'حداقل یک قاعدهٔ سهمیه با تعداد معتبر لازم است',
+          );
         }
         await tx.planRule.deleteMany({ where: { planId: id } });
         await tx.planRule.createMany({
-          data: merged.map((r) => ({ planId: id, type: r.type, count: r.count })),
+          data: merged.map((r) => ({
+            planId: id,
+            type: r.type,
+            count: r.count,
+          })),
         });
       }
 
-      return tx.plan.findUniqueOrThrow({ where: { id }, include: PLAN_INCLUDE });
+      return tx.plan.findUniqueOrThrow({
+        where: { id },
+        include: PLAN_INCLUDE,
+      });
     });
   }
 
@@ -107,7 +126,9 @@ export class AdminPlansService {
     });
     if (!plan) throw new NotFoundException('پلن یافت نشد');
     if (plan._count.purchases > 0) {
-      throw new ConflictException('این پلن خریداری شده و قابل حذف نیست؛ آن را غیرفعال کنید');
+      throw new ConflictException(
+        'این پلن خریداری شده و قابل حذف نیست؛ آن را غیرفعال کنید',
+      );
     }
     await this.prisma.plan.delete({ where: { id } });
     return { id };

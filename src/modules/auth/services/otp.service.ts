@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OtpPurpose } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
@@ -29,7 +25,10 @@ export class OtpService {
     private readonly configService: ConfigService,
   ) {}
 
-  async issue(phone: string, purpose: OtpPurpose = OtpPurpose.LOGIN): Promise<OtpIssueResult> {
+  async issue(
+    phone: string,
+    purpose: OtpPurpose = OtpPurpose.LOGIN,
+  ): Promise<OtpIssueResult> {
     await this.enforceCooldown(phone);
 
     const code = this.generateCode(phone);
@@ -52,7 +51,8 @@ export class OtpService {
       await this.smsService.sendOtp(phone, code);
       return { sent: true };
     } catch (error) {
-      const isProd = this.configService.get<string>('NODE_ENV') === 'production';
+      const isProd =
+        this.configService.get<string>('NODE_ENV') === 'production';
       if (isProd) throw error;
       this.logger.warn(
         `SMS provider failed in dev, code available in logs. err=${

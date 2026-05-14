@@ -52,7 +52,13 @@ import { AdminBadgesService } from './services/admin-badges.service';
 import { OrdersModule } from '../orders/orders.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, NotificationModule, FeesModule, OrdersModule],
+  imports: [
+    PrismaModule,
+    AuthModule,
+    NotificationModule,
+    FeesModule,
+    OrdersModule,
+  ],
   controllers: [
     AdminDashboardController,
     AdminUsersQueryController,

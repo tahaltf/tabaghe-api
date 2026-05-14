@@ -1,5 +1,17 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { ListingType, Prisma, QuotaAction, QuotaReason, UserRole, UserStatus } from '@prisma/client';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  ListingType,
+  Prisma,
+  QuotaAction,
+  QuotaReason,
+  UserRole,
+  UserStatus,
+} from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import {
@@ -44,8 +56,12 @@ const USER_DETAIL_INCLUDE = {
   },
 } satisfies Prisma.UserInclude;
 
-export type AdminUserListItemRaw = Prisma.UserGetPayload<{ select: typeof USER_LIST_SELECT }>;
-export type AdminUserDetail = Prisma.UserGetPayload<{ include: typeof USER_DETAIL_INCLUDE }>;
+export type AdminUserListItemRaw = Prisma.UserGetPayload<{
+  select: typeof USER_LIST_SELECT;
+}>;
+export type AdminUserDetail = Prisma.UserGetPayload<{
+  include: typeof USER_DETAIL_INCLUDE;
+}>;
 
 export interface AdminUserPlanInfo {
   id: string;
@@ -64,7 +80,13 @@ export interface AdminUserListItem extends AdminUserListItemRaw {
 }
 export interface AdminUserActivityItem {
   id: string;
-  kind: 'LISTING' | 'ORDER_BUY' | 'ORDER_SELL' | 'TICKET' | 'EXCHANGE_OFFER' | 'AUCTION_BID';
+  kind:
+    | 'LISTING'
+    | 'ORDER_BUY'
+    | 'ORDER_SELL'
+    | 'TICKET'
+    | 'EXCHANGE_OFFER'
+    | 'AUCTION_BID';
   title: string;
   subtitle: string;
   createdAt: Date;
@@ -101,7 +123,10 @@ export class AdminUsersQueryService {
       ];
     }
 
-    const orderBy: Prisma.UserOrderByWithRelationInput = this.buildOrderBy(query.sortBy, query.sortDir);
+    const orderBy: Prisma.UserOrderByWithRelationInput = this.buildOrderBy(
+      query.sortBy,
+      query.sortDir,
+    );
 
     const [rawItems, total] = await Promise.all([
       this.prisma.user.findMany({
@@ -149,7 +174,10 @@ export class AdminUsersQueryService {
       if (result.has(p.userId)) continue; // اولین پلن فعال (با نزدیک‌ترین انقضا) را نگه می‌داریم
       const expiresAt = p.expiresAt ?? null;
       const daysRemaining = expiresAt
-        ? Math.max(0, Math.ceil((expiresAt.getTime() - now.getTime()) / 86400000))
+        ? Math.max(
+            0,
+            Math.ceil((expiresAt.getTime() - now.getTime()) / 86400000),
+          )
         : null;
       result.set(p.userId, {
         id: p.id,
@@ -173,7 +201,11 @@ export class AdminUsersQueryService {
     actor: AuthenticatedUser,
     userId: string,
   ): Promise<{
-    activePurchases: Array<AdminUserPlanInfo & { plan: { id: string; title: string; price: string | number } }>;
+    activePurchases: Array<
+      AdminUserPlanInfo & {
+        plan: { id: string; title: string; price: string | number };
+      }
+    >;
     history: Array<{
       id: string;
       planTitle: string;
@@ -207,7 +239,10 @@ export class AdminUsersQueryService {
       .map((p) => {
         const expiresAt = p.expiresAt ?? null;
         const daysRemaining = expiresAt
-          ? Math.max(0, Math.ceil((expiresAt.getTime() - now.getTime()) / 86400000))
+          ? Math.max(
+              0,
+              Math.ceil((expiresAt.getTime() - now.getTime()) / 86400000),
+            )
           : null;
         return {
           id: p.id,
@@ -271,7 +306,9 @@ export class AdminUsersQueryService {
     const setting = await this.prisma.systemSetting.findUnique({
       where: { key: 'FREE_DIRECT_QUOTA' },
     });
-    const freeLimit = setting ? Math.max(0, Math.floor(Number(setting.value) || 0)) : 2;
+    const freeLimit = setting
+      ? Math.max(0, Math.floor(Number(setting.value) || 0))
+      : 2;
     const [freeCommits, freeReleases] = await Promise.all([
       this.prisma.quotaLedger.count({
         where: {
@@ -360,7 +397,11 @@ export class AdminUsersQueryService {
         }
       }
 
-      return { id: purchase.id, planId: purchase.planId, expiresAt: purchase.expiresAt };
+      return {
+        id: purchase.id,
+        planId: purchase.planId,
+        expiresAt: purchase.expiresAt,
+      };
     });
   }
 
@@ -383,7 +424,10 @@ export class AdminUsersQueryService {
     return { cancelled: result.count };
   }
 
-  async detail(actor: AuthenticatedUser, userId: string): Promise<AdminUserDetail> {
+  async detail(
+    actor: AuthenticatedUser,
+    userId: string,
+  ): Promise<AdminUserDetail> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: USER_DETAIL_INCLUDE,
@@ -403,7 +447,8 @@ export class AdminUsersQueryService {
     });
     if (!user) throw new NotFoundException('کاربر یافت نشد');
     this.assertCanManageTarget(actor, user.role);
-    const nextRole = user.role === UserRole.USER ? UserRole.ADMIN : UserRole.USER;
+    const nextRole =
+      user.role === UserRole.USER ? UserRole.ADMIN : UserRole.USER;
     const shouldSetDefaultAdminPassword =
       nextRole === UserRole.ADMIN && !user.passwordHash;
 
@@ -451,7 +496,9 @@ export class AdminUsersQueryService {
     });
     if (!user) throw new NotFoundException('کاربر یافت نشد');
     if (actor.role !== UserRole.GODADMIN) {
-      throw new ForbiddenException('فقط گاد ادمین می‌تواند وضعیت حساب را تغییر دهد');
+      throw new ForbiddenException(
+        'فقط گاد ادمین می‌تواند وضعیت حساب را تغییر دهد',
+      );
     }
     if (user.role === UserRole.USER) {
       throw new ForbiddenException('این عملیات فقط برای حساب‌های ادمین است');
@@ -499,9 +546,7 @@ export class AdminUsersQueryService {
     const phone = input.phone.trim();
     const requestedRole = input.role ?? UserRole.USER;
     const role =
-      actor.role === UserRole.GODADMIN
-        ? requestedRole
-        : UserRole.USER;
+      actor.role === UserRole.GODADMIN ? requestedRole : UserRole.USER;
     if (actor.role !== UserRole.GODADMIN && requestedRole !== UserRole.USER) {
       throw new ForbiddenException('ادمین فقط می‌تواند کاربر عادی ایجاد کند');
     }
@@ -511,10 +556,12 @@ export class AdminUsersQueryService {
       select: { id: true },
     });
     if (existing) {
-      throw new BadRequestException('کاربری با این شماره موبایل قبلاً ثبت شده است');
+      throw new BadRequestException(
+        'کاربری با این شماره موبایل قبلاً ثبت شده است',
+      );
     }
 
-    const rawPassword = (input.password?.trim() || ADMIN_DEFAULT_PASSWORD);
+    const rawPassword = input.password?.trim() || ADMIN_DEFAULT_PASSWORD;
     const passwordHash = await bcrypt.hash(rawPassword, 10);
     const created = await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
@@ -542,50 +589,84 @@ export class AdminUsersQueryService {
   ): Promise<AdminUserActivityItem[]> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, role: true, firstName: true, lastName: true, phone: true },
+      select: {
+        id: true,
+        role: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+      },
     });
     if (!user) throw new NotFoundException('کاربر یافت نشد');
     this.assertCanManageTarget(actor, user.role);
 
-    const take = Math.max(1, Math.min(Number.isFinite(limit) ? limit : 50, 100));
-    const [listings, buyerOrders, sellerOrders, tickets, offers, bids] = await Promise.all([
-      this.prisma.listing.findMany({
-        where: { authorId: userId },
-        select: { id: true, title: true, status: true, createdAt: true },
-        orderBy: { createdAt: 'desc' },
-        take,
-      }),
-      this.prisma.order.findMany({
-        where: { buyerId: userId },
-        select: { id: true, status: true, type: true, listing: { select: { title: true } }, createdAt: true },
-        orderBy: { createdAt: 'desc' },
-        take,
-      }),
-      this.prisma.order.findMany({
-        where: { sellerId: userId },
-        select: { id: true, status: true, type: true, listing: { select: { title: true } }, createdAt: true },
-        orderBy: { createdAt: 'desc' },
-        take,
-      }),
-      this.prisma.ticket.findMany({
-        where: { userId },
-        select: { id: true, subject: true, status: true, createdAt: true },
-        orderBy: { createdAt: 'desc' },
-        take,
-      }),
-      this.prisma.exchangeOffer.findMany({
-        where: { offererId: userId },
-        select: { id: true, status: true, title: true, listing: { select: { title: true } }, createdAt: true },
-        orderBy: { createdAt: 'desc' },
-        take,
-      }),
-      this.prisma.auctionBid.findMany({
-        where: { bidderId: userId },
-        select: { id: true, amount: true, status: true, auction: { select: { listing: { select: { title: true } } } }, createdAt: true },
-        orderBy: { createdAt: 'desc' },
-        take,
-      }),
-    ]);
+    const take = Math.max(
+      1,
+      Math.min(Number.isFinite(limit) ? limit : 50, 100),
+    );
+    const [listings, buyerOrders, sellerOrders, tickets, offers, bids] =
+      await Promise.all([
+        this.prisma.listing.findMany({
+          where: { authorId: userId },
+          select: { id: true, title: true, status: true, createdAt: true },
+          orderBy: { createdAt: 'desc' },
+          take,
+        }),
+        this.prisma.order.findMany({
+          where: { buyerId: userId },
+          select: {
+            id: true,
+            status: true,
+            type: true,
+            listing: { select: { title: true } },
+            createdAt: true,
+          },
+          orderBy: { createdAt: 'desc' },
+          take,
+        }),
+        this.prisma.order.findMany({
+          where: { sellerId: userId },
+          select: {
+            id: true,
+            status: true,
+            type: true,
+            listing: { select: { title: true } },
+            createdAt: true,
+          },
+          orderBy: { createdAt: 'desc' },
+          take,
+        }),
+        this.prisma.ticket.findMany({
+          where: { userId },
+          select: { id: true, subject: true, status: true, createdAt: true },
+          orderBy: { createdAt: 'desc' },
+          take,
+        }),
+        this.prisma.exchangeOffer.findMany({
+          where: { offererId: userId },
+          select: {
+            id: true,
+            status: true,
+            title: true,
+            listing: { select: { title: true } },
+            createdAt: true,
+          },
+          orderBy: { createdAt: 'desc' },
+          take,
+        }),
+        this.prisma.auctionBid.findMany({
+          where: { bidderId: userId },
+          select: {
+            id: true,
+            amount: true,
+            status: true,
+            auction: { select: { listing: { select: { title: true } } } },
+            createdAt: true,
+          },
+          orderBy: { createdAt: 'desc' },
+          take,
+        }),
+      ]);
 
     const items: AdminUserActivityItem[] = [
       ...listings.map((x) => ({
@@ -643,7 +724,10 @@ export class AdminUsersQueryService {
       .slice(0, take);
   }
 
-  private assertCanManageTarget(actor: AuthenticatedUser, targetRole: UserRole): void {
+  private assertCanManageTarget(
+    actor: AuthenticatedUser,
+    targetRole: UserRole,
+  ): void {
     if (actor.role === UserRole.GODADMIN) return;
     if (actor.role === UserRole.ADMIN && targetRole === UserRole.USER) return;
     throw new ForbiddenException('شما اجازه مدیریت این حساب را ندارید');

@@ -26,7 +26,9 @@ export const depositReceiptMulterOptions: MulterOptions = {
   fileFilter: (_req, file, cb) => {
     if (!ALLOWED_MIME_REGEX.test(file.mimetype)) {
       return cb(
-        new BadRequestException('فقط فایل‌های تصویری (jpg, png, webp) مجاز هستند'),
+        new BadRequestException(
+          'فقط فایل‌های تصویری (jpg, png, webp) مجاز هستند',
+        ),
         false,
       );
     }

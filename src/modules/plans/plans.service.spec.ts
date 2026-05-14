@@ -58,7 +58,11 @@ describe('PlansService', () => {
       },
     ]);
     const rows = await service.getActivePlans();
-    const first = rows[0] as { id: string; isBuiltinFree?: boolean; rules: { count: number }[] };
+    const first = rows[0] as {
+      id: string;
+      isBuiltinFree?: boolean;
+      rules: { count: number }[];
+    };
     expect(first.id).toBe(BUILTIN_FREE_PLAN_ID);
     expect(first.isBuiltinFree).toBe(true);
     expect(first.rules[0].count).toBe(4);

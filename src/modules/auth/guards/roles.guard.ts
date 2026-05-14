@@ -15,10 +15,9 @@ export class RolesGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const requiredRoles = this.reflector.getAllAndOverride<UserRole[] | undefined>(
-      ROLES_KEY,
-      [context.getHandler(), context.getClass()],
-    );
+    const requiredRoles = this.reflector.getAllAndOverride<
+      UserRole[] | undefined
+    >(ROLES_KEY, [context.getHandler(), context.getClass()]);
     if (!requiredRoles || requiredRoles.length === 0) return true;
 
     const req = context
@@ -27,15 +26,18 @@ export class RolesGuard implements CanActivate {
 
     const user = req.user;
     if (!user) {
-      throw new ForbiddenException('شما دسترسی لازم برای انجام این عملیات را ندارید');
+      throw new ForbiddenException(
+        'شما دسترسی لازم برای انجام این عملیات را ندارید',
+      );
     }
 
     const isSuperAdmin =
-      user.role === UserRole.GODADMIN &&
-      requiredRoles.includes(UserRole.ADMIN);
+      user.role === UserRole.GODADMIN && requiredRoles.includes(UserRole.ADMIN);
 
     if (!isSuperAdmin && !requiredRoles.includes(user.role)) {
-      throw new ForbiddenException('شما دسترسی لازم برای انجام این عملیات را ندارید');
+      throw new ForbiddenException(
+        'شما دسترسی لازم برای انجام این عملیات را ندارید',
+      );
     }
     return true;
   }

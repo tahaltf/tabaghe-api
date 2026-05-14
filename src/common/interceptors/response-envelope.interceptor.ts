@@ -17,7 +17,9 @@ import { RAW_RESPONSE_KEY } from '../decorators/raw-response.decorator';
 
 type MaybeEnvelope<T> = T | ApiSuccessResponse<T>;
 
-function isAlreadyEnvelope(value: unknown): value is ApiSuccessResponse<unknown> {
+function isAlreadyEnvelope(
+  value: unknown,
+): value is ApiSuccessResponse<unknown> {
   if (value === null || typeof value !== 'object') return false;
   const obj = value as Record<string, unknown>;
   return (
@@ -34,9 +36,10 @@ function isAlreadyEnvelope(value: unknown): value is ApiSuccessResponse<unknown>
  * stream ها و StreamableFile هم دست‌نخورده می‌مانند.
  */
 @Injectable()
-export class ResponseEnvelopeInterceptor<T>
-  implements NestInterceptor<T, MaybeEnvelope<T>>
-{
+export class ResponseEnvelopeInterceptor<T> implements NestInterceptor<
+  T,
+  MaybeEnvelope<T>
+> {
   constructor(private readonly reflector: Reflector) {}
 
   intercept(
@@ -58,7 +61,8 @@ export class ResponseEnvelopeInterceptor<T>
 
     return next.handle().pipe(
       map((data) => {
-        if (data instanceof StreamableFile) return data as unknown as MaybeEnvelope<T>;
+        if (data instanceof StreamableFile)
+          return data as unknown as MaybeEnvelope<T>;
         if (isAlreadyEnvelope(data)) return data as ApiSuccessResponse<T>;
 
         let payload: unknown = data;
