@@ -889,14 +889,24 @@ export class OrdersService {
 
       let orderStatus: OrderStatus = OrderStatus.PENDING;
 
-      if (paymentMethod === 'WALLET' || totalPayable === 0) {
+      if (paymentMethod === 'WALLET') {
+        // پرداخت از کیف: در همین تراکنش واریزی انجام شده یا مبلغ صفر بوده؛ فروش فقط همین سناریوها قطعی می‌شود.
         if (orderType === 'EXCHANGE' || isHubRequired) {
           orderStatus = 'AWAITING_SHIPMENT_TO_HUB' as OrderStatus;
         } else {
           orderStatus = OrderStatus.PAID;
         }
-      } else if (paymentMethod === 'GATEWAY' && totalPayable > 0) {
-        orderStatus = OrderStatus.AWAITING_PAYMENT;
+      } else if (paymentMethod === 'GATEWAY') {
+        if (totalPayable > 0) {
+          orderStatus = OrderStatus.AWAITING_PAYMENT;
+        } else {
+          // مانده‌ای برای درگاه نیست (مثلاً مابه‌التفاوت مزایده صفر)، تسویه آنی مانند بدون نیاز به درگاه
+          if (orderType === 'EXCHANGE' || isHubRequired) {
+            orderStatus = 'AWAITING_SHIPMENT_TO_HUB' as OrderStatus;
+          } else {
+            orderStatus = OrderStatus.PAID;
+          }
+        }
       }
 
       const orderPayload: any = {

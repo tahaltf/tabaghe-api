@@ -328,7 +328,7 @@ export class PaymentsService {
     successFlag: string;
     payerId?: string;
   }) {
-    const { orderId, authority, payerId } = params;
+    const { orderId, authority, payerId, successFlag } = params;
 
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
@@ -352,6 +352,28 @@ export class PaymentsService {
       throw new BadRequestException(
         'پارامتر payerId در بازگشت درگاه برای سفارش معاوضه الزامی است',
       );
+    }
+
+    // اگر درگاه پارامتر success را صریحاً «ناموفق» فرستاده، قبل از verify سفارش نیمه‌کاره باز شود.
+    // (repair/wallet قبلاً همین الگو را دارند؛ برای سفارش هم از verify اشتباه جلوگیری می‌کند.)
+    const normalizedSuccess = String(successFlag ?? '').trim();
+    if (
+      normalizedSuccess.length > 0 &&
+      !this.isGatewayCallbackSuccess(normalizedSuccess)
+    ) {
+      await this.rollbackUnpaidGatewayOrder(order.id);
+      const orderStillExists = await this.prisma.order.findUnique({
+        where: { id: order.id },
+        select: { id: true },
+      });
+      return {
+        result: 'CANCELLED_BY_USER',
+        ok: false,
+        kind: 'ORDER',
+        ...(orderStillExists ? { orderId: orderStillExists.id } : {}),
+        authority,
+        message: 'پرداخت توسط کاربر لغو یا ناموفق اعلام شد.',
+      };
     }
 
     const expectedAmount =
