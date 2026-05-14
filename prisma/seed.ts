@@ -83,68 +83,119 @@ async function main() {
     });
 
     // ۵. پلن‌های پولی (نام و توضیح برای جذابیت بیزینسی)
-    await prisma.plan.create({
-        data: {
+    const paidPlans: Array<{
+        title: string;
+        marketingTitle: string;
+        description: string;
+        price: number;
+        durationDays: number;
+        feeDiscountDirectPercent: number;
+        feeDiscountAuctionPercent: number;
+        direct: number;
+        exchange: number;
+        auction: number;
+    }> = [
+        {
+            title: 'پلن استارتر',
+            marketingTitle: 'شروع کسب‌وکار — قیمت دانش‌جویی',
+            description:
+                'مناسب کسانی که می‌خواهند فعالیت جدی در طبقه را با هزینهٔ کم شروع کنند؛ کمی فراتر از پلن رایگان.',
+            price: 199_000,
+            durationDays: 180,
+            feeDiscountDirectPercent: 0,
+            feeDiscountAuctionPercent: 0,
+            direct: 5,
+            exchange: 3,
+            auction: 2,
+        },
+        {
             title: 'پلن فروشنده',
             marketingTitle: 'اولین طبقه — دیده شو، بفروش',
             description:
                 'برای کسی که می‌خواهد بیشتر دیده شود: سهمیهٔ معاوضه و مزایده اضافه، مناسب فروش دوره‌ای.',
             price: 349_000,
-            isActive: true,
             durationDays: 365,
             feeDiscountDirectPercent: 0,
-            feeDiscountAuctionPercent: 0,
-            rules: {
-                create: [
-                    { type: ListingType.DIRECT, count: 8 },
-                    { type: ListingType.EXCHANGE, count: 5 },
-                    { type: ListingType.AUCTION, count: 4 },
-                ],
-            },
+            feeDiscountAuctionPercent: 3,
+            direct: 8,
+            exchange: 5,
+            auction: 4,
         },
-    });
-
-    await prisma.plan.create({
-        data: {
+        {
             title: 'پلن رشد',
             marketingTitle: 'شتاب رشد — پیشنهاد ویژهٔ طبقه',
             description:
                 'تعادل قیمت و حجم: برای فروشندگان فعال که هم فروش ثابت دارند هم حراج و معاوضه.',
             price: 799_000,
-            isActive: true,
             durationDays: 365,
             feeDiscountDirectPercent: 5,
             feeDiscountAuctionPercent: 8,
-            rules: {
-                create: [
-                    { type: ListingType.DIRECT, count: 18 },
-                    { type: ListingType.EXCHANGE, count: 12 },
-                    { type: ListingType.AUCTION, count: 10 },
-                ],
-            },
+            direct: 18,
+            exchange: 12,
+            auction: 10,
         },
-    });
-
-    await prisma.plan.create({
-        data: {
+        {
+            title: 'پلن کسب‌وکار',
+            marketingTitle: 'کسب‌وکارت را بزرگ کن',
+            description:
+                'برای کسب‌وکارهای متوسط با حجم آگهی بالا و نیاز به تخفیف کارمزد بیشتر در فروش مستقیم و مزایده.',
+            price: 1_199_000,
+            durationDays: 365,
+            feeDiscountDirectPercent: 8,
+            feeDiscountAuctionPercent: 12,
+            direct: 28,
+            exchange: 20,
+            auction: 16,
+        },
+        {
             title: 'پلن حرفه‌ای',
             marketingTitle: 'سقف بازار — قدرت تمام‌عیار',
             description:
                 'حداکثر دیده‌شدن و چرخش کالا؛ مناسب مغازه‌داران و فروشندگان پرحجم آنلاین.',
             price: 1_699_000,
-            isActive: true,
             durationDays: 365,
             feeDiscountDirectPercent: 12,
             feeDiscountAuctionPercent: 15,
-            rules: {
-                create: [
-                    { type: ListingType.DIRECT, count: 45 },
-                    { type: ListingType.EXCHANGE, count: 30 },
-                    { type: ListingType.AUCTION, count: 25 },
-                ],
-            },
+            direct: 45,
+            exchange: 30,
+            auction: 25,
         },
-    });
+        {
+            title: 'پلن سازمانی',
+            marketingTitle: 'مقیاس سازمانی — بدون محدودیت عملی',
+            description:
+                'برای فروشگاه‌های زنجیره‌ای و آژانس‌ها؛ سهمیهٔ بسیار بالا، بیشترین تخفیف کارمزد و اولویت پشتیبانی.',
+            price: 2_999_000,
+            durationDays: 365,
+            feeDiscountDirectPercent: 18,
+            feeDiscountAuctionPercent: 22,
+            direct: 100,
+            exchange: 70,
+            auction: 60,
+        },
+    ];
+
+    for (const p of paidPlans) {
+        await prisma.plan.create({
+            data: {
+                title: p.title,
+                marketingTitle: p.marketingTitle,
+                description: p.description,
+                price: p.price,
+                isActive: true,
+                durationDays: p.durationDays,
+                feeDiscountDirectPercent: p.feeDiscountDirectPercent,
+                feeDiscountAuctionPercent: p.feeDiscountAuctionPercent,
+                rules: {
+                    create: [
+                        { type: ListingType.DIRECT, count: p.direct },
+                        { type: ListingType.EXCHANGE, count: p.exchange },
+                        { type: ListingType.AUCTION, count: p.auction },
+                    ],
+                },
+            },
+        });
+    }
 
     console.log('✅ دیتابیس با موفقیت و دیتای کامل Seed شد!');
 }
