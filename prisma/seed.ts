@@ -5,14 +5,23 @@ const prisma = new PrismaClient();
 async function main() {
     console.log('🚀 شروع عملیات جامع Seed برای استارتاپ طبقه...');
 
+    const listingCount = await prisma.listing.count();
+
     // ۱. پاک‌سازی داده‌های قبلی برای جلوگیری از تداخل
     await prisma.userPlanPurchase.deleteMany();
     await prisma.planRule.deleteMany();
     await prisma.plan.deleteMany();
-    await prisma.category.deleteMany();
-    await prisma.location.deleteMany();
 
-    // ۲. وارد کردن ۳۱ استان ایران به همراه شهرهای اصلی
+    if (listingCount === 0) {
+        await prisma.category.deleteMany();
+        await prisma.location.deleteMany();
+    } else {
+        console.warn(
+            '⚠️ به‌خاطر وجود آگهی، حذف کامل دسته‌ها و استان/شهر انجام نمی‌شود (RESTRICT روی Listing).',
+        );
+    }
+
+    // ۲. وارد کردن ۳۱ استان ایران به همراه شهرهای اصلی (فقط اگر آگهی نداریم؛ وگرنه موقعیت‌ها را تکراری نکن)
     const iranData = [
         { p: 'آذربایجان شرقی', c: ['تبریز', 'مراغه', 'مرند', 'میانه', 'اهر', 'بناب', 'سراب', 'آذرشهر'] },
         { p: 'آذربایجان غربی', c: ['ارومیه', 'خوی', 'بوکان', 'مهاباد', 'میاندوآب', 'سلماس', 'پیرانشهر', 'نقده'] },
@@ -47,32 +56,38 @@ async function main() {
         { p: 'یزد', c: ['یزد', 'میبد', 'اردکان', 'بافق', 'مهریز', 'ابرکوه'] }
     ];
 
-    for (const item of iranData) {
-        const province = await prisma.location.create({
-            data: { name: item.p, type: LocationType.PROVINCE }
-        });
+    if (listingCount === 0) {
+        for (const item of iranData) {
+            const province = await prisma.location.create({
+                data: { name: item.p, type: LocationType.PROVINCE },
+            });
 
-        await prisma.location.createMany({
-            data: item.c.map(cityName => ({
-                name: cityName,
-                type: LocationType.CITY,
-                parentId: province.id
-            }))
-        });
+            await prisma.location.createMany({
+                data: item.c.map((cityName) => ({
+                    name: cityName,
+                    type: LocationType.CITY,
+                    parentId: province.id,
+                })),
+            });
+        }
     }
 
-    // ۳. وارد کردن دسته‌بندی‌ها
+    // ۳. دسته‌بندی‌ها — همیشه upsert تا روی دیتابیس پر هم امن باشد
     const categories = [
         { title: 'کالای دیجیتال', slug: 'digital' },
         { title: 'خودرو', slug: 'vehicles' },
         { title: 'املاک', slug: 'real-estate' },
         { title: 'لوازم خانگی', slug: 'home-appliances' },
         { title: 'مد و پوشاک', slug: 'fashion' },
-        { title: 'ورزش و سرگرمی', slug: 'sports' }
+        { title: 'ورزش و سرگرمی', slug: 'sports' },
     ];
 
     for (const cat of categories) {
-        await prisma.category.create({ data: { title: cat.title, slug: cat.slug } });
+        await prisma.category.upsert({
+            where: { slug: cat.slug },
+            create: { title: cat.title, slug: cat.slug },
+            update: { title: cat.title },
+        });
     }
 
     // ۴. سهمیهٔ رایگان فروش مستقیم (پلن رایگان در API به‌صورت خودکار به لیست اضافه می‌شود)
