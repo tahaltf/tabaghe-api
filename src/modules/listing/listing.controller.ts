@@ -78,9 +78,13 @@ export class ListingController {
     });
   }
 
+  @UseGuards(OptionalJwtAuthGuard)
   @Get(':id/availability')
-  async checkAvailability(@Param('id') id: string) {
-    const available = await this.queryService.checkAvailability(id);
+  async checkAvailability(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser | null,
+  ) {
+    const available = await this.queryService.checkAvailability(id, user?.id);
     return { available };
   }
 

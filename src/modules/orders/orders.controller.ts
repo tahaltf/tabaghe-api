@@ -7,10 +7,12 @@
   Patch,
   Post,
   Query,
+  Req,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
@@ -40,7 +42,11 @@ const videoUploadConfig = {
     file: Express.Multer.File,
     callback: (error: Error | null, acceptFile: boolean) => void,
   ) => {
-    if (!file.mimetype.match(/\/(mp4|mov|quicktime|x-msvideo|mpeg)$/)) {
+    if (
+      !file.mimetype.match(
+        /\/(mp4|mov|quicktime|x-msvideo|mpeg|webm|3gpp|3gp)$/,
+      )
+    ) {
       return callback(
         new BadRequestException('فقط فایل‌های ویدیویی مجاز هستند'),
         false,
@@ -50,6 +56,13 @@ const videoUploadConfig = {
   },
   limits: { fileSize: 50 * 1024 * 1024 },
 };
+
+function readMultipartTextField(req: Request, key: string): string {
+  const raw = (req.body as Record<string, unknown> | undefined)?.[key];
+  if (typeof raw === 'string') return raw.trim();
+  if (raw == null || raw === '') return '';
+  return String(raw).trim();
+}
 
 @Controller('orders')
 @UseGuards(JwtAuthGuard)
@@ -110,9 +123,10 @@ export class OrdersController {
   updateTrackingCode(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
-    @Body('trackingCode') trackingCode: string,
+    @Req() req: Request,
     @UploadedFile() video?: Express.Multer.File,
   ) {
+    const trackingCode = readMultipartTextField(req, 'trackingCode');
     if (!trackingCode) {
       throw new BadRequestException('لطفا کد رهگیری را وارد کنید');
     }
@@ -129,9 +143,10 @@ export class OrdersController {
   submitReturnTrackingCode(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
-    @Body('trackingCode') trackingCode: string,
+    @Req() req: Request,
     @UploadedFile() video?: Express.Multer.File,
   ) {
+    const trackingCode = readMultipartTextField(req, 'trackingCode');
     if (!trackingCode) {
       throw new BadRequestException('لطفا کد رهگیری را وارد کنید');
     }
@@ -164,10 +179,11 @@ export class OrdersController {
   disputeOrderDelivery(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
-    @Body('reason') reason: string,
+    @Req() req: Request,
     @UploadedFile() video?: Express.Multer.File,
   ) {
-    if (!reason || reason.trim().length < 5) {
+    const reason = readMultipartTextField(req, 'reason');
+    if (!reason || reason.length < 5) {
       throw new BadRequestException('لطفاً دلیل مغایرت را کامل توضیح دهید.');
     }
     return this.commandService.disputeOrder(

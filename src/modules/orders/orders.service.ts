@@ -66,8 +66,22 @@ export class OrdersService {
     const pageSize = Math.min(50, Math.max(1, options.pageSize ?? 20));
     const skip = (page - 1) * pageSize;
 
-    const whereClause =
-      type === 'BUY' ? { buyerId: userId } : { sellerId: userId };
+    const whereClause: Prisma.OrderWhereInput =
+      type === 'BUY'
+        ? { buyerId: userId }
+        : {
+            sellerId: userId,
+            NOT: {
+              AND: [
+                { type: { in: [OrderType.DIRECT, OrderType.AUCTION] } },
+                {
+                  status: {
+                    in: [OrderStatus.PENDING, OrderStatus.AWAITING_PAYMENT],
+                  },
+                },
+              ],
+            },
+          };
 
     const [items, total] = await Promise.all([
       this.prisma.order.findMany({
@@ -711,23 +725,36 @@ export class OrdersService {
       });
 
       if (existingOrders.length) {
-        const hasActiveNonCancelable = existingOrders.some(
+        const someoneElseBlockingCheckout = existingOrders.some(
           (o) =>
-            o.status !== OrderStatus.PENDING &&
-            o.status !== OrderStatus.CANCELLED,
+            o.buyerId !== buyerId &&
+            (o.status === OrderStatus.PENDING ||
+              o.status === OrderStatus.AWAITING_PAYMENT),
         );
-        if (hasActiveNonCancelable) {
+        if (someoneElseBlockingCheckout) {
           throw new BadRequestException(
-            'این کالا در حال حاضر به فروش رسیده و در جریان است.',
+            'این کالا در حال پرداخت توسط کاربر دیگری است.',
           );
         }
 
-        const someoneElseHasPending = existingOrders.some(
-          (o) => o.status === OrderStatus.PENDING && o.buyerId !== buyerId,
-        );
-        if (someoneElseHasPending) {
+        const hasActiveNonCancelable = existingOrders.some((o) => {
+          if (
+            o.status === OrderStatus.PENDING ||
+            o.status === OrderStatus.CANCELLED
+          ) {
+            return false;
+          }
+          if (
+            o.status === OrderStatus.AWAITING_PAYMENT &&
+            o.buyerId === buyerId
+          ) {
+            return false;
+          }
+          return true;
+        });
+        if (hasActiveNonCancelable) {
           throw new BadRequestException(
-            'این کالا در حال پرداخت توسط کاربر دیگری است.',
+            'این کالا در حال حاضر به فروش رسیده و در جریان است.',
           );
         }
 
@@ -735,7 +762,13 @@ export class OrdersService {
           where: {
             listingId,
             buyerId,
-            status: { in: [OrderStatus.PENDING, OrderStatus.CANCELLED] },
+            status: {
+              in: [
+                OrderStatus.PENDING,
+                OrderStatus.CANCELLED,
+                OrderStatus.AWAITING_PAYMENT,
+              ],
+            },
           },
         });
       }

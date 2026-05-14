@@ -1,5 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { ListingStatus, OrderStatus, Prisma, UserRole } from '@prisma/client';
+import {
+  ListingStatus,
+  ListingType,
+  OrderStatus,
+  Prisma,
+  UserRole,
+} from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import {
   buildPaginationMeta,
@@ -219,13 +225,20 @@ export class ListingQueryService {
     return { items, pagination: buildPaginationMeta(page, pageSize, total) };
   }
 
-  async checkAvailability(listingId: string): Promise<boolean> {
+  /**
+   * برای فروش مستقیم/مزایده، وجود سفارش PENDING یا AWAITING_PAYMENT یعنی «رزرو checkout».
+   * همان خریدار باید بتواند ادامهٔ پرداخت را بزند؛ بقیه نه.
+   */
+  async checkAvailability(
+    listingId: string,
+    viewerId?: string | null,
+  ): Promise<boolean> {
     const listing = await this.prisma.listing.findUnique({
       where: { id: listingId },
       select: {
         type: true,
         status: true,
-        order: { select: { status: true } },
+        order: { select: { status: true, buyerId: true } },
       },
     });
     if (!listing || listing.status !== ListingStatus.APPROVED) return false;
@@ -237,6 +250,14 @@ export class ListingQueryService {
       !isExchangePending &&
       (os === OrderStatus.PENDING || os === OrderStatus.AWAITING_PAYMENT)
     ) {
+      const buyerId = listing.order?.buyerId;
+      const sameBuyerContinuing =
+        !!viewerId &&
+        !!buyerId &&
+        buyerId === viewerId &&
+        (listing.type === ListingType.DIRECT ||
+          listing.type === ListingType.AUCTION);
+      if (sameBuyerContinuing) return true;
       return false;
     }
     return true;
