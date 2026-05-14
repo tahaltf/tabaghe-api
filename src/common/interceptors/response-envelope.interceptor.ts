@@ -74,12 +74,19 @@ export class ResponseEnvelopeInterceptor<T> implements NestInterceptor<
           'items' in (data as Record<string, unknown>) &&
           'pagination' in (data as Record<string, unknown>)
         ) {
-          const paginated = data as unknown as {
-            items: unknown;
-            pagination: unknown;
-          };
-          payload = paginated.items;
-          extraMeta.pagination = paginated.pagination;
+          const obj = data as Record<string, unknown>;
+          // فقط زمانی auto-unwrap کن که شکل دقیقاً { items, pagination } باشد.
+          // اگر فیلدهای اضافی مثل stats/summary/aggregates وجود دارند،
+          // کل آبجکت را به‌عنوان payload نگه می‌داریم تا کلاینت‌ها داده‌ی کامل را دریافت کنند.
+          const keys = Object.keys(obj);
+          const isPurePaginatedShape =
+            keys.length === 2 &&
+            keys.includes('items') &&
+            keys.includes('pagination');
+          if (isPurePaginatedShape) {
+            payload = obj['items'];
+            extraMeta.pagination = obj['pagination'];
+          }
         }
 
         return buildSuccessEnvelope(payload as T, extraMeta);

@@ -49,6 +49,7 @@ describe('PlansService', () => {
       {
         id: 'paid1',
         title: 'پلن پولی',
+        marketingTitle: null,
         description: null,
         price: 100_000,
         isActive: true,

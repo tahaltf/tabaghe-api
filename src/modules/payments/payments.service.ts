@@ -7,8 +7,10 @@ import {
   ListingStatus,
   NotificationType,
   OrderStatus,
+  OrderType,
   Prisma,
   RepairRequestStatus,
+  SecondChanceOfferStatus,
   WalletTransactionStatus,
   WalletTransactionType,
 } from '@prisma/client';
@@ -282,13 +284,51 @@ export class PaymentsService {
     return Math.floor(parsed);
   }
 
+  /**
+   * وقتی verify می‌گوید پرداخت انجام نشده، سفارش نیمه‌کاره را حذف می‌کند تا
+   * آگهی در وضعیت «در جریان» نماند. معاوضه: اگر حداقل یک پرداخت ثبت شده باشد
+   * (totalAmount > 0) دست نمی‌زند.
+   */
+  private async rollbackUnpaidGatewayOrder(orderId: string): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.order.findUnique({ where: { id: orderId } });
+      if (!locked) return;
+      if (
+        locked.status !== OrderStatus.AWAITING_PAYMENT &&
+        locked.status !== OrderStatus.PENDING
+      ) {
+        return;
+      }
+      if (
+        locked.type === OrderType.EXCHANGE &&
+        Number(locked.totalAmount ?? 0) > 0
+      ) {
+        return;
+      }
+      if (locked.type === OrderType.AUCTION) {
+        await tx.secondChanceOffer.updateMany({
+          where: {
+            listingId: locked.listingId,
+            userId: locked.buyerId,
+            status: SecondChanceOfferStatus.ACCEPTED,
+          },
+          data: {
+            status: SecondChanceOfferStatus.OFFERED,
+            acceptedAt: null,
+          },
+        });
+      }
+      await tx.order.delete({ where: { id: locked.id } });
+    });
+  }
+
   private async processOrderCallback(params: {
     orderId: string;
     authority: string;
     successFlag: string;
     payerId?: string;
   }) {
-    const { orderId, authority, successFlag, payerId } = params;
+    const { orderId, authority, payerId } = params;
 
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
@@ -308,19 +348,18 @@ export class PaymentsService {
       };
     }
 
-    if (!this.isGatewayCallbackSuccess(successFlag)) {
-      return {
-        result: 'CANCELLED_BY_USER',
-        ok: false,
-        kind: 'ORDER',
-        orderId: order.id,
-        authority,
-      };
+    if (order.type === OrderType.EXCHANGE && !String(payerId ?? '').trim()) {
+      throw new BadRequestException(
+        'پارامتر payerId در بازگشت درگاه برای سفارش معاوضه الزامی است',
+      );
     }
 
     const expectedAmount =
-      order.type === 'EXCHANGE' && payerId
-        ? await this.getExchangeParticipantDue(order.id, payerId)
+      order.type === OrderType.EXCHANGE
+        ? await this.getExchangeParticipantDue(
+            order.id,
+            String(payerId ?? '').trim(),
+          )
         : Number(order.totalAmount);
 
     const verified = await this.getGateway().verifyPayment({
@@ -329,11 +368,16 @@ export class PaymentsService {
     });
 
     if (!verified.success) {
+      await this.rollbackUnpaidGatewayOrder(order.id);
+      const orderStillExists = await this.prisma.order.findUnique({
+        where: { id: order.id },
+        select: { id: true },
+      });
       return {
-        result: 'VERIFY_FAILED',
+        result: 'NOT_PAID',
         ok: false,
         kind: 'ORDER',
-        orderId: order.id,
+        ...(orderStillExists ? { orderId: orderStillExists.id } : {}),
         authority,
         message: verified.message,
       };

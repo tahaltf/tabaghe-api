@@ -10,10 +10,12 @@ import {
   Listing,
   ListingStatus,
   ListingType,
+  NotificationType,
   OrderStatus,
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { NotificationService } from '../../notification/notification.service';
 import { QuotaService } from '../../quota/quota.service';
 import { CreateListingDto } from '../dto/create-listing.dto';
 import { UpdateListingDto } from '../dto/update-listing.dto';
@@ -24,13 +26,14 @@ export class ListingCommandService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly quotaService: QuotaService,
+    private readonly notifications: NotificationService,
   ) {}
 
   async create(userId: string, dto: CreateListingDto): Promise<Listing> {
     this.validateListingPayload(dto, false);
     const auctionEndDate = this.resolveAuctionEndDate(dto);
 
-    return this.prisma.$transaction(async (tx) => {
+    const listing = await this.prisma.$transaction(async (tx) => {
       const author = await tx.user.findUnique({
         where: { id: userId },
         select: { id: true, rating: true },
@@ -100,6 +103,21 @@ export class ListingCommandService {
       await this.quotaService.consumeOnCreate(tx, userId, dto.type, listing.id);
       return listing;
     });
+
+    void this.notifications
+      .notifyAdminPersonnel({
+        type: NotificationType.ADMIN_ALERT_NEW_LISTING,
+        title: 'آگهی جدید در انتظار تایید',
+        message: `آگهی «${listing.title}» ثبت شد و در انتظار بررسی است.`,
+        meta: {
+          listingId: listing.id,
+          userId,
+          listingTitle: listing.title,
+        },
+      })
+      .catch(() => undefined);
+
+    return listing;
   }
 
   async update(

@@ -279,6 +279,19 @@ export class RepairService {
       { repairId: repair.id, status: repair.status },
     );
 
+    void this.notifications
+      .notifyAdminPersonnel({
+        type: NotificationType.ADMIN_ALERT_NEW_REPAIR,
+        title: 'درخواست تعمیر جدید',
+        message: `درخواست تعمیر با کد ${repair.trackingCode} ثبت شد.`,
+        meta: {
+          repairId: repair.id,
+          trackingCode: repair.trackingCode,
+          userId,
+        },
+      })
+      .catch(() => undefined);
+
     return repair;
   }
 

@@ -1,9 +1,14 @@
 import { Injectable } from '@nestjs/common';
+import { NotificationType } from '@prisma/client';
 import { PrismaService } from '../infrastructure/prisma/prisma.service';
+import { NotificationService } from '../modules/notification/notification.service';
 
 @Injectable()
 export class CommonService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly notifications: NotificationService,
+  ) {}
 
   // دریافت لیست استان‌ها (به ترتیب حروف الفبا)
   async getProvinces() {
@@ -106,6 +111,7 @@ export class CommonService {
       'BANK_ACCOUNT_HOLDER',
       'BANK_SHABA',
       'MANUAL_CARD_TRANSFER_MAX',
+      'FOOTER_SOCIAL_LINKS',
     ];
 
     const rows = await this.prisma.systemSetting.findMany({
@@ -148,6 +154,43 @@ export class CommonService {
     const primaryAddress =
       map.PLATFORM_ADDRESS || platformAddresses[0]?.address || null;
 
+    const allowedSocial = new Set([
+      'instagram',
+      'telegram',
+      'whatsapp',
+      'youtube',
+      'linkedin',
+      'twitter',
+      'aparat',
+      'eitaa',
+      'rubika',
+      'github',
+      'website',
+    ]);
+    const footerSocialLinks: Array<{ network: string; url: string }> = [];
+    try {
+      const parsed = JSON.parse(map.FOOTER_SOCIAL_LINKS || '[]');
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (!item || typeof item !== 'object') continue;
+          const network = String(
+            (item as { network?: string }).network ?? '',
+          )
+            .trim()
+            .toLowerCase();
+          const urlRaw = String((item as { url?: string }).url ?? '').trim();
+          if (!allowedSocial.has(network) || !urlRaw) continue;
+          let url = urlRaw;
+          if (!/^https?:\/\//i.test(url)) {
+            url = url.startsWith('//') ? `https:${url}` : `https://${url.replace(/^\/+/, '')}`;
+          }
+          if (/^https?:\/\//i.test(url)) footerSocialLinks.push({ network, url });
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     return {
       homepageBanner: map.HOMEPAGE_BANNER || null,
       mediaFallbackLogo: map.MEDIA_FALLBACK_LOGO || null,
@@ -175,6 +218,7 @@ export class CommonService {
       manualCardTransferMax: map.MANUAL_CARD_TRANSFER_MAX
         ? Number(map.MANUAL_CARD_TRANSFER_MAX)
         : 10000000,
+      footerSocialLinks,
     };
   }
 
@@ -284,6 +328,20 @@ export class CommonService {
         description: 'Public contact form submission',
       },
     });
+    void this.notifications
+      .notifyAdminPersonnel({
+        type: NotificationType.ADMIN_ALERT_CONTACT_MESSAGE,
+        title: 'پیام تماس با ما',
+        message: `${payload.name} — ${payload.subject}`,
+        meta: {
+          contactKey: key,
+          name: payload.name,
+          phone: payload.phone,
+          email: payload.email ?? '',
+          subject: payload.subject,
+        },
+      })
+      .catch(() => undefined);
     return { ok: true };
   }
 }

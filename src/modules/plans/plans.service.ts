@@ -48,6 +48,7 @@ export class PlansService {
         select: {
           id: true,
           title: true,
+          marketingTitle: true,
           description: true,
           price: true,
           isActive: true,
@@ -99,6 +100,7 @@ export class PlansService {
       select: {
         id: true;
         title: true;
+        marketingTitle: true;
         description: true;
         price: true;
         isActive: true;
@@ -116,6 +118,7 @@ export class PlansService {
     return {
       id: plan.id,
       title: plan.title,
+      marketingTitle: plan.marketingTitle,
       description: plan.description,
       price: plan.price,
       isActive: plan.isActive,

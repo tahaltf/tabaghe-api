@@ -97,7 +97,9 @@ export class ZibalGateway implements PaymentGateway {
     const paidAmount = this.parseVerifiedAmount(data?.amount);
     const amountMatches =
       paidAmount === null ? true : paidAmount === expectedAmountInRial;
-    const success = data?.result === 100 && amountMatches;
+    const resultCode = Number(data?.result);
+    // ۱۰۰ پرداخت موفق؛ ۲۰۱ قبلاً verify شده (idempotent برای callback تکراری)
+    const success = (resultCode === 100 || resultCode === 201) && amountMatches;
     return {
       success,
       refId: data?.refNumber ? String(data.refNumber) : undefined,

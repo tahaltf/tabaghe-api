@@ -2,7 +2,7 @@ import { buildClientNetworkHint } from './client-network-hint.util';
 
 describe('buildClientNetworkHint', () => {
   const req = (headers: Record<string, string>) =>
-    ({ headers } as Parameters<typeof buildClientNetworkHint>[0]);
+    ({ headers }) as Parameters<typeof buildClientNetworkHint>[0];
 
   it('IR از cf-ipcountry نباید هشدار بدهد', () => {
     const r = buildClientNetworkHint(req({ 'cf-ipcountry': 'IR' }));
@@ -30,9 +30,7 @@ describe('buildClientNetworkHint', () => {
   });
 
   it('x-tabaghe-client-country اولویت بعد از cf و vercel', () => {
-    const r = buildClientNetworkHint(
-      req({ 'x-tabaghe-client-country': 'FR' }),
-    );
+    const r = buildClientNetworkHint(req({ 'x-tabaghe-client-country': 'FR' }));
     expect(r.countryCode).toBe('FR');
     expect(r.suggestNonIranConnection).toBe(true);
     expect(r.detectionSource).toBe('x-tabaghe-client-country');

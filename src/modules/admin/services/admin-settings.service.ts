@@ -50,6 +50,7 @@ export const SETTING_KEYS = {
   SMS_ADMIN_LOGIN_ALERT_USER_PHONE_PARAMETER:
     'SMS_ADMIN_LOGIN_ALERT_USER_PHONE_PARAMETER',
   SYSTEM_INTRO_CONTENT: 'SYSTEM_INTRO_CONTENT',
+  FOOTER_SOCIAL_LINKS: 'FOOTER_SOCIAL_LINKS',
   AUCTION_DEPOSIT_MIN: 'AUCTION_DEPOSIT_MIN',
   AUCTION_DEPOSIT_MAX: 'AUCTION_DEPOSIT_MAX',
   AUCTION_MAX_BIDS_PER_MINUTE: 'AUCTION_MAX_BIDS_PER_MINUTE',
@@ -105,6 +106,8 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   SMS_ADMIN_LOGIN_ALERT_USER_PHONE_PARAMETER:
     'نام پارامتر قالب هشدار ورود که شمارهٔ کاربر واردشده در آن قرار می‌گیرد (مثلاً PHONE)',
   SYSTEM_INTRO_CONTENT: 'محتوای صفحه معرفی سامانه',
+  FOOTER_SOCIAL_LINKS:
+    'لینک‌های شبکه‌های اجتماعی فوتر (JSON آرایه: [{ "network": "instagram", "url": "https://..." }])',
   AUCTION_DEPOSIT_MIN: 'حداقل ودیعه ورود مزایده (تومان)',
   AUCTION_DEPOSIT_MAX: 'حداکثر ودیعه ورود مزایده (تومان)',
   AUCTION_MAX_BIDS_PER_MINUTE:

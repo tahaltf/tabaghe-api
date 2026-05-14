@@ -74,6 +74,24 @@ describe('ZibalGateway', () => {
     expect(result.success).toBe(true);
   });
 
+  it('treats verify result 201 as success (already verified)', async () => {
+    mockedAxios.post.mockResolvedValueOnce({
+      data: {
+        result: 201,
+        amount: 250000,
+        refNumber: 'ref-201',
+        message: 'processed before',
+      },
+    } as any);
+
+    const result = await gateway.verifyPayment({
+      authority: '123',
+      expectedAmount: 25000,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it('throws when request does not return valid authority', async () => {
     mockedAxios.post.mockResolvedValueOnce({
       data: { result: 400, message: 'invalid' },

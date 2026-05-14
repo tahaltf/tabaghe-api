@@ -33,6 +33,11 @@ export class CreatePlanDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(80)
+  marketingTitle?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(500)
   description?: string;
 
@@ -79,6 +84,11 @@ export class UpdatePlanDto {
   @MinLength(2)
   @MaxLength(120)
   title?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  marketingTitle?: string;
 
   @IsOptional()
   @IsString()

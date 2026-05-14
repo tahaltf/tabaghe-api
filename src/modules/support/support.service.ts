@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { NotificationType, UserRole } from '@prisma/client';
+import { NotificationType } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { NotificationService } from '../notification/notification.service';
@@ -12,7 +12,7 @@ export class SupportService {
   ) {}
 
   async createTicket(userId: string, dto: CreateTicketDto) {
-    return this.prisma.ticket.create({
+    const ticket = await this.prisma.ticket.create({
       data: {
         userId,
         subject: dto.subject,
@@ -26,6 +26,19 @@ export class SupportService {
       },
       include: { messages: true },
     });
+    void this.notification
+      .notifyAdminPersonnel({
+        type: NotificationType.ADMIN_ALERT_NEW_TICKET,
+        title: 'تیکت پشتیبانی جدید',
+        message: `تیکت جدید با موضوع «${ticket.subject}» ثبت شد.`,
+        meta: {
+          ticketId: ticket.id,
+          userId,
+          subject: ticket.subject,
+        },
+      })
+      .catch(() => undefined);
+    return ticket;
   }
 
   async getMyTickets(
@@ -94,25 +107,14 @@ export class SupportService {
       data: { status: 'OPEN' },
     });
 
-    try {
-      const admins = await this.prisma.user.findMany({
-        where: { role: { in: [UserRole.ADMIN, UserRole.GODADMIN] } },
-        select: { id: true },
-      });
-      if (admins.length > 0) {
-        await this.prisma.notification.createMany({
-          data: admins.map((a) => ({
-            userId: a.id,
-            type: NotificationType.TICKET_REPLY,
-            title: 'پیام جدید تیکت پشتیبانی',
-            message: `کاربر برای تیکت «${ticket.subject}» پیام جدید ارسال کرده است.`,
-            meta: { ticketId: ticket.id, userId },
-          })),
-        });
-      }
-    } catch {
-      // ignore notification errors to avoid breaking ticket messaging
-    }
+    void this.notification
+      .notifyAdminPersonnel({
+        type: NotificationType.ADMIN_ALERT_TICKET_USER_MESSAGE,
+        title: 'پیام جدید تیکت پشتیبانی',
+        message: `کاربر برای تیکت «${ticket.subject}» پیام جدید ارسال کرده است.`,
+        meta: { ticketId: ticket.id, userId },
+      })
+      .catch(() => undefined);
 
     return created;
   }

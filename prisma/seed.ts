@@ -86,6 +86,7 @@ async function main() {
     await prisma.plan.create({
         data: {
             title: 'پلن فروشنده',
+            marketingTitle: 'اولین طبقه — دیده شو، بفروش',
             description:
                 'برای کسی که می‌خواهد بیشتر دیده شود: سهمیهٔ معاوضه و مزایده اضافه، مناسب فروش دوره‌ای.',
             price: 349_000,
@@ -105,7 +106,8 @@ async function main() {
 
     await prisma.plan.create({
         data: {
-            title: 'پلن رشد (پیشنهاد ویژه)',
+            title: 'پلن رشد',
+            marketingTitle: 'شتاب رشد — پیشنهاد ویژهٔ طبقه',
             description:
                 'تعادل قیمت و حجم: برای فروشندگان فعال که هم فروش ثابت دارند هم حراج و معاوضه.',
             price: 799_000,
@@ -126,6 +128,7 @@ async function main() {
     await prisma.plan.create({
         data: {
             title: 'پلن حرفه‌ای',
+            marketingTitle: 'سقف بازار — قدرت تمام‌عیار',
             description:
                 'حداکثر دیده‌شدن و چرخش کالا؛ مناسب مغازه‌داران و فروشندگان پرحجم آنلاین.',
             price: 1_699_000,

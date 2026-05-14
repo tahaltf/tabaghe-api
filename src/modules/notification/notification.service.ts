@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { NotificationType, Prisma } from '@prisma/client';
+import { NotificationType, Prisma, UserRole } from '@prisma/client';
 import { SmsService } from '../sms/sms.service';
 import webpush from 'web-push';
 
@@ -69,6 +69,183 @@ export class NotificationService {
     });
 
     return notification;
+  }
+
+  /**
+   * نوتیفیکیشن داخل سایت برای همهٔ ادمین‌ها + ارسال پیامک فقط به کاربران GODADMIN
+   * (طبق قالب و فعال‌سازی همان نوع در SMS_NOTIFICATION_RULES).
+   */
+  async notifyAdminPersonnel(params: {
+    type: NotificationType;
+    title: string;
+    message: string;
+    meta?: Record<string, unknown>;
+  }): Promise<void> {
+    const { type, title, message, meta } = params;
+    const rule = await this.getRuleForType(type);
+    if (rule && rule.siteNotificationEnabled === false) {
+      return;
+    }
+    const resolvedTitle = title?.trim();
+    const resolvedMessage = rule?.siteNotificationText?.trim() || message;
+    const metaValue =
+      meta === undefined ? undefined : (meta as Prisma.InputJsonValue);
+
+    const admins = await this.prisma.user.findMany({
+      where: { role: { in: [UserRole.ADMIN, UserRole.GODADMIN] } },
+      select: { id: true },
+    });
+    if (admins.length === 0) return;
+
+    await this.prisma.notification.createMany({
+      data: admins.map((a) => ({
+        userId: a.id,
+        type,
+        title: resolvedTitle,
+        message: resolvedMessage,
+        meta: metaValue,
+      })),
+    });
+
+    this.processSmsForGodadmins(type, meta).catch((err) => {
+      this.logger.error('Failed to process admin SMS notification', err);
+    });
+    await Promise.all(
+      admins.map((a) =>
+        this.processPush(
+          a.id,
+          resolvedTitle ?? '',
+          resolvedMessage ?? '',
+          '/admin/notifications',
+        ).catch((e) => {
+          this.logger.warn(
+            `Push admin notification failed for ${a.id}: ${String((e as Error)?.message ?? e)}`,
+          );
+        }),
+      ),
+    );
+  }
+
+  private async processSmsForGodadmins(
+    type: NotificationType,
+    meta?: Record<string, unknown>,
+  ) {
+    const rule = await this.getRuleForType(type);
+    if (rule && rule.smsEnabled === false) return;
+
+    const godadmins = await this.prisma.user.findMany({
+      where: { role: UserRole.GODADMIN },
+      select: { phone: true, firstName: true },
+    });
+    if (godadmins.length === 0) return;
+
+    const metaForSms: Record<string, unknown> | undefined = meta
+      ? { ...meta }
+      : undefined;
+
+    const subjectUserId =
+      metaForSms && typeof metaForSms.userId === 'string'
+        ? metaForSms.userId
+        : undefined;
+    let subjectFirstName: string | null = null;
+    if (subjectUserId) {
+      const u = await this.prisma.user.findUnique({
+        where: { id: subjectUserId },
+        select: { firstName: true, phone: true },
+      });
+      subjectFirstName = u?.firstName ?? null;
+      if (u?.phone && metaForSms) {
+        metaForSms.userPhone = u.phone;
+      }
+    }
+
+    let listingTitle = 'یک آگهی';
+    const listingId =
+      metaForSms && typeof metaForSms.listingId === 'string'
+        ? metaForSms.listingId
+        : undefined;
+    if (listingId) {
+      const listing = await this.prisma.listing.findUnique({
+        where: { id: listingId },
+        select: { title: true },
+      });
+      if (listing) listingTitle = listing.title;
+    }
+
+    const templateFirstName = String(subjectFirstName ?? 'کاربر');
+
+    let templateId: number | undefined;
+    let parameters: { name: string; value: string }[] = [];
+
+    if (rule?.smsTemplateConfig?.templateId) {
+      templateId = Number(rule.smsTemplateConfig.templateId);
+      const configured = Array.isArray(rule.smsTemplateConfig.parameters)
+        ? rule.smsTemplateConfig.parameters
+        : [];
+      const metaFlat = this.flattenMetaForSms(metaForSms);
+      parameters = configured
+        .map((p) => ({
+          name: String(p?.name ?? '').trim(),
+          value: this.applySmsPlaceholders(
+            String(p?.value ?? ''),
+            templateFirstName,
+            listingTitle,
+            metaFlat,
+          ),
+        }))
+        .filter((p) => p.name && p.value);
+    } else {
+      return;
+    }
+
+    if (!templateId || !Number.isFinite(templateId)) return;
+
+    for (const ga of godadmins) {
+      if (!ga.phone) continue;
+      const paramsWithRecipient = parameters.map((p) => ({
+        name: p.name,
+        value: String(p.value).replace(
+          /\{\{adminFirstName\}\}/g,
+          String(ga.firstName ?? 'ادمین'),
+        ),
+      }));
+      try {
+        await this.smsService.sendByTemplate(ga.phone, templateId, paramsWithRecipient);
+        this.logger.log(`پیامک ${type} برای GODADMIN ${ga.phone} ارسال شد.`);
+      } catch (error: unknown) {
+        const err = error as { response?: { data?: unknown }; message?: string };
+        this.logger.error(
+          `خطا در ارسال پیامک ادمین به ${ga.phone}:`,
+          err?.response?.data || err?.message,
+        );
+      }
+    }
+  }
+
+  private flattenMetaForSms(
+    meta?: Record<string, unknown>,
+  ): Record<string, string> {
+    const out: Record<string, string> = {};
+    if (!meta) return out;
+    for (const [k, v] of Object.entries(meta)) {
+      out[k] = v === null || v === undefined ? '' : String(v);
+    }
+    return out;
+  }
+
+  private applySmsPlaceholders(
+    raw: string,
+    firstName: string,
+    listingTitle: string,
+    metaFlat: Record<string, string>,
+  ): string {
+    let s = String(raw ?? '');
+    s = s.replace(/\{\{firstName\}\}/g, firstName);
+    s = s.replace(/\{\{listingTitle\}\}/g, listingTitle);
+    for (const [k, v] of Object.entries(metaFlat)) {
+      s = s.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), v);
+    }
+    return s;
   }
 
   private async processSms(

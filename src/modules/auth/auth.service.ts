@@ -1,11 +1,12 @@
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
-import { User, UserRole, UserStatus } from '@prisma/client';
+import { User, UserRole, UserStatus, NotificationType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AuthSessionResponse, JwtPayload } from '../../shared/contracts/auth';
 import { OtpIssueResult, OtpService } from './services/otp.service';
 import { TokenService } from './services/token.service';
 import { SmsService } from '../sms/sms.service';
+import { NotificationService } from '../notification/notification.service';
 
 const ADMIN_DEFAULT_PASSWORD = '@Ab123456789@';
 
@@ -18,6 +19,7 @@ export class AuthService {
     private readonly otpService: OtpService,
     private readonly tokenService: TokenService,
     private readonly smsService: SmsService,
+    private readonly notifications: NotificationService,
   ) {}
 
   async requestOtp(phone: string): Promise<OtpIssueResult> {
@@ -26,9 +28,28 @@ export class AuthService {
 
   async verifyOtp(phone: string, code: string): Promise<AuthSessionResponse> {
     await this.otpService.consume(phone, code);
+    const existed = await this.prisma.user.findUnique({
+      where: { phone },
+      select: { id: true },
+    });
     const user = await this.findOrCreateUser(phone);
+    const isNewUser = !existed;
     const session = this.buildSession(user);
     this.notifyAdminAboutLogin(user.phone);
+    if (isNewUser) {
+      void this.notifications
+        .notifyAdminPersonnel({
+          type: NotificationType.ADMIN_ALERT_NEW_USER,
+          title: 'کاربر جدید',
+          message: `کاربر جدید با شماره ${user.phone} ثبت‌نام کرد.`,
+          meta: { userId: user.id },
+        })
+        .catch((err) => {
+          this.logger.warn(
+            `notifyAdminPersonnel NEW_USER failed: ${String((err as Error)?.message ?? err)}`,
+          );
+        });
+    }
     return session;
   }
 

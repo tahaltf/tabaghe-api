@@ -21,6 +21,14 @@ export type AdminPlanItem = Prisma.PlanGetPayload<{
   include: typeof PLAN_INCLUDE;
 }>;
 
+function normalizeMarketingTitle(
+  value: string | undefined | null,
+): string | null {
+  if (value == null) return null;
+  const t = value.trim();
+  return t.length > 0 ? t : null;
+}
+
 /** چند ردیف با یک نوع آگهی را به یک ردیف با جمع تعداد تبدیل می‌کند (مطابق @@unique([planId, type])). */
 function mergeRulesByType(
   rules: PlanRuleDto[],
@@ -63,6 +71,7 @@ export class AdminPlansService {
     return this.prisma.plan.create({
       data: {
         title: dto.title,
+        marketingTitle: normalizeMarketingTitle(dto.marketingTitle),
         description: dto.description,
         price: dto.price,
         isActive: dto.isActive ?? true,
@@ -86,6 +95,10 @@ export class AdminPlansService {
         where: { id },
         data: {
           title: dto.title ?? undefined,
+          marketingTitle:
+            dto.marketingTitle !== undefined
+              ? normalizeMarketingTitle(dto.marketingTitle)
+              : undefined,
           description: dto.description ?? undefined,
           price: dto.price ?? undefined,
           isActive: dto.isActive ?? undefined,

@@ -9,6 +9,7 @@ export function buildBuiltinFreePlan(freeDirectLimit: number) {
   return {
     id,
     title: 'پلن شروع (رایگان)',
+    marketingTitle: 'ویترین رایگان — قدم‌به‌قدم با طبقه',
     description:
       'بلافاصله پس از ثبت‌نام برای همه فعال است؛ بدون پرداخت، چند آگهی فروش مستقیم منتشر کنید و دیده شوید. برای معاوضه و مزایده، پلن‌های بالاتر را انتخاب کنید.',
     price: 0,

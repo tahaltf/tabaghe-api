@@ -170,6 +170,12 @@ enum NotificationType {
   REPAIR_STATUS_CHANGED
   TICKET_REPLY
   SYSTEM
+  ADMIN_ALERT_NEW_TICKET
+  ADMIN_ALERT_NEW_LISTING
+  ADMIN_ALERT_NEW_USER
+  ADMIN_ALERT_CONTACT_MESSAGE
+  ADMIN_ALERT_NEW_REPAIR
+  ADMIN_ALERT_TICKET_USER_MESSAGE
 }
 
 enum RepairRequestStatus {
@@ -504,6 +510,8 @@ model SavedListing {
 model Plan {
   id          String             @id @default(cuid())
   title       String
+  /// عنوان تبلیغاتی برای نمایش در سایت؛ اگر خالی باشد از title استفاده می‌شود
+  marketingTitle String?
   description String?
   price       Int                @default(0)
   isActive    Boolean            @default(true)
