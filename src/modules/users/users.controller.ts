@@ -4,6 +4,7 @@ import {
   Get,
   Header,
   Patch,
+  Query,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -18,7 +19,13 @@ import { AuthenticatedUser } from '../../shared/contracts/auth';
 import { nationalCardMulterOptions } from '../../common/upload/national-card-upload.config';
 import { CompleteProfileDto } from './dto/complete-profile.dto';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
-import { DashboardStats, MyProfile, UsersService } from './users.service';
+import {
+  DashboardStats,
+  MyProfile,
+  PanelBadgeSection,
+  PanelBadges,
+  UsersService,
+} from './users.service';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard)
@@ -37,6 +44,38 @@ export class UsersController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<DashboardStats> {
     return this.usersService.getDashboardStats(user.id);
+  }
+
+  @Get('panel-badges')
+  @Header('Cache-Control', 'no-store, no-cache, must-revalidate')
+  @Header('Pragma', 'no-cache')
+  getPanelBadges(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('seenListing') seenListing?: string,
+    @Query('seenBuy') seenBuy?: string,
+    @Query('seenSell') seenSell?: string,
+    @Query('seenRequests') seenRequests?: string,
+    @Query('seenSupport') seenSupport?: string,
+    @Query('seenRepairs') seenRepairs?: string,
+  ): Promise<PanelBadges> {
+    const parseSeen = (raw?: string): number | undefined => {
+      const n = Number(raw ?? '');
+      return Number.isFinite(n) && n > 0 ? n : undefined;
+    };
+    const seenAtBySection: Partial<Record<PanelBadgeSection, number>> = {};
+    const listing = parseSeen(seenListing);
+    const buy = parseSeen(seenBuy);
+    const sell = parseSeen(seenSell);
+    const requests = parseSeen(seenRequests);
+    const support = parseSeen(seenSupport);
+    const repairs = parseSeen(seenRepairs);
+    if (listing) seenAtBySection.listing = listing;
+    if (buy) seenAtBySection.buy = buy;
+    if (sell) seenAtBySection.sell = sell;
+    if (requests) seenAtBySection.requests = requests;
+    if (support) seenAtBySection.ticket = support;
+    if (repairs) seenAtBySection.repairs = repairs;
+    return this.usersService.getPanelBadges(user.id, seenAtBySection);
   }
 
   @Patch('complete-profile')
