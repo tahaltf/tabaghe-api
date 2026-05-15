@@ -16,6 +16,7 @@ import {
   SecondChanceOfferStatus,
   ListingStatus,
   NotificationType,
+  UserRole,
   Prisma,
   WalletTransactionStatus,
   WalletTransactionType,
@@ -2068,6 +2069,111 @@ export class OrdersService {
     });
   }
 
+  /** تیکت و اعلان برای لغو فروش مستقیم به‌دلیل عدم ارسال فروشنده در مهلت */
+  private async createShippingTimeoutCancelTickets(
+    tx: Prisma.TransactionClient,
+    params: {
+      orderId: string;
+      buyerId: string;
+      sellerId: string;
+      listingTitle: string;
+      totalAmount: number;
+      trustPenaltyPoints?: number;
+    },
+  ): Promise<void> {
+    const shortId = params.orderId.slice(-6);
+    const amountFa = Math.max(0, Number(params.totalAmount) || 0).toLocaleString(
+      'fa-IR',
+    );
+    const penalty = params.trustPenaltyPoints ?? 15;
+    const listingTitle = params.listingTitle?.trim() || 'کالا';
+
+    const buyerTicketMessage = [
+      'سلام،',
+      '',
+      `متأسفیم؛ سفارش #${shortId} برای «${listingTitle}» لغو شد.`,
+      'دلیل: فروشنده در مهلت قانونی ارسال، مرسوله را ثبت نکرد.',
+      '',
+      `مبلغ پرداختی شما (${amountFa} تومان) به کیف پولتان در طبقه برگشت داده شد.`,
+      'از صبر و شکیبایی شما سپاسگزاریم و بابت ناراحتی پیش‌آمده پوزش می‌خواهیم.',
+      '',
+      `طبق قوانین طبقه، ${penalty} واحد از امتیاز اعتماد فروشنده کسر شد.`,
+      '',
+      'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.',
+    ].join('\n');
+
+    const sellerTicketMessage = [
+      'سلام،',
+      '',
+      `سفارش #${shortId} برای «${listingTitle}» لغو شد.`,
+      'دلیل: شما در مهلت قانونی ارسال، کد رهگیری یا ویدیوی بسته‌بندی را ثبت نکردید.',
+      '',
+      `وجه پرداختی خریدار (${amountFa} تومان) به کیف پول او برگشت داده شد.`,
+      'مبلغ بلوکه‌شده در کیف پول شما نیز آزاد شد.',
+      '',
+      `به‌دلیل تأخیر در ارسال، ${penalty} واحد از امتیاز اعتماد شما کسر شد.`,
+      '',
+      'برای سفارش‌های بعدی لطفاً ارسال را در مهلت مقرر انجام دهید.',
+    ].join('\n');
+
+    const buyerTicket = await tx.ticket.create({
+      data: {
+        userId: params.buyerId,
+        subject: `لغو سفارش — عدم ارسال فروشنده [ORDER:${params.orderId}]`,
+        status: 'OPEN',
+        messages: {
+          create: {
+            senderRole: UserRole.ADMIN,
+            message: buyerTicketMessage,
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    const sellerTicket = await tx.ticket.create({
+      data: {
+        userId: params.sellerId,
+        subject: `لغو سفارش — عدم ارسال در مهلت [ORDER:${params.orderId}]`,
+        status: 'OPEN',
+        messages: {
+          create: {
+            senderRole: UserRole.ADMIN,
+            message: sellerTicketMessage,
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    await tx.notification.createMany({
+      data: [
+        {
+          userId: params.buyerId,
+          type: NotificationType.TICKET_REPLY,
+          title: 'سفارش لغو شد — بازگشت وجه',
+          message: `سفارش #${shortId} به‌دلیل عدم ارسال فروشنده لغو شد و مبلغ به کیف پول شما برگشت.`,
+          meta: {
+            orderId: params.orderId,
+            ticketId: buyerTicket.id,
+            reason: 'shipping-timeout-cancel',
+          } as Prisma.InputJsonValue,
+        },
+        {
+          userId: params.sellerId,
+          type: NotificationType.TICKET_REPLY,
+          title: 'سفارش لغو شد — کسر امتیاز',
+          message: `سفارش #${shortId} به‌دلیل عدم ارسال در مهلت لغو شد؛ وجه به خریدار برگشت و امتیاز شما کاهش یافت.`,
+          meta: {
+            orderId: params.orderId,
+            ticketId: sellerTicket.id,
+            reason: 'shipping-timeout-cancel',
+          } as Prisma.InputJsonValue,
+        },
+      ],
+    });
+  }
+
   // =================================================================
   // 8. جاب‌های خودکار
   // =================================================================
@@ -2083,6 +2189,9 @@ export class OrdersService {
           in: [OrderStatus.PAID, OrderStatus.AWAITING_SHIPMENT_TO_HUB],
         },
         shippingDeadline: { lt: now },
+      },
+      include: {
+        listing: { select: { title: true } },
       },
     });
 
@@ -2177,30 +2286,24 @@ export class OrdersService {
               );
             }
           } else {
-            if (Number(order.sellerRevenue) > 0) {
-              await tx.wallet.upsert({
-                where: { userId: order.sellerId },
-                create: {
-                  userId: order.sellerId,
-                  balanceAvailable: 0,
-                  balanceBlocked: 0,
-                },
-                update: { balanceBlocked: { decrement: order.sellerRevenue } },
-              });
-            }
-
-            if (Number(order.totalAmount) > 0) {
-              await tx.wallet.upsert({
-                where: { userId: order.buyerId },
-                create: {
-                  userId: order.buyerId,
-                  balanceAvailable: order.totalAmount,
-                  balanceBlocked: 0,
-                },
-                update: { balanceAvailable: { increment: order.totalAmount } },
-              });
-            }
+            const cancelReason =
+              'عدم ارسال فروشنده در مهلت مقرر؛ معامله لغو شد';
+            await this.walletService.refundDirectOrderEscrowOnCancel(tx, {
+              orderId: order.id,
+              listingId: order.listingId,
+              buyerId: order.buyerId,
+              sellerId: order.sellerId,
+              totalAmount: Number(order.totalAmount || 0),
+              sellerRevenue: Number(order.sellerRevenue || 0),
+              cancelReason,
+              refundReason: 'shipping-timeout-cancel',
+            });
           }
+
+          const isDirectShippingTimeoutCancel =
+            !(
+              order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
+            );
 
           if (order.type === OrderType.EXCHANGE && exchangeOnlyOneSent) {
             const offenderId = sellerSent ? order.buyerId : order.sellerId;
@@ -2231,7 +2334,7 @@ export class OrdersService {
               cancelReason:
                 order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
                   ? 'عدم ارسال یکی از طرفین در مهلت ۴۸ ساعته پس از ارسال طرف مقابل؛ مرجوعی کالای ارسال‌شده الزامی است'
-                  : 'عدم ارسال در مهلت مقرر',
+                  : 'عدم ارسال فروشنده در مهلت مقرر؛ معامله لغو شد',
               ...(order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
                 ? {
                     exchangeHubInspection: {
@@ -2248,10 +2351,10 @@ export class OrdersService {
                 : {}),
             },
           });
-          const failurePenalizeUserIds =
+          const failurePenalizeUserIds: string[] =
             order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
               ? [sellerSent ? order.buyerId : order.sellerId]
-              : undefined;
+              : [order.sellerId];
           await this.orderReputation.recordTerminalOutcome(
             tx,
             {
@@ -2262,12 +2365,26 @@ export class OrdersService {
             },
             prevShipCancel,
             'FAILURE',
-            failurePenalizeUserIds ? { failurePenalizeUserIds } : undefined,
+            { failurePenalizeUserIds },
           );
           await tx.listing.update({
             where: { id: order.listingId },
             data: { status: ListingStatus.APPROVED },
           });
+
+          if (
+            isDirectShippingTimeoutCancel &&
+            targetStatus === OrderStatus.CANCELLED
+          ) {
+            await this.createShippingTimeoutCancelTickets(tx, {
+              orderId: order.id,
+              buyerId: order.buyerId,
+              sellerId: order.sellerId,
+              listingTitle: order.listing?.title ?? 'کالا',
+              totalAmount: Number(order.totalAmount || 0),
+              trustPenaltyPoints: 15,
+            });
+          }
         });
       } catch (error) {
         console.error(`Error auto-canceling order ${order.id}:`, error);

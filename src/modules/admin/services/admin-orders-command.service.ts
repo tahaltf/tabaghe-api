@@ -25,6 +25,7 @@ import {
 import { AppSettingsService } from '../../../shared/settings/app-settings.service';
 import { FeeCalculatorService } from '../../fees/fee-calculator.service';
 import { OrderReputationService } from '../../orders/order-reputation.service';
+import { WalletService } from '../../wallet/wallet.service';
 
 @Injectable()
 export class AdminOrdersCommandService {
@@ -33,7 +34,12 @@ export class AdminOrdersCommandService {
     private readonly appSettings: AppSettingsService,
     private readonly feeCalculator: FeeCalculatorService,
     private readonly orderReputation: OrderReputationService,
+    private readonly walletService: WalletService,
   ) {}
+
+  repairBuyerRefundForCancelledOrder(orderId: string) {
+    return this.walletService.repairMissingDirectCancelRefund(orderId);
+  }
 
   async updateStatus(
     id: string,

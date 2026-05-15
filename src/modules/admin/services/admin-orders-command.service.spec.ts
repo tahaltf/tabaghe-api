@@ -100,12 +100,16 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
     const orderReputation = {
       recordTerminalOutcome: jest.fn().mockResolvedValue(undefined),
     };
+    const walletService = {
+      repairMissingDirectCancelRefund: jest.fn().mockResolvedValue({ repaired: false }),
+    };
 
     const service = new AdminOrdersCommandService(
       prisma as never,
       appSettings as never,
       feeCalculator as never,
       orderReputation as never,
+      walletService as never,
     );
     return { service, prisma, tx };
   }
@@ -298,11 +302,15 @@ describe('AdminOrdersCommandService - exchange release escrow', () => {
     const orderReputation = {
       recordTerminalOutcome: jest.fn().mockResolvedValue(undefined),
     };
+    const walletService = {
+      repairMissingDirectCancelRefund: jest.fn().mockResolvedValue({ repaired: false }),
+    };
     const service = new AdminOrdersCommandService(
       prisma as never,
       appSettings as never,
       feeCalculator as never,
       orderReputation as never,
+      walletService as never,
     );
     return { service, tx };
   }
