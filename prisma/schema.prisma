@@ -842,6 +842,8 @@ paymentMethod    PaymentMethod @default(GATEWAY)
   exchangeHubInspection Json?
 
   shippingDeadline  DateTime? // مهلت ارسال کالا
+  /** پایان مهلت تایید دریافت / ثبت شکایت پس از ارسال به خریدار */
+  buyerConfirmDeadline DateTime?
   cancelReason      String?   // دلیل لغو (اگر خودکار لغو شد)
 
   // --- مستندات تصویری (جدید) ---

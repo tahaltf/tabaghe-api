@@ -26,6 +26,7 @@ import { AppSettingsService } from '../../../shared/settings/app-settings.servic
 import { FeeCalculatorService } from '../../fees/fee-calculator.service';
 import { OrderReputationService } from '../../orders/order-reputation.service';
 import { WalletService } from '../../wallet/wallet.service';
+import { OrdersService } from '../../orders/orders.service';
 
 @Injectable()
 export class AdminOrdersCommandService {
@@ -35,6 +36,7 @@ export class AdminOrdersCommandService {
     private readonly feeCalculator: FeeCalculatorService,
     private readonly orderReputation: OrderReputationService,
     private readonly walletService: WalletService,
+    private readonly ordersService: OrdersService,
   ) {}
 
   repairBuyerRefundForCancelledOrder(orderId: string) {
@@ -341,6 +343,7 @@ export class AdminOrdersCommandService {
       }
       return o;
     });
+    await this.ordersService.ensureBuyerConfirmDeadline(id);
     await this.notifyParties(
       existing.buyerId,
       existing.sellerId,
@@ -426,6 +429,13 @@ export class AdminOrdersCommandService {
           : {}),
       },
     });
+
+    if (
+      !isExchangeReturnFlow &&
+      nextStatus === OrderStatus.SHIPPED_TO_BUYER
+    ) {
+      await this.ordersService.ensureBuyerConfirmDeadline(id);
+    }
 
     const buyerNote =
       dto.note ??

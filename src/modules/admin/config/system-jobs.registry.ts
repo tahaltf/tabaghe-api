@@ -123,10 +123,10 @@ export const SYSTEM_JOBS_REGISTRY: SystemJobDefinition[] = [
   {
     id: 'orders_auto_confirm',
     name: 'تایید خودکار سفارش پس از مهلت خریدار',
-    schedule: '0 * * * *',
-    scheduleLabel: 'هر ۱ ساعت',
+    schedule: '* * * * *',
+    scheduleLabel: 'هر ۱ دقیقه',
     description:
-      'سفارش‌هایی که خریدار در مهلت تایید/شکایت نکرده را به‌صورت خودکار تکمیل می‌کند.',
+      'سفارش‌هایی که خریدار در مهلت تایید/شکایت نکرده را به‌صورت خودکار تکمیل می‌کند (بر اساس buyerConfirmDeadline).',
     module: 'orders/orders.service.ts',
     method: 'autoConfirmOrders',
     managedBy: 'nestjs_cron',
