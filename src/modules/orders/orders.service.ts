@@ -1107,9 +1107,17 @@ export class OrdersService {
       order.requiresVerification ||
       order.listing?.sellerRequiresVerification;
 
-    updateData.status = needsHub
+    const nextShipStatus = needsHub
       ? OrderStatus.SHIPPED_TO_HUB
       : OrderStatus.SHIPPED;
+    updateData.status = nextShipStatus;
+    if (
+      nextShipStatus === OrderStatus.SHIPPED &&
+      !order.buyerConfirmDeadline
+    ) {
+      updateData.buyerConfirmDeadline =
+        await this.buildBuyerConfirmDeadlineFrom(new Date());
+    }
 
     // جایگذاری صحیح کد رهگیری و ویدیو بر اساس شخص ارسال‌کننده
     if (isSeller) {
@@ -1752,6 +1760,48 @@ export class OrdersService {
       throw new ForbiddenException('عدم دسترسی');
     }
 
+    await this.ensureBuyerConfirmDeadline(orderId);
+
+    const autoConfirmed = await this.tryAutoConfirmExpiredOrder(orderId);
+    if (autoConfirmed) {
+      const refreshedAfterConfirm = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+          listing: {
+            select: {
+              id: true,
+              title: true,
+              thumbnail: true,
+              type: true,
+              status: true,
+              condition: true,
+              shippingPayer: true,
+              sellerRequiresVerification: true,
+            },
+          },
+          buyer: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              avatar: true,
+              phone: true,
+            },
+          },
+          seller: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              avatar: true,
+              phone: true,
+            },
+          },
+        },
+      });
+      if (refreshedAfterConfirm) order = refreshedAfterConfirm;
+    }
+
     const shippingCancelled = await this.tryCancelExpiredShippingForOrder(
       orderId,
     );
@@ -2273,6 +2323,12 @@ export class OrdersService {
   // 8. جاب‌های خودکار
   // =================================================================
 
+  private static readonly BUYER_CONFIRM_ELIGIBLE_STATUSES: OrderStatus[] = [
+    OrderStatus.SHIPPED,
+    OrderStatus.SHIPPED_TO_BUYER,
+    OrderStatus.DELIVERED,
+  ];
+
   private static readonly AWAITING_SELLER_SHIPMENT_STATUSES: OrderStatus[] = [
     OrderStatus.PAID,
     OrderStatus.AWAITING_SHIPMENT_TO_HUB,
@@ -2307,6 +2363,79 @@ export class OrdersService {
     const base = order.updatedAt ?? order.createdAt;
     if (!base) return null;
     return new Date(base.getTime() + minutes * 60 * 1000);
+  }
+
+  private async buildBuyerConfirmDeadlineFrom(from: Date): Promise<Date> {
+    const minutes = await this.getBuyerConfirmDeadlineMinutes();
+    return new Date(from.getTime() + minutes * 60 * 1000);
+  }
+
+  private async resolveEffectiveBuyerConfirmDeadline(order: {
+    status: OrderStatus;
+    buyerConfirmDeadline: Date | null;
+    updatedAt: Date;
+    createdAt: Date;
+  }): Promise<Date | null> {
+    if (!OrdersService.BUYER_CONFIRM_ELIGIBLE_STATUSES.includes(order.status)) {
+      return null;
+    }
+    if (order.buyerConfirmDeadline) return order.buyerConfirmDeadline;
+    const minutes = await this.getBuyerConfirmDeadlineMinutes();
+    const base = order.updatedAt ?? order.createdAt;
+    if (!base) return null;
+    return new Date(base.getTime() + minutes * 60 * 1000);
+  }
+
+  private async isBuyerConfirmDeadlineExpired(order: {
+    status: OrderStatus;
+    buyerConfirmDeadline: Date | null;
+    disputedAt: Date | null;
+    updatedAt: Date;
+    createdAt: Date;
+  }): Promise<boolean> {
+    if (order.disputedAt) return false;
+    if (!OrdersService.BUYER_CONFIRM_ELIGIBLE_STATUSES.includes(order.status)) {
+      return false;
+    }
+    const deadline = await this.resolveEffectiveBuyerConfirmDeadline(order);
+    if (!deadline) return false;
+    return deadline.getTime() <= Date.now();
+  }
+
+  /** ثبت مهلت تایید دریافت هنگام ورود به وضعیت «ارسال‌شده» (یک‌بار) */
+  async ensureBuyerConfirmDeadline(orderId: string): Promise<void> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        status: true,
+        buyerConfirmDeadline: true,
+        updatedAt: true,
+        createdAt: true,
+      },
+    });
+    if (!order) return;
+    if (order.buyerConfirmDeadline) return;
+    if (!OrdersService.BUYER_CONFIRM_ELIGIBLE_STATUSES.includes(order.status)) {
+      return;
+    }
+    const base = order.updatedAt ?? order.createdAt ?? new Date();
+    const deadline = await this.buildBuyerConfirmDeadlineFrom(base);
+    await this.prisma.order.update({
+      where: { id: orderId },
+      data: { buyerConfirmDeadline: deadline },
+    });
+  }
+
+  /**
+   * تایید خودکار یک سفارش منقضی‌شده (مشابه کرون؛ هنگام باز کردن صفحه سفارش).
+   */
+  async tryAutoConfirmExpiredOrder(orderId: string): Promise<boolean> {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) return false;
+    if (!(await this.isBuyerConfirmDeadlineExpired(order))) return false;
+    await this.processAutoConfirmOrder(order);
+    return true;
   }
 
   /** آیا مهلت ارسال گذشته و سفارش باید لغو/تسویه شود؟ */
@@ -2869,107 +2998,122 @@ export class OrdersService {
     }
   }
 
-  @Cron(CronExpression.EVERY_HOUR)
+  @Cron(CronExpression.EVERY_MINUTE)
   async autoConfirmOrders() {
+    const now = new Date();
     const buyerConfirmDeadlineMinutes =
       await this.getBuyerConfirmDeadlineMinutes();
-    const threshold = new Date(
+    const legacyThreshold = new Date(
       Date.now() - buyerConfirmDeadlineMinutes * 60 * 1000,
     );
     const pendingOrders = await this.prisma.order.findMany({
       where: {
-        // در ارسال از هاب (معامله تاییدشده) وضعیت SHIPPED_TO_BUYER داریم.
-        // برای UX یکپارچه، اگر کاربر تایید دریافت نکند، این وضعیت هم باید مشمول تایید خودکار شود.
-        status: {
-          in: [
-            OrderStatus.SHIPPED_TO_BUYER,
-            OrderStatus.SHIPPED,
-            OrderStatus.DELIVERED,
-          ],
-        },
-        updatedAt: { lte: threshold },
+        status: { in: OrdersService.BUYER_CONFIRM_ELIGIBLE_STATUSES },
+        disputedAt: null,
+        OR: [
+          { buyerConfirmDeadline: { lte: now } },
+          {
+            buyerConfirmDeadline: null,
+            updatedAt: { lte: legacyThreshold },
+          },
+        ],
       },
     });
 
     for (const order of pendingOrders) {
       try {
-        if (order.type === OrderType.EXCHANGE) {
-          await this.prisma.$transaction(async (tx) => {
-            const locked = await tx.order.findUnique({
-              where: { id: order.id },
-            });
-            if (!locked) return;
-            if (
-              locked.status === OrderStatus.COMPLETED ||
-              locked.status === OrderStatus.CANCELLED
-            )
-              return;
-
-            const [sellerWallet, buyerWallet] = await Promise.all([
-              tx.wallet.findUnique({
-                where: { userId: locked.sellerId },
-                select: { balanceBlocked: true },
-              }),
-              tx.wallet.findUnique({
-                where: { userId: locked.buyerId },
-                select: { balanceBlocked: true },
-              }),
-            ]);
-            const sellerBlocked = Math.max(
-              0,
-              Number(sellerWallet?.balanceBlocked || 0),
-            );
-            const buyerBlocked = Math.max(
-              0,
-              Number(buyerWallet?.balanceBlocked || 0),
-            );
-            if (sellerBlocked > 0) {
-              await this.walletService.releaseEscrow(
-                locked.sellerId,
-                sellerBlocked,
-                locked.listingId,
-                tx,
-                { orderId: locked.id },
-              );
-            }
-            if (buyerBlocked > 0) {
-              await this.walletService.releaseEscrow(
-                locked.buyerId,
-                buyerBlocked,
-                locked.listingId,
-                tx,
-                { orderId: locked.id },
-              );
-            }
-            const prevAutoConfirm = locked.status;
-            await tx.order.update({
-              where: { id: locked.id },
-              data: {
-                buyerConfirmedDelivery: true,
-                sellerConfirmedDelivery: true,
-                status: OrderStatus.COMPLETED,
-              },
-            });
-            await this.orderReputation.recordTerminalOutcome(
-              tx,
-              {
-                id: locked.id,
-                buyerId: locked.buyerId,
-                sellerId: locked.sellerId,
-                tradeReputationAt: locked.tradeReputationAt,
-              },
-              prevAutoConfirm,
-              'SUCCESS',
-            );
-          });
-        } else {
-          await this.confirmOrder(order.buyerId, order.id);
-        }
+        if (!(await this.isBuyerConfirmDeadlineExpired(order))) continue;
+        await this.processAutoConfirmOrder(order);
         console.log(`Auto-confirmed order ${order.id}`);
       } catch (error) {
         console.error(`Error auto-confirming order ${order.id}:`, error);
       }
     }
+  }
+
+  private async processAutoConfirmOrder(
+    order: Prisma.OrderGetPayload<Record<string, never>>,
+  ): Promise<void> {
+    if (order.type === OrderType.EXCHANGE) {
+      await this.prisma.$transaction(async (tx) => {
+        const locked = await tx.order.findUnique({
+          where: { id: order.id },
+        });
+        if (!locked) return;
+        if (
+          locked.status === OrderStatus.COMPLETED ||
+          locked.status === OrderStatus.CANCELLED ||
+          locked.disputedAt
+        ) {
+          return;
+        }
+        if (
+          !OrdersService.BUYER_CONFIRM_ELIGIBLE_STATUSES.includes(locked.status)
+        ) {
+          return;
+        }
+
+        const [sellerWallet, buyerWallet] = await Promise.all([
+          tx.wallet.findUnique({
+            where: { userId: locked.sellerId },
+            select: { balanceBlocked: true },
+          }),
+          tx.wallet.findUnique({
+            where: { userId: locked.buyerId },
+            select: { balanceBlocked: true },
+          }),
+        ]);
+        const sellerBlocked = Math.max(
+          0,
+          Number(sellerWallet?.balanceBlocked || 0),
+        );
+        const buyerBlocked = Math.max(
+          0,
+          Number(buyerWallet?.balanceBlocked || 0),
+        );
+        if (sellerBlocked > 0) {
+          await this.walletService.releaseEscrow(
+            locked.sellerId,
+            sellerBlocked,
+            locked.listingId,
+            tx,
+            { orderId: locked.id },
+          );
+        }
+        if (buyerBlocked > 0) {
+          await this.walletService.releaseEscrow(
+            locked.buyerId,
+            buyerBlocked,
+            locked.listingId,
+            tx,
+            { orderId: locked.id },
+          );
+        }
+        const prevAutoConfirm = locked.status;
+        await tx.order.update({
+          where: { id: locked.id },
+          data: {
+            buyerConfirmedDelivery: true,
+            sellerConfirmedDelivery: true,
+            status: OrderStatus.COMPLETED,
+          },
+        });
+        await this.orderReputation.recordTerminalOutcome(
+          tx,
+          {
+            id: locked.id,
+            buyerId: locked.buyerId,
+            sellerId: locked.sellerId,
+            tradeReputationAt: locked.tradeReputationAt,
+          },
+          prevAutoConfirm,
+          'SUCCESS',
+        );
+      });
+      return;
+    }
+
+    await this.confirmOrder(order.buyerId, order.id);
   }
 
   @Cron(CronExpression.EVERY_HOUR)
@@ -3180,10 +3324,14 @@ export class OrdersService {
       },
       orderBy: { key: 'asc' },
     });
-    return this.parsePositiveIntSetting(
+    let minutes = this.parsePositiveIntSetting(
       setting?.value,
       OrdersService.DEFAULT_BUYER_CONFIRM_DEADLINE_MINUTES,
     );
+    if (setting?.key === 'BUYER_CONFIRM_DEADLINE_DAYS') {
+      minutes *= 24 * 60;
+    }
+    return minutes;
   }
 
   private async getExchangeNoShipmentCompensation(): Promise<number> {

@@ -413,6 +413,12 @@ describe('OrdersService', () => {
         id: orderId,
         type: OrderType.EXCHANGE,
         status: OrderStatus.SHIPPED_TO_BUYER,
+        buyerConfirmDeadline: new Date(Date.now() - 60_000),
+        disputedAt: null,
+        updatedAt: new Date(Date.now() - 86_400_000),
+        createdAt: new Date(Date.now() - 86_400_000),
+        buyerId: 'buyer-1',
+        sellerId: 'seller-1',
       },
     ]);
 

@@ -33,6 +33,6 @@ import { OrderReputationService } from './order-reputation.service';
     OrdersAdminService,
     OrderReputationService,
   ],
-  exports: [OrderReputationService],
+  exports: [OrderReputationService, OrdersService],
 })
 export class OrdersModule {}
