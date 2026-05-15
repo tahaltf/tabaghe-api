@@ -71,6 +71,16 @@ export class CreatePlanDto {
   @IsBoolean()
   isActive?: boolean;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(48)
+  badgeLabel?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(16)
+  badgeColor?: string | null;
+
   @IsArray()
   @ArrayNotEmpty()
   @ValidateNested({ each: true })
@@ -125,6 +135,16 @@ export class UpdatePlanDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(48)
+  badgeLabel?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(16)
+  badgeColor?: string | null;
 
   @IsOptional()
   @IsArray()

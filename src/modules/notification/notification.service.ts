@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NotificationType, Prisma, UserRole } from '@prisma/client';
 import { SmsService } from '../sms/sms.service';
+import { applySmsTemplatePlaceholders } from '../../common/sms/sms-placeholders.util';
 import webpush from 'web-push';
 
 type SmsRule = {
@@ -174,78 +175,42 @@ export class NotificationService {
 
     const templateFirstName = String(subjectFirstName ?? 'کاربر');
 
-    let templateId: number | undefined;
-    let parameters: { name: string; value: string }[] = [];
-
     if (rule?.smsTemplateConfig?.templateId) {
-      templateId = Number(rule.smsTemplateConfig.templateId);
+      const templateId = Number(rule.smsTemplateConfig.templateId);
       const configured = Array.isArray(rule.smsTemplateConfig.parameters)
         ? rule.smsTemplateConfig.parameters
         : [];
-      const metaFlat = this.flattenMetaForSms(metaForSms);
-      parameters = configured
-        .map((p) => ({
-          name: String(p?.name ?? '').trim(),
-          value: this.applySmsPlaceholders(
-            String(p?.value ?? ''),
-            templateFirstName,
-            listingTitle,
-            metaFlat,
-          ),
-        }))
-        .filter((p) => p.name && p.value);
-    } else {
-      return;
-    }
+      if (!templateId || !Number.isFinite(templateId)) return;
 
-    if (!templateId || !Number.isFinite(templateId)) return;
-
-    for (const ga of godadmins) {
-      if (!ga.phone) continue;
-      const paramsWithRecipient = parameters.map((p) => ({
-        name: p.name,
-        value: String(p.value).replace(
-          /\{\{adminFirstName\}\}/g,
-          String(ga.firstName ?? 'ادمین'),
-        ),
-      }));
-      try {
-        await this.smsService.sendByTemplate(ga.phone, templateId, paramsWithRecipient);
-        this.logger.log(`پیامک ${type} برای GODADMIN ${ga.phone} ارسال شد.`);
-      } catch (error: unknown) {
-        const err = error as { response?: { data?: unknown }; message?: string };
-        this.logger.error(
-          `خطا در ارسال پیامک ادمین به ${ga.phone}:`,
-          err?.response?.data || err?.message,
-        );
+      for (const ga of godadmins) {
+        if (!ga.phone) continue;
+        const paramsWithRecipient = configured
+          .map((p) => ({
+            name: String(p?.name ?? '').trim(),
+            value: applySmsTemplatePlaceholders(String(p?.value ?? ''), {
+              firstName: templateFirstName,
+              listingTitle,
+              adminFirstName: ga.firstName,
+              meta: metaForSms,
+            }),
+          }))
+          .filter((p) => p.name && p.value);
+        try {
+          await this.smsService.sendByTemplate(
+            ga.phone,
+            templateId,
+            paramsWithRecipient,
+          );
+          this.logger.log(`پیامک ${type} برای GODADMIN ${ga.phone} ارسال شد.`);
+        } catch (error: unknown) {
+          const err = error as { response?: { data?: unknown }; message?: string };
+          this.logger.error(
+            `خطا در ارسال پیامک ادمین به ${ga.phone}:`,
+            err?.response?.data || err?.message,
+          );
+        }
       }
     }
-  }
-
-  private flattenMetaForSms(
-    meta?: Record<string, unknown>,
-  ): Record<string, string> {
-    const out: Record<string, string> = {};
-    if (!meta) return out;
-    for (const [k, v] of Object.entries(meta)) {
-      out[k] = v === null || v === undefined ? '' : String(v);
-    }
-    return out;
-  }
-
-  private applySmsPlaceholders(
-    raw: string,
-    firstName: string,
-    listingTitle: string,
-    metaFlat: Record<string, string>,
-  ): string {
-    let s = String(raw ?? '');
-    s = s.replace(/\{\{firstName\}\}/g, firstName);
-    s = s.replace(/\{\{listingTitle\}\}/g, listingTitle);
-    for (const [k, v] of Object.entries(metaFlat)) {
-      s = s.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), v);
-    }
-    return s;
   }
 
   private async processSms(
@@ -259,7 +224,7 @@ export class NotificationService {
     // دریافت شماره موبایل کاربر
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { phone: true, firstName: true },
+      select: { phone: true, firstName: true, lastName: true },
     });
 
     if (!user || !user.phone) return;
@@ -287,9 +252,12 @@ export class NotificationService {
       parameters = configured
         .map((p) => ({
           name: String(p?.name ?? '').trim(),
-          value: String(p?.value ?? '')
-            .replace(/\{\{firstName\}\}/g, String(user.firstName ?? 'کاربر'))
-            .replace(/\{\{listingTitle\}\}/g, listingTitle),
+          value: applySmsTemplatePlaceholders(String(p?.value ?? ''), {
+            firstName: user.firstName,
+            lastName: user.lastName,
+            listingTitle,
+            meta: meta as Record<string, unknown> | undefined,
+          }),
         }))
         .filter((p) => p.name && p.value);
     } else {
@@ -399,7 +367,7 @@ export class NotificationService {
     if (alsoSendSms && smsTemplateConfig?.templateId) {
       const users = await this.prisma.user.findMany({
         where: { id: { in: recipients.map((r) => r.id) } },
-        select: { phone: true, firstName: true },
+        select: { phone: true, firstName: true, lastName: true },
       });
       await Promise.all(
         users.map((u) =>
@@ -409,9 +377,12 @@ export class NotificationService {
               Number(smsTemplateConfig.templateId),
               (smsTemplateConfig.parameters ?? []).map((p) => ({
                 name: String(p?.name ?? ''),
-                value: String(p?.value ?? '')
-                  .replace(/\{\{firstName\}\}/g, String(u.firstName ?? 'کاربر'))
-                  .replace(/\{\{title\}\}/g, title),
+                value: applySmsTemplatePlaceholders(String(p?.value ?? ''), {
+                  firstName: u.firstName,
+                  lastName: u.lastName,
+                  title,
+                  message,
+                }),
               })),
             )
             .catch((err) => {

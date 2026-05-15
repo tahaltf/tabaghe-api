@@ -20,7 +20,12 @@ export const listingImagesMulterOptions: MulterOptions = {
   }),
   fileFilter: (_req, file, cb) => {
     if (!ALLOWED_MIME_REGEX.test(file.mimetype)) {
-      return cb(new BadRequestException('فرمت عکس نامعتبر است'), false);
+      return cb(
+        new BadRequestException(
+          'فرمت عکس نامعتبر است. فقط jpg، png، gif یا webp تا حداکثر ۱۰ مگابایت مجاز است.',
+        ),
+        false,
+      );
     }
     cb(null, true);
   },

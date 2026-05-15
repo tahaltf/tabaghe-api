@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { SmsService } from '../../sms/sms.service';
+import { applySmsTemplatePlaceholders } from '../../../common/sms/sms-placeholders.util';
 
 @Injectable()
 export class AdminSmsService {
@@ -18,7 +19,7 @@ export class AdminSmsService {
     const { templateId, parameterName, parameterValue, userIds } = params;
     const users = await this.prisma.user.findMany({
       where: userIds?.length ? { id: { in: userIds } } : {},
-      select: { id: true, phone: true },
+      select: { id: true, phone: true, firstName: true, lastName: true },
     });
 
     let sent = 0;
@@ -30,7 +31,13 @@ export class AdminSmsService {
       }
       try {
         await this.sms.sendByTemplate(user.phone, templateId, [
-          { name: parameterName, value: parameterValue },
+          {
+            name: parameterName,
+            value: applySmsTemplatePlaceholders(parameterValue, {
+              firstName: user.firstName,
+              lastName: user.lastName,
+            }),
+          },
         ]);
         sent++;
       } catch {

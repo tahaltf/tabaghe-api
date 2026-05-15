@@ -90,6 +90,7 @@ enum ShippingPayer {
 
 enum QuotaReason {
   FREE_DIRECT
+  FREE_EXCHANGE
   PLAN
 }
 
@@ -521,6 +522,10 @@ model Plan {
   feeDiscountDirectPercent  Int @default(0)
   /// تخفیف از کارمزد محاسبه‌شده برای مزایده (۰ تا ۹۰ درصد)
   feeDiscountAuctionPercent Int @default(0)
+  /// برچسب روی کارت پلن (مثلاً «محبوب‌ترین»)
+  badgeLabel String?
+  /// رنگ برچسب (ترجیحاً هگز مثل #22c55e)
+  badgeColor String?
   rules       PlanRule[]
   purchases   UserPlanPurchase[]
   createdAt   DateTime           @default(now())
