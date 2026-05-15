@@ -8,6 +8,7 @@ import {
   ExchangeOfferStatus,
   ListingStatus,
   NotificationType,
+  OrderStatus,
   Prisma,
   UserStatus,
 } from '@prisma/client';
@@ -71,6 +72,12 @@ const REQUEST_NOTIFICATION_TYPES: NotificationType[] = [
   NotificationType.AUCTION_PAYMENT_REMINDER,
   NotificationType.AUCTION_PENALIZED,
   NotificationType.BUY_NOW,
+];
+
+/** سفارش‌هایی که دیگر نیازی به پیگیری در badge خرید/فروش نیست */
+const TERMINAL_ORDER_STATUSES_FOR_BADGE: OrderStatus[] = [
+  OrderStatus.COMPLETED,
+  OrderStatus.CANCELLED,
 ];
 
 @Injectable()
@@ -153,7 +160,7 @@ export class UsersService {
   }
 
   /**
-   * شمارش اعلان‌های خوانده‌نشده برای badge منوی پنل کاربر (بدون هم‌پوشانی بین بخش‌ها).
+   * شمارش badge منوی پنل: هر سفارش حداکثر یک‌بار در خرید یا فروش (نه تعداد خام اعلان‌ها).
    */
   async getPanelBadges(
     userId: string,
@@ -166,44 +173,27 @@ export class UsersService {
       take: 500,
     });
 
-    const orderIds = [
-      ...new Set(
-        unread
-          .filter((n) => n.type === NotificationType.ORDER_STATUS_CHANGED)
-          .map((n) => {
-            const meta = (n.meta ?? {}) as Record<string, unknown>;
-            return String(meta['orderId'] ?? '').trim();
-          })
-          .filter(Boolean),
-      ),
-    ];
+    const orderMetaById = await this.loadOrderMetaForNotifications(
+      userId,
+      unread,
+    );
 
-    const orderRoleById = new Map<string, 'buy' | 'sell'>();
-    if (orderIds.length > 0) {
-      const orders = await this.prisma.order.findMany({
-        where: { id: { in: orderIds } },
-        select: { id: true, buyerId: true, sellerId: true },
-      });
-      for (const o of orders) {
-        if (o.buyerId === userId) orderRoleById.set(o.id, 'buy');
-        else if (o.sellerId === userId) orderRoleById.set(o.id, 'sell');
-      }
-    }
-
-    const badges: PanelBadges = {
-      listing: 0,
-      buy: 0,
-      sell: 0,
-      requests: 0,
-      ticket: 0,
-      repairs: 0,
+    const keysBySection: Record<PanelBadgeSection, Set<string>> = {
+      listing: new Set(),
+      buy: new Set(),
+      sell: new Set(),
+      requests: new Set(),
+      ticket: new Set(),
+      repairs: new Set(),
     };
 
     for (const n of unread) {
+      const meta = (n.meta ?? {}) as Record<string, unknown>;
       const section = this.resolvePanelBadgeSection(
+        userId,
         n.type,
-        (n.meta ?? {}) as Record<string, unknown>,
-        orderRoleById,
+        meta,
+        orderMetaById,
       );
       if (!section) continue;
 
@@ -213,16 +203,152 @@ export class UsersService {
         if (Number.isFinite(createdAt) && createdAt <= seenAt) continue;
       }
 
-      badges[section] += 1;
+      const dedupeKey = this.panelBadgeDedupeKey(n.type, meta, n.id);
+      keysBySection[section].add(dedupeKey);
     }
 
-    return badges;
+    return {
+      listing: keysBySection.listing.size,
+      buy: keysBySection.buy.size,
+      sell: keysBySection.sell.size,
+      requests: keysBySection.requests.size,
+      ticket: keysBySection.ticket.size,
+      repairs: keysBySection.repairs.size,
+    };
+  }
+
+  /** با ورود کاربر به یک بخش پنل، اعلان‌های همان بخش خوانده می‌شوند. */
+  async markPanelSectionSeen(
+    userId: string,
+    section: PanelBadgeSection,
+  ): Promise<{ marked: number }> {
+    const unread = await this.prisma.notification.findMany({
+      where: { userId, isRead: false },
+      select: { id: true, type: true, meta: true },
+      take: 500,
+    });
+    const orderMetaById = await this.loadOrderMetaForNotifications(
+      userId,
+      unread,
+    );
+
+    const ids: string[] = [];
+    for (const n of unread) {
+      const meta = (n.meta ?? {}) as Record<string, unknown>;
+      const resolved = this.resolvePanelBadgeSection(
+        userId,
+        n.type,
+        meta,
+        orderMetaById,
+      );
+      if (resolved === section) ids.push(n.id);
+    }
+
+    if (ids.length === 0) return { marked: 0 };
+
+    const result = await this.prisma.notification.updateMany({
+      where: { id: { in: ids }, userId, isRead: false },
+      data: { isRead: true },
+    });
+    return { marked: result.count };
+  }
+
+  private async loadOrderMetaForNotifications(
+    userId: string,
+    notifications: Array<{ type: NotificationType; meta: unknown }>,
+  ): Promise<
+    Map<
+      string,
+      {
+        buyerId: string;
+        sellerId: string;
+        status: OrderStatus;
+        type: string;
+      }
+    >
+  > {
+    const orderIds = [
+      ...new Set(
+        notifications
+          .filter((n) => n.type === NotificationType.ORDER_STATUS_CHANGED)
+          .map((n) => {
+            const meta = (n.meta ?? {}) as Record<string, unknown>;
+            return String(meta['orderId'] ?? '').trim();
+          })
+          .filter(Boolean),
+      ),
+    ];
+
+    const map = new Map<
+      string,
+      {
+        buyerId: string;
+        sellerId: string;
+        status: OrderStatus;
+        type: string;
+      }
+    >();
+    if (orderIds.length === 0) return map;
+
+    const orders = await this.prisma.order.findMany({
+      where: {
+        id: { in: orderIds },
+        OR: [{ buyerId: userId }, { sellerId: userId }],
+      },
+      select: {
+        id: true,
+        buyerId: true,
+        sellerId: true,
+        status: true,
+        type: true,
+      },
+    });
+    for (const o of orders) {
+      map.set(o.id, {
+        buyerId: o.buyerId,
+        sellerId: o.sellerId,
+        status: o.status,
+        type: o.type,
+      });
+    }
+    return map;
+  }
+
+  private panelBadgeDedupeKey(
+    type: NotificationType,
+    meta: Record<string, unknown>,
+    notificationId: string,
+  ): string {
+    if (type === NotificationType.ORDER_STATUS_CHANGED) {
+      const orderId = String(meta['orderId'] ?? '').trim();
+      if (orderId) return `order:${orderId}`;
+    }
+    const offerId = String(meta['exchangeOfferId'] ?? meta['offerId'] ?? '').trim();
+    if (offerId) return `offer:${offerId}`;
+    const listingId = String(meta['listingId'] ?? '').trim();
+    if (listingId && type !== NotificationType.ORDER_STATUS_CHANGED) {
+      return `listing:${listingId}:${type}`;
+    }
+    const ticketId = String(meta['ticketId'] ?? '').trim();
+    if (ticketId) return `ticket:${ticketId}`;
+    const repairId = String(meta['repairRequestId'] ?? meta['repairId'] ?? '').trim();
+    if (repairId) return `repair:${repairId}`;
+    return `notif:${notificationId}`;
   }
 
   private resolvePanelBadgeSection(
+    userId: string,
     type: NotificationType,
     meta: Record<string, unknown>,
-    orderRoleById: Map<string, 'buy' | 'sell'>,
+    orderMetaById: Map<
+      string,
+      {
+        buyerId: string;
+        sellerId: string;
+        status: OrderStatus;
+        type: string;
+      }
+    >,
   ): PanelBadgeSection | null {
     if (
       type === NotificationType.LISTING_APPROVED ||
@@ -235,11 +361,29 @@ export class UsersService {
     if (REQUEST_NOTIFICATION_TYPES.includes(type)) return 'requests';
 
     if (type === NotificationType.ORDER_STATUS_CHANGED) {
-      const role = String(meta['role'] ?? '').toUpperCase();
-      if (role === 'BUYER') return 'buy';
-      if (role === 'SELLER') return 'sell';
       const orderId = String(meta['orderId'] ?? '').trim();
-      if (orderId) return orderRoleById.get(orderId) ?? null;
+      if (orderId) {
+        const order = orderMetaById.get(orderId);
+        if (
+          order &&
+          TERMINAL_ORDER_STATUSES_FOR_BADGE.includes(order.status)
+        ) {
+          return null;
+        }
+      }
+
+      const roleHint = String(
+        meta['role'] ?? meta['audience'] ?? '',
+      ).toUpperCase();
+      if (roleHint === 'BUYER') return 'buy';
+      if (roleHint === 'SELLER') return 'sell';
+
+      if (orderId) {
+        const order = orderMetaById.get(orderId);
+        if (!order) return null;
+        if (order.buyerId === userId) return 'buy';
+        if (order.sellerId === userId) return 'sell';
+      }
     }
 
     return null;

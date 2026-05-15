@@ -369,12 +369,20 @@ export class AdminOrdersCommandService {
         hubToBuyerTrackingCode: true,
         hubToSellerTrackingCode: true,
         exchangeHubInspection: true,
+        buyerConfirmDeadline: true,
+        cancelReason: true,
+        totalAmount: true,
+        sellerRevenue: true,
+        tradeReputationAt: true,
       },
     });
     if (!existing) throw new NotFoundException('سفارش یافت نشد');
     const inspection =
       (existing.exchangeHubInspection as Record<string, unknown> | null) ??
       null;
+    const isDirectHubReturnFlow =
+      (existing.type === 'DIRECT' || existing.type === 'AUCTION') &&
+      existing.status === OrderStatus.REJECTED_AT_HUB;
     const isExchangeReturnFlow =
       existing.type === 'EXCHANGE' &&
       (existing.status === OrderStatus.REJECTED_AT_HUB ||
@@ -383,21 +391,32 @@ export class AdminOrdersCommandService {
     const canShipNormalFlow =
       existing.status === OrderStatus.VERIFIED_AT_HUB ||
       existing.status === OrderStatus.SHIPPED_TO_BUYER;
-    if (!canShipNormalFlow && !isExchangeReturnFlow) {
+    if (!canShipNormalFlow && !isExchangeReturnFlow && !isDirectHubReturnFlow) {
       throw new BadRequestException(
         'این سفارش در وضعیت مناسب برای ارسال از هاب نیست',
       );
     }
 
+    if (isDirectHubReturnFlow) {
+      const sellerReturnCode = (dto.hubToSellerTrackingCode ?? '').trim();
+      if (sellerReturnCode.length < 3) {
+        throw new BadRequestException(
+          'کد رهگیری مرجوع از هاب به فروشنده الزامی است',
+        );
+      }
+    }
+
     const nextBuyerTracking =
       dto.hubToBuyerTrackingCode ?? existing.hubToBuyerTrackingCode;
     const nextSellerTracking =
-      existing.type === 'EXCHANGE'
+      existing.type === 'EXCHANGE' || isDirectHubReturnFlow
         ? (dto.hubToSellerTrackingCode ?? existing.hubToSellerTrackingCode)
         : existing.hubToSellerTrackingCode;
-    const returnShipmentCompleted = Boolean(
-      nextBuyerTracking && nextSellerTracking,
-    );
+    const returnShipmentCompleted = isDirectHubReturnFlow
+      ? Boolean(nextSellerTracking)
+      : isExchangeReturnFlow
+        ? Boolean(nextBuyerTracking && nextSellerTracking)
+        : false;
     const mergedInspection = isExchangeReturnFlow
       ? {
           ...inspection,
@@ -409,33 +428,49 @@ export class AdminOrdersCommandService {
             : (inspection?.['returnShipmentCompletedAt'] ?? null),
         }
       : null;
-    const nextStatus = isExchangeReturnFlow
-      ? returnShipmentCompleted
-        ? OrderStatus.CANCELLED
-        : OrderStatus.REJECTED_AT_HUB
-      : OrderStatus.SHIPPED_TO_BUYER;
+    const nextStatus =
+      isExchangeReturnFlow || isDirectHubReturnFlow
+        ? returnShipmentCompleted
+          ? OrderStatus.CANCELLED
+          : OrderStatus.REJECTED_AT_HUB
+        : OrderStatus.SHIPPED_TO_BUYER;
 
     const updated = await this.prisma.order.update({
       where: { id },
       data: {
-        hubToBuyerTrackingCode: dto.hubToBuyerTrackingCode,
+        hubToBuyerTrackingCode: isDirectHubReturnFlow
+          ? existing.hubToBuyerTrackingCode
+          : dto.hubToBuyerTrackingCode,
         hubToSellerTrackingCode:
-          existing.type === 'EXCHANGE'
+          existing.type === 'EXCHANGE' || isDirectHubReturnFlow
             ? dto.hubToSellerTrackingCode
             : undefined,
         status: nextStatus,
+        ...(isDirectHubReturnFlow && returnShipmentCompleted
+          ? {
+              returnConfirmedAt: new Date(),
+              cancelReason: [
+                existing.cancelReason,
+                `کد رهگیری مرجوع از هاب به فروشنده: ${nextSellerTracking}`,
+                dto.note ? `توضیح: ${dto.note}` : null,
+              ]
+                .filter(Boolean)
+                .join('\n'),
+            }
+          : {}),
         ...(mergedInspection
           ? { exchangeHubInspection: mergedInspection as Prisma.InputJsonValue }
           : {}),
+        ...(!isExchangeReturnFlow &&
+        nextStatus === OrderStatus.SHIPPED_TO_BUYER &&
+        !existing.buyerConfirmDeadline
+          ? {
+              buyerConfirmDeadline:
+                await this.ordersService.computeBuyerConfirmDeadlineNow(),
+            }
+          : {}),
       },
     });
-
-    if (
-      !isExchangeReturnFlow &&
-      nextStatus === OrderStatus.SHIPPED_TO_BUYER
-    ) {
-      await this.ordersService.ensureBuyerConfirmDeadline(id);
-    }
 
     const buyerNote =
       dto.note ??
@@ -493,6 +528,36 @@ export class AdminOrdersCommandService {
         });
       }
       // اگر هر دو رهگیری با هم ثبت شدند، هر دو نوتیفیکیشن ساخته می‌شود.
+    } else if (isDirectHubReturnFlow) {
+      const returnNote =
+        dto.note ??
+        'کالا از هاب به آدرس فروشنده مرجوع شد و کد رهگیری ثبت گردید.';
+      notifications.push(
+        {
+          userId: existing.sellerId,
+          type: NotificationType.ORDER_STATUS_CHANGED,
+          title: 'مرجوعی از هاب ثبت شد',
+          message: `مرسوله شما از هاب به آدرس شما مرجوع شد. ${returnNote}`,
+          meta: {
+            orderId: id,
+            status: nextStatus,
+            note: returnNote,
+            audience: 'SELLER',
+          } as Prisma.InputJsonValue,
+        },
+        {
+          userId: existing.buyerId,
+          type: NotificationType.ORDER_STATUS_CHANGED,
+          title: 'مرجوعی از هاب و بازگشت وجه',
+          message: `کالا از هاب به فروشنده مرجوع شد؛ مبلغ پرداختی به کیف پول شما بازگشت داده می‌شود. ${returnNote}`,
+          meta: {
+            orderId: id,
+            status: nextStatus,
+            note: returnNote,
+            audience: 'BUYER',
+          } as Prisma.InputJsonValue,
+        },
+      );
     } else {
       notifications.push(
         {
@@ -685,6 +750,64 @@ export class AdminOrdersCommandService {
               refundsReleasedAt: new Date().toISOString(),
             } as Prisma.InputJsonValue,
           },
+        });
+      });
+    }
+
+    if (isDirectHubReturnFlow && returnShipmentCompleted) {
+      await this.prisma.$transaction(async (tx) => {
+        const locked = await tx.order.findUnique({
+          where: { id },
+          select: {
+            id: true,
+            type: true,
+            status: true,
+            buyerId: true,
+            sellerId: true,
+            listingId: true,
+            totalAmount: true,
+            sellerRevenue: true,
+            cancelReason: true,
+            tradeReputationAt: true,
+          },
+        });
+        if (
+          !locked ||
+          locked.type === 'EXCHANGE' ||
+          locked.status !== OrderStatus.CANCELLED
+        ) {
+          return;
+        }
+
+        await this.walletService.refundDirectOrderEscrowOnCancel(tx, {
+          orderId: locked.id,
+          listingId: locked.listingId,
+          buyerId: locked.buyerId,
+          sellerId: locked.sellerId,
+          totalAmount: Number(locked.totalAmount || 0),
+          sellerRevenue: Number(locked.sellerRevenue || 0),
+          cancelReason:
+            locked.cancelReason?.trim() ||
+            'رد کارشناسی؛ مرجوع از هاب به فروشنده',
+          refundReason: 'hub-inspection-rejected-return',
+        });
+
+        await this.orderReputation.recordTerminalOutcome(
+          tx,
+          {
+            id: locked.id,
+            buyerId: locked.buyerId,
+            sellerId: locked.sellerId,
+            tradeReputationAt: locked.tradeReputationAt,
+          },
+          OrderStatus.REJECTED_AT_HUB,
+          'FAILURE',
+          { failurePenalizeUserIds: [locked.sellerId] },
+        );
+
+        await tx.listing.update({
+          where: { id: locked.listingId },
+          data: { status: ListingStatus.APPROVED },
         });
       });
     }
@@ -2559,8 +2682,6 @@ export class AdminOrdersCommandService {
     const message = note
       ? `وضعیت سفارش به «${label}» تغییر یافت. توضیح: ${note}`
       : `وضعیت سفارش به «${label}» تغییر یافت.`;
-    const meta = { orderId, status, note } as Prisma.InputJsonValue;
-
     await this.prisma.notification.createMany({
       data: [
         {
@@ -2568,14 +2689,24 @@ export class AdminOrdersCommandService {
           type: NotificationType.ORDER_STATUS_CHANGED,
           title,
           message,
-          meta,
+          meta: {
+            orderId,
+            status,
+            note,
+            audience: 'BUYER',
+          } as Prisma.InputJsonValue,
         },
         {
           userId: sellerId,
           type: NotificationType.ORDER_STATUS_CHANGED,
           title,
           message,
-          meta,
+          meta: {
+            orderId,
+            status,
+            note,
+            audience: 'SELLER',
+          } as Prisma.InputJsonValue,
         },
       ],
     });
