@@ -38,7 +38,20 @@ const LIST_ITEM_INCLUDE = {
   },
   province: { select: { id: true, name: true } },
   city: { select: { id: true, name: true } },
-  category: { select: { id: true, title: true, slug: true } },
+  category: {
+    select: {
+      id: true,
+      title: true,
+      slug: true,
+      parent: {
+        select: {
+          id: true,
+          title: true,
+          parent: { select: { id: true, title: true } },
+        },
+      },
+    },
+  },
   author: {
     select: {
       id: true,
@@ -75,7 +88,19 @@ const DETAIL_INCLUDE = {
   exchange: true,
   province: { select: { id: true, name: true } },
   city: { select: { id: true, name: true } },
-  category: { select: { id: true, title: true } },
+  category: {
+    select: {
+      id: true,
+      title: true,
+      parent: {
+        select: {
+          id: true,
+          title: true,
+          parent: { select: { id: true, title: true } },
+        },
+      },
+    },
+  },
   author: {
     select: {
       id: true,
@@ -107,7 +132,7 @@ export class ListingQueryService {
     const pageSize = query.pageSize ?? 20;
     const skip = (page - 1) * pageSize;
 
-    const where = this.buildPublicWhere(query);
+    const where = await this.buildPublicWhere(query);
     const orderBy = this.buildOrderBy(query.sort);
 
     const useRelevanceSort =
@@ -275,7 +300,36 @@ export class ListingQueryService {
     };
   }
 
-  private buildPublicWhere(query: ListListingsDto): Prisma.ListingWhereInput {
+  private async resolveCategoryDescendantIds(
+    categoryId: string,
+  ): Promise<string[]> {
+    const rows = await this.prisma.category.findMany({
+      select: { id: true, parentId: true },
+    });
+    const byParent = new Map<string | null, string[]>();
+    for (const row of rows) {
+      const key = row.parentId;
+      const list = byParent.get(key) ?? [];
+      list.push(row.id);
+      byParent.set(key, list);
+    }
+    const ids = new Set<string>([categoryId]);
+    const queue = [categoryId];
+    while (queue.length) {
+      const current = queue.shift()!;
+      for (const childId of byParent.get(current) ?? []) {
+        if (!ids.has(childId)) {
+          ids.add(childId);
+          queue.push(childId);
+        }
+      }
+    }
+    return [...ids];
+  }
+
+  private async buildPublicWhere(
+    query: ListListingsDto,
+  ): Promise<Prisma.ListingWhereInput> {
     const where: Prisma.ListingWhereInput = {
       status: ListingStatus.APPROVED,
       NOT: {
@@ -296,7 +350,12 @@ export class ListingQueryService {
 
     if (query.provinceId) where.provinceId = query.provinceId;
     if (query.cityId) where.cityId = query.cityId;
-    if (query.categoryId) where.categoryId = query.categoryId;
+    if (query.categoryId) {
+      const categoryIds = await this.resolveCategoryDescendantIds(
+        query.categoryId,
+      );
+      where.categoryId = { in: categoryIds };
+    }
     if (query.type) where.type = query.type;
     if (query.condition) where.condition = query.condition;
 

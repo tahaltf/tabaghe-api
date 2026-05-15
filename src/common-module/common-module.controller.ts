@@ -31,6 +31,11 @@ export class CommonController {
     return this.commonService.getCategories();
   }
 
+  @Get('categories/home')
+  async homeCategories() {
+    return this.commonService.getHomeCategories();
+  }
+
   @Get('repair-categories')
   async repairCategories() {
     return this.commonService.getRepairCategories();

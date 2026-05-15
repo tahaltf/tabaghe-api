@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { NotificationType } from '@prisma/client';
+import { ListingStatus, NotificationType } from '@prisma/client';
 import { PrismaService } from '../infrastructure/prisma/prisma.service';
 import { NotificationService } from '../modules/notification/notification.service';
 
@@ -28,28 +28,96 @@ export class CommonService {
     });
   }
 
-  // دریافت دسته‌بندی‌ها (فقط دسته‌های اصلی به همراه زیردسته‌ها)
+  // دریافت دسته‌بندی‌ها — درخت کامل (هر عمق) + تعداد آگهی تأییدشده در هر شاخه
   async getCategories() {
-    return this.prisma.category.findMany({
-      where: { parentId: null },
+    const rows = await this.prisma.category.findMany({
       orderBy: { title: 'asc' },
       select: {
         id: true,
         title: true,
         slug: true,
         icon: true,
-        children: {
-          orderBy: { title: 'asc' },
-          select: {
-            id: true,
-            title: true,
-            slug: true,
-            icon: true,
-            parentId: true,
-          },
-        },
+        parentId: true,
       },
     });
+    const rollup = await this.getApprovedListingRollupCounts();
+    const tree = this.buildCategoryTree(rows, null);
+    return this.attachListingCounts(tree, rollup);
+  }
+
+  /** فقط دسته‌های ریشه‌ای که در خود یا زیرشاخه‌شان آگهی دارند (صفحه اصلی) */
+  async getHomeCategories() {
+    const tree = await this.getCategories();
+    return tree.filter((c) => (c.listingCount ?? 0) > 0);
+  }
+
+  private async getApprovedListingRollupCounts(): Promise<Map<string, number>> {
+    const grouped = await this.prisma.listing.groupBy({
+      by: ['categoryId'],
+      where: { status: ListingStatus.APPROVED },
+      _count: { _all: true },
+    });
+    const direct = new Map(
+      grouped.map((g) => [g.categoryId, g._count._all]),
+    );
+    const rows = await this.prisma.category.findMany({
+      select: { id: true, parentId: true },
+    });
+    const childrenByParent = new Map<string | null, string[]>();
+    for (const r of rows) {
+      const key = r.parentId;
+      const list = childrenByParent.get(key) ?? [];
+      list.push(r.id);
+      childrenByParent.set(key, list);
+    }
+    const rollup = new Map<string, number>();
+    const compute = (id: string): number => {
+      if (rollup.has(id)) return rollup.get(id)!;
+      let total = direct.get(id) ?? 0;
+      for (const childId of childrenByParent.get(id) ?? []) {
+        total += compute(childId);
+      }
+      rollup.set(id, total);
+      return total;
+    };
+    for (const r of rows) compute(r.id);
+    return rollup;
+  }
+
+  private attachListingCounts(nodes: any[], rollup: Map<string, number>): any[] {
+    return nodes.map((node) => {
+      const rawChildren = Array.isArray(node.children) ? node.children : [];
+      const children = rawChildren.length
+        ? this.attachListingCounts(rawChildren, rollup)
+        : undefined;
+      return {
+        ...node,
+        listingCount: rollup.get(node.id) ?? 0,
+        ...(children?.length ? { children } : {}),
+      };
+    });
+  }
+
+  private buildCategoryTree<
+    T extends {
+      id: string;
+      title: string;
+      slug: string;
+      icon: string | null;
+      parentId: string | null;
+    },
+  >(rows: T[], parentId: string | null): Array<
+    T & { children?: Array<T & { children?: unknown[] }> }
+  > {
+    return rows
+      .filter((r) => r.parentId === parentId)
+      .map((row) => {
+        const children = this.buildCategoryTree(rows, row.id);
+        return {
+          ...row,
+          ...(children.length ? { children } : {}),
+        };
+      });
   }
 
   // دسته‌بندی‌های مجاز برای تعمیرات (قابل تنظیم توسط ادمین)
