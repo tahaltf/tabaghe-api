@@ -106,6 +106,9 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
     const ordersService = {
       ensureBuyerConfirmDeadline: jest.fn().mockResolvedValue(undefined),
     };
+    const listingCommand = {
+      rejectAfterTradeFailure: jest.fn().mockResolvedValue(undefined),
+    };
 
     const service = new AdminOrdersCommandService(
       prisma as never,
@@ -114,6 +117,7 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
       orderReputation as never,
       walletService as never,
       ordersService as never,
+      listingCommand as never,
     );
     return { service, prisma, tx };
   }
@@ -312,6 +316,9 @@ describe('AdminOrdersCommandService - exchange release escrow', () => {
     const ordersService = {
       ensureBuyerConfirmDeadline: jest.fn().mockResolvedValue(undefined),
     };
+    const listingCommand = {
+      rejectAfterTradeFailure: jest.fn().mockResolvedValue(undefined),
+    };
     const service = new AdminOrdersCommandService(
       prisma as never,
       appSettings as never,
@@ -319,6 +326,7 @@ describe('AdminOrdersCommandService - exchange release escrow', () => {
       orderReputation as never,
       walletService as never,
       ordersService as never,
+      listingCommand as never,
     );
     return { service, tx };
   }

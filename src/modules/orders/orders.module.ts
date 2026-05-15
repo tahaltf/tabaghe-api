@@ -5,6 +5,7 @@ import { PaymentsModule } from '../payments/payments.module';
 import { NotificationModule } from '../notification/notification.module';
 import { ExchangeModule } from '../exchange/exchange.module';
 import { QuotaModule } from '../quota/quota.module';
+import { ListingModule } from '../listing/listing.module';
 
 import { OrdersAdminController } from './orders-admin.controller';
 import { OrdersController } from './orders.controller';
@@ -23,6 +24,7 @@ import { OrderReputationService } from './order-reputation.service';
     NotificationModule,
     ExchangeModule,
     QuotaModule,
+    ListingModule,
   ],
   controllers: [OrdersController, OrdersAdminController],
   providers: [

@@ -33,6 +33,6 @@ import { ListingSearchService } from './listing-search.service';
     ListingAdminService,
     ListingSearchService,
   ],
-  exports: [ListingQueryService],
+  exports: [ListingQueryService, ListingCommandService],
 })
 export class ListingModule {}

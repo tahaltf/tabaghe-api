@@ -59,6 +59,7 @@ import { AdminBackupScheduler } from './services/admin-backup.scheduler';
 import { AdminSystemJobsService } from './services/admin-system-jobs.service';
 import { OrdersModule } from '../orders/orders.module';
 import { WalletModule } from '../wallet/wallet.module';
+import { ListingModule } from '../listing/listing.module';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { WalletModule } from '../wallet/wallet.module';
     FeesModule,
     OrdersModule,
     WalletModule,
+    ListingModule,
   ],
   controllers: [
     AdminDashboardController,

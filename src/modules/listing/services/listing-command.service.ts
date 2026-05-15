@@ -139,7 +139,8 @@ export class ListingCommandService {
         ? new Date(dto.auction.endDatetime)
         : (listing.auction?.endDatetime ?? undefined);
 
-    return this.prisma.listing.update({
+    const wasRejected = listing.status === ListingStatus.REJECTED;
+    const updated = await this.prisma.listing.update({
       where: { id: listingId },
       data: {
         title: dto.title,
@@ -155,6 +156,8 @@ export class ListingCommandService {
         gallery: dto.gallery,
         type: currentType,
         status: ListingStatus.PENDING,
+        rejectionReason: null,
+        rejectedAt: null,
         ...(dto.categoryId && {
           category: { connect: { id: dto.categoryId } },
         }),
@@ -170,6 +173,86 @@ export class ListingCommandService {
           listing,
           auctionEndDate,
         ),
+      },
+    });
+
+    if (wasRejected) {
+      void this.notifications
+        .notifyAdminPersonnel({
+          type: NotificationType.ADMIN_ALERT_NEW_LISTING,
+          title: 'آگهی اصلاح‌شده در انتظار تایید',
+          message: `آگهی «${updated.title}» پس از رد/اصلاح توسط فروشنده دوباره برای بررسی ارسال شد.`,
+          meta: {
+            listingId: updated.id,
+            userId,
+            listingTitle: updated.title,
+            resubmittedAfterReject: true,
+          },
+        })
+        .catch(() => undefined);
+    }
+
+    return updated;
+  }
+
+  /**
+   * پس از رد کارشناسی، شکایت، یا لغو معامله — آگهی از انتشار خارج می‌شود
+   * تا فروشنده بتواند اصلاح و مجدداً برای تایید ارسال کند.
+   */
+  async rejectAfterTradeFailure(
+    tx: Prisma.TransactionClient,
+    params: {
+      listingId: string;
+      sellerId: string;
+      listingTitle: string;
+      rejectionReason: string;
+      source:
+        | 'hub-inspection'
+        | 'dispute'
+        | 'dispute-refund'
+        | 'shipping-timeout';
+      orderId?: string;
+    },
+  ): Promise<void> {
+    const reason = params.rejectionReason.trim();
+    if (reason.length < 3) return;
+
+    const listing = await tx.listing.findUnique({
+      where: { id: params.listingId },
+      select: { id: true, status: true, authorId: true },
+    });
+    if (!listing || listing.authorId !== params.sellerId) return;
+    if (listing.status === ListingStatus.DELETED_BY_USER) return;
+
+    await tx.listing.update({
+      where: { id: params.listingId },
+      data: {
+        status: ListingStatus.REJECTED,
+        rejectionReason: reason,
+        rejectedAt: new Date(),
+      },
+    });
+    await this.quotaService.releaseOnReject(tx, params.listingId);
+
+    const title = params.listingTitle?.trim() || 'آگهی';
+    const messages: Record<typeof params.source, string> = {
+      'hub-inspection': `آگهی «${title}» پس از رد کارشناسی در طبقه از انتشار خارج شد. برای فروش مجدد، آگهی را در «آگهی‌های من» اصلاح و دوباره ارسال کنید.`,
+      dispute: `آگهی «${title}» به‌دلیل ثبت شکایت خریدار موقتاً از انتشار خارج شد. پس از رسیدگی می‌توانید آن را اصلاح و مجدداً ارسال کنید.`,
+      'dispute-refund': `آگهی «${title}» پس از تأیید مرجوعی و بازگشت وجه رد شد. برای فروش مجدد، آگهی را اصلاح و دوباره برای تایید ارسال کنید.`,
+      'shipping-timeout': `آگهی «${title}» پس از لغو معامله (عدم ارسال در مهلت) رد شد. برای فروش مجدد، آگهی را ویرایش و دوباره ارسال کنید.`,
+    };
+
+    await tx.notification.create({
+      data: {
+        userId: params.sellerId,
+        type: NotificationType.LISTING_REJECTED,
+        title: 'آگهی نیاز به اصلاح دارد',
+        message: messages[params.source],
+        meta: {
+          listingId: params.listingId,
+          reason: params.source,
+          ...(params.orderId ? { orderId: params.orderId } : {}),
+        } as Prisma.InputJsonValue,
       },
     });
   }
@@ -306,7 +389,23 @@ export class ListingCommandService {
     const activeOrder = await this.prisma.order.findFirst({
       where: {
         listingId,
-        status: { notIn: [OrderStatus.CANCELLED] },
+        status: {
+          in: [
+            OrderStatus.PENDING,
+            OrderStatus.AWAITING_PAYMENT,
+            OrderStatus.PAID,
+            OrderStatus.AWAITING_SHIPMENT_TO_HUB,
+            OrderStatus.SHIPPED_TO_HUB,
+            OrderStatus.RECEIVED_AT_HUB,
+            OrderStatus.CHECKING_AT_HUB,
+            OrderStatus.VERIFIED_AT_HUB,
+            OrderStatus.SHIPPED_TO_BUYER,
+            OrderStatus.SHIPPED,
+            OrderStatus.DELIVERED,
+            OrderStatus.RETURN_REQUESTED,
+            OrderStatus.RETURN_SHIPPED,
+          ],
+        },
       },
       select: { id: true },
     });
