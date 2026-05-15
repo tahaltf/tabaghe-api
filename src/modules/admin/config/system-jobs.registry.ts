@@ -92,10 +92,10 @@ export const SYSTEM_JOBS_REGISTRY: SystemJobDefinition[] = [
   {
     id: 'orders_auto_cancel_expired',
     name: 'لغو سفارش به‌خاطر عدم ارسال در مهلت',
-    schedule: '0 * * * *',
-    scheduleLabel: 'هر ۱ ساعت',
+    schedule: '*/1 * * * *',
+    scheduleLabel: 'هر ۱ دقیقه',
     description:
-      'سفارش‌هایی که مهلت ارسالشان گذشته را لغو می‌کند؛ در معاوضه جبران خسارت یک‌طرفه اعمال می‌شود.',
+      'سفارش‌هایی که مهلت ارسالشان گذشته را لغو می‌کند (هم‌زمان با باز کردن صفحه سفارش)؛ در معاوضه جبران خسارت یک‌طرفه اعمال می‌شود.',
     module: 'orders/orders.service.ts',
     method: 'autoCancelExpiredOrders',
     managedBy: 'nestjs_cron',
