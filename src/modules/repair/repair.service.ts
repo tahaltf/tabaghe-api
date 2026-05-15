@@ -878,9 +878,20 @@ export class RepairService {
   // ---------------------------------------------------------------------------
   // Auto-complete shipped-back repairs if user doesn't confirm in 3 days
   // ---------------------------------------------------------------------------
+  private async getRepairAutoCompleteDaysAfterShipBack(): Promise<number> {
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'REPAIR_AUTO_COMPLETE_DAYS_AFTER_SHIP_BACK' },
+      select: { value: true },
+    });
+    const parsed = Number(setting?.value ?? 3);
+    if (!Number.isFinite(parsed) || parsed <= 0) return 3;
+    return Math.floor(parsed);
+  }
+
   @Cron(CronExpression.EVERY_HOUR)
   async autoCompleteReturnedRepairs(): Promise<void> {
-    const deadline = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    const days = await this.getRepairAutoCompleteDaysAfterShipBack();
+    const deadline = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     const candidates = await this.prisma.repairRequest.findMany({
       where: {
         status: RepairRequestStatus.SHIPPED_BACK,
@@ -909,7 +920,7 @@ export class RepairService {
         row.userId,
         row.trackingCode,
         'فرایند تعمیر تکمیل شد',
-        'به‌دلیل عدم ثبت تایید دریافت تا ۳ روز پس از ارسال برگشتی، درخواست به‌صورت خودکار تکمیل شد.',
+        `به‌دلیل عدم ثبت تایید دریافت تا ${days} روز پس از ارسال برگشتی، درخواست به‌صورت خودکار تکمیل شد.`,
         {
           repairId: row.id,
           status: RepairRequestStatus.COMPLETED,

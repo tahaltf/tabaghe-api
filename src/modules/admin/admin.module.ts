@@ -26,6 +26,9 @@ import { AdminPlatformWalletController } from './controllers/admin-platform-wall
 import { AdminContactMessagesController } from './controllers/admin-contact-messages.controller';
 import { AdminBlogController } from './controllers/admin-blog.controller';
 import { AdminBadgesController } from './controllers/admin-badges.controller';
+import { AdminVaultController } from './controllers/admin-vault.controller';
+import { AdminBackupController } from './controllers/admin-backup.controller';
+import { AdminSystemJobsController } from './controllers/admin-system-jobs.controller';
 
 // Services
 import { AdminDashboardService } from './services/admin-dashboard.service';
@@ -49,6 +52,11 @@ import { AdminPlatformWalletService } from './services/admin-platform-wallet.ser
 import { SmsService } from '../sms/sms.service';
 import { AdminBlogService } from './services/admin-blog.service';
 import { AdminBadgesService } from './services/admin-badges.service';
+import { AdminVaultService } from './services/admin-vault.service';
+import { AdminListingDeleteService } from './services/admin-listing-delete.service';
+import { AdminBackupService } from './services/admin-backup.service';
+import { AdminBackupScheduler } from './services/admin-backup.scheduler';
+import { AdminSystemJobsService } from './services/admin-system-jobs.service';
 import { OrdersModule } from '../orders/orders.module';
 
 @Module({
@@ -81,6 +89,9 @@ import { OrdersModule } from '../orders/orders.module';
     AdminContactMessagesController,
     AdminBlogController,
     AdminBadgesController,
+    AdminVaultController,
+    AdminBackupController,
+    AdminSystemJobsController,
   ],
   providers: [
     AdminDashboardService,
@@ -103,6 +114,11 @@ import { OrdersModule } from '../orders/orders.module';
     AdminPlatformWalletService,
     AdminBlogService,
     AdminBadgesService,
+    AdminVaultService,
+    AdminListingDeleteService,
+    AdminBackupService,
+    AdminBackupScheduler,
+    AdminSystemJobsService,
     SmsService,
   ],
 })

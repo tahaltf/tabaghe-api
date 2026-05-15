@@ -18,6 +18,7 @@ import {
   CreateCategoryDto,
   UpdateCategoryDto,
 } from '../dto/admin-category.dto';
+import { AdminBulkIdsDto } from '../dto/admin-bulk-ids.dto';
 
 @Controller('admin/categories')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -43,6 +44,18 @@ export class AdminCategoriesController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateCategoryDto) {
     return this.service.update(id, dto);
+  }
+
+  @Post('bulk-force-delete')
+  @Roles(UserRole.GODADMIN)
+  bulkForceRemove(@Body() dto: AdminBulkIdsDto) {
+    return this.service.forceRemoveMany(dto.ids);
+  }
+
+  @Delete(':id/force')
+  @Roles(UserRole.GODADMIN)
+  forceRemove(@Param('id') id: string) {
+    return this.service.forceRemove(id);
   }
 
   @Delete(':id')

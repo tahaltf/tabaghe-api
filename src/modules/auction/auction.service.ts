@@ -23,7 +23,7 @@ import { appendJsonLog } from '../../common/logging/app-log.util';
 const TOP_BIDDERS_LIMIT = 4;
 const LAST_MINUTE_EXTENSION_MINUTES = 10;
 const DEFAULT_WINNER_PAYMENT_DEADLINE_HOURS = 48;
-const SECOND_CHANCE_PAYMENT_DEADLINE_HOURS = 24;
+const DEFAULT_SECOND_CHANCE_PAYMENT_DEADLINE_HOURS = 24;
 const MIN_TRUST_SCORE_FOR_AUCTION = 40;
 const DEFAULT_AUCTION_DEPOSIT_MIN = 50_000;
 const DEFAULT_AUCTION_DEPOSIT_MAX = 500_000_000;
@@ -64,6 +64,21 @@ export class AuctionService {
     const parsed = Number(row?.value ?? DEFAULT_WINNER_PAYMENT_DEADLINE_HOURS);
     if (!Number.isFinite(parsed) || parsed <= 0) {
       return DEFAULT_WINNER_PAYMENT_DEADLINE_HOURS;
+    }
+    return Math.floor(parsed);
+  }
+
+  private async getSecondChancePaymentDeadlineHours(tx?: any): Promise<number> {
+    const client = tx ?? this.prisma;
+    const row = await client.systemSetting.findUnique({
+      where: { key: 'AUCTION_SECOND_CHANCE_PAYMENT_DEADLINE_HOURS' },
+      select: { value: true },
+    });
+    const parsed = Number(
+      row?.value ?? DEFAULT_SECOND_CHANCE_PAYMENT_DEADLINE_HOURS,
+    );
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return DEFAULT_SECOND_CHANCE_PAYMENT_DEADLINE_HOURS;
     }
     return Math.floor(parsed);
   }
@@ -696,6 +711,8 @@ export class AuctionService {
 
   async checkUnpaidAuctions() {
     const now = new Date();
+    const secondChancePaymentHours =
+      await this.getSecondChancePaymentDeadlineHours();
     const expiredAuctions = await this.prisma.listingAuction.findMany({
       where: {
         status: AuctionStatus.FINISHED,
@@ -716,7 +733,7 @@ export class AuctionService {
           ? (deadlineTimestamp - finishTimestamp) / (60 * 60 * 1000)
           : DEFAULT_WINNER_PAYMENT_DEADLINE_HOURS;
       const isSecondChanceRound =
-        deadlineHours <= SECOND_CHANCE_PAYMENT_DEADLINE_HOURS + 1;
+        deadlineHours <= secondChancePaymentHours + 1;
       await this.processNextWinner(
         auction.listingId,
         isSecondChanceRound
@@ -897,7 +914,7 @@ export class AuctionService {
         data: { status: AuctionBidStatus.ACTIVE },
       });
 
-      const deadlineHours = SECOND_CHANCE_PAYMENT_DEADLINE_HOURS;
+      const deadlineHours = await this.getSecondChancePaymentDeadlineHours(tx);
       const ranking = await this.syncAuctionRanking(tx, listingId);
       await tx.listingAuction.update({
         where: { listingId },

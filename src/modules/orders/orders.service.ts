@@ -36,9 +36,9 @@ export class OrdersService {
   private static readonly DEFAULT_SELLER_SHIP_DEADLINE_MINUTES = 3 * 24 * 60;
   private static readonly DEFAULT_BUYER_CONFIRM_DEADLINE_MINUTES = 4 * 24 * 60;
   private static readonly DEFAULT_EXCHANGE_NO_SHIPMENT_COMPENSATION = 20;
-  private static readonly EXCHANGE_NO_PAYMENT_TIMEOUT_HOURS = 24;
-  private static readonly EXCHANGE_SECOND_PAYMENT_TIMEOUT_HOURS = 48;
-  private static readonly EXCHANGE_SHIPMENT_TIMEOUT_HOURS = 48;
+  private static readonly DEFAULT_EXCHANGE_NO_PAYMENT_TIMEOUT_HOURS = 24;
+  private static readonly DEFAULT_EXCHANGE_SECOND_PAYMENT_TIMEOUT_HOURS = 48;
+  private static readonly DEFAULT_EXCHANGE_SHIPMENT_TIMEOUT_HOURS = 48;
   private static readonly DEFAULT_EXCHANGE_RETURN_CONFIRM_DEADLINE_MINUTES =
     48 * 60;
 
@@ -1126,9 +1126,10 @@ export class OrdersService {
       const onlyOneSideShipped =
         Boolean(sellerTrackingAfter) !== Boolean(buyerTrackingAfter);
       if (onlyOneSideShipped) {
+        const shipmentTimeoutHours =
+          await this.getExchangeShipmentTimeoutHours();
         updateData.shippingDeadline = new Date(
-          Date.now() +
-            OrdersService.EXCHANGE_SHIPMENT_TIMEOUT_HOURS * 60 * 60 * 1000,
+          Date.now() + shipmentTimeoutHours * 60 * 60 * 1000,
         );
       }
     }
@@ -2277,6 +2278,9 @@ export class OrdersService {
   @Cron(CronExpression.EVERY_HOUR)
   async autoCancelTimedOutExchangeCompletions() {
     const now = Date.now();
+    const noPaymentTimeoutHours = await this.getExchangeNoPaymentTimeoutHours();
+    const secondPaymentTimeoutHours =
+      await this.getExchangeSecondPaymentTimeoutHours();
     const timedOutAcceptedOffers = await this.prisma.exchangeOffer.findMany({
       where: {
         status: 'ACCEPTED',
@@ -2330,13 +2334,10 @@ export class OrdersService {
 
           const noPaymentDeadlineMs =
             new Date(offer.updatedAt).getTime() +
-            OrdersService.EXCHANGE_NO_PAYMENT_TIMEOUT_HOURS * 60 * 60 * 1000;
+            noPaymentTimeoutHours * 60 * 60 * 1000;
           const secondPaymentDeadlineMs = linkedOrder
             ? new Date(linkedOrder.updatedAt).getTime() +
-              OrdersService.EXCHANGE_SECOND_PAYMENT_TIMEOUT_HOURS *
-                60 *
-                60 *
-                1000
+              secondPaymentTimeoutHours * 60 * 60 * 1000
             : 0;
 
           const shouldCancelForNoPayment =
@@ -2857,6 +2858,39 @@ export class OrdersService {
       OrdersService.DEFAULT_EXCHANGE_NO_SHIPMENT_COMPENSATION,
     );
     return Math.max(0, parsed);
+  }
+
+  private async getExchangeNoPaymentTimeoutHours(): Promise<number> {
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'EXCHANGE_NO_PAYMENT_TIMEOUT_HOURS' },
+      select: { value: true },
+    });
+    return this.parsePositiveIntSetting(
+      setting?.value,
+      OrdersService.DEFAULT_EXCHANGE_NO_PAYMENT_TIMEOUT_HOURS,
+    );
+  }
+
+  private async getExchangeSecondPaymentTimeoutHours(): Promise<number> {
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'EXCHANGE_SECOND_PAYMENT_TIMEOUT_HOURS' },
+      select: { value: true },
+    });
+    return this.parsePositiveIntSetting(
+      setting?.value,
+      OrdersService.DEFAULT_EXCHANGE_SECOND_PAYMENT_TIMEOUT_HOURS,
+    );
+  }
+
+  private async getExchangeShipmentTimeoutHours(): Promise<number> {
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'EXCHANGE_SHIPMENT_TIMEOUT_HOURS' },
+      select: { value: true },
+    });
+    return this.parsePositiveIntSetting(
+      setting?.value,
+      OrdersService.DEFAULT_EXCHANGE_SHIPMENT_TIMEOUT_HOURS,
+    );
   }
 
   private async getExchangeReturnConfirmDeadlineMinutes(): Promise<number> {
