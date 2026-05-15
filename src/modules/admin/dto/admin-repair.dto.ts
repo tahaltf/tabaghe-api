@@ -88,14 +88,13 @@ export class AdminShipBackDto {
   returnMethod?: 'SHIP' | 'IN_PERSON';
 
   @IsOptional()
-  @IsDateString()
+  @IsString()
   inPersonPickupTime?: string;
 
   @IsOptional()
   @IsArray()
-  @ArrayMinSize(1)
   @ArrayMaxSize(8)
-  @IsDateString({}, { each: true })
+  @IsString({ each: true })
   inPersonPickupSlots?: string[];
 
   @IsOptional()

@@ -415,14 +415,36 @@ export class RepairService {
     });
     if (!repair) throw new NotFoundException('درخواست تعمیر یافت نشد');
     if (repair.userId !== userId) throw new ForbiddenException('عدم دسترسی');
+
+    if (repair.status === RepairRequestStatus.SHIPPED_BACK) {
+      await this.ensureReturnConfirmDeadline(repair.id);
+      await this.tryAutoCompleteExpiredRepair(repair.id);
+    }
+
+    const fresh = await this.prisma.repairRequest.findUnique({
+      where: { id: repairId },
+      include: {
+        tickets: {
+          select: {
+            id: true,
+            subject: true,
+            status: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+    if (!fresh) throw new NotFoundException('درخواست تعمیر یافت نشد');
+
     const paymentTx = await this.prisma.walletTransaction.findFirst({
       where: {
-        referenceId: repair.id,
+        referenceId: fresh.id,
         type: WalletTransactionType.SETTLEMENT,
         status: WalletTransactionStatus.SUCCESS,
         OR: [
           { meta: { path: ['kind'], equals: 'repair-payment' } },
-          { meta: { path: ['repairId'], equals: repair.id } },
+          { meta: { path: ['repairId'], equals: fresh.id } },
         ],
       },
       orderBy: { createdAt: 'desc' },
@@ -441,19 +463,19 @@ export class RepairService {
         : null;
 
     const userShippingNote = this.extractTaggedNote(
-      repair.adminNote,
+      fresh.adminNote,
       USER_SHIPPING_NOTE_MARK,
     );
     const adminReturnNote = this.extractTaggedNote(
-      repair.adminNote,
+      fresh.adminNote,
       ADMIN_RETURN_NOTE_MARK,
     );
     const inPersonPickupTime = this.extractTaggedNote(
-      repair.adminNote,
+      fresh.adminNote,
       ADMIN_RETURN_PICKUP_TIME_MARK,
     );
     const inPersonPickupSlotsRaw = this.extractTaggedNote(
-      repair.adminNote,
+      fresh.adminNote,
       ADMIN_RETURN_PICKUP_SLOTS_MARK,
     );
     const inPersonPickupSlots = (() => {
@@ -469,13 +491,13 @@ export class RepairService {
       }
     })();
     const selectedPickupTime = this.extractTaggedNote(
-      repair.adminNote,
+      fresh.adminNote,
       USER_RETURN_PICKUP_TIME_MARK,
     );
 
     return {
-      ...repair,
-      adminNote: this.stripTaggedNotes(repair.adminNote),
+      ...fresh,
+      adminNote: this.stripTaggedNotes(fresh.adminNote),
       userShippingNote,
       adminReturnNote,
       inPersonPickupTime,
@@ -876,26 +898,116 @@ export class RepairService {
   }
 
   // ---------------------------------------------------------------------------
-  // Auto-complete shipped-back repairs if user doesn't confirm in 3 days
+  // Auto-complete shipped-back repairs if owner doesn't confirm in time
   // ---------------------------------------------------------------------------
-  private async getRepairAutoCompleteDaysAfterShipBack(): Promise<number> {
-    const setting = await this.prisma.systemSetting.findUnique({
-      where: { key: 'REPAIR_AUTO_COMPLETE_DAYS_AFTER_SHIP_BACK' },
-      select: { value: true },
+  private async getReturnConfirmDeadlineMinutes(): Promise<number> {
+    const keys = [
+      'REPAIR_RETURN_CONFIRM_DEADLINE_MINUTES',
+      'REPAIR_AUTO_COMPLETE_DAYS_AFTER_SHIP_BACK',
+    ] as const;
+    const rows = await this.prisma.systemSetting.findMany({
+      where: { key: { in: [...keys] } },
+      select: { key: true, value: true },
     });
-    const parsed = Number(setting?.value ?? 3);
-    if (!Number.isFinite(parsed) || parsed <= 0) return 3;
-    return Math.floor(parsed);
+    const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    const minutesRaw = map.REPAIR_RETURN_CONFIRM_DEADLINE_MINUTES?.trim();
+    if (minutesRaw) {
+      const parsed = Number(minutesRaw.replace(/[^\d]/g, ''));
+      if (Number.isFinite(parsed) && parsed > 0) return Math.floor(parsed);
+    }
+    const days = Number(map.REPAIR_AUTO_COMPLETE_DAYS_AFTER_SHIP_BACK ?? 3);
+    const safeDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : 3;
+    return safeDays * 24 * 60;
   }
 
-  @Cron(CronExpression.EVERY_HOUR)
+  private async getRepairAutoCompleteDaysAfterShipBack(): Promise<number> {
+    const minutes = await this.getReturnConfirmDeadlineMinutes();
+    return Math.max(1, Math.ceil(minutes / (24 * 60)));
+  }
+
+  async ensureReturnConfirmDeadline(repairId: string): Promise<void> {
+    const repair = await this.prisma.repairRequest.findUnique({
+      where: { id: repairId },
+      select: {
+        id: true,
+        status: true,
+        returnConfirmDeadline: true,
+        updatedAt: true,
+        createdAt: true,
+      },
+    });
+    if (!repair) return;
+    if (repair.returnConfirmDeadline) return;
+    if (repair.status !== RepairRequestStatus.SHIPPED_BACK) return;
+
+    const minutes = await this.getReturnConfirmDeadlineMinutes();
+    const base = repair.updatedAt ?? repair.createdAt ?? new Date();
+    const ageMs = Date.now() - base.getTime();
+    const deadlineBase =
+      ageMs > minutes * 60 * 1000 ? new Date() : base;
+    const returnConfirmDeadline = new Date(
+      deadlineBase.getTime() + minutes * 60 * 1000,
+    );
+    await this.prisma.repairRequest.update({
+      where: { id: repairId },
+      data: { returnConfirmDeadline },
+    });
+  }
+
+  async tryAutoCompleteExpiredRepair(repairId: string): Promise<boolean> {
+    const repair = await this.prisma.repairRequest.findUnique({
+      where: { id: repairId },
+    });
+    if (!repair || repair.status !== RepairRequestStatus.SHIPPED_BACK) {
+      return false;
+    }
+
+    let expired = false;
+    if (repair.returnConfirmDeadline) {
+      expired = repair.returnConfirmDeadline.getTime() <= Date.now();
+    } else {
+      const minutes = await this.getReturnConfirmDeadlineMinutes();
+      const base = repair.updatedAt ?? repair.createdAt ?? new Date();
+      expired = Date.now() - base.getTime() >= minutes * 60 * 1000;
+    }
+    if (!expired) return false;
+
+    const updated = await this.prisma.repairRequest.updateMany({
+      where: {
+        id: repairId,
+        status: RepairRequestStatus.SHIPPED_BACK,
+      },
+      data: { status: RepairRequestStatus.COMPLETED },
+    });
+    if (!updated.count) return false;
+
+    await this.notifyOwner(
+      repair.userId,
+      repair.trackingCode,
+      'فرایند تعمیر تکمیل شد',
+      'به‌دلیل عدم تایید دریافت در مهلت مقرر، فرایند تعمیر به‌صورت خودکار تکمیل شد.',
+      { repairId, status: RepairRequestStatus.COMPLETED },
+    );
+    return true;
+  }
+
+  @Cron(CronExpression.EVERY_MINUTE)
   async autoCompleteReturnedRepairs(): Promise<void> {
-    const days = await this.getRepairAutoCompleteDaysAfterShipBack();
-    const deadline = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const now = new Date();
+    const legacyDays = await this.getRepairAutoCompleteDaysAfterShipBack();
+    const legacyCutoff = new Date(
+      Date.now() - legacyDays * 24 * 60 * 60 * 1000,
+    );
     const candidates = await this.prisma.repairRequest.findMany({
       where: {
         status: RepairRequestStatus.SHIPPED_BACK,
-        updatedAt: { lte: deadline },
+        OR: [
+          { returnConfirmDeadline: { lte: now } },
+          {
+            returnConfirmDeadline: null,
+            updatedAt: { lte: legacyCutoff },
+          },
+        ],
       },
       select: {
         id: true,
@@ -907,26 +1019,7 @@ export class RepairService {
     });
 
     for (const row of candidates) {
-      const updated = await this.prisma.repairRequest.updateMany({
-        where: {
-          id: row.id,
-          status: RepairRequestStatus.SHIPPED_BACK,
-        },
-        data: { status: RepairRequestStatus.COMPLETED },
-      });
-      if (!updated.count) continue;
-
-      await this.notifyOwner(
-        row.userId,
-        row.trackingCode,
-        'فرایند تعمیر تکمیل شد',
-        `به‌دلیل عدم ثبت تایید دریافت تا ${days} روز پس از ارسال برگشتی، درخواست به‌صورت خودکار تکمیل شد.`,
-        {
-          repairId: row.id,
-          status: RepairRequestStatus.COMPLETED,
-          autoCompleted: true,
-        },
-      );
+      await this.tryAutoCompleteExpiredRepair(row.id);
     }
   }
 }
