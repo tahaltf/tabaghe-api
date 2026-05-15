@@ -23,6 +23,7 @@ import {
   ResolveDisputeDto,
 } from '../dto/admin-dispute.dto';
 import { OrderReputationService } from '../../orders/order-reputation.service';
+import { ListingCommandService } from '../../listing/services/listing-command.service';
 
 const DISPUTE_INCLUDE = {
   listing: {
@@ -69,6 +70,7 @@ export class AdminDisputesService {
     private readonly prisma: PrismaService,
     private readonly notification: NotificationService,
     private readonly orderReputation: OrderReputationService,
+    private readonly listingCommand: ListingCommandService,
   ) {}
 
   async list(
@@ -200,6 +202,18 @@ export class AdminDisputesService {
               status: OrderStatus.RETURN_REQUESTED,
               cancelReason,
             },
+          });
+          const listingRow = await tx.listing.findUnique({
+            where: { id: order.listingId },
+            select: { title: true },
+          });
+          await this.listingCommand.rejectAfterTradeFailure(tx, {
+            listingId: order.listingId,
+            sellerId: order.sellerId,
+            listingTitle: listingRow?.title ?? 'کالا',
+            rejectionReason: `مرجوعی پس از شکایت خریدار. ${dto.resolution?.trim() || cancelReason}`,
+            source: 'dispute-refund',
+            orderId: order.id,
           });
           break;
         }

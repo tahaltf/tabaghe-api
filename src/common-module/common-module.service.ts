@@ -180,6 +180,8 @@ export class CommonService {
       'BANK_SHABA',
       'MANUAL_CARD_TRANSFER_MAX',
       'FOOTER_SOCIAL_LINKS',
+      'BUYER_CONFIRM_DEADLINE_MINUTES',
+      'BUYER_CONFIRM_DEADLINE_DAYS',
     ];
 
     const rows = await this.prisma.systemSetting.findMany({
@@ -221,6 +223,22 @@ export class CommonService {
 
     const primaryAddress =
       map.PLATFORM_ADDRESS || platformAddresses[0]?.address || null;
+
+    const defaultBuyerConfirmMinutes = 4 * 24 * 60;
+    let buyerConfirmDeadlineMinutes = defaultBuyerConfirmMinutes;
+    const buyerMinutesRaw = map.BUYER_CONFIRM_DEADLINE_MINUTES?.trim();
+    const buyerDaysRaw = map.BUYER_CONFIRM_DEADLINE_DAYS?.trim();
+    if (buyerMinutesRaw) {
+      const parsed = Number(buyerMinutesRaw.replace(/[^\d]/g, ''));
+      if (Number.isFinite(parsed) && parsed > 0) {
+        buyerConfirmDeadlineMinutes = parsed;
+      }
+    } else if (buyerDaysRaw) {
+      const parsed = Number(buyerDaysRaw.replace(/[^\d]/g, ''));
+      if (Number.isFinite(parsed) && parsed > 0) {
+        buyerConfirmDeadlineMinutes = parsed * 24 * 60;
+      }
+    }
 
     const allowedSocial = new Set([
       'instagram',
@@ -286,6 +304,7 @@ export class CommonService {
       manualCardTransferMax: map.MANUAL_CARD_TRANSFER_MAX
         ? Number(map.MANUAL_CARD_TRANSFER_MAX)
         : 10000000,
+      buyerConfirmDeadlineMinutes,
       footerSocialLinks,
     };
   }

@@ -27,6 +27,7 @@ import { FeeCalculatorService } from '../../fees/fee-calculator.service';
 import { OrderReputationService } from '../../orders/order-reputation.service';
 import { WalletService } from '../../wallet/wallet.service';
 import { OrdersService } from '../../orders/orders.service';
+import { ListingCommandService } from '../../listing/services/listing-command.service';
 
 @Injectable()
 export class AdminOrdersCommandService {
@@ -37,6 +38,7 @@ export class AdminOrdersCommandService {
     private readonly orderReputation: OrderReputationService,
     private readonly walletService: WalletService,
     private readonly ordersService: OrdersService,
+    private readonly listingCommand: ListingCommandService,
   ) {}
 
   repairBuyerRefundForCancelledOrder(orderId: string) {
@@ -165,6 +167,15 @@ export class AdminOrdersCommandService {
           OrderStatus.REJECTED_AT_HUB,
           normalizedNote,
         );
+
+        await this.listingCommand.rejectAfterTradeFailure(tx, {
+          listingId: existing.listingId,
+          sellerId: existing.sellerId,
+          listingTitle: existing.listing.title,
+          rejectionReason: `رد کارشناسی در طبقه: ${normalizedNote}`,
+          source: 'hub-inspection',
+          orderId: id,
+        });
 
         return updatedOrder;
       });
@@ -805,9 +816,20 @@ export class AdminOrdersCommandService {
           { failurePenalizeUserIds: [locked.sellerId] },
         );
 
-        await tx.listing.update({
+        const rejectReason =
+          locked.cancelReason?.trim() ||
+          'رد کارشناسی؛ مرجوع از هاب به فروشنده';
+        const listingRow = await tx.listing.findUnique({
           where: { id: locked.listingId },
-          data: { status: ListingStatus.APPROVED },
+          select: { title: true },
+        });
+        await this.listingCommand.rejectAfterTradeFailure(tx, {
+          listingId: locked.listingId,
+          sellerId: locked.sellerId,
+          listingTitle: listingRow?.title ?? 'کالا',
+          rejectionReason: rejectReason,
+          source: 'hub-inspection',
+          orderId: locked.id,
         });
       });
     }
@@ -1562,6 +1584,17 @@ export class AdminOrdersCommandService {
         'FAILURE',
         { failurePenalizeUserIds },
       );
+
+      if (listingFailed) {
+        await this.listingCommand.rejectAfterTradeFailure(tx, {
+          listingId: existing.listing.id,
+          sellerId: existing.sellerId,
+          listingTitle: existing.listing.title,
+          rejectionReason: `رد کارشناسی کالای آگهی (معاوضه): ${dto.listingNote?.trim() || 'مطابق گزارش کارشناسی معاوضه'}`,
+          source: 'hub-inspection',
+          orderId: id,
+        });
+      }
 
       const sellerTicketMessage = [
         listingFailed

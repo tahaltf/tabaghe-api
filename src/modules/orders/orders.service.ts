@@ -32,6 +32,7 @@ import { NotificationService } from '../notification/notification.service';
 import { OrderReputationService } from './order-reputation.service';
 import { ExchangeService } from '../exchange/exchange.service';
 import { QuotaService } from '../quota/quota.service';
+import { ListingCommandService } from '../listing/services/listing-command.service';
 
 @Injectable()
 export class OrdersService {
@@ -55,6 +56,7 @@ export class OrdersService {
     private readonly orderReputation: OrderReputationService,
     private readonly exchangeService: ExchangeService,
     private readonly quotaService: QuotaService,
+    private readonly listingCommand: ListingCommandService,
   ) {}
 
   // =================================================================
@@ -2172,6 +2174,15 @@ export class OrdersService {
         ],
       });
 
+      await this.listingCommand.rejectAfterTradeFailure(tx, {
+        listingId: order.listingId,
+        sellerId: order.sellerId,
+        listingTitle: order.listing?.title ?? 'کالا',
+        rejectionReason: `شکایت خریدار: ${reason.trim()}`,
+        source: 'dispute',
+        orderId: order.id,
+      });
+
       return {
         success: true,
         message: 'شکایت شما ثبت شد و مبلغ مسدود ماند.',
@@ -2191,29 +2202,16 @@ export class OrdersService {
       sellerId: string;
       listingTitle: string;
       rejectionReason: string;
+      orderId?: string;
     },
   ): Promise<void> {
-    await tx.listing.update({
-      where: { id: params.listingId },
-      data: {
-        status: ListingStatus.REJECTED,
-        rejectionReason: params.rejectionReason,
-        rejectedAt: new Date(),
-      },
-    });
-    await this.quotaService.releaseOnReject(tx, params.listingId);
-
-    await tx.notification.create({
-      data: {
-        userId: params.sellerId,
-        type: NotificationType.LISTING_REJECTED,
-        title: 'آگهی از انتشار خارج شد',
-        message: `آگهی «${params.listingTitle}» پس از لغو معامله (عدم ارسال در مهلت) به‌صورت خودکار رد شد. برای فروش مجدد، آگهی را ویرایش و دوباره ارسال کنید.`,
-        meta: {
-          listingId: params.listingId,
-          reason: 'shipping-timeout-cancel',
-        } as Prisma.InputJsonValue,
-      },
+    await this.listingCommand.rejectAfterTradeFailure(tx, {
+      listingId: params.listingId,
+      sellerId: params.sellerId,
+      listingTitle: params.listingTitle,
+      rejectionReason: params.rejectionReason,
+      source: 'shipping-timeout',
+      orderId: params.orderId,
     });
   }
 
@@ -2390,7 +2388,7 @@ export class OrdersService {
     },
   >(order: T): Promise<T> {
     if (!OrdersService.BUYER_CONFIRM_ELIGIBLE_STATUSES.includes(order.status)) {
-      return order;
+      return this.enrichOrderClientFields(order);
     }
     await this.ensureBuyerConfirmDeadline(order.id);
     const fresh = await this.prisma.order.findUnique({
@@ -2405,8 +2403,74 @@ export class OrdersService {
         updatedAt: order.updatedAt,
         createdAt: order.createdAt,
       }));
-    if (!deadline) return order;
-    return { ...order, buyerConfirmDeadline: deadline };
+    if (!deadline) return this.enrichOrderClientFields(order);
+    return this.enrichOrderClientFields({
+      ...order,
+      buyerConfirmDeadline: deadline,
+    });
+  }
+
+  private parseReturnDestinationFromCancelReason(cancelReason: string | null): {
+    address: string | null;
+    postalCode: string | null;
+  } {
+    const raw = String(cancelReason || '');
+    if (!raw.trim()) {
+      return { address: null, postalCode: null };
+    }
+    const lines = raw.split('\n').map((x) => x.trim());
+    const pick = (labels: string[]) => {
+      for (const label of labels) {
+        const line = lines.find((x) => x.startsWith(`${label}:`));
+        if (!line) continue;
+        const val = line.slice(label.length + 1).trim();
+        if (val) return val;
+      }
+      return null;
+    };
+    return {
+      address: pick(['آدرس مقصد', 'نشانی مقصد', 'آدرس مرجوعی']),
+      postalCode: pick(['کدپستی مقصد', 'کد پستی مقصد', 'کدپستی مرجوعی']),
+    };
+  }
+
+  private enrichOrderClientFields<T extends Record<string, unknown>>(order: T): T {
+    const o = order as T & {
+      cancelReason?: string | null;
+      status?: OrderStatus;
+      sellerShippingAddress?: string | null;
+      sellerShippingPostalCode?: string | null;
+      buyerConfirmDeadline?: Date | string | null;
+    };
+    const parsed = this.parseReturnDestinationFromCancelReason(
+      o.cancelReason ?? null,
+    );
+    let returnDestinationAddress = parsed.address;
+    let returnDestinationPostalCode = parsed.postalCode;
+    if (
+      (!returnDestinationAddress || returnDestinationAddress.length < 5) &&
+      o.status &&
+      (o.status === OrderStatus.RETURN_REQUESTED ||
+        o.status === OrderStatus.RETURN_SHIPPED)
+    ) {
+      returnDestinationAddress =
+        o.sellerShippingAddress?.trim() || returnDestinationAddress;
+      returnDestinationPostalCode =
+        o.sellerShippingPostalCode?.trim() || returnDestinationPostalCode;
+    }
+    const deadlineRaw = o.buyerConfirmDeadline;
+    const buyerConfirmDeadline =
+      deadlineRaw instanceof Date
+        ? deadlineRaw.toISOString()
+        : typeof deadlineRaw === 'string'
+          ? deadlineRaw
+          : null;
+    return {
+      ...order,
+      buyerConfirmDeadline,
+      returnDestinationAddress: returnDestinationAddress ?? null,
+      returnDestinationPostalCode: returnDestinationPostalCode ?? null,
+    } as T;
   }
 
   private async resolveEffectiveBuyerConfirmDeadline(order: {
@@ -2458,8 +2522,13 @@ export class OrdersService {
     if (!OrdersService.BUYER_CONFIRM_ELIGIBLE_STATUSES.includes(order.status)) {
       return;
     }
+    const minutes = await this.getBuyerConfirmDeadlineMinutes();
     const base = order.updatedAt ?? order.createdAt ?? new Date();
-    const deadline = await this.buildBuyerConfirmDeadlineFrom(base);
+    const ageMs = Date.now() - base.getTime();
+    // اگر سفارش قدیمی است ولی مهلت در DB ثبت نشده، از «الان» شمارش شود تا UI و کرون منطقی بمانند
+    const deadlineBase =
+      ageMs > minutes * 60 * 1000 ? new Date() : base;
+    const deadline = await this.buildBuyerConfirmDeadlineFrom(deadlineBase);
     await this.prisma.order.update({
       where: { id: orderId },
       data: { buyerConfirmDeadline: deadline },
