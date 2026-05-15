@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Patch,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -41,6 +42,12 @@ export class AdminOrdersQueryController {
   @Get(':id/detail')
   detail(@Param('id') id: string) {
     return this.query.detail(id);
+  }
+
+  /** ثبت دستی تراکنش بازگشت وجه خریدار اگر سفارش لغوشده ولی لاگ مالی ندارد */
+  @Post(':id/repair-buyer-refund')
+  repairBuyerRefund(@Param('id') id: string) {
+    return this.command.repairBuyerRefundForCancelledOrder(id);
   }
 
   @Patch(':id/status')

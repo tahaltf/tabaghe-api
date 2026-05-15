@@ -29,6 +29,7 @@ describe('OrdersService', () => {
   const walletMock = {
     releaseEscrow: jest.fn(),
     refundExchangeExtraOnCancel: jest.fn(),
+    refundDirectOrderEscrowOnCancel: jest.fn(),
   };
   const feeMock = {};
   const appSettingsMock = {
@@ -263,6 +264,110 @@ describe('OrdersService', () => {
     );
 
     creditSpy.mockRestore();
+  });
+
+  it('autoCancelExpiredOrders: direct sale timeout -> CANCELLED + escrow refund txns', async () => {
+    const orderId = 'ord-direct-1';
+    const listingId = 'lst-1';
+    const expiredOrder = {
+      id: orderId,
+      type: OrderType.DIRECT,
+      buyerId: 'buyer-1',
+      sellerId: 'seller-1',
+      listingId,
+      status: OrderStatus.PAID,
+      trackingCode: null,
+      sellerTrackingCode: null,
+      sellerRevenue: 900_000,
+      totalAmount: 1_000_000,
+      verificationFee: 0,
+      exchangeHubInspection: null,
+      tradeReputationAt: null,
+      listing: { title: 'گوشی آیفون' },
+    };
+
+    prismaMock.order.findMany.mockResolvedValue([expiredOrder]);
+
+    const tx = {
+      exchangeOffer: { findUnique: jest.fn() },
+      wallet: { upsert: jest.fn() },
+      walletTransaction: { create: jest.fn(), updateMany: jest.fn() },
+      user: { update: jest.fn().mockResolvedValue({}) },
+      order: { update: jest.fn().mockResolvedValue({}) },
+      ticket: {
+        create: jest
+          .fn()
+          .mockResolvedValueOnce({ id: 'ticket-buyer' })
+          .mockResolvedValueOnce({ id: 'ticket-seller' }),
+      },
+      notification: { createMany: jest.fn().mockResolvedValue({ count: 2 }) },
+      listing: {
+        update: jest
+          .fn()
+          .mockResolvedValue({ id: listingId, status: ListingStatus.APPROVED }),
+      },
+    };
+
+    prismaMock.$transaction.mockImplementation(
+      async (cb: (trx: typeof tx) => Promise<unknown>) => cb(tx),
+    );
+
+    walletMock.refundDirectOrderEscrowOnCancel.mockResolvedValue(undefined);
+
+    await service.autoCancelExpiredOrders();
+
+    expect(walletMock.refundDirectOrderEscrowOnCancel).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        orderId,
+        listingId,
+        refundReason: 'shipping-timeout-cancel',
+        sellerRevenue: 900_000,
+        totalAmount: 1_000_000,
+      }),
+    );
+
+    expect(stateMachineMock.assertTransition).toHaveBeenCalledWith(
+      OrderStatus.PAID,
+      OrderStatus.CANCELLED,
+      'auto-cancel-expired',
+    );
+
+    expect(orderReputationMock.recordTerminalOutcome).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({ id: orderId, buyerId: 'buyer-1', sellerId: 'seller-1' }),
+      OrderStatus.PAID,
+      'FAILURE',
+      expect.objectContaining({ failurePenalizeUserIds: ['seller-1'] }),
+    );
+
+    expect(tx.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: OrderStatus.CANCELLED,
+          cancelReason: expect.stringContaining('عدم ارسال'),
+        }),
+      }),
+    );
+
+    expect(tx.ticket.create).toHaveBeenCalledTimes(2);
+    expect(tx.ticket.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: 'buyer-1',
+          subject: expect.stringContaining('لغو سفارش'),
+        }),
+      }),
+    );
+    expect(tx.ticket.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: 'seller-1',
+          subject: expect.stringContaining('لغو سفارش'),
+        }),
+      }),
+    );
+    expect(tx.notification.createMany).toHaveBeenCalled();
   });
 
   it('autoConfirmOrders: includes SHIPPED_TO_BUYER in auto-confirm flow', async () => {

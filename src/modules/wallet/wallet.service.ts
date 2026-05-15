@@ -65,7 +65,7 @@ export class WalletService {
         },
       },
       orderBy: { createdAt: 'desc' },
-      take: 20,
+      take: 80,
       select: {
         id: true,
         type: true,
@@ -132,6 +132,7 @@ export class WalletService {
       'listingTitle',
       'auctionId',
       'refundReason',
+      'debitReason',
       'receiptImageUrl',
       'rejectionReason',
       'adminNote',
@@ -632,6 +633,256 @@ export class WalletService {
         },
       },
     });
+  }
+
+  /** مبلغ قابل بازگشت به خریدار از روی سفارش یا تراکنش پرداخت ثبت‌شده */
+  private async resolveBuyerRefundAmount(
+    tx: Prisma.TransactionClient,
+    params: {
+      orderId: string;
+      listingId: string;
+      buyerId: string;
+      totalAmount: number;
+    },
+  ): Promise<number> {
+    const fromOrder = Math.max(0, Number(params.totalAmount) || 0);
+    if (fromOrder > 0) return fromOrder;
+
+    const wallet = await tx.wallet.findUnique({
+      where: { userId: params.buyerId },
+      select: { id: true },
+    });
+    if (!wallet) return 0;
+
+    const settlements = await tx.walletTransaction.findMany({
+      where: {
+        walletId: wallet.id,
+        type: WalletTransactionType.SETTLEMENT,
+        status: WalletTransactionStatus.SUCCESS,
+        OR: [
+          { referenceId: params.orderId },
+          { referenceId: params.listingId },
+        ],
+      },
+      select: { amount: true, meta: true },
+    });
+
+    let sum = 0;
+    for (const t of settlements) {
+      const meta = (t.meta ?? {}) as Record<string, unknown>;
+      const metaOrderId = String(meta['orderId'] ?? '').trim();
+      if (metaOrderId && metaOrderId !== params.orderId) continue;
+      const phase = String(meta['phase'] ?? '');
+      if (phase === 'buyer_paid' || phase === 'exchange_participant_paid') {
+        sum += Math.max(0, Number(t.amount) || 0);
+      }
+    }
+    return sum;
+  }
+
+  /**
+   * لغو فروش مستقیم (مثلاً عدم ارسال در مهلت): برگشت وجه خریدار + آزادسازی بلوکه فروشنده با ثبت تراکنش.
+   */
+  async refundDirectOrderEscrowOnCancel(
+    tx: Prisma.TransactionClient,
+    params: {
+      orderId: string;
+      listingId: string;
+      buyerId: string;
+      sellerId: string;
+      totalAmount: number;
+      sellerRevenue: number;
+      cancelReason: string;
+      refundReason?: string;
+    },
+  ): Promise<void> {
+    const sellerRevenue = Math.max(0, Number(params.sellerRevenue) || 0);
+    const refundReason = params.refundReason ?? 'shipping-timeout-cancel';
+    const refundAmount = await this.resolveBuyerRefundAmount(tx, {
+      orderId: params.orderId,
+      listingId: params.listingId,
+      buyerId: params.buyerId,
+      totalAmount: params.totalAmount,
+    });
+    const listingTitle = await this.listingTitleForWalletTx(tx, params.listingId);
+    const titleQuoted = listingTitle ? `«${listingTitle}»` : 'این آگهی';
+
+    if (sellerRevenue > 0) {
+      const sellerWallet = await tx.wallet.upsert({
+        where: { userId: params.sellerId },
+        create: {
+          userId: params.sellerId,
+          balanceAvailable: 0,
+          balanceBlocked: 0,
+        },
+        update: {},
+        select: { id: true },
+      });
+
+      const existingSellerDebit = await tx.walletTransaction.findFirst({
+        where: {
+          walletId: sellerWallet.id,
+          type: WalletTransactionType.PENALTY,
+          referenceId: params.orderId,
+          meta: { path: ['debitReason'], equals: refundReason },
+        },
+        select: { id: true },
+      });
+      if (!existingSellerDebit) {
+        await tx.wallet.update({
+          where: { userId: params.sellerId },
+          data: { balanceBlocked: { decrement: sellerRevenue } },
+        });
+
+        await tx.walletTransaction.updateMany({
+          where: {
+            walletId: sellerWallet.id,
+            referenceId: params.listingId,
+            type: WalletTransactionType.DEPOSIT,
+            status: WalletTransactionStatus.PENDING,
+          },
+          data: { status: WalletTransactionStatus.FAILED },
+        });
+
+        await tx.walletTransaction.create({
+          data: {
+            walletId: sellerWallet.id,
+            amount: sellerRevenue,
+            type: WalletTransactionType.PENALTY,
+            status: WalletTransactionStatus.SUCCESS,
+            referenceId: params.orderId,
+            meta: {
+              kind: 'order-escrow',
+              phase: 'seller_blocked_debit',
+              debitReason: refundReason,
+              orderId: params.orderId,
+              listingId: params.listingId,
+              ...(listingTitle ? { listingTitle } : {}),
+              description: `لغو معامله برای ${titleQuoted}: مبلغ بلوکه‌شده از کیف پول شما برداشته شد چون سفارش لغو شد (${params.cancelReason}).`,
+            },
+          },
+        });
+      }
+    }
+
+    if (refundAmount > 0) {
+      const buyerWallet = await tx.wallet.upsert({
+        where: { userId: params.buyerId },
+        create: {
+          userId: params.buyerId,
+          balanceAvailable: 0,
+          balanceBlocked: 0,
+        },
+        update: {},
+        select: { id: true },
+      });
+
+      const existingBuyerRefund = await tx.walletTransaction.findFirst({
+        where: {
+          walletId: buyerWallet.id,
+          type: WalletTransactionType.REFUND,
+          referenceId: params.orderId,
+        },
+        select: { id: true },
+      });
+      if (!existingBuyerRefund) {
+        await tx.wallet.update({
+          where: { userId: params.buyerId },
+          data: { balanceAvailable: { increment: refundAmount } },
+        });
+
+        await tx.walletTransaction.create({
+          data: {
+            walletId: buyerWallet.id,
+            amount: refundAmount,
+            type: WalletTransactionType.REFUND,
+            status: WalletTransactionStatus.SUCCESS,
+            referenceId: params.orderId,
+            meta: {
+              kind: 'order-escrow',
+              phase: 'buyer_refund',
+              refundReason,
+              orderId: params.orderId,
+              listingId: params.listingId,
+              ...(listingTitle ? { listingTitle } : {}),
+              description: `بازگشت وجه خرید برای ${titleQuoted} به‌دلیل لغو سفارش (${params.cancelReason}). مبلغ به موجودی کیف پول شما واریز شد.`,
+            },
+          },
+        });
+      }
+    }
+  }
+
+  /**
+   * اگر سفارش لغو شده ولی تراکنش بازگشت وجه خریدار ثبت نشده، دوباره تلاش می‌کند (repair).
+   */
+  async repairMissingDirectCancelRefund(orderId: string): Promise<{
+    repaired: boolean;
+    refundAmount: number;
+    message: string;
+  }> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        status: true,
+        type: true,
+        buyerId: true,
+        sellerId: true,
+        listingId: true,
+        totalAmount: true,
+        sellerRevenue: true,
+        cancelReason: true,
+      },
+    });
+    if (!order) throw new NotFoundException('سفارش یافت نشد');
+    if (order.status !== 'CANCELLED') {
+      return {
+        repaired: false,
+        refundAmount: 0,
+        message: 'سفارش در وضعیت لغو‌شده نیست.',
+      };
+    }
+    if (order.type === 'EXCHANGE') {
+      return {
+        repaired: false,
+        refundAmount: 0,
+        message: 'این repair فقط برای فروش مستقیم است.',
+      };
+    }
+
+    const cancelReason =
+      order.cancelReason?.trim() ||
+      'عدم ارسال فروشنده در مهلت مقرر؛ معامله لغو شد';
+
+    let refundAmount = 0;
+    await this.prisma.$transaction(async (tx) => {
+      await this.refundDirectOrderEscrowOnCancel(tx, {
+        orderId: order.id,
+        listingId: order.listingId,
+        buyerId: order.buyerId,
+        sellerId: order.sellerId,
+        totalAmount: Number(order.totalAmount || 0),
+        sellerRevenue: Number(order.sellerRevenue || 0),
+        cancelReason,
+        refundReason: 'shipping-timeout-cancel',
+      });
+      refundAmount = await this.resolveBuyerRefundAmount(tx, {
+        orderId: order.id,
+        listingId: order.listingId,
+        buyerId: order.buyerId,
+        totalAmount: Number(order.totalAmount || 0),
+      });
+    });
+
+    return {
+      repaired: refundAmount > 0,
+      refundAmount,
+      message:
+        refundAmount > 0
+          ? `تراکنش بازگشت وجه (${refundAmount.toLocaleString('fa-IR')} تومان) برای خریدار ثبت یا تأیید شد.`
+          : 'مبلغی برای بازگشت به خریدار یافت نشد.',
+    };
   }
 
   /**
