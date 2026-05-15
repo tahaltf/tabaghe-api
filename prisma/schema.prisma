@@ -652,6 +652,7 @@ model RepairRequest {
   // ارسال برگشت طبقه به کاربر
   returnTrackingCode   String?
   returnVideo          String?
+  returnConfirmDeadline DateTime?
 
   tickets              Ticket[]
   createdAt            DateTime            @default(now())

@@ -199,10 +199,22 @@ export const SYSTEM_JOB_SETTINGS_REGISTRY: SystemJobSettingDefinition[] = [
     max: 1000,
   },
   {
-    key: 'REPAIR_AUTO_COMPLETE_DAYS_AFTER_SHIP_BACK',
-    label: 'تکمیل خودکار تعمیر (روز)',
+    key: 'REPAIR_RETURN_CONFIRM_DEADLINE_MINUTES',
+    label: 'مهلت تایید دریافت تعمیر پس از ارسال برگشتی (دقیقه)',
     description:
-      'پس از وضعیت ارسال برگشتی، اگر کاربر تایید نکند، بعد از چند روز تکمیل شود.',
+      'پس از ثبت ارسال برگشتی توسط ادمین، اگر صاحب کالا تایید دریافت نزند، بعد از این مدت به‌صورت خودکار تکمیل می‌شود.',
+    groupId: 'repair',
+    type: 'number',
+    defaultValue: '4320',
+    unit: 'minutes',
+    min: 60,
+    max: 43200,
+  },
+  {
+    key: 'REPAIR_AUTO_COMPLETE_DAYS_AFTER_SHIP_BACK',
+    label: 'تکمیل خودکار تعمیر (روز) — پشتیبان',
+    description:
+      'فقط برای رکوردهای قدیمی بدون مهلت دقیق؛ در صورت تنظیم دقیقهٔ بالا معمولاً استفاده نمی‌شود.',
     groupId: 'repair',
     type: 'number',
     defaultValue: '3',

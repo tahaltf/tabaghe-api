@@ -17,6 +17,7 @@ import {
   AdminShipBackDto,
 } from '../dto/admin-repair.dto';
 import { NotificationService } from '../../notification/notification.service';
+import { normalizePickupSlotsInput } from '../../../shared/utils/pickup-datetime.util';
 
 const REPAIR_INCLUDE = {
   user: { select: { id: true, phone: true, firstName: true, lastName: true } },
@@ -312,6 +313,27 @@ export class AdminRepairsService {
     });
   }
 
+  private async getReturnConfirmDeadlineMinutes(): Promise<number> {
+    const keys = [
+      'REPAIR_RETURN_CONFIRM_DEADLINE_MINUTES',
+      'REPAIR_AUTO_COMPLETE_DAYS_AFTER_SHIP_BACK',
+    ] as const;
+    const rows = await this.prisma.systemSetting.findMany({
+      where: { key: { in: [...keys] } },
+      select: { key: true, value: true },
+    });
+    const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    const minutesRaw = map.REPAIR_RETURN_CONFIRM_DEADLINE_MINUTES?.trim();
+    if (minutesRaw) {
+      const parsed = Number(minutesRaw.replace(/[^\d]/g, ''));
+      if (Number.isFinite(parsed) && parsed > 0) return Math.floor(parsed);
+    }
+    const daysRaw = map.REPAIR_AUTO_COMPLETE_DAYS_AFTER_SHIP_BACK?.trim();
+    const days = Number(daysRaw ?? 3);
+    const safeDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : 3;
+    return safeDays * 24 * 60;
+  }
+
   async shipBack(
     id: string,
     dto: AdminShipBackDto,
@@ -322,13 +344,28 @@ export class AdminRepairsService {
     if (returnMethod === 'SHIP' && !(dto.trackingCode ?? '').trim()) {
       throw new BadRequestException('کد رهگیری برای ارسال پستی الزامی است');
     }
-    if (returnMethod === 'IN_PERSON' && !dto.inPersonPickupTime) {
-      if (!dto.inPersonPickupSlots?.length) {
+
+    let pickupTime: string | null = null;
+    let pickupSlots: string[] = [];
+    if (returnMethod === 'IN_PERSON') {
+      const normalized = normalizePickupSlotsInput(
+        dto.inPersonPickupSlots,
+        dto.inPersonPickupTime,
+      );
+      pickupTime = normalized.time;
+      pickupSlots = normalized.slots;
+      if (!pickupTime && !pickupSlots.length) {
         throw new BadRequestException(
           'حداقل یک زمان تحویل حضوری باید مشخص شود',
         );
       }
     }
+
+    const confirmMinutes = await this.getReturnConfirmDeadlineMinutes();
+    const returnConfirmDeadline = new Date(
+      Date.now() + confirmMinutes * 60 * 1000,
+    );
+
     const existing = await this.prisma.repairRequest.findUnique({
       where: { id },
       select: { adminNote: true },
@@ -342,6 +379,7 @@ export class AdminRepairsService {
             ? 'IN_PERSON_PICKUP'
             : dto.trackingCode!.trim(),
         returnVideo: returnMethod === 'IN_PERSON' ? null : video?.filename,
+        returnConfirmDeadline,
         adminNote: this.appendTaggedNote(
           this.appendTaggedNote(
             this.appendTaggedNote(
@@ -350,11 +388,11 @@ export class AdminRepairsService {
               dto.note,
             ),
             ADMIN_RETURN_PICKUP_TIME_MARK,
-            returnMethod === 'IN_PERSON' ? dto.inPersonPickupTime : null,
+            returnMethod === 'IN_PERSON' ? pickupTime : null,
           ),
           ADMIN_RETURN_PICKUP_SLOTS_MARK,
-          returnMethod === 'IN_PERSON' && dto.inPersonPickupSlots?.length
-            ? JSON.stringify(dto.inPersonPickupSlots)
+          returnMethod === 'IN_PERSON' && pickupSlots.length
+            ? JSON.stringify(pickupSlots)
             : null,
         ),
       },
@@ -364,10 +402,10 @@ export class AdminRepairsService {
           : 'کالا برای شما ارسال شد',
       message:
         returnMethod === 'IN_PERSON'
-          ? dto.inPersonPickupSlots?.length
+          ? pickupSlots.length > 1
             ? 'زمان‌های تحویل حضوری کالای شما ثبت شد. لطفاً یکی را انتخاب کنید.'
-            : `زمان تحویل حضوری کالای شما برای ${dto.inPersonPickupTime} ثبت شد.`
-          : `کالای شما با کد رهگیری ${dto.trackingCode} ارسال شد.`,
+            : 'زمان تحویل حضوری کالای شما ثبت شد. پس از دریافت، تایید دریافت را بزنید.'
+          : `کالای شما با کد رهگیری ${dto.trackingCode} ارسال شد. پس از دریافت، تایید دریافت را بزنید.`,
     });
   }
 

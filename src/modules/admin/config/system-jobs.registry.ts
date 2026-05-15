@@ -146,14 +146,17 @@ export const SYSTEM_JOBS_REGISTRY: SystemJobDefinition[] = [
   {
     id: 'repair_auto_complete',
     name: 'تکمیل خودکار تعمیر پس از ارسال برگشتی',
-    schedule: '0 * * * *',
-    scheduleLabel: 'هر ۱ ساعت',
+    schedule: '* * * * *',
+    scheduleLabel: 'هر ۱ دقیقه',
     description:
-      'درخواست‌های SHIPPED_BACK که کاربر پس از مهلت تایید دریافت نکرده را COMPLETED می‌کند.',
+      'درخواست‌های SHIPPED_BACK که کاربر پس از مهلت تایید دریافت (returnConfirmDeadline) نکرده را COMPLETED می‌کند.',
     module: 'repair/repair.service.ts',
     method: 'autoCompleteReturnedRepairs',
     managedBy: 'nestjs_cron',
-    relatedSettingKeys: ['REPAIR_AUTO_COMPLETE_DAYS_AFTER_SHIP_BACK'],
+    relatedSettingKeys: [
+      'REPAIR_RETURN_CONFIRM_DEADLINE_MINUTES',
+      'REPAIR_AUTO_COMPLETE_DAYS_AFTER_SHIP_BACK',
+    ],
   },
   {
     id: 'backup_scheduled_tick',
