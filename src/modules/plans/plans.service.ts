@@ -13,6 +13,10 @@ import {
   BUILTIN_FREE_PLAN_ID,
   buildBuiltinFreePlan,
 } from './builtin-free-plan';
+import {
+  BUILTIN_FREE_PLAN_DISPLAY_KEY,
+  parseBuiltinFreePlanDisplay,
+} from './builtin-free-plan-display';
 
 function addDaysUtc(base: Date, days: number): Date {
   const d = new Date(base.getTime());
@@ -40,7 +44,27 @@ export class PlansService {
     const freeDirectLimit = Number.isFinite(rawFree)
       ? Math.max(0, Math.floor(rawFree))
       : 2;
-    const builtin = buildBuiltinFreePlan(freeDirectLimit);
+
+    const freeExchangeSetting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'FREE_EXCHANGE_QUOTA' },
+    });
+    const rawExchange = freeExchangeSetting
+      ? Number(freeExchangeSetting.value)
+      : 1;
+    const freeExchangeLimit = Number.isFinite(rawExchange)
+      ? Math.max(0, Math.floor(rawExchange))
+      : 1;
+
+    const displaySetting = await this.prisma.systemSetting.findUnique({
+      where: { key: BUILTIN_FREE_PLAN_DISPLAY_KEY },
+    });
+    const builtinOverrides = parseBuiltinFreePlanDisplay(
+      displaySetting?.value,
+    );
+    const builtin = buildBuiltinFreePlan(
+      { direct: freeDirectLimit, exchange: freeExchangeLimit },
+      builtinOverrides,
+    );
 
     try {
       const dbPlans = await this.prisma.plan.findMany({
@@ -55,6 +79,8 @@ export class PlansService {
           durationDays: true,
           feeDiscountDirectPercent: true,
           feeDiscountAuctionPercent: true,
+          badgeLabel: true,
+          badgeColor: true,
           createdAt: true,
           updatedAt: true,
           rules: {
@@ -65,10 +91,11 @@ export class PlansService {
         orderBy: { price: 'asc' },
       });
 
-      return [
-        this.toPublicBuiltinPlan(builtin),
-        ...dbPlans.map((p) => this.toPublicDbPlan(p)),
-      ];
+      const publicDb = dbPlans.map((p) => this.toPublicDbPlan(p));
+      if (!builtin.isActive) {
+        return publicDb;
+      }
+      return [this.toPublicBuiltinPlan(builtin), ...publicDb];
     } catch (err) {
       this.logger.error('getActivePlans failed', err);
       if (
@@ -107,6 +134,8 @@ export class PlansService {
         durationDays: true;
         feeDiscountDirectPercent: true;
         feeDiscountAuctionPercent: true;
+        badgeLabel: true;
+        badgeColor: true;
         createdAt: true;
         updatedAt: true;
         rules: {
@@ -126,6 +155,8 @@ export class PlansService {
       durationDays: plan.durationDays,
       feeDiscountDirectPercent: plan.feeDiscountDirectPercent,
       feeDiscountAuctionPercent: plan.feeDiscountAuctionPercent,
+      badgeLabel: plan.badgeLabel,
+      badgeColor: plan.badgeColor,
       createdAt: plan.createdAt.toISOString(),
       updatedAt: plan.updatedAt.toISOString(),
       rules: plan.rules.map((r) => ({

@@ -38,8 +38,8 @@ export const repairMediaMulterOptions: MulterOptions = {
       return cb(
         new BadRequestException(
           isVideo
-            ? 'فقط فایل‌های ویدیویی مجاز هستند'
-            : 'فقط فایل‌های تصویری (jpg, png, webp, gif) مجاز هستند',
+            ? 'فقط ویدیوهای mp4/mov/webm و … مجازند؛ حداکثر حجم هر ویدیو ۵۰ مگابایت.'
+            : 'فقط تصویر jpg، png، webp یا gif مجاز است؛ حداکثر حجم هر تصویر ۵۰ مگابایت.',
         ),
         false,
       );
@@ -66,7 +66,9 @@ export const repairShipVideoMulterOptions: MulterOptions = {
   fileFilter: (_req, file, cb) => {
     if (!VIDEO_MIME.test(file.mimetype)) {
       return cb(
-        new BadRequestException('فقط فایل‌های ویدیویی مجاز هستند'),
+        new BadRequestException(
+          'فقط فایل‌های ویدیویی مجازند؛ حداکثر حجم ۸۰ مگابایت.',
+        ),
         false,
       );
     }

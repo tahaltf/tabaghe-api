@@ -48,7 +48,9 @@ const videoUploadConfig = {
       )
     ) {
       return callback(
-        new BadRequestException('فقط فایل‌های ویدیویی مجاز هستند'),
+        new BadRequestException(
+          'فقط فایل‌های ویدیویی مجازند؛ حداکثر حجم ۵۰ مگابایت.',
+        ),
         false,
       );
     }

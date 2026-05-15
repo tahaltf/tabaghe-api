@@ -81,7 +81,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
           : HttpStatus.BAD_REQUEST;
       const message =
         exception.code === 'LIMIT_FILE_SIZE'
-          ? 'حجم فایل ارسالی بیش از حد مجاز است. لطفاً فایل کوچک‌تر انتخاب کنید.'
+          ? 'حجم فایل ارسالی بیش از حد مجاز است. سقف‌های رایج در سامانه: تصویر آگهی ۱۰ مگابایت؛ کارت ملی و رسید واریز ۵ مگابایت؛ بنر ۸ مگابایت؛ لوگو ۲ مگابایت؛ ویدیوی سفارش تا ۵۰ مگابایت. لطفاً فایل کوچک‌تر یا با کیفیت پایین‌تر انتخاب کنید.'
           : `خطا در آپلود فایل: ${exception.message}`;
 
       appendJsonLog('app-errors.log', {

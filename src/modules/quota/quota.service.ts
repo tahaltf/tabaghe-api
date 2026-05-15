@@ -16,7 +16,7 @@ export class QuotaService {
     listingType: ListingType,
     listingId: string,
   ) {
-    // 1) فروش مستقیم را اول از سهمیه رایگان مصرف کن
+    // 1) فروش مستقیم — سهمیه رایگان همکف
     if (listingType === ListingType.DIRECT) {
       const freeLimit = await this.getFreeDirectLimit(tx);
       const remaining = await this.getRemainingFreeDirect(
@@ -30,7 +30,21 @@ export class QuotaService {
       }
     }
 
-    // 2) سپس از پلن‌های فعال
+    // 2) معاوضه — سهمیه رایگان همکف
+    if (listingType === ListingType.EXCHANGE) {
+      const freeLimit = await this.getFreeExchangeLimit(tx);
+      const remaining = await this.getRemainingFreeExchange(
+        tx,
+        userId,
+        freeLimit,
+      );
+      if (remaining > 0) {
+        await this.commitFreeExchange(tx, userId, listingType, listingId);
+        return;
+      }
+    }
+
+    // 3) سپس از پلن‌های فعال
     await this.consumeFromPlan(tx, userId, listingType, listingId);
   }
 
@@ -112,6 +126,63 @@ export class QuotaService {
         action: QuotaAction.COMMIT,
         reason: QuotaReason.FREE_DIRECT,
         note: 'سهمیه رایگان آگهی ثابت',
+      },
+    });
+  }
+
+  // -----------------------------
+  // Free EXCHANGE quota (همکف)
+  // -----------------------------
+
+  private async getFreeExchangeLimit(
+    tx: Prisma.TransactionClient,
+  ): Promise<number> {
+    const setting = await tx.systemSetting.findUnique({
+      where: { key: 'FREE_EXCHANGE_QUOTA' },
+    });
+    return setting ? Number(setting.value) : 1;
+  }
+
+  private async getRemainingFreeExchange(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    freeLimit: number,
+  ): Promise<number> {
+    const commits = await tx.quotaLedger.count({
+      where: {
+        userId,
+        listingType: ListingType.EXCHANGE,
+        reason: QuotaReason.FREE_EXCHANGE,
+        action: QuotaAction.COMMIT,
+      },
+    });
+
+    const releases = await tx.quotaLedger.count({
+      where: {
+        userId,
+        listingType: ListingType.EXCHANGE,
+        reason: QuotaReason.FREE_EXCHANGE,
+        action: QuotaAction.RELEASE,
+      },
+    });
+
+    return Math.max(0, freeLimit - (commits - releases));
+  }
+
+  private async commitFreeExchange(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    listingType: ListingType,
+    listingId: string,
+  ) {
+    await tx.quotaLedger.create({
+      data: {
+        userId,
+        listingId,
+        listingType,
+        action: QuotaAction.COMMIT,
+        reason: QuotaReason.FREE_EXCHANGE,
+        note: 'سهمیه رایگان معاوضه (همکف)',
       },
     });
   }

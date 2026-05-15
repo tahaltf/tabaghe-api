@@ -26,7 +26,17 @@ describe('PlansService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    prismaMock.systemSetting.findUnique.mockResolvedValue({ value: '3' });
+    prismaMock.systemSetting.findUnique.mockImplementation(
+      ({ where }: { where: { key: string } }) => {
+        if (where.key === 'FREE_DIRECT_QUOTA') {
+          return Promise.resolve({ value: '3' });
+        }
+        if (where.key === 'FREE_EXCHANGE_QUOTA') {
+          return Promise.resolve({ value: '1' });
+        }
+        return Promise.resolve(null);
+      },
+    );
     prismaMock.plan.findMany.mockResolvedValue([]);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -44,7 +54,17 @@ describe('PlansService', () => {
   });
 
   it('getActivePlans prepends builtin free plan', async () => {
-    prismaMock.systemSetting.findUnique.mockResolvedValue({ value: '4' });
+    prismaMock.systemSetting.findUnique.mockImplementation(
+      ({ where }: { where: { key: string } }) => {
+        if (where.key === 'FREE_DIRECT_QUOTA') {
+          return Promise.resolve({ value: '4' });
+        }
+        if (where.key === 'FREE_EXCHANGE_QUOTA') {
+          return Promise.resolve({ value: '1' });
+        }
+        return Promise.resolve(null);
+      },
+    );
     prismaMock.plan.findMany.mockResolvedValue([
       {
         id: 'paid1',

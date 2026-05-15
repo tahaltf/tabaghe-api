@@ -27,7 +27,7 @@ export const brandLogoMulterOptions: MulterOptions = {
     if (!ALLOWED_MIME.test(file.mimetype)) {
       return cb(
         new BadRequestException(
-          'فقط فایل‌های تصویری (jpg, png, webp, gif, svg) مجاز هستند',
+          'فقط فایل‌های تصویری jpg، png، webp، gif یا svg مجازند؛ حداکثر حجم ۲ مگابایت.',
         ),
         false,
       );

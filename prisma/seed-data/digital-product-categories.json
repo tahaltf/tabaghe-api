@@ -1,0 +1,241 @@
+[
+  {
+    "name": "موبایل و تبلت",
+    "slug": "mobile-tablet",
+    "icon": "smartphone",
+    "subCategories": [
+      {
+        "name": "گوشی موبایل",
+        "slug": "mobile-phone",
+        "children": [
+          "آیفون",
+          "سامسونگ",
+          "شیائومی",
+          "هواوی",
+          "آنر",
+          "نوکیا",
+          "گوگل پیکسل",
+          "وان‌پلاس",
+          "سایر برندها"
+        ]
+      },
+      {
+        "name": "تبلت",
+        "slug": "tablet",
+        "children": ["آیپد", "سامسونگ", "شیائومی", "مایکروسافت سرفیس", "سایر برندها"]
+      },
+      {
+        "name": "لوازم جانبی موبایل",
+        "slug": "mobile-accessories",
+        "children": [
+          "قاب و کاور",
+          "گلس",
+          "شارژر",
+          "کابل",
+          "پاوربانک",
+          "هندزفری و ایرپاد",
+          "هولدر",
+          "ساعت هوشمند",
+          "مچ‌بند هوشمند"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "کامپیوتر و لپ‌تاپ",
+    "slug": "computer-laptop",
+    "icon": "laptop",
+    "subCategories": [
+      {
+        "name": "لپ‌تاپ",
+        "slug": "laptop",
+        "children": [
+          "لپ‌تاپ گیمینگ",
+          "لپ‌تاپ دانشجویی",
+          "لپ‌تاپ مهندسی",
+          "مک‌بوک",
+          "لپ‌تاپ اقتصادی"
+        ]
+      },
+      {
+        "name": "کامپیوتر رومیزی",
+        "slug": "desktop-computer",
+        "children": ["سیستم گیمینگ", "سیستم اداری", "سیستم رندرینگ", "آل این وان"]
+      },
+      {
+        "name": "قطعات کامپیوتر",
+        "slug": "computer-parts",
+        "children": [
+          "کارت گرافیک",
+          "پردازنده",
+          "مادربرد",
+          "رم",
+          "هارد HDD",
+          "SSD",
+          "پاور",
+          "کیس",
+          "فن و خنک‌کننده"
+        ]
+      },
+      {
+        "name": "لوازم جانبی کامپیوتر",
+        "slug": "computer-accessories",
+        "children": [
+          "ماوس",
+          "کیبورد",
+          "هدست",
+          "وبکم",
+          "میکروفون",
+          "اسپیکر",
+          "پد ماوس",
+          "هاب USB"
+        ]
+      },
+      {
+        "name": "مانیتور",
+        "slug": "monitor",
+        "children": ["گیمینگ", "طراحی و ادیت", "اداری", "اولتراواید"]
+      },
+      {
+        "name": "پرینتر و اسکنر",
+        "slug": "printer-scanner",
+        "children": ["پرینتر لیزری", "پرینتر جوهرافشان", "اسکنر", "مواد مصرفی"]
+      }
+    ]
+  },
+  {
+    "name": "گیم و کنسول",
+    "slug": "gaming-console",
+    "icon": "gamepad-2",
+    "subCategories": [
+      {
+        "name": "کنسول بازی",
+        "slug": "gaming-console-device",
+        "children": [
+          "PlayStation 5",
+          "PlayStation 4",
+          "Xbox Series",
+          "Xbox One",
+          "Nintendo Switch",
+          "کنسول قدیمی"
+        ]
+      },
+      {
+        "name": "لوازم جانبی گیمینگ",
+        "slug": "gaming-accessories",
+        "children": ["دسته بازی", "هدست گیمینگ", "کیبورد گیمینگ", "ماوس گیمینگ", "صندلی گیمینگ"]
+      },
+      {
+        "name": "بازی و اکانت",
+        "slug": "games-accounts",
+        "children": [
+          "دیسک بازی",
+          "اکانت قانونی",
+          "گیفت کارت",
+          "اشتراک پلی‌استیشن",
+          "اشتراک ایکس‌باکس"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "دوربین و تجهیزات تولید محتوا",
+    "slug": "camera-content-creation",
+    "icon": "camera",
+    "subCategories": [
+      {
+        "name": "دوربین",
+        "slug": "camera",
+        "children": ["دوربین عکاسی", "دوربین فیلمبرداری", "اکشن کم", "دوربین چاپ سریع"]
+      },
+      {
+        "name": "تجهیزات استودیو",
+        "slug": "studio-equipment",
+        "children": ["نور", "سه‌پایه", "گیمبال", "میکروفون", "کپچر کارت", "پرده سبز"]
+      },
+      {
+        "name": "لنز و تجهیزات جانبی",
+        "slug": "lens-accessories",
+        "children": ["لنز", "باتری", "کارت حافظه", "کیف دوربین"]
+      }
+    ]
+  },
+  {
+    "name": "صوتی و تصویری",
+    "slug": "audio-video",
+    "icon": "tv",
+    "subCategories": [
+      {
+        "name": "تلویزیون",
+        "slug": "television",
+        "children": ["هوشمند", "4K", "OLED", "QLED"]
+      },
+      {
+        "name": "سیستم صوتی",
+        "slug": "audio-system",
+        "children": ["اسپیکر", "ساندبار", "سینمای خانگی", "اسپیکر قابل حمل"]
+      },
+      {
+        "name": "هدفون و هندزفری",
+        "slug": "headphones-earbuds",
+        "children": ["بی‌سیم", "گیمینگ", "استودیویی", "گردنی"]
+      },
+      {
+        "name": "پروژکتور",
+        "slug": "projector",
+        "children": ["خانگی", "اداری", "قابل حمل"]
+      }
+    ]
+  },
+  {
+    "name": "شبکه و ذخیره‌سازی",
+    "slug": "network-storage",
+    "icon": "wifi",
+    "subCategories": [
+      {
+        "name": "تجهیزات شبکه",
+        "slug": "network-equipment",
+        "children": ["مودم", "روتر", "اکسس پوینت", "سوییچ شبکه"]
+      },
+      {
+        "name": "ذخیره‌سازی",
+        "slug": "storage-devices",
+        "children": ["هارد اکسترنال", "فلش مموری", "NAS", "کارت حافظه"]
+      }
+    ]
+  },
+  {
+    "name": "پوشیدنی هوشمند",
+    "slug": "smart-wearables",
+    "icon": "watch",
+    "subCategories": [
+      {
+        "name": "ساعت هوشمند",
+        "slug": "smart-watch",
+        "children": ["اپل واچ", "سامسونگ", "شیائومی", "گارمین"]
+      },
+      {
+        "name": "گجت سلامتی",
+        "slug": "health-gadgets",
+        "children": ["مچ‌بند هوشمند", "ترازو هوشمند", "دستگاه سلامت"]
+      }
+    ]
+  },
+  {
+    "name": "تجهیزات صنعتی و اداری دیجیتال",
+    "slug": "office-industrial-digital",
+    "icon": "building-2",
+    "subCategories": [
+      {
+        "name": "تجهیزات اداری",
+        "slug": "office-equipment",
+        "children": ["دستگاه حضور و غیاب", "پوز و کارتخوان", "تلفن اداری", "ویدئو پروژکتور"]
+      },
+      {
+        "name": "تجهیزات فروشگاهی",
+        "slug": "retail-equipment",
+        "children": ["بارکدخوان", "فیش پرینتر", "صندوق فروشگاهی"]
+      }
+    ]
+  }
+]
