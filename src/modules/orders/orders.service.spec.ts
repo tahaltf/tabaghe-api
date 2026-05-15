@@ -9,6 +9,7 @@ import { PaymentsService } from '../payments/payments.service';
 import { NotificationService } from '../notification/notification.service';
 import { OrderReputationService } from './order-reputation.service';
 import { ExchangeService } from '../exchange/exchange.service';
+import { QuotaService } from '../quota/quota.service';
 import {
   ListingStatus,
   OrderStatus,
@@ -40,6 +41,7 @@ describe('OrdersService', () => {
   const notificationMock = { create: jest.fn() };
   const orderReputationMock = { recordTerminalOutcome: jest.fn() };
   const exchangeMock = { rejectNonWinningExchangeOffersAfterSale: jest.fn() };
+  const quotaMock = { releaseOnReject: jest.fn().mockResolvedValue(undefined) };
   const stateMachineMock = {
     canTransition: jest.fn(),
     assertTransition: jest.fn(),
@@ -59,6 +61,7 @@ describe('OrdersService', () => {
         { provide: NotificationService, useValue: notificationMock },
         { provide: OrderReputationService, useValue: orderReputationMock },
         { provide: ExchangeService, useValue: exchangeMock },
+        { provide: QuotaService, useValue: quotaMock },
       ],
     }).compile();
 
@@ -153,6 +156,9 @@ describe('OrdersService', () => {
       verificationFee: 100,
       exchangeHubInspection: {},
       tradeReputationAt: null,
+      shippingDeadline: new Date(Date.now() - 60_000),
+      updatedAt: new Date(Date.now() - 86_400_000),
+      createdAt: new Date(Date.now() - 86_400_000),
       // shippingDeadline is not used inside transaction; findMany will just return this record.
     };
 
@@ -175,12 +181,18 @@ describe('OrdersService', () => {
         update: jest.fn().mockResolvedValue({}),
       },
       order: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ status: OrderStatus.AWAITING_SHIPMENT_TO_HUB }),
         update: jest.fn().mockResolvedValue({}),
+      },
+      notification: {
+        create: jest.fn().mockResolvedValue({}),
       },
       listing: {
         update: jest
           .fn()
-          .mockResolvedValue({ id: listingId, status: ListingStatus.APPROVED }),
+          .mockResolvedValue({ id: listingId, status: ListingStatus.REJECTED }),
       },
     };
 
@@ -259,9 +271,13 @@ describe('OrdersService', () => {
     expect(tx.listing.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: listingId },
-        data: { status: ListingStatus.APPROVED },
+        data: expect.objectContaining({
+          status: ListingStatus.REJECTED,
+          rejectionReason: expect.stringContaining('عدم ارسال'),
+        }),
       }),
     );
+    expect(quotaMock.releaseOnReject).toHaveBeenCalledWith(tx, listingId);
 
     creditSpy.mockRestore();
   });
@@ -284,6 +300,9 @@ describe('OrdersService', () => {
       exchangeHubInspection: null,
       tradeReputationAt: null,
       listing: { title: 'گوشی آیفون' },
+      shippingDeadline: new Date(Date.now() - 60_000),
+      updatedAt: new Date(Date.now() - 86_400_000),
+      createdAt: new Date(Date.now() - 86_400_000),
     };
 
     prismaMock.order.findMany.mockResolvedValue([expiredOrder]);
@@ -293,18 +312,24 @@ describe('OrdersService', () => {
       wallet: { upsert: jest.fn() },
       walletTransaction: { create: jest.fn(), updateMany: jest.fn() },
       user: { update: jest.fn().mockResolvedValue({}) },
-      order: { update: jest.fn().mockResolvedValue({}) },
+      order: {
+        findUnique: jest.fn().mockResolvedValue({ status: OrderStatus.PAID }),
+        update: jest.fn().mockResolvedValue({}),
+      },
       ticket: {
         create: jest
           .fn()
           .mockResolvedValueOnce({ id: 'ticket-buyer' })
           .mockResolvedValueOnce({ id: 'ticket-seller' }),
       },
-      notification: { createMany: jest.fn().mockResolvedValue({ count: 2 }) },
+      notification: {
+        createMany: jest.fn().mockResolvedValue({ count: 2 }),
+        create: jest.fn().mockResolvedValue({}),
+      },
       listing: {
         update: jest
           .fn()
-          .mockResolvedValue({ id: listingId, status: ListingStatus.APPROVED }),
+          .mockResolvedValue({ id: listingId, status: ListingStatus.REJECTED }),
       },
     };
 
@@ -315,6 +340,17 @@ describe('OrdersService', () => {
     walletMock.refundDirectOrderEscrowOnCancel.mockResolvedValue(undefined);
 
     await service.autoCancelExpiredOrders();
+
+    expect(tx.listing.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: listingId },
+        data: expect.objectContaining({
+          status: ListingStatus.REJECTED,
+          rejectionReason: expect.stringContaining('عدم ارسال فروشنده'),
+        }),
+      }),
+    );
+    expect(quotaMock.releaseOnReject).toHaveBeenCalledWith(tx, listingId);
 
     expect(walletMock.refundDirectOrderEscrowOnCancel).toHaveBeenCalledWith(
       tx,
@@ -438,6 +474,7 @@ describe('OrdersService', () => {
         listingId: 'lst-1',
         trackingCode: null,
         sellerTrackingCode: null,
+        shippingDeadline: new Date(Date.now() + 86_400_000),
         listing: { sellerRequiresVerification: false },
       });
       prismaMock.order.update = jest.fn();
@@ -457,6 +494,7 @@ describe('OrdersService', () => {
         listingId: 'lst-1',
         trackingCode: null,
         sellerTrackingCode: null,
+        shippingDeadline: new Date(Date.now() + 86_400_000),
         listing: { sellerRequiresVerification: false },
       });
       prismaMock.order.update = jest.fn();
@@ -481,6 +519,7 @@ describe('OrdersService', () => {
         trackingCode: null,
         sellerTrackingCode: null,
         requiresVerification: false,
+        shippingDeadline: new Date(Date.now() + 86_400_000),
         listing: { sellerRequiresVerification: false },
       });
       prismaMock.order.update = jest.fn().mockResolvedValue({ ok: true });
@@ -513,6 +552,7 @@ describe('OrdersService', () => {
         trackingCode: null,
         sellerTrackingCode: null,
         requiresVerification: false,
+        shippingDeadline: new Date(Date.now() + 86_400_000),
         listing: { sellerRequiresVerification: false },
       });
       prismaMock.order.update = jest.fn().mockResolvedValue({ ok: true });

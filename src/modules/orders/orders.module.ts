@@ -4,6 +4,7 @@ import { FeesModule } from '../fees/fees.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { NotificationModule } from '../notification/notification.module';
 import { ExchangeModule } from '../exchange/exchange.module';
+import { QuotaModule } from '../quota/quota.module';
 
 import { OrdersAdminController } from './orders-admin.controller';
 import { OrdersController } from './orders.controller';
@@ -21,6 +22,7 @@ import { OrderReputationService } from './order-reputation.service';
     PaymentsModule,
     NotificationModule,
     ExchangeModule,
+    QuotaModule,
   ],
   controllers: [OrdersController, OrdersAdminController],
   providers: [

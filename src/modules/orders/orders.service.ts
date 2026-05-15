@@ -31,6 +31,7 @@ import { PaymentsService } from '../payments/payments.service';
 import { NotificationService } from '../notification/notification.service';
 import { OrderReputationService } from './order-reputation.service';
 import { ExchangeService } from '../exchange/exchange.service';
+import { QuotaService } from '../quota/quota.service';
 
 @Injectable()
 export class OrdersService {
@@ -53,6 +54,7 @@ export class OrdersService {
     private readonly notificationService: NotificationService,
     private readonly orderReputation: OrderReputationService,
     private readonly exchangeService: ExchangeService,
+    private readonly quotaService: QuotaService,
   ) {}
 
   // =================================================================
@@ -1067,6 +1069,20 @@ export class OrdersService {
 
     if (!isSeller && !isBuyer) throw new ForbiddenException('دسترسی غیرمجاز');
 
+    if (
+      order.status === OrderStatus.CANCELLED ||
+      order.status === OrderStatus.REJECTED_AT_HUB
+    ) {
+      throw new BadRequestException('این سفارش لغو شده و امکان ثبت اطلاعات ارسال وجود ندارد.');
+    }
+
+    if (await this.isShippingDeadlineExpired(order)) {
+      await this.tryCancelExpiredShippingForOrder(orderId);
+      throw new BadRequestException(
+        'مهلت ارسال به پایان رسیده است؛ سفارش لغو شده و امکان ثبت اطلاعات ارسال وجود ندارد.',
+      );
+    }
+
     const updateData: Prisma.OrderUpdateInput = {};
 
     if (
@@ -1694,7 +1710,7 @@ export class OrdersService {
   // 6. دریافت جزئیات سفارش
   // =================================================================
   async getOrderById(userId: string, orderId: string) {
-    const order = await this.prisma.order.findUnique({
+    let order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
         listing: {
@@ -1734,6 +1750,48 @@ export class OrdersService {
     if (!order) throw new NotFoundException('سفارش یافت نشد');
     if (order.buyerId !== userId && order.sellerId !== userId) {
       throw new ForbiddenException('عدم دسترسی');
+    }
+
+    const shippingCancelled = await this.tryCancelExpiredShippingForOrder(
+      orderId,
+    );
+    if (shippingCancelled) {
+      const refreshed = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+          listing: {
+            select: {
+              id: true,
+              title: true,
+              thumbnail: true,
+              type: true,
+              status: true,
+              condition: true,
+              shippingPayer: true,
+              sellerRequiresVerification: true,
+            },
+          },
+          buyer: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              avatar: true,
+              phone: true,
+            },
+          },
+          seller: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              avatar: true,
+              phone: true,
+            },
+          },
+        },
+      });
+      if (refreshed) order = refreshed;
     }
 
     if (order.type === 'EXCHANGE' && order.exchangeOfferId) {
@@ -2069,6 +2127,43 @@ export class OrdersService {
     });
   }
 
+  /**
+   * پس از لغو معامله به‌دلیل عدم ارسال در مهلت، آگهی نباید خودکار منتشر بماند.
+   * وضعیت REJECTED می‌شود تا فروشنده در صورت تمایل دوباره ویرایش و ثبت کند.
+   */
+  private async rejectListingAfterShippingTimeoutCancel(
+    tx: Prisma.TransactionClient,
+    params: {
+      listingId: string;
+      sellerId: string;
+      listingTitle: string;
+      rejectionReason: string;
+    },
+  ): Promise<void> {
+    await tx.listing.update({
+      where: { id: params.listingId },
+      data: {
+        status: ListingStatus.REJECTED,
+        rejectionReason: params.rejectionReason,
+        rejectedAt: new Date(),
+      },
+    });
+    await this.quotaService.releaseOnReject(tx, params.listingId);
+
+    await tx.notification.create({
+      data: {
+        userId: params.sellerId,
+        type: NotificationType.LISTING_REJECTED,
+        title: 'آگهی از انتشار خارج شد',
+        message: `آگهی «${params.listingTitle}» پس از لغو معامله (عدم ارسال در مهلت) به‌صورت خودکار رد شد. برای فروش مجدد، آگهی را ویرایش و دوباره ارسال کنید.`,
+        meta: {
+          listingId: params.listingId,
+          reason: 'shipping-timeout-cancel',
+        } as Prisma.InputJsonValue,
+      },
+    });
+  }
+
   /** تیکت و اعلان برای لغو فروش مستقیم به‌دلیل عدم ارسال فروشنده در مهلت */
   private async createShippingTimeoutCancelTickets(
     tx: Prisma.TransactionClient,
@@ -2178,27 +2273,142 @@ export class OrdersService {
   // 8. جاب‌های خودکار
   // =================================================================
 
-  @Cron(CronExpression.EVERY_HOUR)
-  async autoCancelExpiredOrders() {
-    const now = new Date();
-    const exchangeNoShipmentCompensationPercent =
-      await this.getExchangeNoShipmentCompensation();
-    const expiredOrders = await this.prisma.order.findMany({
+  private static readonly AWAITING_SELLER_SHIPMENT_STATUSES: OrderStatus[] = [
+    OrderStatus.PAID,
+    OrderStatus.AWAITING_SHIPMENT_TO_HUB,
+  ];
+
+  private async getSellerShipDeadlineMinutes(): Promise<number> {
+    const setting = await this.prisma.systemSetting.findFirst({
       where: {
-        status: {
-          in: [OrderStatus.PAID, OrderStatus.AWAITING_SHIPMENT_TO_HUB],
+        key: {
+          in: ['SELLER_SHIP_DEADLINE_MINUTES', 'SELLER_SHIP_DEADLINE_DAYS'],
         },
-        shippingDeadline: { lt: now },
+      },
+      orderBy: { key: 'asc' },
+    });
+    let minutes = this.parsePositiveIntSetting(
+      setting?.value,
+      OrdersService.DEFAULT_SELLER_SHIP_DEADLINE_MINUTES,
+    );
+    if (setting?.key === 'SELLER_SHIP_DEADLINE_DAYS') {
+      minutes *= 24 * 60;
+    }
+    return minutes;
+  }
+
+  private async resolveEffectiveShippingDeadline(order: {
+    shippingDeadline: Date | null;
+    updatedAt: Date;
+    createdAt: Date;
+  }): Promise<Date | null> {
+    if (order.shippingDeadline) return order.shippingDeadline;
+    const minutes = await this.getSellerShipDeadlineMinutes();
+    const base = order.updatedAt ?? order.createdAt;
+    if (!base) return null;
+    return new Date(base.getTime() + minutes * 60 * 1000);
+  }
+
+  /** آیا مهلت ارسال گذشته و سفارش باید لغو/تسویه شود؟ */
+  async isShippingDeadlineExpired(order: {
+    status: OrderStatus;
+    type: OrderType;
+    shippingDeadline: Date | null;
+    trackingCode: string | null;
+    sellerTrackingCode: string | null;
+    updatedAt: Date;
+    createdAt: Date;
+  }): Promise<boolean> {
+    if (
+      !OrdersService.AWAITING_SELLER_SHIPMENT_STATUSES.includes(order.status)
+    ) {
+      return false;
+    }
+
+    const deadline = await this.resolveEffectiveShippingDeadline(order);
+    if (!deadline) return false;
+    if (deadline.getTime() > Date.now()) return false;
+
+    if (order.type === OrderType.EXCHANGE) {
+      const sellerSent = Boolean(order.trackingCode);
+      const buyerSent = Boolean(order.sellerTrackingCode);
+      if (sellerSent && buyerSent) return false;
+      return true;
+    }
+
+    return !order.trackingCode;
+  }
+
+  private async findOrdersWithExpiredShippingDeadline() {
+    const now = new Date();
+    const candidates = await this.prisma.order.findMany({
+      where: {
+        status: { in: OrdersService.AWAITING_SELLER_SHIPMENT_STATUSES },
+        OR: [{ shippingDeadline: { lte: now } }, { shippingDeadline: null }],
       },
       include: {
         listing: { select: { title: true } },
       },
     });
 
-    for (const order of expiredOrders) {
-      try {
-        await this.prisma.$transaction(async (tx) => {
-          const sellerSent = Boolean(order.trackingCode);
+    const expired: typeof candidates = [];
+    for (const order of candidates) {
+      if (await this.isShippingDeadlineExpired(order)) {
+        expired.push(order);
+      }
+    }
+    return expired;
+  }
+
+  /**
+   * لغو یک سفارش منقضی‌شده (بازگشت وجه، تیکت، امتیاز). در صورت عدم انقضا false برمی‌گرداند.
+   */
+  async tryCancelExpiredShippingForOrder(orderId: string): Promise<boolean> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { listing: { select: { title: true } } },
+    });
+    if (!order) return false;
+    if (!(await this.isShippingDeadlineExpired(order))) return false;
+    await this.cancelExpiredShippingOrder(order);
+    return true;
+  }
+
+  private async cancelExpiredShippingOrder(
+    order: Prisma.OrderGetPayload<{
+      include: { listing: { select: { title: true } } };
+    }>,
+  ): Promise<void> {
+    const exchangeNoShipmentCompensationPercent =
+      await this.getExchangeNoShipmentCompensation();
+    await this.prisma.$transaction(async (tx) => {
+      await this.cancelExpiredShippingOrderInTx(
+        tx,
+        order,
+        exchangeNoShipmentCompensationPercent,
+      );
+    });
+  }
+
+  private async cancelExpiredShippingOrderInTx(
+    tx: Prisma.TransactionClient,
+    order: Prisma.OrderGetPayload<{
+      include: { listing: { select: { title: true } } };
+    }>,
+    exchangeNoShipmentCompensationPercent: number,
+  ): Promise<void> {
+    const current = await tx.order.findUnique({
+      where: { id: order.id },
+      select: { status: true },
+    });
+    if (
+      !current ||
+      !OrdersService.AWAITING_SELLER_SHIPMENT_STATUSES.includes(current.status)
+    ) {
+      return;
+    }
+
+    const sellerSent = Boolean(order.trackingCode);
           const buyerSentForExchange =
             order.type === OrderType.EXCHANGE &&
             Boolean(order.sellerTrackingCode);
@@ -2367,9 +2577,17 @@ export class OrdersService {
             'FAILURE',
             { failurePenalizeUserIds },
           );
-          await tx.listing.update({
-            where: { id: order.listingId },
-            data: { status: ListingStatus.APPROVED },
+          const listingRejectReason =
+            order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
+              ? sellerSent
+                ? 'معامله به‌دلیل عدم ارسال خریدار در مهلت مقرر لغو شد. آگهی از انتشار خارج شد؛ برای فروش مجدد آن را ویرایش و دوباره ثبت کنید.'
+                : 'معامله به‌دلیل عدم ارسال فروشنده در مهلت مقرر لغو شد. آگهی از انتشار خارج شد؛ برای فروش مجدد آن را ویرایش و دوباره ثبت کنید.'
+              : 'معامله به‌دلیل عدم ارسال فروشنده در مهلت مقرر لغو شد. آگهی از انتشار خارج شد؛ برای فروش مجدد آن را ویرایش و دوباره ثبت کنید.';
+          await this.rejectListingAfterShippingTimeoutCancel(tx, {
+            listingId: order.listingId,
+            sellerId: order.sellerId,
+            listingTitle: order.listing?.title ?? 'کالا',
+            rejectionReason: listingRejectReason,
           });
 
           if (
@@ -2385,7 +2603,14 @@ export class OrdersService {
               trustPenaltyPoints: 15,
             });
           }
-        });
+  }
+
+  @Cron(CronExpression.EVERY_MINUTE)
+  async autoCancelExpiredOrders() {
+    const expiredOrders = await this.findOrdersWithExpiredShippingDeadline();
+    for (const order of expiredOrders) {
+      try {
+        await this.cancelExpiredShippingOrder(order);
       } catch (error) {
         console.error(`Error auto-canceling order ${order.id}:`, error);
       }
