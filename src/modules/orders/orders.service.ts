@@ -1760,7 +1760,7 @@ export class OrdersService {
       throw new ForbiddenException('عدم دسترسی');
     }
 
-    await this.ensureBuyerConfirmDeadline(orderId);
+    order = await this.attachBuyerConfirmDeadline(order);
 
     const autoConfirmed = await this.tryAutoConfirmExpiredOrder(orderId);
     if (autoConfirmed) {
@@ -1799,7 +1799,9 @@ export class OrdersService {
           },
         },
       });
-      if (refreshedAfterConfirm) order = refreshedAfterConfirm;
+      if (refreshedAfterConfirm) {
+        order = await this.attachBuyerConfirmDeadline(refreshedAfterConfirm);
+      }
     }
 
     const shippingCancelled = await this.tryCancelExpiredShippingForOrder(
@@ -1841,7 +1843,7 @@ export class OrdersService {
           },
         },
       });
-      if (refreshed) order = refreshed;
+      if (refreshed) order = await this.attachBuyerConfirmDeadline(refreshed);
     }
 
     if (order.type === 'EXCHANGE' && order.exchangeOfferId) {
@@ -2006,6 +2008,7 @@ export class OrdersService {
     // ارتباط هست) قابل مشاهده‌ست. قبل از اون، شماره حذف میشه.
     const contactReleased =
       order.status === 'SHIPPED' ||
+      order.status === OrderStatus.SHIPPED_TO_BUYER ||
       order.status === 'DELIVERED' ||
       order.status === 'COMPLETED' ||
       order.status === 'DISPUTED' ||
@@ -2046,7 +2049,7 @@ export class OrdersService {
         phone: '021-00000000',
       };
       maskedOrder.isMaskedForVerification = true;
-      return maskedOrder;
+      return this.attachBuyerConfirmDeadline(maskedOrder);
     }
 
     // اقتصاد داخلی پلتفرم نباید به خریدار لو بره.
@@ -2055,10 +2058,10 @@ export class OrdersService {
       cloned.platformFee = undefined;
       cloned.sellerRevenue = undefined;
       cloned.sellerShippingCost = undefined;
-      return cloned;
+      return this.attachBuyerConfirmDeadline(cloned);
     }
 
-    return order;
+    return this.attachBuyerConfirmDeadline(order);
   } // =================================================================
   // 7. ثبت شکایت (Dispute) ✅ اصلاح شده برای حل ارور includes
   // =================================================================
@@ -2365,9 +2368,45 @@ export class OrdersService {
     return new Date(base.getTime() + minutes * 60 * 1000);
   }
 
+  /** برای ثبت مهلت هنگام ارسال از هاب / ارسال مستقیم */
+  computeBuyerConfirmDeadlineNow(): Promise<Date> {
+    return this.buildBuyerConfirmDeadlineFrom(new Date());
+  }
+
   private async buildBuyerConfirmDeadlineFrom(from: Date): Promise<Date> {
     const minutes = await this.getBuyerConfirmDeadlineMinutes();
     return new Date(from.getTime() + minutes * 60 * 1000);
+  }
+
+  /** پس از ensure در DB، مقدار را روی آبجکت سفارش برای پاسخ API می‌نشاند */
+  private async attachBuyerConfirmDeadline<
+    T extends {
+      id: string;
+      status: OrderStatus;
+      buyerConfirmDeadline?: Date | null;
+      updatedAt: Date;
+      createdAt: Date;
+      disputedAt?: Date | null;
+    },
+  >(order: T): Promise<T> {
+    if (!OrdersService.BUYER_CONFIRM_ELIGIBLE_STATUSES.includes(order.status)) {
+      return order;
+    }
+    await this.ensureBuyerConfirmDeadline(order.id);
+    const fresh = await this.prisma.order.findUnique({
+      where: { id: order.id },
+      select: { buyerConfirmDeadline: true },
+    });
+    const deadline =
+      fresh?.buyerConfirmDeadline ??
+      (await this.resolveEffectiveBuyerConfirmDeadline({
+        status: order.status,
+        buyerConfirmDeadline: fresh?.buyerConfirmDeadline ?? null,
+        updatedAt: order.updatedAt,
+        createdAt: order.createdAt,
+      }));
+    if (!deadline) return order;
+    return { ...order, buyerConfirmDeadline: deadline };
   }
 
   private async resolveEffectiveBuyerConfirmDeadline(order: {

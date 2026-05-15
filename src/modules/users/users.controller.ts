@@ -1,9 +1,11 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
   Header,
   Patch,
+  Post,
   Query,
   UploadedFile,
   UseGuards,
@@ -76,6 +78,27 @@ export class UsersController {
     if (support) seenAtBySection.ticket = support;
     if (repairs) seenAtBySection.repairs = repairs;
     return this.usersService.getPanelBadges(user.id, seenAtBySection);
+  }
+
+  @Post('panel-badges/seen')
+  @Header('Cache-Control', 'no-store, no-cache, must-revalidate')
+  markPanelSectionSeen(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: { section?: string },
+  ): Promise<{ marked: number }> {
+    const section = String(body?.section ?? '').trim() as PanelBadgeSection;
+    const allowed: PanelBadgeSection[] = [
+      'listing',
+      'buy',
+      'sell',
+      'requests',
+      'ticket',
+      'repairs',
+    ];
+    if (!allowed.includes(section)) {
+      throw new BadRequestException('بخش نامعتبر است');
+    }
+    return this.usersService.markPanelSectionSeen(user.id, section);
   }
 
   @Patch('complete-profile')
