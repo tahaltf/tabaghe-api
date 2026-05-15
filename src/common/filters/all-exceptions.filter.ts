@@ -13,6 +13,7 @@ import {
   buildErrorEnvelope,
 } from '../../shared/contracts/api-response';
 import { ApiErrorCode } from '../../shared/contracts/enums';
+import { payloadTooLargeMessageForPath } from '../upload/upload-payload.messages';
 import { appendJsonLog } from '../logging/app-log.util';
 
 interface NestHttpExceptionResponse {
@@ -25,8 +26,23 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function isUsefulText(value: unknown): value is string {
+  return typeof value === 'string' && !!value.trim();
+}
+
+function isEntityTooLargeError(exception: unknown): boolean {
+  return (
+    typeof exception === 'object' &&
+    exception !== null &&
+    'type' in exception &&
+    (exception as { type: string }).type === 'entity.too.large'
+  );
+}
+
 function mapStatusToCode(status: number): ApiErrorCode {
   switch (status) {
+    case HttpStatus.PAYLOAD_TOO_LARGE:
+      return ApiErrorCode.PAYLOAD_TOO_LARGE;
     case HttpStatus.BAD_REQUEST:
       return ApiErrorCode.BAD_REQUEST;
     case HttpStatus.UNAUTHORIZED:
@@ -74,15 +90,32 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const res = ctx.getResponse<Response>();
     const req = ctx.getRequest<Request>();
 
+    if (isEntityTooLargeError(exception)) {
+      const path = req.originalUrl || req.url;
+      const message = payloadTooLargeMessageForPath(path);
+      const errorDetails: ApiErrorDetails = {
+        code: ApiErrorCode.PAYLOAD_TOO_LARGE,
+        message,
+      };
+      const envelope = buildErrorEnvelope(errorDetails, { path });
+      res.status(HttpStatus.PAYLOAD_TOO_LARGE).json(envelope);
+      return;
+    }
+
     if (exception instanceof MulterError) {
       const status =
         exception.code === 'LIMIT_FILE_SIZE'
           ? HttpStatus.PAYLOAD_TOO_LARGE
           : HttpStatus.BAD_REQUEST;
+      const path = req.originalUrl || req.url;
       const message =
         exception.code === 'LIMIT_FILE_SIZE'
-          ? 'حجم فایل ارسالی بیش از حد مجاز است. سقف‌های رایج در سامانه: تصویر آگهی ۱۰ مگابایت؛ کارت ملی و رسید واریز ۵ مگابایت؛ بنر ۸ مگابایت؛ لوگو ۲ مگابایت؛ ویدیوی سفارش تا ۵۰ مگابایت. لطفاً فایل کوچک‌تر یا با کیفیت پایین‌تر انتخاب کنید.'
+          ? payloadTooLargeMessageForPath(path)
           : `خطا در آپلود فایل: ${exception.message}`;
+      const errorCode =
+        exception.code === 'LIMIT_FILE_SIZE'
+          ? ApiErrorCode.PAYLOAD_TOO_LARGE
+          : mapStatusToCode(status);
 
       appendJsonLog('app-errors.log', {
         at: new Date().toISOString(),
@@ -95,7 +128,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       });
 
       const errorDetails: ApiErrorDetails = {
-        code: mapStatusToCode(status),
+        code: errorCode,
         message,
       };
       const envelope = buildErrorEnvelope(errorDetails, {
@@ -106,6 +139,24 @@ export class AllExceptionsFilter implements ExceptionFilter {
     }
 
     const isHttp = exception instanceof HttpException;
+    if (isHttp && exception.getStatus() === HttpStatus.PAYLOAD_TOO_LARGE) {
+      const path = req.originalUrl || req.url;
+      const response = exception.getResponse();
+      const nested =
+        typeof response === 'object' && response !== null
+          ? (response as { message?: unknown }).message
+          : undefined;
+      const message = isUsefulText(nested)
+        ? nested.trim()
+        : payloadTooLargeMessageForPath(path);
+      const envelope = buildErrorEnvelope(
+        { code: ApiErrorCode.PAYLOAD_TOO_LARGE, message },
+        { path },
+      );
+      res.status(HttpStatus.PAYLOAD_TOO_LARGE).json(envelope);
+      return;
+    }
+
     const status = isHttp
       ? exception.getStatus()
       : HttpStatus.INTERNAL_SERVER_ERROR;

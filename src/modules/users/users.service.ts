@@ -7,6 +7,7 @@ import {
   AuctionStatus,
   ExchangeOfferStatus,
   ListingStatus,
+  NotificationType,
   Prisma,
   UserStatus,
 } from '@prisma/client';
@@ -50,6 +51,27 @@ export interface DashboardStats {
   activeListings: number;
   remainingQuota: number;
 }
+
+export type PanelBadgeSection =
+  | 'listing'
+  | 'buy'
+  | 'sell'
+  | 'requests'
+  | 'ticket'
+  | 'repairs';
+
+export type PanelBadges = Record<PanelBadgeSection, number>;
+
+const REQUEST_NOTIFICATION_TYPES: NotificationType[] = [
+  NotificationType.EXCHANGE_OFFER_RECEIVED,
+  NotificationType.EXCHANGE_OFFER_ACCEPTED,
+  NotificationType.EXCHANGE_OFFER_REJECTED,
+  NotificationType.AUCTION_WON,
+  NotificationType.AUCTION_LOST,
+  NotificationType.AUCTION_PAYMENT_REMINDER,
+  NotificationType.AUCTION_PENALIZED,
+  NotificationType.BUY_NOW,
+];
 
 @Injectable()
 export class UsersService {
@@ -128,6 +150,99 @@ export class UsersService {
       // سهمیه آگهی فعلا در محصول غیرفعال است.
       remainingQuota: 0,
     };
+  }
+
+  /**
+   * شمارش اعلان‌های خوانده‌نشده برای badge منوی پنل کاربر (بدون هم‌پوشانی بین بخش‌ها).
+   */
+  async getPanelBadges(
+    userId: string,
+    sectionSeenAt: Partial<Record<PanelBadgeSection, number>> = {},
+  ): Promise<PanelBadges> {
+    const unread = await this.prisma.notification.findMany({
+      where: { userId, isRead: false },
+      select: { id: true, type: true, meta: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+
+    const orderIds = [
+      ...new Set(
+        unread
+          .filter((n) => n.type === NotificationType.ORDER_STATUS_CHANGED)
+          .map((n) => {
+            const meta = (n.meta ?? {}) as Record<string, unknown>;
+            return String(meta['orderId'] ?? '').trim();
+          })
+          .filter(Boolean),
+      ),
+    ];
+
+    const orderRoleById = new Map<string, 'buy' | 'sell'>();
+    if (orderIds.length > 0) {
+      const orders = await this.prisma.order.findMany({
+        where: { id: { in: orderIds } },
+        select: { id: true, buyerId: true, sellerId: true },
+      });
+      for (const o of orders) {
+        if (o.buyerId === userId) orderRoleById.set(o.id, 'buy');
+        else if (o.sellerId === userId) orderRoleById.set(o.id, 'sell');
+      }
+    }
+
+    const badges: PanelBadges = {
+      listing: 0,
+      buy: 0,
+      sell: 0,
+      requests: 0,
+      ticket: 0,
+      repairs: 0,
+    };
+
+    for (const n of unread) {
+      const section = this.resolvePanelBadgeSection(
+        n.type,
+        (n.meta ?? {}) as Record<string, unknown>,
+        orderRoleById,
+      );
+      if (!section) continue;
+
+      const seenAt = sectionSeenAt[section];
+      if (seenAt) {
+        const createdAt = new Date(n.createdAt).getTime();
+        if (Number.isFinite(createdAt) && createdAt <= seenAt) continue;
+      }
+
+      badges[section] += 1;
+    }
+
+    return badges;
+  }
+
+  private resolvePanelBadgeSection(
+    type: NotificationType,
+    meta: Record<string, unknown>,
+    orderRoleById: Map<string, 'buy' | 'sell'>,
+  ): PanelBadgeSection | null {
+    if (
+      type === NotificationType.LISTING_APPROVED ||
+      type === NotificationType.LISTING_REJECTED
+    ) {
+      return 'listing';
+    }
+    if (type === NotificationType.TICKET_REPLY) return 'ticket';
+    if (type === NotificationType.REPAIR_STATUS_CHANGED) return 'repairs';
+    if (REQUEST_NOTIFICATION_TYPES.includes(type)) return 'requests';
+
+    if (type === NotificationType.ORDER_STATUS_CHANGED) {
+      const role = String(meta['role'] ?? '').toUpperCase();
+      if (role === 'BUYER') return 'buy';
+      if (role === 'SELLER') return 'sell';
+      const orderId = String(meta['orderId'] ?? '').trim();
+      if (orderId) return orderRoleById.get(orderId) ?? null;
+    }
+
+    return null;
   }
 
   async completeProfile(

@@ -14,50 +14,15 @@
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname } from 'path';
 
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { orderShippingVideoMulterOptions } from '../../common/upload/order-shipping-video-upload.config';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { IsVerifiedGuard } from '../auth/guards/is-verified.guard';
 import { AuthenticatedUser } from '../../shared/contracts/auth';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OrdersCommandService } from './orders-command.service';
 import { OrdersQueryService } from './orders-query.service';
-
-const videoUploadConfig = {
-  storage: diskStorage({
-    destination: './uploads/orders/videos',
-    filename: (
-      _req: unknown,
-      file: Express.Multer.File,
-      callback: (error: Error | null, filename: string) => void,
-    ) => {
-      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-      callback(null, `video-${uniqueSuffix}${extname(file.originalname)}`);
-    },
-  }),
-  fileFilter: (
-    _req: unknown,
-    file: Express.Multer.File,
-    callback: (error: Error | null, acceptFile: boolean) => void,
-  ) => {
-    if (
-      !file.mimetype.match(
-        /\/(mp4|mov|quicktime|x-msvideo|mpeg|webm|3gpp|3gp)$/,
-      )
-    ) {
-      return callback(
-        new BadRequestException(
-          'فقط فایل‌های ویدیویی مجازند؛ حداکثر حجم ۵۰ مگابایت.',
-        ),
-        false,
-      );
-    }
-    callback(null, true);
-  },
-  limits: { fileSize: 50 * 1024 * 1024 },
-};
 
 function readMultipartTextField(req: Request, key: string): string {
   const raw = (req.body as Record<string, unknown> | undefined)?.[key];
@@ -121,7 +86,7 @@ export class OrdersController {
   }
 
   @Patch(':id/shipping')
-  @UseInterceptors(FileInterceptor('video', videoUploadConfig))
+  @UseInterceptors(FileInterceptor('video', orderShippingVideoMulterOptions))
   updateTrackingCode(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
@@ -141,7 +106,7 @@ export class OrdersController {
   }
 
   @Patch(':id/return-shipping')
-  @UseInterceptors(FileInterceptor('video', videoUploadConfig))
+  @UseInterceptors(FileInterceptor('video', orderShippingVideoMulterOptions))
   submitReturnTrackingCode(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
@@ -177,7 +142,7 @@ export class OrdersController {
   }
 
   @Patch(':id/dispute')
-  @UseInterceptors(FileInterceptor('video', videoUploadConfig))
+  @UseInterceptors(FileInterceptor('video', orderShippingVideoMulterOptions))
   disputeOrderDelivery(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
