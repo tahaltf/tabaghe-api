@@ -10,6 +10,7 @@ import {
   CreateCategoryDto,
   UpdateCategoryDto,
 } from '../dto/admin-category.dto';
+import { AdminListingDeleteService } from './admin-listing-delete.service';
 
 const CATEGORY_SELECT = {
   id: true,
@@ -33,9 +34,18 @@ export type AdminCategoryItem = Prisma.CategoryGetPayload<{
   select: typeof CATEGORY_SELECT;
 }>;
 
+export type CategoryForceDeleteResult = {
+  categories: number;
+  listings: number;
+  details: Record<string, number>;
+};
+
 @Injectable()
 export class AdminCategoriesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly listingDelete: AdminListingDeleteService,
+  ) {}
 
   async list(search?: string): Promise<AdminCategoryItem[]> {
     const where: Prisma.CategoryWhereInput = {};
@@ -120,6 +130,57 @@ export class AdminCategoriesService {
     });
   }
 
+  async forceRemove(id: string): Promise<CategoryForceDeleteResult> {
+    return this.forceRemoveMany([id]);
+  }
+
+  async forceRemoveMany(ids: string[]): Promise<CategoryForceDeleteResult> {
+    const roots = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+    if (roots.length === 0) {
+      return { categories: 0, listings: 0, details: {} };
+    }
+
+    const orderedCategoryIds = await this.collectSubtreeIdsLeafFirst(roots);
+    const totals: Record<string, number> = {};
+    let listingsDeleted = 0;
+
+    return this.prisma.$transaction(
+      async (tx) => {
+        for (const categoryId of orderedCategoryIds) {
+          const listingRows = await tx.listing.findMany({
+            where: { categoryId },
+            select: { id: true },
+          });
+          const listingIds = listingRows.map((l) => l.id);
+          if (listingIds.length > 0) {
+            const listingDetails = await this.listingDelete.deleteListingsTx(
+              tx,
+              listingIds,
+            );
+            listingsDeleted += listingDetails.listings ?? 0;
+            for (const [k, v] of Object.entries(listingDetails)) {
+              totals[k] = (totals[k] ?? 0) + v;
+            }
+          }
+
+          totals.feeRules =
+            (totals.feeRules ?? 0) +
+            (await tx.feeRule.deleteMany({ where: { categoryId } })).count;
+
+          totals.categories = (totals.categories ?? 0) + 1;
+          await tx.category.delete({ where: { id: categoryId } });
+        }
+
+        return {
+          categories: totals.categories ?? 0,
+          listings: listingsDeleted,
+          details: totals,
+        };
+      },
+      { timeout: 120_000 },
+    );
+  }
+
   async remove(id: string): Promise<{ id: string }> {
     const counts = await this.prisma.category.findUnique({
       where: { id },
@@ -134,6 +195,48 @@ export class AdminCategoriesService {
     }
     await this.prisma.category.delete({ where: { id } });
     return { id };
+  }
+
+  /** زیردسته‌ها قبل از والد (برای حذف امن FK) */
+  private async collectSubtreeIdsLeafFirst(
+    rootIds: string[],
+  ): Promise<string[]> {
+    const all = await this.prisma.category.findMany({
+      select: { id: true, parentId: true },
+    });
+    const byParent = new Map<string | null, string[]>();
+    for (const c of all) {
+      const key = c.parentId ?? null;
+      const arr = byParent.get(key) ?? [];
+      arr.push(c.id);
+      byParent.set(key, arr);
+    }
+
+    const selected = new Set<string>();
+    const walk = (id: string) => {
+      if (selected.has(id)) return;
+      selected.add(id);
+      for (const childId of byParent.get(id) ?? []) {
+        walk(childId);
+      }
+    };
+    for (const id of rootIds) walk(id);
+
+    const depthCache = new Map<string, number>();
+    const depth = (id: string): number => {
+      const cached = depthCache.get(id);
+      if (cached !== undefined) return cached;
+      const node = all.find((c) => c.id === id);
+      if (!node?.parentId || !selected.has(node.parentId)) {
+        depthCache.set(id, 0);
+        return 0;
+      }
+      const d = 1 + depth(node.parentId);
+      depthCache.set(id, d);
+      return d;
+    };
+
+    return [...selected].sort((a, b) => depth(b) - depth(a));
   }
 
   private async ensureSlugUnique(slug: string): Promise<void> {
