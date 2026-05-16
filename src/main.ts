@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import { validateProductionEnv } from './config/env';
 import {
   BadRequestException,
+  RequestMethod,
   ValidationError,
   ValidationPipe,
   VersioningType,
@@ -233,7 +234,12 @@ async function bootstrap() {
   );
 
   // ۲. نسخه‌گذاری مسیرها (Best Practice برای توسعه‌های آینده و اپ موبایل)
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix('api', {
+    exclude: [
+      { path: 'sitemap.xml', method: RequestMethod.GET },
+      { path: 'robots.txt', method: RequestMethod.GET },
+    ],
+  });
   app.enableVersioning({
     type: VersioningType.URI,
     defaultVersion: '1', // خروجی: /api/v1/...

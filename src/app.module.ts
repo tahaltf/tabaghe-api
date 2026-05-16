@@ -48,6 +48,7 @@ import { HealthModule } from './modules/health/health.module';
 import { ReviewsModule } from './modules/reviews/reviews.module'; // 👈 باید ماژول هلث داشته باشی، نه فقط کنترلر
 import { AdminModule } from './modules/admin/admin.module';
 import { PaymentsModule } from './modules/payments/payments.module';
+import { SitemapModule } from './modules/sitemap/sitemap.module';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -99,6 +100,7 @@ import { AppService } from './app.service';
     ReviewsModule,
     AdminModule,
     PaymentsModule,
+    SitemapModule,
   ],
   controllers: [AppController],
   providers: [

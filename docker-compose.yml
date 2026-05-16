@@ -1,5 +1,8 @@
-# فایل اصلی در ریشهٔ ریپو است: ../docker-compose.yml
-# از آنجا اجرا کنید: cd .. && docker compose up -d --build
+# Deprecated: use the root compose file instead.
+#
+#   cd .. && docker compose up -d --build
+#
+# This file remains as a pointer for older docs/scripts.
 
 include:
   - ../docker-compose.yml
