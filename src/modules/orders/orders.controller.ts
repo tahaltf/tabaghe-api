@@ -27,6 +27,7 @@ import { OrdersQueryService } from './orders-query.service';
 import {
   InspectionCertificateService,
   InspectionCertificateSide,
+  INSPECTION_CERTIFICATE_DOWNLOAD_FILENAME,
 } from './inspection-certificate.service';
 
 function readMultipartTextField(req: Request, key: string): string {
@@ -193,9 +194,13 @@ export class OrdersController {
       });
 
     res.setHeader('Content-Type', 'application/pdf');
+    const asciiFallback = 'inspection-certificate-tabaghe.pdf';
+    const utf8Name = encodeURIComponent(
+      filename || INSPECTION_CERTIFICATE_DOWNLOAD_FILENAME,
+    );
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${filename}"`,
+      `attachment; filename="${asciiFallback}"; filename*=UTF-8''${utf8Name}`,
     );
     res.setHeader('Content-Length', String(pdf.length));
     res.end(pdf);

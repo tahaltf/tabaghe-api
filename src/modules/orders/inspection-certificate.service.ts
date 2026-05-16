@@ -19,6 +19,10 @@ import {
   SETTING_KEYS,
 } from '../admin/services/admin-settings.service';
 import { INSPECTION_CERTIFICATE_ASSET_UPLOAD_PATH } from '../../common/upload/inspection-certificate-asset-upload.config';
+import {
+  buildInspectionCertificateHtml,
+  type CertificateThemePalette,
+} from './inspection-certificate.template';
 
 /**
  * طرف کالای کارشناسی‌شده در سفارش معاوضه:
@@ -51,11 +55,25 @@ interface CertificateContext {
   inspectionResult: string;
 }
 
+const DEFAULT_THEME_PALETTE: CertificateThemePalette = {
+  primary: '#13324e',
+  primaryLight: '#1e4b70',
+  accent: '#ef684c',
+  accentHover: '#d95236',
+  surfaceLight: '#f1f5f9',
+};
+
+const THEME_PALETTE_SETTING_KEY = 'THEME_PALETTE';
+const CERTIFICATE_FONTS_DIR = join(process.cwd(), 'assets', 'fonts');
+export const INSPECTION_CERTIFICATE_DOWNLOAD_FILENAME =
+  'گواهی کارشناسی طبقه.pdf';
+
 @Injectable()
 export class InspectionCertificateService implements OnModuleDestroy {
   private readonly logger = new Logger(InspectionCertificateService.name);
   private browser: Browser | null = null;
   private browserPromise: Promise<Browser> | null = null;
+  private fontFaceCssCache: string | null = null;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -191,13 +209,11 @@ export class InspectionCertificateService implements OnModuleDestroy {
       logoDataUri: this.fileToDataUri(settings.logoFilename),
       stampDataUri: this.fileToDataUri(settings.stampFilename),
       context,
+      palette: settings.palette,
     });
 
     const pdf = await this.renderHtmlToPdf(html);
-    const safeOrderId = orderId.replace(/[^a-zA-Z0-9_-]/g, '');
-    const sideSuffix = resolvedSide ? `-${resolvedSide.toLowerCase()}` : '';
-    const filename = `inspection-certificate-${safeOrderId}${sideSuffix}.pdf`;
-    return { pdf, filename };
+    return { pdf, filename: INSPECTION_CERTIFICATE_DOWNLOAD_FILENAME };
   }
 
   // -------------------------------------------------------------------------
@@ -213,12 +229,14 @@ export class InspectionCertificateService implements OnModuleDestroy {
       SETTING_KEYS.INSPECTION_CERTIFICATE_STAMP,
       SETTING_KEYS.PLATFORM_ADDRESS,
       SETTING_KEYS.SUPPORT_PHONE,
+      THEME_PALETTE_SETTING_KEY,
     ];
     const rows = await this.prisma.systemSetting.findMany({
       where: { key: { in: keys } },
     });
     const map = new Map(rows.map((r) => [r.key, r.value]));
     return {
+      palette: this.parseThemePalette(map.get(THEME_PALETTE_SETTING_KEY)),
       title:
         map.get(SETTING_KEYS.INSPECTION_CERTIFICATE_TITLE)?.trim() ||
         DEFAULT_INSPECTION_CERTIFICATE_TITLE,
@@ -330,6 +348,62 @@ export class InspectionCertificateService implements OnModuleDestroy {
     });
   }
 
+  private parseThemePalette(raw: string | undefined): CertificateThemePalette {
+    if (!raw?.trim()) return { ...DEFAULT_THEME_PALETTE };
+    try {
+      const parsed = JSON.parse(raw) as Partial<CertificateThemePalette>;
+      return { ...DEFAULT_THEME_PALETTE, ...parsed };
+    } catch {
+      return { ...DEFAULT_THEME_PALETTE };
+    }
+  }
+
+  private buildFontFaceCss(): string {
+    if (this.fontFaceCssCache) return this.fontFaceCssCache;
+
+    const regular = this.readAssetDataUri(
+      join(CERTIFICATE_FONTS_DIR, 'Vazir-FD-WOL.woff2'),
+      'font/woff2',
+    );
+    const medium = this.readAssetDataUri(
+      join(CERTIFICATE_FONTS_DIR, 'Vazir-Medium-FD-WOL.woff2'),
+      'font/woff2',
+    );
+    const bold = this.readAssetDataUri(
+      join(CERTIFICATE_FONTS_DIR, 'Vazir-Bold-FD-WOL.woff2'),
+      'font/woff2',
+    );
+
+    const face = (family: string, weight: number, uri: string | null) =>
+      uri
+        ? `@font-face{font-family:'${family}';src:url('${uri}') format('woff2');font-weight:${weight};font-style:normal;font-display:swap;}`
+        : '';
+
+    this.fontFaceCssCache = [
+      face('Vazir FD-WOL', 400, regular),
+      face('Vazir FD-WOL', 500, medium),
+      face('Vazir FD-WOL', 700, bold),
+    ].join('');
+    return this.fontFaceCssCache;
+  }
+
+  private readAssetDataUri(
+    fullPath: string,
+    mime: string,
+  ): string | null {
+    if (!existsSync(fullPath)) {
+      this.logger.warn(`Certificate asset not found: ${fullPath}`);
+      return null;
+    }
+    try {
+      const data = readFileSync(fullPath).toString('base64');
+      return `data:${mime};base64,${data}`;
+    } catch (err) {
+      this.logger.warn(`Failed to read asset ${fullPath}: ${err}`);
+      return null;
+    }
+  }
+
   private fileToDataUri(filename: string): string | null {
     if (!filename) return null;
     const safeName = filename.split(/[\\/]/).pop();
@@ -392,174 +466,18 @@ export class InspectionCertificateService implements OnModuleDestroy {
     logoDataUri: string | null;
     stampDataUri: string | null;
     context: CertificateContext;
+    palette: CertificateThemePalette;
   }): string {
-    const { title, body, footer, logoDataUri, stampDataUri, context } = input;
-
-    const escape = (s: string) =>
-      String(s ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-    const nl2br = (s: string) =>
-      escape(s)
-        .split(/\r?\n/)
-        .map((l) => l)
-        .join('<br/>');
-
-    const logoBlock = logoDataUri
-      ? `<img class="cert-logo" src="${logoDataUri}" alt="logo"/>`
-      : `<div class="cert-logo-placeholder">طَبَقـه</div>`;
-
-    const stampBlock = stampDataUri
-      ? `<img class="cert-stamp" src="${stampDataUri}" alt="stamp"/>`
-      : '';
-
-    return `<!doctype html>
-<html lang="fa" dir="rtl">
-<head>
-<meta charset="utf-8"/>
-<title>${escape(title)}</title>
-<style>
-  @page { size: A4; margin: 18mm 16mm; }
-  * { box-sizing: border-box; }
-  html, body {
-    font-family: "Tahoma", "Vazirmatn", "IRANSans", "Segoe UI", Arial, sans-serif;
-    color: #1f2937;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-  body { margin: 0; padding: 0; background: #fff; }
-  .cert-frame {
-    border: 3px double #c9a227;
-    padding: 28px 26px 26px;
-    border-radius: 14px;
-    position: relative;
-    min-height: 250mm;
-    display: flex;
-    flex-direction: column;
-  }
-  .cert-frame::before, .cert-frame::after {
-    content: "";
-    position: absolute;
-    width: 36px; height: 36px;
-    border: 2px solid #c9a227;
-    border-radius: 8px;
-  }
-  .cert-frame::before { top: 8px; right: 8px; border-bottom: none; border-left: none; }
-  .cert-frame::after { bottom: 8px; left: 8px; border-top: none; border-right: none; }
-  .cert-header {
-    display: flex; align-items: center; justify-content: space-between;
-    border-bottom: 1px dashed #d4af37; padding-bottom: 14px; margin-bottom: 18px;
-  }
-  .cert-logo { max-height: 70px; max-width: 200px; object-fit: contain; }
-  .cert-logo-placeholder {
-    font-size: 28px; font-weight: 900; color: #d4af37;
-    border: 2px solid #d4af37; padding: 6px 14px; border-radius: 6px;
-  }
-  .cert-meta {
-    text-align: left; font-size: 11px; color: #4b5563; line-height: 1.9;
-  }
-  .cert-meta strong { color: #111827; }
-  .cert-title {
-    text-align: center;
-    font-size: 26px; font-weight: 900;
-    color: #b8860b;
-    letter-spacing: 1px;
-    margin: 18px 0 22px;
-    position: relative;
-  }
-  .cert-title::after {
-    content: ""; display: block; width: 90px; height: 3px; background: #c9a227;
-    margin: 10px auto 0; border-radius: 2px;
-  }
-  .cert-body {
-    font-size: 14px; line-height: 2.0; color: #1f2937;
-    text-align: justify;
-    padding: 0 6px;
-    flex: 1 0 auto;
-  }
-  .cert-info-box {
-    margin-top: 18px;
-    background: #fffbeb;
-    border: 1px solid #fde68a;
-    border-radius: 10px;
-    padding: 12px 16px;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px 24px;
-    font-size: 12.5px;
-  }
-  .cert-info-box .row { display: flex; gap: 6px; }
-  .cert-info-box .label { color: #6b7280; min-width: 90px; }
-  .cert-info-box .val { color: #111827; font-weight: 700; }
-  .cert-stamp-area {
-    margin-top: auto;
-    padding-top: 24px;
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 24px;
-  }
-  .cert-stamp-area .stamp-wrap {
-    text-align: center; min-width: 160px;
-  }
-  .cert-stamp { max-height: 130px; max-width: 180px; object-fit: contain; opacity: .92; }
-  .cert-stamp-label {
-    font-size: 11px; color: #6b7280; margin-top: 4px;
-  }
-  .cert-footer {
-    border-top: 1px dashed #d4af37;
-    margin-top: 22px;
-    padding-top: 14px;
-    font-size: 11.5px;
-    color: #4b5563;
-    line-height: 1.9;
-    text-align: center;
-    white-space: pre-line;
-  }
-  .cert-footer strong { color: #1f2937; }
-</style>
-</head>
-<body>
-  <div class="cert-frame">
-    <div class="cert-header">
-      ${logoBlock}
-      <div class="cert-meta">
-        <div><strong>شماره گواهی:</strong> ${escape(context.certificateNumber)}</div>
-        <div><strong>تاریخ صدور:</strong> ${escape(context.verifiedDate)}</div>
-        <div><strong>شماره سفارش:</strong> ${escape(context.orderId)}</div>
-      </div>
-    </div>
-
-    <h1 class="cert-title">${escape(title)}</h1>
-
-    <div class="cert-body">${nl2br(body)}</div>
-
-    <div class="cert-info-box">
-      <div class="row"><span class="label">صاحب کالا:</span><span class="val">${escape(context.ownerName)}</span></div>
-      <div class="row"><span class="label">کد ملی:</span><span class="val">${escape(context.ownerNationalCode)}</span></div>
-      <div class="row"><span class="label">عنوان کالا:</span><span class="val">${escape(context.itemTitle)}</span></div>
-      <div class="row"><span class="label">دسته‌بندی:</span><span class="val">${escape(context.categoryTitle)}</span></div>
-      <div class="row"><span class="label">وضعیت کالا:</span><span class="val">${escape(context.itemCondition)}</span></div>
-      <div class="row"><span class="label">کد رهگیری:</span><span class="val">${escape(context.trackingCode)}</span></div>
-    </div>
-
-    <div class="cert-stamp-area">
-      <div class="stamp-wrap">
-        ${stampBlock}
-        <div class="cert-stamp-label">مهر و امضای مرکز پردازش طبقه</div>
-      </div>
-      <div style="text-align:center; min-width:160px;">
-        <div style="border-top:1px solid #9ca3af; padding-top:6px; font-size:11px; color:#6b7280;">
-          امضای کارشناس مسئول
-        </div>
-      </div>
-    </div>
-
-    <div class="cert-footer">${nl2br(footer)}</div>
-  </div>
-</body>
-</html>`;
+    return buildInspectionCertificateHtml({
+      title: input.title,
+      body: input.body,
+      footer: input.footer,
+      logoDataUri: input.logoDataUri,
+      stampDataUri: input.stampDataUri,
+      fontFaceCss: this.buildFontFaceCss(),
+      context: input.context,
+      palette: input.palette,
+    });
   }
 
   private async getBrowser(): Promise<Browser> {
@@ -665,12 +583,8 @@ export class InspectionCertificateService implements OnModuleDestroy {
       const buffer = await page.pdf({
         format: 'A4',
         printBackground: true,
-        margin: {
-          top: '14mm',
-          bottom: '14mm',
-          left: '12mm',
-          right: '12mm',
-        },
+        preferCSSPageSize: true,
+        margin: { top: 0, bottom: 0, left: 0, right: 0 },
       });
       return Buffer.from(buffer);
     } finally {
