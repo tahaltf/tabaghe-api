@@ -242,6 +242,126 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
   });
 });
 
+describe('AdminOrdersCommandService - exchange hub return inspection', () => {
+  function makeReturnService(dto: FinalizeExchangeHubInspectionDto) {
+    const orderRecord = {
+      id: 'ord-ret-1',
+      type: 'EXCHANGE',
+      status: OrderStatus.CHECKING_AT_HUB,
+      exchangeHubInspection: {},
+      verificationFee: 100,
+      totalAmount: 500,
+      sellerRevenue: 200,
+      exchangeOfferId: 'offer-1',
+      buyerId: 'buyer-1',
+      sellerId: 'seller-1',
+      tradeReputationAt: null,
+      trackingCode: 'TRK-S',
+      sellerTrackingCode: 'TRK-B',
+      packagingVideo: null,
+      buyerPackagingVideo: null,
+      listing: { id: 'lst-1', title: 'listing title' },
+    };
+
+    const tx = {
+      order: {
+        update: jest.fn().mockResolvedValue({
+          id: orderRecord.id,
+          status: OrderStatus.REJECTED_AT_HUB,
+        }),
+      },
+      ticket: {
+        create: jest
+          .fn()
+          .mockImplementation(
+            async ({ data }: { data: { userId: string; messages: { create: { message: string } } } }) => ({
+              id: `ticket-${data.userId}`,
+            }),
+          ),
+      },
+      notification: { create: jest.fn().mockResolvedValue({}) },
+    };
+
+    const prisma = {
+      order: { findUnique: jest.fn().mockResolvedValue(orderRecord) },
+      notification: { createMany: jest.fn().mockResolvedValue({ count: 2 }) },
+      $transaction: jest.fn(async (cb: (trx: typeof tx) => Promise<unknown>) =>
+        cb(tx),
+      ),
+    };
+
+    const orderReputation = {
+      recordTerminalOutcome: jest.fn().mockResolvedValue(undefined),
+    };
+    const listingCommand = {
+      rejectAfterTradeFailure: jest.fn().mockResolvedValue(undefined),
+    };
+
+    const service = new AdminOrdersCommandService(
+      prisma as never,
+      { getApiUrl: jest.fn().mockReturnValue('https://api.example.com') } as never,
+      {} as never,
+      orderReputation as never,
+      { repairMissingDirectCancelRefund: jest.fn() } as never,
+      { ensureBuyerConfirmDeadline: jest.fn() } as never,
+      listingCommand as never,
+    );
+
+    return { service, tx, orderReputation, listingCommand, dto, prisma };
+  }
+
+  it('penalizes only the failed side when one item passes and one fails', async () => {
+    const dto: FinalizeExchangeHubInspectionDto = {
+      listingItem: 'PASS',
+      offerItem: 'FAIL',
+      resolution: 'RETURN_BOTH_TO_SENDERS',
+      listingNote: 'ok',
+      offerNote: 'defect',
+      listingSettlementAmount: 0,
+      listingSettlementDirection: 'DEBIT',
+      offerSettlementAmount: 0,
+      offerSettlementDirection: 'DEBIT',
+    };
+    const { service, orderReputation } = makeReturnService(dto);
+
+    await service.finalizeExchangeHubInspection('ord-ret-1', dto);
+
+    expect(orderReputation.recordTerminalOutcome).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'ord-ret-1' }),
+      OrderStatus.CHECKING_AT_HUB,
+      'FAILURE',
+      { failurePenalizeUserIds: ['buyer-1'] },
+    );
+  });
+
+  it('penalizes both sides when both items fail', async () => {
+    const dto: FinalizeExchangeHubInspectionDto = {
+      listingItem: 'FAIL',
+      offerItem: 'FAIL',
+      resolution: 'RETURN_BOTH_TO_SENDERS',
+      listingNote: 'bad listing',
+      offerNote: 'bad offer',
+      listingSettlementAmount: 0,
+      listingSettlementDirection: 'DEBIT',
+      offerSettlementAmount: 0,
+      offerSettlementDirection: 'DEBIT',
+    };
+    const { service, orderReputation, listingCommand } = makeReturnService(dto);
+
+    await service.finalizeExchangeHubInspection('ord-ret-1', dto);
+
+    expect(orderReputation.recordTerminalOutcome).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      OrderStatus.CHECKING_AT_HUB,
+      'FAILURE',
+      { failurePenalizeUserIds: ['seller-1', 'buyer-1'] },
+    );
+    expect(listingCommand.rejectAfterTradeFailure).toHaveBeenCalled();
+  });
+});
+
 describe('AdminOrdersCommandService - exchange release escrow', () => {
   function makeReleaseService(
     orderOverrides?: Partial<Record<string, unknown>>,

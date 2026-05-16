@@ -284,6 +284,24 @@ export class PaymentsService {
     return Math.floor(parsed);
   }
 
+  private async getExchangeShipDeadlineMinutes(
+    tx: Prisma.TransactionClient,
+  ): Promise<number> {
+    const minutesSetting = await tx.systemSetting.findUnique({
+      where: { key: 'EXCHANGE_SHIP_DEADLINE_MINUTES' },
+    });
+    if (minutesSetting?.value?.trim()) {
+      const parsed = Number(minutesSetting.value);
+      if (Number.isFinite(parsed) && parsed > 0) return Math.floor(parsed);
+    }
+    const hoursSetting = await tx.systemSetting.findUnique({
+      where: { key: 'EXCHANGE_SHIPMENT_TIMEOUT_HOURS' },
+    });
+    const hours = Number(hoursSetting?.value ?? '');
+    if (Number.isFinite(hours) && hours > 0) return Math.floor(hours * 60);
+    return 48 * 60;
+  }
+
   /**
    * وقتی verify می‌گوید پرداخت انجام نشده، سفارش نیمه‌کاره را حذف می‌کند تا
    * آگهی در وضعیت «در جریان» نماند. معاوضه: اگر حداقل یک پرداخت ثبت شده باشد
@@ -496,10 +514,12 @@ export class PaymentsService {
           ? OrderStatus.AWAITING_SHIPMENT_TO_HUB
           : OrderStatus.PAID;
 
-      const sellerShipDeadlineMinutes =
-        await this.getSellerShipDeadlineMinutes(tx);
+      const shipDeadlineMinutes =
+        locked.type === 'EXCHANGE'
+          ? await this.getExchangeShipDeadlineMinutes(tx)
+          : await this.getSellerShipDeadlineMinutes(tx);
       const deadline = new Date(
-        Date.now() + sellerShipDeadlineMinutes * 60 * 1000,
+        Date.now() + shipDeadlineMinutes * 60 * 1000,
       );
 
       if (locked.type === 'EXCHANGE') {

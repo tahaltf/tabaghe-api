@@ -90,6 +90,24 @@ export const SYSTEM_JOBS_REGISTRY: SystemJobDefinition[] = [
     relatedSettingKeys: [],
   },
   {
+    id: 'notifications_deadline_reminders',
+    name: 'یادآوری مهلت اقدامات (پیامک/سایت)',
+    schedule: '*/15 * * * *',
+    scheduleLabel: 'هر ۱۵ دقیقه',
+    description:
+      'اگر کمتر از مهلت تنظیم‌شده (پیش‌فرض ۱۲ ساعت) به پایان مهلت پرداخت/ارسال مانده و کار انجام نشده باشد، به کاربر مسئول نوتیف و در صورت فعال بودن قالب پیامک، SMS ارسال می‌شود.',
+    module: 'notification/deadline-reminder.service.ts',
+    method: 'runDeadlineReminders',
+    managedBy: 'nestjs_cron',
+    relatedSettingKeys: [
+      'ACTION_DEADLINE_REMINDER_HOURS',
+      'EXCHANGE_PAYMENT_DEADLINE_MINUTES',
+      'EXCHANGE_SHIP_DEADLINE_MINUTES',
+      'SELLER_SHIP_DEADLINE_MINUTES',
+      'SMS_NOTIFICATION_RULES',
+    ],
+  },
+  {
     id: 'orders_auto_cancel_expired',
     name: 'لغو سفارش به‌خاطر عدم ارسال در مهلت',
     schedule: '*/1 * * * *',
@@ -102,6 +120,7 @@ export const SYSTEM_JOBS_REGISTRY: SystemJobDefinition[] = [
     relatedSettingKeys: [
       'SELLER_SHIP_DEADLINE_MINUTES',
       'EXCHANGE_NO_SHIPMENT_COMPENSATION',
+      'EXCHANGE_SHIP_DEADLINE_MINUTES',
       'EXCHANGE_SHIPMENT_TIMEOUT_HOURS',
     ],
   },
@@ -116,6 +135,7 @@ export const SYSTEM_JOBS_REGISTRY: SystemJobDefinition[] = [
     method: 'autoCancelTimedOutExchangeCompletions',
     managedBy: 'nestjs_cron',
     relatedSettingKeys: [
+      'EXCHANGE_PAYMENT_DEADLINE_MINUTES',
       'EXCHANGE_NO_PAYMENT_TIMEOUT_HOURS',
       'EXCHANGE_SECOND_PAYMENT_TIMEOUT_HOURS',
     ],

@@ -70,6 +70,7 @@ const REQUEST_NOTIFICATION_TYPES: NotificationType[] = [
   NotificationType.AUCTION_WON,
   NotificationType.AUCTION_LOST,
   NotificationType.AUCTION_PAYMENT_REMINDER,
+  NotificationType.ACTION_DEADLINE_REMINDER,
   NotificationType.AUCTION_PENALIZED,
   NotificationType.BUY_NOW,
 ];

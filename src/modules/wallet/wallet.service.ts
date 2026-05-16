@@ -680,6 +680,96 @@ export class WalletService {
     return sum;
   }
 
+  /** مجموع پرداخت واقعی یک طرف در معاوضه (از روی SETTLEMENT کیف پول همان کاربر). */
+  private async getExchangeParticipantPaidAmount(
+    tx: Prisma.TransactionClient,
+    params: {
+      participantUserId: string;
+      orderId: string;
+      listingId: string;
+    },
+  ): Promise<number> {
+    const wallet = await tx.wallet.findUnique({
+      where: { userId: params.participantUserId },
+      select: { id: true },
+    });
+    if (!wallet) return 0;
+
+    const settlements = await tx.walletTransaction.findMany({
+      where: {
+        walletId: wallet.id,
+        type: WalletTransactionType.SETTLEMENT,
+        status: WalletTransactionStatus.SUCCESS,
+        OR: [
+          { referenceId: params.orderId },
+          { referenceId: params.listingId },
+        ],
+      },
+      select: { amount: true, meta: true },
+    });
+
+    let sum = 0;
+    for (const t of settlements) {
+      const meta = (t.meta ?? {}) as Record<string, unknown>;
+      const phase = String(meta['phase'] ?? '');
+      if (phase !== 'exchange_participant_paid') continue;
+      const metaOrderId = String(meta['orderId'] ?? '').trim();
+      if (metaOrderId && metaOrderId !== params.orderId) continue;
+      const payerUserId = String(
+        meta['payerUserId'] ?? params.participantUserId,
+      ).trim();
+      if (payerUserId !== params.participantUserId) continue;
+      sum += Math.max(0, Number(t.amount) || 0);
+    }
+    return sum;
+  }
+
+  /** لغو DEPOSIT امانی معلق و آزادسازی مبلغ بلوکه‌شده روی کیف طرف مقابل. */
+  private async failExchangePendingDepositsUnwindBlocked(
+    tx: Prisma.TransactionClient,
+    params: { listingId: string; userIds: string[] },
+  ): Promise<void> {
+    for (const userId of params.userIds) {
+      const wallet = await tx.wallet.findUnique({
+        where: { userId },
+        select: { id: true },
+      });
+      if (!wallet) continue;
+
+      const pending = await tx.walletTransaction.findMany({
+        where: {
+          walletId: wallet.id,
+          referenceId: params.listingId,
+          type: WalletTransactionType.DEPOSIT,
+          status: WalletTransactionStatus.PENDING,
+        },
+        select: { id: true, amount: true, meta: true },
+      });
+
+      const escrowPending = pending.filter((t) => {
+        const meta = (t.meta ?? {}) as Record<string, unknown>;
+        return meta['kind'] === 'order-escrow';
+      });
+      if (!escrowPending.length) continue;
+
+      const totalBlocked = escrowPending.reduce(
+        (sum, t) => sum + Math.max(0, Number(t.amount) || 0),
+        0,
+      );
+      if (totalBlocked > 0) {
+        await tx.wallet.update({
+          where: { userId },
+          data: { balanceBlocked: { decrement: totalBlocked } },
+        });
+      }
+
+      await tx.walletTransaction.updateMany({
+        where: { id: { in: escrowPending.map((t) => t.id) } },
+        data: { status: WalletTransactionStatus.FAILED },
+      });
+    }
+  }
+
   /**
    * لغو فروش مستقیم (مثلاً عدم ارسال در مهلت): برگشت وجه خریدار + آزادسازی بلوکه فروشنده با ثبت تراکنش.
    */
@@ -1018,6 +1108,344 @@ export class WalletService {
         });
       }
     }
+  }
+
+  /** مبلغ واقعی پرداخت‌شده یک طرف در معاوضه (برای بازپرداخت/گزارش). */
+  async resolveExchangeParticipantPaidAmount(
+    tx: Prisma.TransactionClient,
+    params: {
+      participantUserId: string;
+      orderId: string;
+      listingId: string;
+    },
+  ): Promise<number> {
+    return this.getExchangeParticipantPaidAmount(tx, params);
+  }
+
+  private async creditExchangeParticipantRefund(
+    tx: Prisma.TransactionClient,
+    params: {
+      orderId: string;
+      listingId: string;
+      userId: string;
+      participantRole: 'buyer' | 'seller';
+      refundKind: string;
+      refundReason: string;
+      description: string;
+    },
+  ): Promise<number> {
+    const paid = await this.getExchangeParticipantPaidAmount(tx, {
+      participantUserId: params.userId,
+      orderId: params.orderId,
+      listingId: params.listingId,
+    });
+    if (paid <= 0) return 0;
+
+    const listingTitle = await this.listingTitleForWalletTx(tx, params.listingId);
+
+    const wallet = await tx.wallet.upsert({
+      where: { userId: params.userId },
+      create: { userId: params.userId, balanceAvailable: 0, balanceBlocked: 0 },
+      update: {},
+      select: { id: true },
+    });
+
+    const existing = await tx.walletTransaction.findFirst({
+      where: {
+        walletId: wallet.id,
+        type: WalletTransactionType.REFUND,
+        referenceId: params.orderId,
+        meta: { path: ['kind'], equals: params.refundKind },
+      },
+      select: { id: true },
+    });
+    if (existing) return 0;
+
+    await tx.wallet.update({
+      where: { userId: params.userId },
+      data: { balanceAvailable: { increment: paid } },
+    });
+
+    await tx.walletTransaction.create({
+      data: {
+        walletId: wallet.id,
+        amount: paid,
+        type: WalletTransactionType.REFUND,
+        status: WalletTransactionStatus.SUCCESS,
+        referenceId: params.orderId,
+        meta: {
+          kind: params.refundKind,
+          participantRole: params.participantRole,
+          refundReason: params.refundReason,
+          orderId: params.orderId,
+          listingId: params.listingId,
+          ...(listingTitle ? { listingTitle } : {}),
+          description: params.description,
+        } as Prisma.InputJsonValue,
+      },
+    });
+    return paid;
+  }
+
+  /**
+   * معاوضه: مهلت پرداخت تمام شد — بازپرداخت سهم هر طرفی که واقعاً پرداخت کرده.
+   */
+  async refundExchangePaymentTimeoutOnCancel(
+    tx: Prisma.TransactionClient,
+    params: {
+      orderId: string;
+      listingId: string;
+      buyerId: string;
+      sellerId: string;
+      refundBuyer: boolean;
+      refundSeller: boolean;
+    },
+  ): Promise<{ buyerRefund: number; sellerRefund: number }> {
+    const listingTitle = await this.listingTitleForWalletTx(
+      tx,
+      params.listingId,
+    );
+    const titleQuoted = listingTitle ? `«${listingTitle}»` : 'این آگهی';
+    const refundReason = 'exchange-payment-timeout-cancel';
+    const refundKind = 'exchange-payment-timeout-participant-refund';
+
+    let buyerRefund = 0;
+    let sellerRefund = 0;
+
+    if (params.refundBuyer) {
+      buyerRefund = await this.creditExchangeParticipantRefund(tx, {
+        orderId: params.orderId,
+        listingId: params.listingId,
+        userId: params.buyerId,
+        participantRole: 'buyer',
+        refundKind,
+        refundReason,
+        description: `بازگشت سهم پرداختی معاوضه برای ${titleQuoted} به‌دلیل لغو معامله (اتمام مهلت پرداخت).`,
+      });
+    }
+    if (params.refundSeller) {
+      sellerRefund = await this.creditExchangeParticipantRefund(tx, {
+        orderId: params.orderId,
+        listingId: params.listingId,
+        userId: params.sellerId,
+        participantRole: 'seller',
+        refundKind,
+        refundReason,
+        description: `بازگشت سهم پرداختی معاوضه برای ${titleQuoted} به‌دلیل لغو معامله (اتمام مهلت پرداخت).`,
+      });
+    }
+
+    await this.failExchangePendingDepositsUnwindBlocked(tx, {
+      listingId: params.listingId,
+      userIds: [params.buyerId, params.sellerId],
+    });
+
+    return { buyerRefund, sellerRefund };
+  }
+
+  /**
+   * معاوضه: یک طرف ارسال کرده، طرف مقابل در مهلت ارسال نکرده.
+   * فرستنده: بازگشت کامل سهم پرداختی + جبران از سهم کارشناسی طرف مقصر.
+   * طرف مقصر: بازگشت مابه‌التفاوت (در صورت وجود) + بخشی از کارشناسی پس از کسر درصد جریمه.
+   */
+  async refundExchangeOneSideNoShipmentOnCancel(
+    tx: Prisma.TransactionClient,
+    params: {
+      orderId: string;
+      listingId: string;
+      buyerId: string;
+      sellerId: string;
+      senderId: string;
+      offenderId: string;
+      verificationFee: number;
+      inspectionPenaltyPercent: number;
+    },
+  ): Promise<{
+    senderRefund: number;
+    offenderRefund: number;
+    compensation: number;
+  }> {
+    const listingTitle = await this.listingTitleForWalletTx(
+      tx,
+      params.listingId,
+    );
+    const titleQuoted = listingTitle ? `«${listingTitle}»` : 'این آگهی';
+    const verificationFee = Math.max(0, Number(params.verificationFee) || 0);
+    const penaltyPercent = Math.min(
+      100,
+      Math.max(0, Number(params.inspectionPenaltyPercent) || 0),
+    );
+    const penaltyAmount = Math.max(
+      0,
+      Math.floor((verificationFee * penaltyPercent) / 100),
+    );
+
+    const senderRefund = await this.creditExchangeParticipantRefund(tx, {
+      orderId: params.orderId,
+      listingId: params.listingId,
+      userId: params.senderId,
+      participantRole:
+        params.senderId === params.buyerId ? 'buyer' : 'seller',
+      refundKind: 'exchange-one-side-shipment-sender-refund',
+      refundReason: 'exchange-one-side-no-shipment-cancel',
+      description: `بازگشت کامل سهم پرداختی شما برای ${titleQuoted} به‌دلیل لغو معاوضه (عدم ارسال طرف مقابل).`,
+    });
+
+    const offenderPaid = await this.getExchangeParticipantPaidAmount(tx, {
+      participantUserId: params.offenderId,
+      orderId: params.orderId,
+      listingId: params.listingId,
+    });
+    const offenderRefundAmount = Math.max(0, offenderPaid - penaltyAmount);
+    let offenderRefund = 0;
+    if (offenderRefundAmount > 0) {
+      offenderRefund = await this.creditExchangeFixedRefund(tx, {
+        orderId: params.orderId,
+        listingId: params.listingId,
+        userId: params.offenderId,
+        amount: offenderRefundAmount,
+        participantRole:
+          params.offenderId === params.buyerId ? 'buyer' : 'seller',
+        refundKind: 'exchange-one-side-shipment-offender-refund',
+        refundReason: 'exchange-one-side-no-shipment-cancel',
+        description: `بازگشت سهم پرداختی شما برای ${titleQuoted} پس از کسر ${penaltyPercent}٪ جریمه کارشناسی (عدم ارسال در مهلت).`,
+        listingTitle,
+      });
+    }
+
+    let compensation = 0;
+    if (penaltyAmount > 0) {
+      compensation = await this.creditExchangeFixedRefund(tx, {
+        orderId: params.orderId,
+        listingId: params.listingId,
+        userId: params.senderId,
+        amount: penaltyAmount,
+        participantRole:
+          params.senderId === params.buyerId ? 'buyer' : 'seller',
+        refundKind: 'exchange-one-side-shipment-compensation',
+        refundReason: 'exchange-one-side-no-shipment-compensation',
+        description: `جبران ${penaltyPercent}٪ از هزینه کارشناسی طرف مقابل به شما بابت ارسال به‌موقع و عدم ارسال طرف دیگر.`,
+        listingTitle,
+      });
+    }
+
+    await this.failExchangePendingDepositsUnwindBlocked(tx, {
+      listingId: params.listingId,
+      userIds: [params.buyerId, params.sellerId],
+    });
+
+    return { senderRefund, offenderRefund, compensation };
+  }
+
+  private async creditExchangeFixedRefund(
+    tx: Prisma.TransactionClient,
+    params: {
+      orderId: string;
+      listingId: string;
+      userId: string;
+      amount: number;
+      participantRole: 'buyer' | 'seller';
+      refundKind: string;
+      refundReason: string;
+      description: string;
+      listingTitle?: string;
+    },
+  ): Promise<number> {
+    const amount = Math.max(0, Number(params.amount) || 0);
+    if (amount <= 0) return 0;
+
+    const wallet = await tx.wallet.upsert({
+      where: { userId: params.userId },
+      create: { userId: params.userId, balanceAvailable: 0, balanceBlocked: 0 },
+      update: {},
+      select: { id: true },
+    });
+
+    const existing = await tx.walletTransaction.findFirst({
+      where: {
+        walletId: wallet.id,
+        type: WalletTransactionType.REFUND,
+        referenceId: params.orderId,
+        meta: { path: ['kind'], equals: params.refundKind },
+      },
+      select: { id: true },
+    });
+    if (existing) return 0;
+
+    await tx.wallet.update({
+      where: { userId: params.userId },
+      data: { balanceAvailable: { increment: amount } },
+    });
+
+    await tx.walletTransaction.create({
+      data: {
+        walletId: wallet.id,
+        amount,
+        type: WalletTransactionType.REFUND,
+        status: WalletTransactionStatus.SUCCESS,
+        referenceId: params.orderId,
+        meta: {
+          kind: params.refundKind,
+          participantRole: params.participantRole,
+          refundReason: params.refundReason,
+          orderId: params.orderId,
+          listingId: params.listingId,
+          ...(params.listingTitle ? { listingTitle: params.listingTitle } : {}),
+          description: params.description,
+        } as Prisma.InputJsonValue,
+      },
+    });
+    return amount;
+  }
+
+  /**
+   * معاوضه: هر دو طرف در مهلت ارسال، کالا را نفرستاده‌اند.
+   * هر طرف دقیقاً به اندازهٔ پرداخت واقعی خود (کارشناسی + مابه‌التفاوت) عودت می‌گیرد
+   * و مبلغ بلوکه‌شده روی کیف طرف مقابل آزاد می‌شود.
+   */
+  async refundExchangeBothNoShipmentOnCancel(
+    tx: Prisma.TransactionClient,
+    params: {
+      orderId: string;
+      listingId: string;
+      buyerId: string;
+      sellerId: string;
+      verificationFee: number;
+      isPayerMe: boolean;
+      extraPayment: number;
+    },
+  ): Promise<void> {
+    const listingTitle = await this.listingTitleForWalletTx(
+      tx,
+      params.listingId,
+    );
+    const titleQuoted = listingTitle ? `«${listingTitle}»` : 'این آگهی';
+    const refundReason = 'exchange-both-no-shipment-cancel';
+    const refundKind = 'exchange-both-no-shipment-participant-refund';
+
+    await this.creditExchangeParticipantRefund(tx, {
+      orderId: params.orderId,
+      listingId: params.listingId,
+      userId: params.buyerId,
+      participantRole: 'buyer',
+      refundKind,
+      refundReason,
+      description: `بازگشت سهم پرداختی معاوضه برای ${titleQuoted} به‌دلیل لغو معامله (عدم ارسال هر دو طرف).`,
+    });
+    await this.creditExchangeParticipantRefund(tx, {
+      orderId: params.orderId,
+      listingId: params.listingId,
+      userId: params.sellerId,
+      participantRole: 'seller',
+      refundKind,
+      refundReason,
+      description: `بازگشت سهم پرداختی معاوضه برای ${titleQuoted} به‌دلیل لغو معامله (عدم ارسال هر دو طرف).`,
+    });
+
+    await this.failExchangePendingDepositsUnwindBlocked(tx, {
+      listingId: params.listingId,
+      userIds: [params.buyerId, params.sellerId],
+    });
   }
 
   // =================================================================

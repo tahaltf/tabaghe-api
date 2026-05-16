@@ -30,6 +30,7 @@ describe('OrdersService', () => {
   const walletMock = {
     releaseEscrow: jest.fn(),
     refundExchangeExtraOnCancel: jest.fn(),
+    refundExchangeBothNoShipmentOnCancel: jest.fn(),
     refundDirectOrderEscrowOnCancel: jest.fn(),
   };
   const feeMock = {};
@@ -280,6 +281,116 @@ describe('OrdersService', () => {
     expect(quotaMock.releaseOnReject).toHaveBeenCalledWith(tx, listingId);
 
     creditSpy.mockRestore();
+  });
+
+  it('autoCancelExpiredOrders: exchange both no shipment -> CANCELLED + per-party refunds + both penalized', async () => {
+    const orderId = 'ord-ex-both';
+    const listingId = 'lst-1';
+    const buyerId = 'buyer-1';
+    const sellerId = 'seller-1';
+    const exchangeOfferId = 'offer-1';
+
+    const expiredOrder = {
+      id: orderId,
+      type: OrderType.EXCHANGE,
+      buyerId,
+      sellerId,
+      listingId,
+      exchangeOfferId,
+      status: OrderStatus.AWAITING_SHIPMENT_TO_HUB,
+      trackingCode: null,
+      sellerTrackingCode: null,
+      sellerRevenue: 200,
+      totalAmount: 500_000,
+      verificationFee: 100_000,
+      exchangeHubInspection: {},
+      tradeReputationAt: null,
+      listing: { title: 'لپ‌تاپ' },
+      shippingDeadline: new Date(Date.now() - 60_000),
+      updatedAt: new Date(Date.now() - 86_400_000),
+      createdAt: new Date(Date.now() - 86_400_000),
+    };
+
+    prismaMock.order.findMany.mockResolvedValue([expiredOrder]);
+
+    const tx = {
+      exchangeOffer: {
+        findUnique: jest.fn().mockResolvedValue({
+          extraPayment: 200,
+          isPayerMe: true,
+        }),
+      },
+      wallet: { upsert: jest.fn() },
+      walletTransaction: { create: jest.fn() },
+      user: { update: jest.fn().mockResolvedValue({}) },
+      order: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ status: OrderStatus.AWAITING_SHIPMENT_TO_HUB }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      ticket: {
+        create: jest
+          .fn()
+          .mockResolvedValueOnce({ id: 'ticket-buyer' })
+          .mockResolvedValueOnce({ id: 'ticket-seller' }),
+      },
+      notification: { createMany: jest.fn().mockResolvedValue({ count: 2 }) },
+      listing: {
+        update: jest
+          .fn()
+          .mockResolvedValue({ id: listingId, status: ListingStatus.REJECTED }),
+      },
+    };
+
+    prismaMock.$transaction.mockImplementation(
+      async (cb: (trx: typeof tx) => Promise<unknown>) => cb(tx),
+    );
+
+    walletMock.refundExchangeBothNoShipmentOnCancel.mockResolvedValue(undefined);
+
+    await service.autoCancelExpiredOrders();
+
+    expect(walletMock.refundExchangeBothNoShipmentOnCancel).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        orderId,
+        buyerId,
+        sellerId,
+        listingId,
+        verificationFee: 100_000,
+        isPayerMe: true,
+        extraPayment: 200,
+      }),
+    );
+    expect(walletMock.refundDirectOrderEscrowOnCancel).not.toHaveBeenCalled();
+
+    expect(tx.user.update).toHaveBeenCalledTimes(2);
+    expect(tx.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: buyerId } }),
+    );
+    expect(tx.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: sellerId } }),
+    );
+
+    expect(stateMachineMock.assertTransition).toHaveBeenCalledWith(
+      OrderStatus.AWAITING_SHIPMENT_TO_HUB,
+      OrderStatus.CANCELLED,
+      'auto-cancel-expired',
+    );
+
+    expect(orderReputationMock.recordTerminalOutcome).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({ id: orderId }),
+      OrderStatus.AWAITING_SHIPMENT_TO_HUB,
+      'FAILURE',
+      expect.objectContaining({
+        failurePenalizeUserIds: [buyerId, sellerId],
+      }),
+    );
+
+    expect(tx.ticket.create).toHaveBeenCalledTimes(2);
+    expect(tx.notification.createMany).toHaveBeenCalled();
   });
 
   it('autoCancelExpiredOrders: direct sale timeout -> CANCELLED + escrow refund txns', async () => {

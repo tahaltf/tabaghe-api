@@ -74,6 +74,18 @@ export const SYSTEM_JOB_SETTINGS_REGISTRY: SystemJobSettingDefinition[] = [
     max: 60 * 24 * 30,
   },
   {
+    key: 'ACTION_DEADLINE_REMINDER_HOURS',
+    label: 'یادآوری پیامکی/سایت — کمتر از X ساعت به مهلت',
+    description:
+      'اگر تا پایان مهلت یک اقدام (پرداخت، ارسال و ...) کمتر از این تعداد ساعت مانده و کار انجام نشده باشد، به طرف مسئول اطلاع داده می‌شود.',
+    groupId: 'notifications',
+    type: 'number',
+    defaultValue: '12',
+    unit: 'hours',
+    min: 1,
+    max: 168,
+  },
+  {
     key: 'EXCHANGE_NO_SHIPMENT_COMPENSATION',
     label: 'جبران عدم ارسال در معاوضه (درصد)',
     description:
@@ -86,10 +98,22 @@ export const SYSTEM_JOB_SETTINGS_REGISTRY: SystemJobSettingDefinition[] = [
     max: 100,
   },
   {
-    key: 'EXCHANGE_NO_PAYMENT_TIMEOUT_HOURS',
-    label: 'مهلت شروع پرداخت معاوضه',
+    key: 'EXCHANGE_PAYMENT_DEADLINE_MINUTES',
+    label: 'مهلت پرداخت معاوضه (دقیقه)',
     description:
-      'پس از پذیرش پیشنهاد، اگر هیچ طرفی آدرس/پرداخت را شروع نکند، چند ساعت تا لغو.',
+      'پس از پذیرش پیشنهاد، هر دو طرف تا این زمان برای تکمیل پرداخت سهم خود فرصت دارند.',
+    groupId: 'exchange',
+    type: 'number',
+    defaultValue: '1440',
+    unit: 'minutes',
+    min: 1,
+    max: 24 * 60 * 14,
+  },
+  {
+    key: 'EXCHANGE_NO_PAYMENT_TIMEOUT_HOURS',
+    label: 'مهلت شروع پرداخت معاوضه (قدیمی)',
+    description:
+      'فقط اگر EXCHANGE_PAYMENT_DEADLINE_MINUTES تنظیم نشده باشد، به‌عنوان جایگزین (ساعت) استفاده می‌شود.',
     groupId: 'exchange',
     type: 'number',
     defaultValue: '24',
@@ -110,10 +134,22 @@ export const SYSTEM_JOB_SETTINGS_REGISTRY: SystemJobSettingDefinition[] = [
     max: 24 * 14,
   },
   {
-    key: 'EXCHANGE_SHIPMENT_TIMEOUT_HOURS',
-    label: 'مهلت ارسال طرف دوم معاوضه',
+    key: 'EXCHANGE_SHIP_DEADLINE_MINUTES',
+    label: 'مهلت ارسال معاوضه (دقیقه)',
     description:
-      'وقتی یک طرف ارسال ثبت کرده، طرف مقابل چند ساعت برای ثبت ارسال خودش.',
+      'پس از تکمیل پرداخت هر دو طرف، مهلت ثبت ارسال؛ پس از ارسال نفر اول، همین مهلت برای طرف دوم تمدید می‌شود.',
+    groupId: 'exchange',
+    type: 'number',
+    defaultValue: '4320',
+    unit: 'minutes',
+    min: 60,
+    max: 60 * 24 * 30,
+  },
+  {
+    key: 'EXCHANGE_SHIPMENT_TIMEOUT_HOURS',
+    label: 'مهلت ارسال معاوضه (قدیمی، ساعت)',
+    description:
+      'فقط اگر EXCHANGE_SHIP_DEADLINE_MINUTES تنظیم نشده باشد به‌عنوان جایگزین استفاده می‌شود.',
     groupId: 'exchange',
     type: 'number',
     defaultValue: '48',

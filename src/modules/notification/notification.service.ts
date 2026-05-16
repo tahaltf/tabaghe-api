@@ -224,10 +224,10 @@ export class NotificationService {
     // دریافت شماره موبایل کاربر
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { phone: true, firstName: true, lastName: true },
+      select: { phone: true, firstName: true, lastName: true, notifySms: true },
     });
 
-    if (!user || !user.phone) return;
+    if (!user || !user.phone || user.notifySms === false) return;
 
     // دریافت عنوان آگهی برای شخصی‌سازی پیامک
     let listingTitle = 'یک آگهی';

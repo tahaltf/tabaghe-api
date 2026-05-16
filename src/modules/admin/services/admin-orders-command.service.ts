@@ -24,7 +24,10 @@ import {
 } from '../dto/admin-order.dto';
 import { AppSettingsService } from '../../../shared/settings/app-settings.service';
 import { FeeCalculatorService } from '../../fees/fee-calculator.service';
-import { OrderReputationService } from '../../orders/order-reputation.service';
+import {
+  OrderReputationService,
+  TRADE_REPUTATION_PENALTY_DELTA,
+} from '../../orders/order-reputation.service';
 import { WalletService } from '../../wallet/wallet.service';
 import { OrdersService } from '../../orders/orders.service';
 import { ListingCommandService } from '../../listing/services/listing-command.service';
@@ -1009,6 +1012,74 @@ export class AdminOrdersCommandService {
   }
 
   /**
+   * پیام تیکت پس از کارشناسی معاوضه با مسیر «مرجوع هر دو» (رد یک‌طرفه، دوطرفه، یا ترکیبی).
+   */
+  private buildExchangeReturnInspectionTicketMessage(params: {
+    role: 'seller' | 'buyer';
+    orderId: string;
+    listingTitle: string;
+    listingUrl: string;
+    ownTrackingCode: string | null;
+    packagingVideoUrl: string | null;
+    listingFailed: boolean;
+    offerFailed: boolean;
+    ownNote: string | null;
+    otherNote: string | null;
+  }): string {
+    const shortId = params.orderId.slice(-6);
+    const penalty = TRADE_REPUTATION_PENALTY_DELTA;
+    const isSeller = params.role === 'seller';
+    const ownFailed = isSeller ? params.listingFailed : params.offerFailed;
+    const otherFailed = isSeller ? params.offerFailed : params.listingFailed;
+    const bothFailed = params.listingFailed && params.offerFailed;
+
+    const lines: string[] = ['سلام،', ''];
+
+    if (bothFailed) {
+      lines.push(
+        `نتیجه کارشناسی معاوضه #${shortId} برای «${params.listingTitle}»: هر دو کالا رد شدند و معامله لغو گردید.`,
+        `امتیاز معاملاتی هر دو طرف ${penalty} واحد کاهش یافت.`,
+      );
+    } else if (ownFailed) {
+      lines.push(
+        `نتیجه کارشناسی معاوضه #${shortId} برای «${params.listingTitle}»: کالای ارسالی شما رد شد و معامله لغو گردید.`,
+        `طبق قوانین طبقه، ${penalty} واحد از امتیاز معاملاتی شما کسر شد.`,
+        params.ownNote
+          ? `توضیح کارشناسی: ${params.ownNote}`
+          : 'توضیح کارشناسی: مطابق گزارش هاب.',
+      );
+    } else if (otherFailed) {
+      lines.push(
+        `متأسفیم؛ معامله معاوضه #${shortId} برای «${params.listingTitle}» به‌دلیل رد کالای طرف مقابل لغو شد.`,
+        'کالای شما از نظر کارشناسی تایید شد؛ از بابت این تجربه ناخوشایند صمیمانه پوزش می‌خواهیم.',
+        params.otherNote
+          ? `توضیح رد کالای طرف مقابل: ${params.otherNote}`
+          : null,
+      );
+    } else {
+      lines.push(
+        `نتیجه کارشناسی معاوضه #${shortId}: معامله لغو و مرجوع هر دو کالا در دست اقدام است.`,
+      );
+    }
+
+    lines.push(
+      '',
+      'هزینه کارشناسی مسترد نمی‌شود.',
+      'در صورت پرداخت مابه‌التفاوت، پس از ثبت هر دو کد رهگیری مرجوعی از هاب در صف «ارسال از طبقه»، همان مبلغ (بدون کارشناسی) به کیف پول شما بازمی‌گردد.',
+      '',
+      `لینک آگهی: ${params.listingUrl}`,
+      `کد رهگیری ارسال شما به هاب: ${params.ownTrackingCode ?? 'ثبت نشده'}`,
+      params.packagingVideoUrl
+        ? `ویدیوی بسته‌بندی شما: ${params.packagingVideoUrl}`
+        : null,
+      '',
+      'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.',
+    );
+
+    return lines.filter(Boolean).join('\n');
+  }
+
+  /**
    * معاوضه: ثبت نتیجه کارشناسی جداگانه برای هر کالا + انتخاب یکی از سه مسیر نهایی:
    * ارسال به مقصد | مرجوع هر دو | ادامه با توافق مالی (مصالحه در همان صفحه ادمین).
    */
@@ -1596,21 +1667,18 @@ export class AdminOrdersCommandService {
         });
       }
 
-      const sellerTicketMessage = [
-        listingFailed
-          ? 'نتیجه کارشناسی: کالای ارسالی شما (طبق آگهی) رد شد؛ معاوضه کنسل شد و مرجوع هر دو کالا در دست اقدام است.'
-          : 'نتیجه کارشناسی: به‌دلیل رد کالای طرف مقابل، معاوضه کنسل شد و کالای شما به شما مرجوع می‌شود.',
-        `سفارش: #${id.slice(-6)}`,
-        `کالا: ${existing.listing.title}`,
-        `لینک آگهی: ${listingUrl}`,
-        `کد رهگیری شما به هاب: ${existing.trackingCode ?? 'ثبت نشده'}`,
-        packagingVideoUrl ? `ویدیوی بسته‌بندی شما: ${packagingVideoUrl}` : null,
-        listingFailed
-          ? `توضیح کارشناسی: ${dto.listingNote?.trim() || 'بدون توضیح'}`
-          : `توضیح رد کالای طرف مقابل: ${dto.offerNote?.trim() || 'بدون توضیح'}`,
-      ]
-        .filter(Boolean)
-        .join('\n');
+      const sellerTicketMessage = this.buildExchangeReturnInspectionTicketMessage({
+        role: 'seller',
+        orderId: id,
+        listingTitle: existing.listing.title,
+        listingUrl,
+        ownTrackingCode: existing.trackingCode,
+        packagingVideoUrl,
+        listingFailed,
+        offerFailed,
+        ownNote: dto.listingNote?.trim() || null,
+        otherNote: dto.offerNote?.trim() || null,
+      });
 
       const sellerTicket = await tx.ticket.create({
         data: {
@@ -1640,23 +1708,18 @@ export class AdminOrdersCommandService {
         },
       });
 
-      const buyerTicketMessage = [
-        offerFailed
-          ? 'نتیجه کارشناسی: کالای ارسالی شما (پیشنهاد معاوضه) رد شد؛ معاوضه کنسل شد و مرجوع هر دو کالا در دست اقدام است.'
-          : 'نتیجه کارشناسی: به‌دلیل رد کالای طرف مقابل، معاوضه کنسل شد و کالای شما به شما مرجوع می‌شود.',
-        `سفارش: #${id.slice(-6)}`,
-        `کالا: ${existing.listing.title}`,
-        `لینک آگهی: ${listingUrl}`,
-        `کد رهگیری شما به هاب: ${existing.sellerTrackingCode ?? 'ثبت نشده'}`,
-        buyerPackagingVideoUrl
-          ? `ویدیوی بسته‌بندی شما: ${buyerPackagingVideoUrl}`
-          : null,
-        offerFailed
-          ? `توضیح کارشناسی: ${dto.offerNote?.trim() || 'بدون توضیح'}`
-          : `توضیح رد کالای طرف مقابل: ${dto.listingNote?.trim() || 'بدون توضیح'}`,
-      ]
-        .filter(Boolean)
-        .join('\n');
+      const buyerTicketMessage = this.buildExchangeReturnInspectionTicketMessage({
+        role: 'buyer',
+        orderId: id,
+        listingTitle: existing.listing.title,
+        listingUrl,
+        ownTrackingCode: existing.sellerTrackingCode,
+        packagingVideoUrl: buyerPackagingVideoUrl,
+        listingFailed,
+        offerFailed,
+        ownNote: dto.offerNote?.trim() || null,
+        otherNote: dto.listingNote?.trim() || null,
+      });
 
       const buyerTicket = await tx.ticket.create({
         data: {

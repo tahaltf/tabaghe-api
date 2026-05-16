@@ -40,7 +40,9 @@ export class OrdersService {
   private static readonly DEFAULT_BUYER_CONFIRM_DEADLINE_MINUTES = 4 * 24 * 60;
   private static readonly DEFAULT_EXCHANGE_NO_SHIPMENT_COMPENSATION = 20;
   private static readonly DEFAULT_EXCHANGE_NO_PAYMENT_TIMEOUT_HOURS = 24;
+  private static readonly DEFAULT_EXCHANGE_PAYMENT_DEADLINE_MINUTES = 24 * 60;
   private static readonly DEFAULT_EXCHANGE_SECOND_PAYMENT_TIMEOUT_HOURS = 48;
+  private static readonly EXCHANGE_PAYMENT_TIMEOUT_TRUST_PENALTY = 15;
   private static readonly DEFAULT_EXCHANGE_SHIPMENT_TIMEOUT_HOURS = 48;
   private static readonly DEFAULT_EXCHANGE_RETURN_CONFIRM_DEADLINE_MINUTES =
     48 * 60;
@@ -386,6 +388,8 @@ export class OrdersService {
       // سناریو ۱: معاوضه (پشتیبانی از پرداخت دوطرفه)
       // -----------------------------------------------------
       if (orderType === 'EXCHANGE') {
+        const exchangeShipDeadlineMinutes =
+          await this.getExchangeShipmentDeadlineMinutes();
         const offer = await tx.exchangeOffer.findUnique({
           where: { id: finalExchangeId },
           include: { listing: { include: { direct: true } } },
@@ -526,7 +530,7 @@ export class OrdersService {
             !!updatedOrder.sellerShippingAddress;
           if (bothSidesProvidedAddress && paymentMethod === 'WALLET') {
             const deadline = new Date(
-              Date.now() + sellerShipDeadlineMinutes * 60 * 1000,
+              Date.now() + exchangeShipDeadlineMinutes * 60 * 1000,
             );
             await tx.order.update({
               where: { id: updatedOrder.id },
@@ -972,8 +976,12 @@ export class OrdersService {
         orderStatus !== OrderStatus.PENDING &&
         orderStatus !== OrderStatus.AWAITING_PAYMENT
       ) {
+        const shipDeadlineMinutes =
+          orderType === 'EXCHANGE'
+            ? await this.getExchangeShipmentDeadlineMinutes()
+            : sellerShipDeadlineMinutes;
         const deadline = new Date(
-          Date.now() + sellerShipDeadlineMinutes * 60 * 1000,
+          Date.now() + shipDeadlineMinutes * 60 * 1000,
         );
         orderPayload.shippingDeadline = deadline;
       }
@@ -1153,10 +1161,10 @@ export class OrdersService {
       const onlyOneSideShipped =
         Boolean(sellerTrackingAfter) !== Boolean(buyerTrackingAfter);
       if (onlyOneSideShipped) {
-        const shipmentTimeoutHours =
-          await this.getExchangeShipmentTimeoutHours();
+        const shipmentDeadlineMinutes =
+          await this.getExchangeShipmentDeadlineMinutes();
         updateData.shippingDeadline = new Date(
-          Date.now() + shipmentTimeoutHours * 60 * 60 * 1000,
+          Date.now() + shipmentDeadlineMinutes * 60 * 1000,
         );
       }
     }
@@ -2320,6 +2328,420 @@ export class OrdersService {
     });
   }
 
+  /**
+   * تیکت و اعلان برای لغو معاوضه به‌دلیل اتمام مهلت پرداخت.
+   * scenario: neither | buyer_paid_only | seller_paid_only | both_incomplete
+   */
+  private async createExchangePaymentTimeoutCancelTickets(
+    tx: Prisma.TransactionClient,
+    params: {
+      orderId: string | null;
+      buyerId: string;
+      sellerId: string;
+      listingTitle: string;
+      scenario:
+        | 'neither_paid'
+        | 'buyer_paid_only'
+        | 'seller_paid_only'
+        | 'both_incomplete';
+      buyerRefundAmount: number;
+      sellerRefundAmount: number;
+      offenderIds: string[];
+    },
+  ): Promise<void> {
+    const shortId = params.orderId ? params.orderId.slice(-6) : '------';
+    const penalty = OrdersService.EXCHANGE_PAYMENT_TIMEOUT_TRUST_PENALTY;
+    const listingTitle = params.listingTitle?.trim() || 'کالا';
+    const buyerAmountFa = Math.max(
+      0,
+      Number(params.buyerRefundAmount) || 0,
+    ).toLocaleString('fa-IR');
+    const sellerAmountFa = Math.max(
+      0,
+      Number(params.sellerRefundAmount) || 0,
+    ).toLocaleString('fa-IR');
+
+    const buildCompliantPartyMessage = (
+      role: 'buyer' | 'seller',
+      refundAmountFa: string,
+    ) => {
+      const lines = [
+        'سلام،',
+        '',
+        `متأسفیم؛ معامله معاوضه${params.orderId ? ` #${shortId}` : ''} برای «${listingTitle}» لغو شد.`,
+      ];
+      if (params.scenario === 'neither_paid') {
+        lines.push(
+          'دلیل: هیچ‌یک از طرفین در مهلت مقرر پرداخت خود را تکمیل نکردند.',
+        );
+      } else if (params.scenario === 'both_incomplete') {
+        lines.push(
+          'دلیل: مهلت پرداخت به پایان رسید و معامله به‌طور کامل تسویه نشد.',
+        );
+      } else {
+        lines.push(
+          'دلیل: طرف مقابل در مهلت مقرر پرداخت خود را تکمیل نکرد.',
+          'شما تعهد خود را انجام داده‌اید؛ از بابت این تجربه ناخوشایند صمیمانه پوزش می‌خواهیم.',
+        );
+      }
+      if (Number(params.buyerRefundAmount) > 0 && role === 'buyer') {
+        lines.push(
+          '',
+          `سهم پرداختی شما (${refundAmountFa} تومان) به کیف پولتان برگشت داده شد.`,
+        );
+      }
+      if (Number(params.sellerRefundAmount) > 0 && role === 'seller') {
+        lines.push(
+          '',
+          `سهم پرداختی شما (${refundAmountFa} تومان) به کیف پولتان برگشت داده شد.`,
+        );
+      }
+      if (params.offenderIds.includes(role === 'buyer' ? params.buyerId : params.sellerId)) {
+        lines.push(
+          '',
+          `طبق قوانین طبقه، ${penalty} واحد از امتیاز اعتماد شما کسر شد.`,
+        );
+      }
+      lines.push('', 'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.');
+      return lines.join('\n');
+    };
+
+    const buildOffenderMessage = (role: 'buyer' | 'seller') => {
+      const isBuyer = role === 'buyer';
+      const userId = isBuyer ? params.buyerId : params.sellerId;
+      if (!params.offenderIds.includes(userId)) {
+        return buildCompliantPartyMessage(role, isBuyer ? buyerAmountFa : sellerAmountFa);
+      }
+      return [
+        'سلام،',
+        '',
+        `معامله معاوضه${params.orderId ? ` #${shortId}` : ''} برای «${listingTitle}» لغو شد.`,
+        'دلیل: شما در مهلت مقرر پرداخت سهم خود را تکمیل نکردید.',
+        '',
+        `طبق قوانین طبقه، ${penalty} واحد از امتیاز اعتماد شما کسر شد.`,
+        isBuyer
+          ? 'آگهی برای پذیرش پیشنهادهای دیگر در دسترس باقی می‌ماند.'
+          : 'آگهی شما به‌دلیل عدم پرداخت در مهلت مقرر از انتشار خارج شد؛ برای فروش مجدد آن را ویرایش و دوباره ثبت کنید.',
+        '',
+        'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.',
+      ].join('\n');
+    };
+
+    const buyerTicket = await tx.ticket.create({
+      data: {
+        userId: params.buyerId,
+        subject: `لغو معاوضه — مهلت پرداخت [${params.orderId ? `ORDER:${params.orderId}` : `LISTING:${listingTitle}`}]`,
+        status: 'OPEN',
+        messages: {
+          create: {
+            senderRole: UserRole.ADMIN,
+            message: buildOffenderMessage('buyer'),
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    const sellerTicket = await tx.ticket.create({
+      data: {
+        userId: params.sellerId,
+        subject: `لغو معاوضه — مهلت پرداخت [${params.orderId ? `ORDER:${params.orderId}` : `LISTING:${listingTitle}`}]`,
+        status: 'OPEN',
+        messages: {
+          create: {
+            senderRole: UserRole.ADMIN,
+            message: buildOffenderMessage('seller'),
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    const buyerCompliant = !params.offenderIds.includes(params.buyerId);
+    const sellerCompliant = !params.offenderIds.includes(params.sellerId);
+
+    await tx.notification.createMany({
+      data: [
+        {
+          userId: params.buyerId,
+          type: NotificationType.TICKET_REPLY,
+          title: buyerCompliant
+            ? 'معاوضه لغو شد — بازگشت وجه'
+            : 'معاوضه لغو شد — مهلت پرداخت',
+          message: buyerCompliant
+            ? `معاوضه برای «${listingTitle}» لغو شد. سهم پرداختی شما به کیف پول برگشت؛ بابت ناراحتی پیش‌آمده پوزش می‌خواهیم.`
+            : `معاوضه برای «${listingTitle}» به‌دلیل عدم تکمیل پرداخت شما در مهلت مقرر لغو شد.`,
+          meta: {
+            ...(params.orderId ? { orderId: params.orderId } : {}),
+            ticketId: buyerTicket.id,
+            reason: 'exchange-payment-timeout-cancel',
+          } as Prisma.InputJsonValue,
+        },
+        {
+          userId: params.sellerId,
+          type: NotificationType.TICKET_REPLY,
+          title: sellerCompliant
+            ? 'معاوضه لغو شد — بازگشت وجه'
+            : 'معاوضه لغو شد — مهلت پرداخت',
+          message: sellerCompliant
+            ? `معاوضه برای «${listingTitle}» لغو شد. سهم پرداختی شما به کیف پول برگشت؛ بابت ناراحتی پیش‌آمده پوزش می‌خواهیم.`
+            : `معاوضه برای «${listingTitle}» به‌دلیل عدم تکمیل پرداخت شما در مهلت مقرر لغو شد.`,
+          meta: {
+            ...(params.orderId ? { orderId: params.orderId } : {}),
+            ticketId: sellerTicket.id,
+            reason: 'exchange-payment-timeout-cancel',
+          } as Prisma.InputJsonValue,
+        },
+      ],
+    });
+  }
+
+  /** تیکت و اعلان برای لغو معاوضه به‌دلیل عدم ارسال هر دو طرف در مهلت */
+  private async createExchangeBothNoShipmentCancelTickets(
+    tx: Prisma.TransactionClient,
+    params: {
+      orderId: string;
+      buyerId: string;
+      sellerId: string;
+      listingTitle: string;
+      buyerRefundAmount: number;
+      sellerRefundAmount: number;
+      trustPenaltyPoints?: number;
+    },
+  ): Promise<void> {
+    const shortId = params.orderId.slice(-6);
+    const penalty = params.trustPenaltyPoints ?? 15;
+    const listingTitle = params.listingTitle?.trim() || 'کالا';
+    const buyerAmountFa = Math.max(
+      0,
+      Number(params.buyerRefundAmount) || 0,
+    ).toLocaleString('fa-IR');
+    const sellerAmountFa = Math.max(
+      0,
+      Number(params.sellerRefundAmount) || 0,
+    ).toLocaleString('fa-IR');
+
+    const buyerTicketMessage = [
+      'سلام،',
+      '',
+      `متأسفیم؛ معامله معاوضه #${shortId} برای «${listingTitle}» لغو شد.`,
+      'دلیل: هیچ‌یک از طرفین در مهلت قانونی ارسال، مرسوله را ثبت نکردند.',
+      '',
+      `سهم پرداختی شما (${buyerAmountFa} تومان، شامل هزینه کارشناسی) به کیف پولتان برگشت داده شد.`,
+      'از صبر و شکیبایی شما سپاسگزاریم و بابت ناراحتی پیش‌آمده پوزش می‌خواهیم.',
+      '',
+      `طبق قوانین طبقه، ${penalty} واحد از امتیاز اعتماد شما کسر شد.`,
+      '',
+      'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.',
+    ].join('\n');
+
+    const sellerTicketMessage = [
+      'سلام،',
+      '',
+      `متأسفیم؛ معامله معاوضه #${shortId} برای «${listingTitle}» لغو شد.`,
+      'دلیل: هیچ‌یک از طرفین در مهلت قانونی ارسال، مرسوله را ثبت نکردند.',
+      '',
+      `سهم پرداختی شما (${sellerAmountFa} تومان، شامل هزینه کارشناسی) به کیف پولتان برگشت داده شد.`,
+      'از صبر و شکیبایی شما سپاسگزاریم و بابت ناراحتی پیش‌آمده پوزش می‌خواهیم.',
+      '',
+      `طبق قوانین طبقه، ${penalty} واحد از امتیاز اعتماد شما کسر شد.`,
+      '',
+      'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.',
+    ].join('\n');
+
+    const buyerTicket = await tx.ticket.create({
+      data: {
+        userId: params.buyerId,
+        subject: `لغو معاوضه — عدم ارسال هر دو طرف [ORDER:${params.orderId}]`,
+        status: 'OPEN',
+        messages: {
+          create: {
+            senderRole: UserRole.ADMIN,
+            message: buyerTicketMessage,
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    const sellerTicket = await tx.ticket.create({
+      data: {
+        userId: params.sellerId,
+        subject: `لغو معاوضه — عدم ارسال هر دو طرف [ORDER:${params.orderId}]`,
+        status: 'OPEN',
+        messages: {
+          create: {
+            senderRole: UserRole.ADMIN,
+            message: sellerTicketMessage,
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    await tx.notification.createMany({
+      data: [
+        {
+          userId: params.buyerId,
+          type: NotificationType.TICKET_REPLY,
+          title: 'معاوضه لغو شد — بازگشت وجه',
+          message: `معاوضه #${shortId} به‌دلیل عدم ارسال هر دو طرف لغو شد و سهم پرداختی شما به کیف پول برگشت.`,
+          meta: {
+            orderId: params.orderId,
+            ticketId: buyerTicket.id,
+            reason: 'exchange-both-no-shipment-cancel',
+          } as Prisma.InputJsonValue,
+        },
+        {
+          userId: params.sellerId,
+          type: NotificationType.TICKET_REPLY,
+          title: 'معاوضه لغو شد — بازگشت وجه',
+          message: `معاوضه #${shortId} به‌دلیل عدم ارسال هر دو طرف لغو شد و سهم پرداختی شما به کیف پول برگشت.`,
+          meta: {
+            orderId: params.orderId,
+            ticketId: sellerTicket.id,
+            reason: 'exchange-both-no-shipment-cancel',
+          } as Prisma.InputJsonValue,
+        },
+      ],
+    });
+  }
+
+  /** تیکت و اعلان: یک طرف ارسال کرده، طرف مقابل در مهلت ارسال نکرده */
+  private async createExchangeOneSideNoShipmentCancelTickets(
+    tx: Prisma.TransactionClient,
+    params: {
+      orderId: string;
+      buyerId: string;
+      sellerId: string;
+      senderId: string;
+      offenderId: string;
+      listingTitle: string;
+      senderRefundAmount: number;
+      offenderRefundAmount: number;
+      compensationAmount: number;
+      inspectionPenaltyPercent: number;
+      trustPenaltyPoints?: number;
+    },
+  ): Promise<void> {
+    const shortId = params.orderId.slice(-6);
+    const penalty = params.trustPenaltyPoints ?? 15;
+    const listingTitle = params.listingTitle?.trim() || 'کالا';
+    const senderAmountFa = Math.max(
+      0,
+      Number(params.senderRefundAmount) || 0,
+    ).toLocaleString('fa-IR');
+    const offenderAmountFa = Math.max(
+      0,
+      Number(params.offenderRefundAmount) || 0,
+    ).toLocaleString('fa-IR');
+    const compensationFa = Math.max(
+      0,
+      Number(params.compensationAmount) || 0,
+    ).toLocaleString('fa-IR');
+    const penaltyPct = params.inspectionPenaltyPercent;
+
+    const senderMessage = [
+      'سلام،',
+      '',
+      `متأسفیم؛ معامله معاوضه #${shortId} برای «${listingTitle}» لغو شد.`,
+      'دلیل: شما به‌موقع ارسال را ثبت کردید اما طرف مقابل در مهلت قانونی ارسال نکرد.',
+      '',
+      `سهم پرداختی شما (${senderAmountFa} تومان) به کیف پولتان برگشت.`,
+      compensationFa !== '۰'
+        ? `همچنین ${compensationFa} تومان بابت ${penaltyPct}٪ جبران از هزینه کارشناسی طرف مقابل به کیف پول شما واریز شد.`
+        : '',
+      'کالای شما بدون کارشناسی در صف مرجوع از هاب قرار می‌گیرد تا به آدرس شما برگردد.',
+      '',
+      'از صبر و شکیبایی شما سپاسگزاریم و بابت ناراحتی پیش‌آمده صمیمانه پوزش می‌خواهیم.',
+      '',
+      'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const offenderMessage = [
+      'سلام،',
+      '',
+      `معامله معاوضه #${shortId} برای «${listingTitle}» لغو شد.`,
+      'دلیل: شما در مهلت قانونی ارسال، کد رهگیری یا ویدیوی بسته‌بندی را ثبت نکردید.',
+      '',
+      offenderAmountFa !== '۰'
+        ? `پس از کسر ${penaltyPct}٪ جریمه از هزینه کارشناسی، ${offenderAmountFa} تومان به کیف پول شما برگشت.`
+        : `طبق قوانین، ${penaltyPct}٪ از هزینه کارشناسی شما به‌عنوان جریمه کسر شد.`,
+      '',
+      `به‌دلیل تأخیر در ارسال، ${penalty} واحد از امتیاز اعتماد شما کسر شد.`,
+      '',
+      'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.',
+    ].join('\n');
+
+    const buyerIsSender = params.senderId === params.buyerId;
+    const buyerTicket = await tx.ticket.create({
+      data: {
+        userId: params.buyerId,
+        subject: `لغو معاوضه — عدم ارسال طرف مقابل [ORDER:${params.orderId}]`,
+        status: 'OPEN',
+        messages: {
+          create: {
+            senderRole: UserRole.ADMIN,
+            message: buyerIsSender ? senderMessage : offenderMessage,
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    const sellerTicket = await tx.ticket.create({
+      data: {
+        userId: params.sellerId,
+        subject: `لغو معاوضه — عدم ارسال طرف مقابل [ORDER:${params.orderId}]`,
+        status: 'OPEN',
+        messages: {
+          create: {
+            senderRole: UserRole.ADMIN,
+            message: buyerIsSender ? offenderMessage : senderMessage,
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    await tx.notification.createMany({
+      data: [
+        {
+          userId: params.buyerId,
+          type: NotificationType.TICKET_REPLY,
+          title: buyerIsSender
+            ? 'معاوضه لغو شد — بازگشت وجه و مرجوع کالا'
+            : 'معاوضه لغو شد — کسر امتیاز',
+          message: buyerIsSender
+            ? `معامله «${listingTitle}» لغو شد؛ وجه شما برگشت و کالا بدون کارشناسی در صف مرجوع از هاب است.`
+            : `معامله «${listingTitle}» به‌دلیل عدم ارسال شما در مهلت لغو شد.`,
+          meta: {
+            orderId: params.orderId,
+            ticketId: buyerTicket.id,
+            reason: 'exchange-one-side-no-shipment-cancel',
+          } as Prisma.InputJsonValue,
+        },
+        {
+          userId: params.sellerId,
+          type: NotificationType.TICKET_REPLY,
+          title: buyerIsSender
+            ? 'معاوضه لغو شد — کسر امتیاز'
+            : 'معاوضه لغو شد — بازگشت وجه و مرجوع کالا',
+          message: buyerIsSender
+            ? `معامله «${listingTitle}» به‌دلیل عدم ارسال شما در مهلت لغو شد.`
+            : `معامله «${listingTitle}» لغو شد؛ وجه شما برگشت و کالا بدون کارشناسی در صف مرجوع از هاب است.`,
+          meta: {
+            orderId: params.orderId,
+            ticketId: sellerTicket.id,
+            reason: 'exchange-one-side-no-shipment-cancel',
+          } as Prisma.InputJsonValue,
+        },
+      ],
+    });
+  }
+
   // =================================================================
   // 8. جاب‌های خودکار
   // =================================================================
@@ -2653,85 +3075,47 @@ export class OrdersService {
             order.type === OrderType.EXCHANGE &&
             sellerSent !== buyerSentForExchange;
 
+          let oneSideRefundSummary: {
+            senderRefund: number;
+            offenderRefund: number;
+            compensation: number;
+          } | null = null;
+
           if (order.type === OrderType.EXCHANGE && exchangeOnlyOneSent) {
+            const senderId = sellerSent ? order.sellerId : order.buyerId;
+            const offenderId = sellerSent ? order.buyerId : order.sellerId;
+            const verificationFee = Number(order.verificationFee || 0);
+            oneSideRefundSummary =
+              await this.walletService.refundExchangeOneSideNoShipmentOnCancel(
+                tx,
+                {
+                  orderId: order.id,
+                  listingId: order.listingId,
+                  buyerId: order.buyerId,
+                  sellerId: order.sellerId,
+                  senderId,
+                  offenderId,
+                  verificationFee,
+                  inspectionPenaltyPercent:
+                    exchangeNoShipmentCompensationPercent,
+                },
+              );
+          } else if (order.type === OrderType.EXCHANGE) {
             const exchangeOffer = order.exchangeOfferId
               ? await tx.exchangeOffer.findUnique({
                   where: { id: order.exchangeOfferId },
                   select: { extraPayment: true, isPayerMe: true },
                 })
               : null;
-            const verificationFee = Number(order.verificationFee || 0);
-            const extra = Number(exchangeOffer?.extraPayment || 0);
-            const buyerShare =
-              verificationFee + (exchangeOffer?.isPayerMe ? extra : 0);
-            const sellerShare =
-              verificationFee + (!exchangeOffer?.isPayerMe ? extra : 0);
-            const buyerRefundableExtra = Math.max(
-              0,
-              buyerShare - verificationFee,
-            );
-            const sellerRefundableExtra = Math.max(
-              0,
-              sellerShare - verificationFee,
-            );
-
-            // بازگشت مابه‌التفاوت (بدون کارشناسی) به پرداخت‌کننده واقعی.
-            await this.walletService.refundExchangeExtraOnCancel(tx, {
+            await this.walletService.refundExchangeBothNoShipmentOnCancel(tx, {
+              orderId: order.id,
+              listingId: order.listingId,
               buyerId: order.buyerId,
               sellerId: order.sellerId,
-              listingId: order.listingId,
-              orderId: order.id,
+              verificationFee: Number(order.verificationFee || 0),
               isPayerMe: Boolean(exchangeOffer?.isPayerMe),
-              buyerRefundable: buyerRefundableExtra,
-              sellerRefundable: sellerRefundableExtra,
+              extraPayment: Number(exchangeOffer?.extraPayment || 0),
             });
-
-            // طبق سیاست محصول: پرداخت‌کننده‌ای که کالا را ارسال کرده، کل سهم پرداختی‌اش برگردد
-            // (از جمله هزینه کارشناسی).
-            const senderId = sellerSent ? order.sellerId : order.buyerId;
-            const senderTotalPaid = sellerSent ? sellerShare : buyerShare;
-            if (senderTotalPaid > 0) {
-              await tx.wallet.upsert({
-                where: { userId: senderId },
-                create: {
-                  userId: senderId,
-                  balanceAvailable: senderTotalPaid,
-                  balanceBlocked: 0,
-                },
-                update: { balanceAvailable: { increment: senderTotalPaid } },
-              });
-              await tx.walletTransaction.create({
-                data: {
-                  wallet: { connect: { userId: senderId } },
-                  amount: senderTotalPaid,
-                  type: WalletTransactionType.REFUND,
-                  status: WalletTransactionStatus.SUCCESS,
-                  referenceId: order.id,
-                  meta: {
-                    kind: 'exchange-one-side-shipment-timeout',
-                    description:
-                      'بازگشت کامل سهم پرداختی فرستنده (شامل کارشناسی) به دلیل عدم ارسال طرف مقابل',
-                  },
-                },
-              });
-            }
-
-            // ۲۰٪ از هزینه کارشناسیِ طرفی که ارسال نکرده، به فرستنده پرداخت می‌شود.
-            const compensation = Math.max(
-              0,
-              Math.floor(
-                (verificationFee * exchangeNoShipmentCompensationPercent) / 100,
-              ),
-            );
-            if (compensation > 0) {
-              await this.creditExchangeCompensation(
-                tx,
-                senderId,
-                compensation,
-                order.id,
-                exchangeNoShipmentCompensationPercent,
-              );
-            }
           } else {
             const cancelReason =
               'عدم ارسال فروشنده در مهلت مقرر؛ معامله لغو شد';
@@ -2747,15 +3131,24 @@ export class OrdersService {
             });
           }
 
+          const exchangeBothNoShipment =
+            order.type === OrderType.EXCHANGE && !exchangeOnlyOneSent;
           const isDirectShippingTimeoutCancel =
-            !(
-              order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
-            );
+            order.type !== OrderType.EXCHANGE || exchangeOnlyOneSent;
 
           if (order.type === OrderType.EXCHANGE && exchangeOnlyOneSent) {
             const offenderId = sellerSent ? order.buyerId : order.sellerId;
             await tx.user.update({
               where: { id: offenderId },
+              data: { trustScore: { decrement: 15 } },
+            });
+          } else if (exchangeBothNoShipment) {
+            await tx.user.update({
+              where: { id: order.buyerId },
+              data: { trustScore: { decrement: 15 } },
+            });
+            await tx.user.update({
+              where: { id: order.sellerId },
               data: { trustScore: { decrement: 15 } },
             });
           } else {
@@ -2781,7 +3174,9 @@ export class OrdersService {
               cancelReason:
                 order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
                   ? 'عدم ارسال یکی از طرفین در مهلت ۴۸ ساعته پس از ارسال طرف مقابل؛ مرجوعی کالای ارسال‌شده الزامی است'
-                  : 'عدم ارسال فروشنده در مهلت مقرر؛ معامله لغو شد',
+                  : exchangeBothNoShipment
+                    ? 'عدم ارسال هر دو طرف در مهلت مقرر؛ معامله معاوضه لغو شد'
+                    : 'عدم ارسال فروشنده در مهلت مقرر؛ معامله لغو شد',
               ...(order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
                 ? {
                     exchangeHubInspection: {
@@ -2791,6 +3186,11 @@ export class OrdersService {
                       > | null),
                       resolution: 'RETURN_BOTH_TO_SENDERS',
                       singleSideNoShipmentTimeout: true,
+                      skipInspection: true,
+                      returnOnlyLeg: sellerSent ? 'SELLER' : 'BUYER',
+                      returnSenderUserId: sellerSent
+                        ? order.sellerId
+                        : order.buyerId,
                       awaitingReturnConfirmations: false,
                       refundsReleasedAt: new Date().toISOString(),
                     } as Prisma.InputJsonValue,
@@ -2801,7 +3201,9 @@ export class OrdersService {
           const failurePenalizeUserIds: string[] =
             order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
               ? [sellerSent ? order.buyerId : order.sellerId]
-              : [order.sellerId];
+              : exchangeBothNoShipment
+                ? [order.buyerId, order.sellerId]
+                : [order.sellerId];
           await this.orderReputation.recordTerminalOutcome(
             tx,
             {
@@ -2814,20 +3216,98 @@ export class OrdersService {
             'FAILURE',
             { failurePenalizeUserIds },
           );
-          const listingRejectReason =
-            order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
-              ? sellerSent
-                ? 'معامله به‌دلیل عدم ارسال خریدار در مهلت مقرر لغو شد. آگهی از انتشار خارج شد؛ برای فروش مجدد آن را ویرایش و دوباره ثبت کنید.'
-                : 'معامله به‌دلیل عدم ارسال فروشنده در مهلت مقرر لغو شد. آگهی از انتشار خارج شد؛ برای فروش مجدد آن را ویرایش و دوباره ثبت کنید.'
-              : 'معامله به‌دلیل عدم ارسال فروشنده در مهلت مقرر لغو شد. آگهی از انتشار خارج شد؛ برای فروش مجدد آن را ویرایش و دوباره ثبت کنید.';
-          await this.rejectListingAfterShippingTimeoutCancel(tx, {
-            listingId: order.listingId,
-            sellerId: order.sellerId,
-            listingTitle: order.listing?.title ?? 'کالا',
-            rejectionReason: listingRejectReason,
-          });
+          if (exchangeBothNoShipment) {
+            await this.rejectListingAfterShippingTimeoutCancel(tx, {
+              listingId: order.listingId,
+              sellerId: order.sellerId,
+              listingTitle: order.listing?.title ?? 'کالا',
+              rejectionReason:
+                'معامله معاوضه به‌دلیل عدم ارسال هر دو طرف در مهلت مقرر لغو شد. آگهی از انتشار خارج شد؛ برای فروش مجدد آن را ویرایش و دوباره ثبت کنید.',
+              orderId: order.id,
+            });
+          } else if (order.type === OrderType.EXCHANGE && exchangeOnlyOneSent) {
+            const offenderId = sellerSent ? order.buyerId : order.sellerId;
+            if (offenderId === order.sellerId) {
+              await this.rejectListingAfterShippingTimeoutCancel(tx, {
+                listingId: order.listingId,
+                sellerId: order.sellerId,
+                listingTitle: order.listing?.title ?? 'کالا',
+                rejectionReason:
+                  'معامله به‌دلیل عدم ارسال فروشنده در مهلت مقرر لغو شد. آگهی از انتشار خارج شد؛ برای فروش مجدد آن را ویرایش و دوباره ثبت کنید.',
+                orderId: order.id,
+              });
+            } else {
+              await tx.listing.update({
+                where: { id: order.listingId },
+                data: { status: ListingStatus.APPROVED },
+              });
+              if (order.exchangeOfferId) {
+                await tx.exchangeOffer.updateMany({
+                  where: {
+                    listingId: order.listingId,
+                    status: ExchangeOfferStatus.WAITLISTED,
+                  },
+                  data: { status: ExchangeOfferStatus.PENDING },
+                });
+              }
+            }
+          } else if (order.type !== OrderType.EXCHANGE) {
+            await this.rejectListingAfterShippingTimeoutCancel(tx, {
+              listingId: order.listingId,
+              sellerId: order.sellerId,
+              listingTitle: order.listing?.title ?? 'کالا',
+              rejectionReason:
+                'معامله به‌دلیل عدم ارسال فروشنده در مهلت مقرر لغو شد. آگهی از انتشار خارج شد؛ برای فروش مجدد آن را ویرایش و دوباره ثبت کنید.',
+              orderId: order.id,
+            });
+          }
 
           if (
+            exchangeBothNoShipment &&
+            targetStatus === OrderStatus.CANCELLED
+          ) {
+            const exchangeOffer = order.exchangeOfferId
+              ? await tx.exchangeOffer.findUnique({
+                  where: { id: order.exchangeOfferId },
+                  select: { extraPayment: true, isPayerMe: true },
+                })
+              : null;
+            const verificationFee = Number(order.verificationFee || 0);
+            const extra = Number(exchangeOffer?.extraPayment || 0);
+            const buyerShare =
+              verificationFee + (exchangeOffer?.isPayerMe ? extra : 0);
+            const sellerShare =
+              verificationFee + (!exchangeOffer?.isPayerMe ? extra : 0);
+            await this.createExchangeBothNoShipmentCancelTickets(tx, {
+              orderId: order.id,
+              buyerId: order.buyerId,
+              sellerId: order.sellerId,
+              listingTitle: order.listing?.title ?? 'کالا',
+              buyerRefundAmount: buyerShare,
+              sellerRefundAmount: sellerShare,
+              trustPenaltyPoints: 15,
+            });
+          } else if (
+            order.type === OrderType.EXCHANGE &&
+            exchangeOnlyOneSent &&
+            oneSideRefundSummary
+          ) {
+            const senderId = sellerSent ? order.sellerId : order.buyerId;
+            const offenderId = sellerSent ? order.buyerId : order.sellerId;
+            await this.createExchangeOneSideNoShipmentCancelTickets(tx, {
+              orderId: order.id,
+              buyerId: order.buyerId,
+              sellerId: order.sellerId,
+              senderId,
+              offenderId,
+              listingTitle: order.listing?.title ?? 'کالا',
+              senderRefundAmount: oneSideRefundSummary.senderRefund,
+              offenderRefundAmount: oneSideRefundSummary.offenderRefund,
+              compensationAmount: oneSideRefundSummary.compensation,
+              inspectionPenaltyPercent: exchangeNoShipmentCompensationPercent,
+              trustPenaltyPoints: 15,
+            });
+          } else if (
             isDirectShippingTimeoutCancel &&
             targetStatus === OrderStatus.CANCELLED
           ) {
@@ -2857,245 +3337,27 @@ export class OrdersService {
   @Cron(CronExpression.EVERY_HOUR)
   async autoCancelTimedOutExchangeCompletions() {
     const now = Date.now();
-    const noPaymentTimeoutHours = await this.getExchangeNoPaymentTimeoutHours();
-    const secondPaymentTimeoutHours =
-      await this.getExchangeSecondPaymentTimeoutHours();
+    const paymentDeadlineMinutes = await this.getExchangePaymentDeadlineMinutes();
     const timedOutAcceptedOffers = await this.prisma.exchangeOffer.findMany({
       where: {
         status: 'ACCEPTED',
       },
       include: {
         listing: {
-          select: { id: true, title: true, status: true },
+          select: { id: true, title: true, status: true, authorId: true },
         },
       },
     });
 
     for (const offer of timedOutAcceptedOffers) {
       try {
+        const paymentDeadlineMs =
+          new Date(offer.updatedAt).getTime() +
+          paymentDeadlineMinutes * 60 * 1000;
+        if (now < paymentDeadlineMs) continue;
+
         await this.prisma.$transaction(async (tx) => {
-          const linkedOrder = await tx.order.findFirst({
-            where: { exchangeOfferId: offer.id },
-          });
-
-          if (
-            linkedOrder &&
-            linkedOrder.status !== OrderStatus.AWAITING_PAYMENT &&
-            linkedOrder.status !== OrderStatus.PENDING
-          ) {
-            return;
-          }
-
-          const verificationFee = Number(linkedOrder?.verificationFee || 0);
-          const extra = Number(offer.extraPayment || 0);
-          const buyerShare = verificationFee + (offer.isPayerMe ? extra : 0);
-          const sellerShare = verificationFee + (!offer.isPayerMe ? extra : 0);
-          const buyerRefundable = Math.max(0, buyerShare - verificationFee);
-          const sellerRefundable = Math.max(0, sellerShare - verificationFee);
-          const expectedTotal = buyerShare + sellerShare;
-          const currentTotal = Number(linkedOrder?.totalAmount || 0);
-
-          const buyerAddressProvided = Boolean(linkedOrder?.shippingAddress);
-          const sellerAddressProvided = Boolean(
-            linkedOrder?.sellerShippingAddress,
-          );
-          const noOneStartedCheckout =
-            !linkedOrder ||
-            (!buyerAddressProvided &&
-              !sellerAddressProvided &&
-              currentTotal <= 0);
-          const oneSideProgressed =
-            !!linkedOrder &&
-            (buyerAddressProvided ||
-              sellerAddressProvided ||
-              currentTotal > 0) &&
-            currentTotal < expectedTotal;
-
-          const noPaymentDeadlineMs =
-            new Date(offer.updatedAt).getTime() +
-            noPaymentTimeoutHours * 60 * 60 * 1000;
-          const secondPaymentDeadlineMs = linkedOrder
-            ? new Date(linkedOrder.updatedAt).getTime() +
-              secondPaymentTimeoutHours * 60 * 60 * 1000
-            : 0;
-
-          const shouldCancelForNoPayment =
-            noOneStartedCheckout && now >= noPaymentDeadlineMs;
-          const shouldCancelForSecondPaymentDelay =
-            oneSideProgressed && now >= secondPaymentDeadlineMs;
-          if (!shouldCancelForNoPayment && !shouldCancelForSecondPaymentDelay) {
-            return;
-          }
-
-          const shouldRefundBuyerFullShare =
-            shouldCancelForSecondPaymentDelay &&
-            Boolean(linkedOrder?.shippingAddress) &&
-            !Boolean(linkedOrder?.sellerShippingAddress);
-          const shouldRefundSellerFullShare =
-            shouldCancelForSecondPaymentDelay &&
-            Boolean(linkedOrder?.sellerShippingAddress) &&
-            !Boolean(linkedOrder?.shippingAddress);
-
-          const buyerRefundAmount = shouldRefundBuyerFullShare
-            ? buyerShare
-            : buyerRefundable;
-          const sellerRefundAmount = shouldRefundSellerFullShare
-            ? sellerShare
-            : sellerRefundable;
-
-          if (linkedOrder?.shippingAddress && buyerRefundAmount > 0) {
-            await tx.wallet.upsert({
-              where: { userId: linkedOrder.buyerId },
-              create: {
-                userId: linkedOrder.buyerId,
-                balanceAvailable: buyerRefundAmount,
-                balanceBlocked: 0,
-              },
-              update: {
-                balanceAvailable: { increment: buyerRefundAmount },
-              },
-            });
-            await tx.walletTransaction.create({
-              data: {
-                wallet: { connect: { userId: linkedOrder.buyerId } },
-                amount: buyerRefundAmount,
-                type: WalletTransactionType.DEPOSIT,
-                status: WalletTransactionStatus.SUCCESS,
-                referenceId: linkedOrder.id,
-                meta: {
-                  kind: 'exchange-timeout-refund',
-                  fullPaidShareRefunded: shouldRefundBuyerFullShare,
-                  description: shouldRefundBuyerFullShare
-                    ? 'بازگشت کامل سهم پرداختی به‌دلیل عدم پرداخت طرف مقابل در مهلت مقرر'
-                    : 'بازگشت وجه به‌دلیل عدم تکمیل معاوضه در مهلت ۴۸ ساعته (بدون عودت کارشناسی)',
-                },
-              },
-            });
-          }
-
-          if (linkedOrder?.sellerShippingAddress && sellerRefundAmount > 0) {
-            await tx.wallet.upsert({
-              where: { userId: linkedOrder.sellerId },
-              create: {
-                userId: linkedOrder.sellerId,
-                balanceAvailable: sellerRefundAmount,
-                balanceBlocked: 0,
-              },
-              update: {
-                balanceAvailable: { increment: sellerRefundAmount },
-              },
-            });
-            await tx.walletTransaction.create({
-              data: {
-                wallet: { connect: { userId: linkedOrder.sellerId } },
-                amount: sellerRefundAmount,
-                type: WalletTransactionType.DEPOSIT,
-                status: WalletTransactionStatus.SUCCESS,
-                referenceId: linkedOrder.id,
-                meta: {
-                  kind: 'exchange-timeout-refund',
-                  fullPaidShareRefunded: shouldRefundSellerFullShare,
-                  description: shouldRefundSellerFullShare
-                    ? 'بازگشت کامل سهم پرداختی به‌دلیل عدم پرداخت طرف مقابل در مهلت مقرر'
-                    : 'بازگشت وجه به‌دلیل عدم تکمیل معاوضه در مهلت ۴۸ ساعته (بدون عودت کارشناسی)',
-                },
-              },
-            });
-          }
-
-          if (linkedOrder) {
-            let payerToPenalize: string | null = null;
-            if (shouldCancelForSecondPaymentDelay) {
-              if (
-                linkedOrder.shippingAddress &&
-                !linkedOrder.sellerShippingAddress
-              ) {
-                payerToPenalize = linkedOrder.sellerId;
-              } else if (
-                linkedOrder.sellerShippingAddress &&
-                !linkedOrder.shippingAddress
-              ) {
-                payerToPenalize = linkedOrder.buyerId;
-              }
-            }
-            if (payerToPenalize) {
-              await tx.user.update({
-                where: { id: payerToPenalize },
-                data: { trustScore: { decrement: 10 } },
-              });
-            }
-            const prevExchangePayTimeout = linkedOrder.status;
-            await tx.order.update({
-              where: { id: linkedOrder.id },
-              data: {
-                status: OrderStatus.CANCELLED,
-                cancelReason: shouldCancelForNoPayment
-                  ? 'تا ۲۴ ساعت پس از پذیرش معاوضه هیچ پرداختی انجام نشد'
-                  : 'پس از پرداخت نفر اول، طرف مقابل در مهلت ۴۸ ساعته پرداخت را تکمیل نکرد',
-              },
-            });
-            await this.orderReputation.recordTerminalOutcome(
-              tx,
-              {
-                id: linkedOrder.id,
-                buyerId: linkedOrder.buyerId,
-                sellerId: linkedOrder.sellerId,
-                tradeReputationAt: linkedOrder.tradeReputationAt,
-              },
-              prevExchangePayTimeout,
-              'FAILURE',
-              payerToPenalize
-                ? {
-                    failurePenalizeUserIds: [payerToPenalize],
-                    ignoreEarlyAbort: true,
-                  }
-                : undefined,
-            );
-          }
-
-          const waitlistedOfferers = await tx.exchangeOffer.findMany({
-            where: {
-              listingId: offer.listingId,
-              status: ExchangeOfferStatus.WAITLISTED,
-            },
-            select: { offererId: true },
-          });
-          const waitlistedUserIds = [
-            ...new Set(waitlistedOfferers.map((r) => r.offererId)),
-          ];
-
-          await tx.exchangeOffer.update({
-            where: { id: offer.id },
-            data: { status: ExchangeOfferStatus.CANCELLED },
-          });
-
-          await tx.exchangeOffer.updateMany({
-            where: {
-              listingId: offer.listingId,
-              status: ExchangeOfferStatus.WAITLISTED,
-            },
-            data: { status: ExchangeOfferStatus.PENDING },
-          });
-
-          await tx.listing.update({
-            where: { id: offer.listingId },
-            data: { status: ListingStatus.APPROVED },
-          });
-
-          if (waitlistedUserIds.length > 0) {
-            await tx.notification.createMany({
-              data: waitlistedUserIds.map((uid) => ({
-                userId: uid,
-                type: NotificationType.SYSTEM,
-                title: 'پیشنهاد شما دوباره در انتظار بررسی است',
-                message: `مهلت تکمیل معاوضه برای «${offer.listing?.title ?? 'این آگهی'}» به پایان رسید. پیشنهاد شما از صف انتظار فعال شد و فروشنده می‌تواند دوباره یکی از درخواست‌ها را انتخاب کند.`,
-                meta: {
-                  listingId: offer.listingId,
-                  reason: 'exchange-timeout-waitlist-restore',
-                } as Prisma.InputJsonValue,
-              })),
-            });
-          }
+          await this.processExchangePaymentTimeoutInTx(tx, offer, now);
         });
       } catch (error) {
         console.error(
@@ -3104,6 +3366,246 @@ export class OrdersService {
         );
       }
     }
+  }
+
+  private async processExchangePaymentTimeoutInTx(
+    tx: Prisma.TransactionClient,
+    offer: {
+      id: string;
+      listingId: string;
+      isPayerMe: boolean;
+      extraPayment: unknown;
+      offererId: string;
+      listing: { id: string; title: string | null; authorId: string } | null;
+    },
+    _now: number,
+  ): Promise<void> {
+    const linkedOrder = await tx.order.findFirst({
+      where: { exchangeOfferId: offer.id },
+    });
+
+    if (
+      linkedOrder &&
+      linkedOrder.status !== OrderStatus.AWAITING_PAYMENT &&
+      linkedOrder.status !== OrderStatus.PENDING
+    ) {
+      return;
+    }
+
+    const listingTitle = offer.listing?.title ?? 'کالا';
+    const sellerId = offer.listing?.authorId;
+    if (!sellerId) return;
+
+    const verificationFee = Number(linkedOrder?.verificationFee || 0);
+    const extra = Number(offer.extraPayment || 0);
+    const buyerShare = verificationFee + (offer.isPayerMe ? extra : 0);
+    const sellerShare = verificationFee + (!offer.isPayerMe ? extra : 0);
+    const expectedTotal = buyerShare + sellerShare;
+    const currentTotal = Number(linkedOrder?.totalAmount || 0);
+    const offererId = offer.offererId;
+
+    let buyerPaidAmount = 0;
+    let sellerPaidAmount = 0;
+    if (linkedOrder) {
+      buyerPaidAmount = await this.walletService.resolveExchangeParticipantPaidAmount(
+        tx,
+        {
+          participantUserId: linkedOrder.buyerId,
+          orderId: linkedOrder.id,
+          listingId: offer.listingId,
+        },
+      );
+      sellerPaidAmount = await this.walletService.resolveExchangeParticipantPaidAmount(
+        tx,
+        {
+          participantUserId: linkedOrder.sellerId,
+          orderId: linkedOrder.id,
+          listingId: offer.listingId,
+        },
+      );
+    }
+
+    const buyerPaidFully =
+      currentTotal >= buyerShare &&
+      Boolean(linkedOrder?.shippingAddress) &&
+      buyerPaidAmount >= buyerShare;
+    const sellerPaidFully =
+      currentTotal >= expectedTotal &&
+      Boolean(linkedOrder?.sellerShippingAddress) &&
+      sellerPaidAmount >= sellerShare;
+
+    if (buyerPaidFully && sellerPaidFully) {
+      return;
+    }
+
+    type PaymentTimeoutScenario =
+      | 'neither_paid'
+      | 'buyer_paid_only'
+      | 'seller_paid_only'
+      | 'both_incomplete';
+
+    let scenario: PaymentTimeoutScenario;
+    let offenderIds: string[] = [];
+    let rejectListing = false;
+    let restoreWaitlisted = false;
+
+    if (buyerPaidAmount <= 0 && sellerPaidAmount <= 0) {
+      scenario = 'neither_paid';
+      offenderIds = linkedOrder
+        ? [linkedOrder.buyerId, linkedOrder.sellerId]
+        : [offererId, sellerId];
+      rejectListing = true;
+    } else if (buyerPaidAmount > 0 && sellerPaidAmount <= 0) {
+      scenario = 'buyer_paid_only';
+      offenderIds = [linkedOrder?.sellerId ?? sellerId];
+      rejectListing = true;
+    } else if (sellerPaidAmount > 0 && buyerPaidAmount <= 0) {
+      scenario = 'seller_paid_only';
+      offenderIds = [linkedOrder?.buyerId ?? offererId];
+      restoreWaitlisted = true;
+    } else {
+      scenario = 'both_incomplete';
+      if (!buyerPaidFully) {
+        offenderIds.push(linkedOrder!.buyerId);
+      }
+      if (!sellerPaidFully) {
+        offenderIds.push(linkedOrder!.sellerId);
+      }
+      offenderIds = [...new Set(offenderIds)];
+      rejectListing = offenderIds.includes(linkedOrder!.sellerId);
+      restoreWaitlisted =
+        offenderIds.length === 1 && offenderIds[0] === linkedOrder!.buyerId;
+    }
+
+    const penalty = OrdersService.EXCHANGE_PAYMENT_TIMEOUT_TRUST_PENALTY;
+    for (const uid of offenderIds) {
+      await tx.user.update({
+        where: { id: uid },
+        data: { trustScore: { decrement: penalty } },
+      });
+    }
+
+    let buyerRefund = 0;
+    let sellerRefund = 0;
+    if (linkedOrder) {
+      const refunds = await this.walletService.refundExchangePaymentTimeoutOnCancel(
+        tx,
+        {
+          orderId: linkedOrder.id,
+          listingId: offer.listingId,
+          buyerId: linkedOrder.buyerId,
+          sellerId: linkedOrder.sellerId,
+          refundBuyer: buyerPaidAmount > 0,
+          refundSeller: sellerPaidAmount > 0,
+        },
+      );
+      buyerRefund = refunds.buyerRefund;
+      sellerRefund = refunds.sellerRefund;
+
+      const prevExchangePayTimeout = linkedOrder.status;
+      const cancelReason =
+        scenario === 'neither_paid'
+          ? 'اتمام مهلت پرداخت پس از پذیرش معاوضه؛ هیچ‌یک از طرفین پرداخت را تکمیل نکردند'
+          : scenario === 'buyer_paid_only'
+            ? 'اتمام مهلت پرداخت؛ فروشنده (صاحب آگهی) سهم خود را پرداخت نکرد'
+            : scenario === 'seller_paid_only'
+              ? 'اتمام مهلت پرداخت؛ پیشنهاددهنده سهم خود را پرداخت نکرد'
+              : 'اتمام مهلت پرداخت؛ معامله به‌طور کامل تسویه نشد';
+
+      await tx.order.update({
+        where: { id: linkedOrder.id },
+        data: { status: OrderStatus.CANCELLED, cancelReason },
+      });
+      await this.orderReputation.recordTerminalOutcome(
+        tx,
+        {
+          id: linkedOrder.id,
+          buyerId: linkedOrder.buyerId,
+          sellerId: linkedOrder.sellerId,
+          tradeReputationAt: linkedOrder.tradeReputationAt,
+        },
+        prevExchangePayTimeout,
+        'FAILURE',
+        offenderIds.length
+          ? { failurePenalizeUserIds: offenderIds, ignoreEarlyAbort: true }
+          : undefined,
+      );
+    }
+
+    await tx.exchangeOffer.update({
+      where: { id: offer.id },
+      data: { status: ExchangeOfferStatus.CANCELLED },
+    });
+
+    if (rejectListing) {
+      await this.rejectListingAfterShippingTimeoutCancel(tx, {
+        listingId: offer.listingId,
+        sellerId,
+        listingTitle,
+        rejectionReason:
+          scenario === 'neither_paid'
+            ? 'معامله معاوضه به‌دلیل عدم پرداخت هر دو طرف در مهلت مقرر لغو شد. آگهی از انتشار خارج شد؛ برای فروش مجدد آن را ویرایش و دوباره ثبت کنید.'
+            : 'معامله معاوضه به‌دلیل عدم پرداخت فروشنده در مهلت مقرر لغو شد. آگهی از انتشار خارج شد؛ برای فروش مجدد آن را ویرایش و دوباره ثبت کنید.',
+        orderId: linkedOrder?.id,
+      });
+    } else if (restoreWaitlisted) {
+      await tx.listing.update({
+        where: { id: offer.listingId },
+        data: { status: ListingStatus.APPROVED },
+      });
+
+      await tx.exchangeOffer.updateMany({
+        where: {
+          listingId: offer.listingId,
+          status: ExchangeOfferStatus.WAITLISTED,
+        },
+        data: { status: ExchangeOfferStatus.PENDING },
+      });
+
+      const waitlistedOfferers = await tx.exchangeOffer.findMany({
+        where: {
+          listingId: offer.listingId,
+          status: ExchangeOfferStatus.PENDING,
+          id: { not: offer.id },
+        },
+        select: { offererId: true },
+      });
+      const waitlistedUserIds = [
+        ...new Set(waitlistedOfferers.map((r) => r.offererId)),
+      ];
+      if (waitlistedUserIds.length > 0) {
+        await tx.notification.createMany({
+          data: waitlistedUserIds.map((uid) => ({
+            userId: uid,
+            type: NotificationType.SYSTEM,
+            title: 'پیشنهاد شما دوباره در انتظار بررسی است',
+            message: `مهلت پرداخت معاوضه برای «${listingTitle}» به پایان رسید. پیشنهاد شما دوباره فعال شد و فروشنده می‌تواند یکی از درخواست‌ها را انتخاب کند.`,
+            meta: {
+              listingId: offer.listingId,
+              reason: 'exchange-payment-timeout-waitlist-restore',
+            } as Prisma.InputJsonValue,
+          })),
+        });
+      }
+    } else {
+      await tx.listing.update({
+        where: { id: offer.listingId },
+        data: { status: ListingStatus.APPROVED },
+      });
+    }
+
+    const ticketBuyerId = linkedOrder?.buyerId ?? offererId;
+    const ticketSellerId = linkedOrder?.sellerId ?? sellerId;
+    await this.createExchangePaymentTimeoutCancelTickets(tx, {
+      orderId: linkedOrder?.id ?? null,
+      buyerId: ticketBuyerId,
+      sellerId: ticketSellerId,
+      listingTitle,
+      scenario,
+      buyerRefundAmount: buyerRefund,
+      sellerRefundAmount: sellerRefund,
+      offenderIds,
+    });
   }
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -3458,6 +3960,21 @@ export class OrdersService {
     return Math.max(0, parsed);
   }
 
+  private async getExchangePaymentDeadlineMinutes(): Promise<number> {
+    const minutesSetting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'EXCHANGE_PAYMENT_DEADLINE_MINUTES' },
+      select: { value: true },
+    });
+    if (minutesSetting?.value?.trim()) {
+      return this.parsePositiveIntSetting(
+        minutesSetting.value,
+        OrdersService.DEFAULT_EXCHANGE_PAYMENT_DEADLINE_MINUTES,
+      );
+    }
+    const hours = await this.getExchangeNoPaymentTimeoutHours();
+    return hours * 60;
+  }
+
   private async getExchangeNoPaymentTimeoutHours(): Promise<number> {
     const setting = await this.prisma.systemSetting.findUnique({
       where: { key: 'EXCHANGE_NO_PAYMENT_TIMEOUT_HOURS' },
@@ -3478,6 +3995,21 @@ export class OrdersService {
       setting?.value,
       OrdersService.DEFAULT_EXCHANGE_SECOND_PAYMENT_TIMEOUT_HOURS,
     );
+  }
+
+  private async getExchangeShipmentDeadlineMinutes(): Promise<number> {
+    const minutesSetting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'EXCHANGE_SHIP_DEADLINE_MINUTES' },
+      select: { value: true },
+    });
+    if (minutesSetting?.value?.trim()) {
+      return this.parsePositiveIntSetting(
+        minutesSetting.value,
+        OrdersService.DEFAULT_SELLER_SHIP_DEADLINE_MINUTES,
+      );
+    }
+    const hours = await this.getExchangeShipmentTimeoutHours();
+    return hours * 60;
   }
 
   private async getExchangeShipmentTimeoutHours(): Promise<number> {
