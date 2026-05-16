@@ -568,7 +568,9 @@ export class InspectionCertificateService implements OnModuleDestroy {
 
     this.browserPromise = (async () => {
       const puppeteer = await import('puppeteer');
-      const executablePath = this.resolveChromiumExecutablePath();
+      const executablePath = this.resolveChromiumExecutablePath(
+        puppeteer.default,
+      );
       const browser = await puppeteer.default.launch({
         executablePath: executablePath || undefined,
         headless: true,
@@ -593,9 +595,11 @@ export class InspectionCertificateService implements OnModuleDestroy {
 
   /**
    * مسیر اجرایی کرومیوم/کروم/اج را پیدا می‌کنیم.
-   * اولویت: env var → puppeteer cache → مسیرهای رایج ویندوز/لینوکس.
+   * اولویت: env var → مسیرهای رایج سیستم → Chromium باندل Puppeteer.
    */
-  private resolveChromiumExecutablePath(): string | null {
+  private resolveChromiumExecutablePath(
+    puppeteerModule?: { executablePath: (channel?: string) => string },
+  ): string | null {
     const envPath =
       process.env.PUPPETEER_EXECUTABLE_PATH ||
       process.env.CHROME_PATH ||
@@ -627,6 +631,19 @@ export class InspectionCertificateService implements OnModuleDestroy {
     for (const path of candidates) {
       if (existsSync(path)) return path;
     }
+
+    if (puppeteerModule) {
+      try {
+        const bundled = puppeteerModule.executablePath();
+        if (bundled && existsSync(bundled)) return bundled;
+      } catch (err) {
+        this.logger.warn(
+          'Chromium باندل Puppeteer در دسترس نیست',
+          err as Error,
+        );
+      }
+    }
+
     return null;
   }
 
