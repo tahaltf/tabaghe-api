@@ -8,11 +8,12 @@
   Post,
   Query,
   Req,
+  Res,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -23,6 +24,10 @@ import { AuthenticatedUser } from '../../shared/contracts/auth';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OrdersCommandService } from './orders-command.service';
 import { OrdersQueryService } from './orders-query.service';
+import {
+  InspectionCertificateService,
+  InspectionCertificateSide,
+} from './inspection-certificate.service';
 
 function readMultipartTextField(req: Request, key: string): string {
   const raw = (req.body as Record<string, unknown> | undefined)?.[key];
@@ -37,6 +42,7 @@ export class OrdersController {
   constructor(
     private readonly commandService: OrdersCommandService,
     private readonly queryService: OrdersQueryService,
+    private readonly inspectionCertificate: InspectionCertificateService,
   ) {}
 
   @Post()
@@ -159,5 +165,39 @@ export class OrdersController {
       reason,
       video?.filename,
     );
+  }
+
+  /**
+   * دانلود گواهی کارشناسی PDF برای صاحب کالا.
+   * - برای DIRECT/AUCTION: side نادیده گرفته می‌شود.
+   * - برای EXCHANGE: side باید LISTING یا OFFER باشد (کالای فروشنده / کالای پیشنهاددهنده).
+   */
+  @Get(':id/inspection-certificate')
+  async downloadInspectionCertificate(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+    @Query('side') sideRaw?: string,
+  ) {
+    const allowedSides: InspectionCertificateSide[] = ['LISTING', 'OFFER'];
+    const side =
+      sideRaw && allowedSides.includes(sideRaw as InspectionCertificateSide)
+        ? (sideRaw as InspectionCertificateSide)
+        : undefined;
+
+    const { pdf, filename } =
+      await this.inspectionCertificate.generateInspectionCertificatePdf({
+        orderId: id,
+        requesterUserId: user.id,
+        side,
+      });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${filename}"`,
+    );
+    res.setHeader('Content-Length', String(pdf.length));
+    res.end(pdf);
   }
 }

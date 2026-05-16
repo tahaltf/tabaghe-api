@@ -15,6 +15,7 @@ import { OrdersQueryService } from './orders-query.service';
 import { OrdersService } from './orders.service';
 import { OrdersStateMachineService } from './orders-state-machine.service';
 import { OrderReputationService } from './order-reputation.service';
+import { InspectionCertificateService } from './inspection-certificate.service';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { OrderReputationService } from './order-reputation.service';
     OrdersCommandService,
     OrdersAdminService,
     OrderReputationService,
+    InspectionCertificateService,
   ],
   exports: [OrderReputationService, OrdersService],
 })

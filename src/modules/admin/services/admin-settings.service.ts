@@ -12,6 +12,7 @@ import {
 } from '../dto/admin-setting.dto';
 import { BANNER_UPLOAD_PATH } from '../../../common/upload/banner-upload.config';
 import { BRAND_LOGO_UPLOAD_PATH } from '../../../common/upload/brand-logo-upload.config';
+import { INSPECTION_CERTIFICATE_ASSET_UPLOAD_PATH } from '../../../common/upload/inspection-certificate-asset-upload.config';
 
 export const SETTING_KEYS = {
   HOMEPAGE_BANNER: 'HOMEPAGE_BANNER',
@@ -59,7 +60,34 @@ export const SETTING_KEYS = {
   AUCTION_ALERT_PENDING_THRESHOLD: 'AUCTION_ALERT_PENDING_THRESHOLD',
   AUCTION_ALERT_FAILED_THRESHOLD: 'AUCTION_ALERT_FAILED_THRESHOLD',
   AUCTION_ALERT_COOLDOWN_MINUTES: 'AUCTION_ALERT_COOLDOWN_MINUTES',
+  INSPECTION_CERTIFICATE_TITLE: 'INSPECTION_CERTIFICATE_TITLE',
+  INSPECTION_CERTIFICATE_BODY: 'INSPECTION_CERTIFICATE_BODY',
+  INSPECTION_CERTIFICATE_FOOTER: 'INSPECTION_CERTIFICATE_FOOTER',
+  INSPECTION_CERTIFICATE_LOGO: 'INSPECTION_CERTIFICATE_LOGO',
+  INSPECTION_CERTIFICATE_STAMP: 'INSPECTION_CERTIFICATE_STAMP',
 } as const;
+
+/**
+ * متن پیش‌فرض گواهی کارشناسی. ادمین می‌تواند از پنل ادیت کند.
+ * Placeholderهای پشتیبانی‌شده توسط InspectionCertificateService جایگزین می‌شوند.
+ */
+export const DEFAULT_INSPECTION_CERTIFICATE_TITLE = 'گواهی کارشناسی کالا';
+export const DEFAULT_INSPECTION_CERTIFICATE_BODY = `بدینوسیله گواهی می‌شود کالای زیر متعلق به جناب/سرکار خانم {{ownerName}} با شناسه ملی {{ownerNationalCode}} توسط کارشناسان مرکز پردازش طبقه مورد بررسی فنی و سلامت قرار گرفته و سالم و مطابق با مشخصات اعلامی تایید گردید.
+
+مشخصات کالا:
+- عنوان: {{itemTitle}}
+- دسته‌بندی: {{categoryTitle}}
+- وضعیت: {{itemCondition}}
+- شماره سفارش: {{orderId}}
+- شماره گواهی: {{certificateNumber}}
+- تاریخ کارشناسی: {{verifiedDate}}
+
+نتیجه کارشناسی: {{inspectionResult}}
+
+این گواهی صرفاً جهت اعلام نتیجه بررسی فنی توسط کارشناسان طبقه صادر شده و معتبر می‌باشد.`;
+export const DEFAULT_INSPECTION_CERTIFICATE_FOOTER = `مرکز پردازش و کارشناسی طبقه
+آدرس: {{platformAddress}}
+تلفن پشتیبانی: {{supportPhone}}`;
 
 export type SettingKey = keyof typeof SETTING_KEYS;
 
@@ -120,6 +148,15 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   AUCTION_ALERT_FAILED_THRESHOLD: 'آستانه هشدار تعداد مزایده‌های شکست‌خورده',
   AUCTION_ALERT_COOLDOWN_MINUTES:
     'حداقل فاصله زمانی بین alertهای سلامت مزایده (دقیقه)',
+  INSPECTION_CERTIFICATE_TITLE:
+    'عنوان گواهی کارشناسی کالا (نمایش بالای گواهی PDF)',
+  INSPECTION_CERTIFICATE_BODY:
+    'متن اصلی گواهی کارشناسی؛ از placeholderهایی مثل {{ownerName}}, {{itemTitle}}, {{verifiedDate}} پشتیبانی می‌کند',
+  INSPECTION_CERTIFICATE_FOOTER:
+    'پاورقی گواهی کارشناسی (نام مرکز، آدرس، تلفن پشتیبانی)',
+  INSPECTION_CERTIFICATE_LOGO: 'فایل لوگوی بالای گواهی کارشناسی PDF',
+  INSPECTION_CERTIFICATE_STAMP:
+    'فایل تصویر مهر/امضای پایین گواهی کارشناسی PDF',
 };
 
 @Injectable()
@@ -279,6 +316,36 @@ export class AdminSettingsService {
     return this.setBrandLogoByKey(SETTING_KEYS.ADMIN_PANEL_LOGO, filename);
   }
 
+  async setInspectionCertificateLogo(filename: string) {
+    if (!filename)
+      throw new BadRequestException('فایل لوگوی گواهی نامعتبر است');
+    return this.setInspectionCertAssetByKey(
+      SETTING_KEYS.INSPECTION_CERTIFICATE_LOGO,
+      filename,
+    );
+  }
+
+  async setInspectionCertificateStamp(filename: string) {
+    if (!filename)
+      throw new BadRequestException('فایل مهر گواهی نامعتبر است');
+    return this.setInspectionCertAssetByKey(
+      SETTING_KEYS.INSPECTION_CERTIFICATE_STAMP,
+      filename,
+    );
+  }
+
+  async removeInspectionCertificateLogo() {
+    return this.clearInspectionCertAssetByKey(
+      SETTING_KEYS.INSPECTION_CERTIFICATE_LOGO,
+    );
+  }
+
+  async removeInspectionCertificateStamp() {
+    return this.clearInspectionCertAssetByKey(
+      SETTING_KEYS.INSPECTION_CERTIFICATE_STAMP,
+    );
+  }
+
   async removeMediaFallbackLogo() {
     const existing = await this.prisma.systemSetting.findUnique({
       where: { key: SETTING_KEYS.MEDIA_FALLBACK_LOGO },
@@ -377,6 +444,56 @@ export class AdminSettingsService {
       where: { key },
     });
     if (existing?.value) this.deleteBrandLogoFile(existing.value);
+
+    await this.prisma.systemSetting.upsert({
+      where: { key },
+      update: { value: '' },
+      create: {
+        key,
+        value: '',
+        description: KNOWN_DESCRIPTIONS[key] ?? null,
+      },
+    });
+    return { ok: true };
+  }
+
+  private deleteInspectionCertAssetFile(filename: string) {
+    try {
+      const safeName = filename.split(/[\\/]/).pop();
+      if (!safeName) return;
+      const fullPath = join(
+        process.cwd(),
+        INSPECTION_CERTIFICATE_ASSET_UPLOAD_PATH.replace(/^\.\//, ''),
+        safeName,
+      );
+      if (existsSync(fullPath)) {
+        unlink(fullPath, () => undefined);
+      }
+    } catch {
+      // non-fatal
+    }
+  }
+
+  private async setInspectionCertAssetByKey(key: string, filename: string) {
+    const previous = await this.prisma.systemSetting.findUnique({
+      where: { key },
+    });
+    if (previous?.value && previous.value !== filename) {
+      this.deleteInspectionCertAssetFile(previous.value);
+    }
+
+    return this.upsert({
+      key,
+      value: filename,
+      description: KNOWN_DESCRIPTIONS[key],
+    });
+  }
+
+  private async clearInspectionCertAssetByKey(key: string) {
+    const existing = await this.prisma.systemSetting.findUnique({
+      where: { key },
+    });
+    if (existing?.value) this.deleteInspectionCertAssetFile(existing.value);
 
     await this.prisma.systemSetting.upsert({
       where: { key },
