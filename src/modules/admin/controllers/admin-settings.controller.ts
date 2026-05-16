@@ -23,6 +23,7 @@ import {
 } from '../dto/admin-setting.dto';
 import { bannerMulterOptions } from '../../../common/upload/banner-upload.config';
 import { brandLogoMulterOptions } from '../../../common/upload/brand-logo-upload.config';
+import { inspectionCertificateAssetMulterOptions } from '../../../common/upload/inspection-certificate-asset-upload.config';
 
 @Controller('admin/settings')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -96,6 +97,38 @@ export class AdminSettingsController {
   @Delete('admin-logo')
   removeAdminLogo() {
     return this.service.removeAdminPanelLogo();
+  }
+
+  @Post('inspection-certificate-logo')
+  @UseInterceptors(
+    FileInterceptor('file', inspectionCertificateAssetMulterOptions),
+  )
+  async uploadInspectionCertificateLogo(
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('فایلی ارسال نشده است');
+    return this.service.setInspectionCertificateLogo(file.filename);
+  }
+
+  @Delete('inspection-certificate-logo')
+  removeInspectionCertificateLogo() {
+    return this.service.removeInspectionCertificateLogo();
+  }
+
+  @Post('inspection-certificate-stamp')
+  @UseInterceptors(
+    FileInterceptor('file', inspectionCertificateAssetMulterOptions),
+  )
+  async uploadInspectionCertificateStamp(
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('فایلی ارسال نشده است');
+    return this.service.setInspectionCertificateStamp(file.filename);
+  }
+
+  @Delete('inspection-certificate-stamp')
+  removeInspectionCertificateStamp() {
+    return this.service.removeInspectionCertificateStamp();
   }
 
   @Delete(':key')
