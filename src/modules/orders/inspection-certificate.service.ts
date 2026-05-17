@@ -18,6 +18,7 @@ import {
   DEFAULT_INSPECTION_CERTIFICATE_TITLE,
   SETTING_KEYS,
 } from '../admin/services/admin-settings.service';
+import { BRAND_LOGO_UPLOAD_PATH } from '../../common/upload/brand-logo-upload.config';
 import { INSPECTION_CERTIFICATE_ASSET_UPLOAD_PATH } from '../../common/upload/inspection-certificate-asset-upload.config';
 import {
   buildInspectionCertificateHtml,
@@ -206,7 +207,10 @@ export class InspectionCertificateService implements OnModuleDestroy {
       title: this.applyPlaceholders(settings.title, context),
       body: this.applyPlaceholders(settings.body, context),
       footer: this.applyPlaceholders(settings.footer, context),
-      logoDataUri: this.fileToDataUri(settings.logoFilename),
+      logoDataUri: this.resolveCertificateLogoDataUri(
+        settings.logoFilename,
+        settings.userAppLogoFilename,
+      ),
       stampDataUri: this.fileToDataUri(settings.stampFilename),
       context,
       palette: settings.palette,
@@ -227,6 +231,7 @@ export class InspectionCertificateService implements OnModuleDestroy {
       SETTING_KEYS.INSPECTION_CERTIFICATE_FOOTER,
       SETTING_KEYS.INSPECTION_CERTIFICATE_LOGO,
       SETTING_KEYS.INSPECTION_CERTIFICATE_STAMP,
+      SETTING_KEYS.USER_APP_LOGO,
       SETTING_KEYS.PLATFORM_ADDRESS,
       SETTING_KEYS.SUPPORT_PHONE,
       THEME_PALETTE_SETTING_KEY,
@@ -248,6 +253,8 @@ export class InspectionCertificateService implements OnModuleDestroy {
         DEFAULT_INSPECTION_CERTIFICATE_FOOTER,
       logoFilename:
         map.get(SETTING_KEYS.INSPECTION_CERTIFICATE_LOGO)?.trim() || '',
+      userAppLogoFilename:
+        map.get(SETTING_KEYS.USER_APP_LOGO)?.trim() || '',
       stampFilename:
         map.get(SETTING_KEYS.INSPECTION_CERTIFICATE_STAMP)?.trim() || '',
       platformAddress: map.get(SETTING_KEYS.PLATFORM_ADDRESS)?.trim() || '',
@@ -404,13 +411,30 @@ export class InspectionCertificateService implements OnModuleDestroy {
     }
   }
 
-  private fileToDataUri(filename: string): string | null {
+  /** لوگوی اختصاصی گواهی؛ در صورت نبود، لوگوی هدر (USER_APP_LOGO) استفاده می‌شود. */
+  private resolveCertificateLogoDataUri(
+    certificateLogoFilename: string,
+    userAppLogoFilename: string,
+  ): string | null {
+    return (
+      this.fileToDataUri(
+        certificateLogoFilename,
+        INSPECTION_CERTIFICATE_ASSET_UPLOAD_PATH,
+      ) ??
+      this.fileToDataUri(userAppLogoFilename, BRAND_LOGO_UPLOAD_PATH)
+    );
+  }
+
+  private fileToDataUri(
+    filename: string,
+    uploadPath: string = INSPECTION_CERTIFICATE_ASSET_UPLOAD_PATH,
+  ): string | null {
     if (!filename) return null;
     const safeName = filename.split(/[\\/]/).pop();
     if (!safeName) return null;
     const fullPath = join(
       process.cwd(),
-      INSPECTION_CERTIFICATE_ASSET_UPLOAD_PATH.replace(/^\.\//, ''),
+      uploadPath.replace(/^\.\//, ''),
       safeName,
     );
     if (!existsSync(fullPath)) return null;

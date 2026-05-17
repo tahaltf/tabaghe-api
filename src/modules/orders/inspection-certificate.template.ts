@@ -69,17 +69,19 @@ export function buildInspectionCertificateHtml(
 
   const logoBlock = logoDataUri
     ? `<img class="cert-logo" src="${logoDataUri}" alt="طبقه"/>`
-    : `<div class="cert-logo-text">طَبَقـه</div>`;
+    : `<div class="cert-logo-wordmark"><span class="cert-logo-word">طَبَقـه</span><span class="cert-logo-tag">MARKETPLACE</span></div>`;
 
   const stampBlock = stampDataUri
     ? `<img class="cert-stamp" src="${stampDataUri}" alt="مهر"/>`
-    : '';
+    : `<div class="cert-stamp-placeholder" aria-hidden="true"></div>`;
 
-  const surfaceTint = hexWithAlpha(p.primary, 0.06);
-  const accentTint = hexWithAlpha(p.accent, 0.12);
-  const borderSoft = hexWithAlpha(p.primary, 0.14);
-  const borderDash = hexWithAlpha(p.primary, 0.2);
-  const signBorder = hexWithAlpha(p.primary, 0.25);
+  const surfaceTint = hexWithAlpha(p.primary, 0.05);
+  const accentTint = hexWithAlpha(p.accent, 0.1);
+  const accentSoft = hexWithAlpha(p.accent, 0.18);
+  const borderSoft = hexWithAlpha(p.primary, 0.12);
+  const borderDash = hexWithAlpha(p.primary, 0.18);
+  const signBorder = hexWithAlpha(p.primary, 0.22);
+  const headerGlow = hexWithAlpha(p.accent, 0.35);
 
   return `<!doctype html>
 <html lang="fa" dir="rtl">
@@ -96,14 +98,44 @@ export function buildInspectionCertificateHtml(
     overflow: hidden;
     font-family: 'Vazir FD-WOL', Tahoma, sans-serif;
     color: ${p.primary};
-    background: #fff;
+    background: #f8fafc;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-  .cert-page {
+  .cert-outer {
     width: 210mm;
     height: 297mm;
-    padding: 10mm 11mm 9mm;
+    padding: 7mm;
+    background: linear-gradient(145deg, ${surfaceTint} 0%, #fff 42%, ${hexWithAlpha(p.accent, 0.04)} 100%);
+  }
+  .cert-frame {
+    width: 100%;
+    height: 100%;
+    border: 2px solid ${borderSoft};
+    border-radius: 18px;
+    padding: 3mm;
+    background: #fff;
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,.9) inset,
+      0 18px 50px -28px ${hexWithAlpha(p.primary, 0.35)};
+    position: relative;
+    overflow: hidden;
+  }
+  .cert-frame::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 100% 0%, ${headerGlow} 0%, transparent 42%),
+      radial-gradient(circle at 0% 100%, ${hexWithAlpha(p.primary, 0.08)} 0%, transparent 38%);
+    pointer-events: none;
+  }
+  .cert-page {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    padding: 8mm 9mm 7mm;
     display: flex;
     flex-direction: column;
     page-break-after: avoid;
@@ -113,55 +145,140 @@ export function buildInspectionCertificateHtml(
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
-    background: linear-gradient(135deg, ${p.primary} 0%, ${p.primaryLight} 100%);
+    gap: 14px;
+    background: linear-gradient(120deg, ${p.primary} 0%, ${p.primaryLight} 55%, ${p.accent} 160%);
     color: #fff;
-    border-radius: 12px;
-    padding: 10px 14px;
+    border-radius: 14px;
+    padding: 14px 18px;
     flex-shrink: 0;
+    box-shadow: 0 12px 28px -14px ${hexWithAlpha(p.primary, 0.55)};
   }
-  .cert-logo { max-height: 44px; max-width: 130px; object-fit: contain; }
-  .cert-logo-text {
-    font-size: 22px;
+  .cert-logo-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+  .cert-logo {
+    max-height: 52px;
+    max-width: 150px;
+    object-fit: contain;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,.15));
+  }
+  .cert-logo-wordmark {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .cert-logo-word {
+    font-size: 24px;
     font-weight: 700;
-    border: 2px solid rgba(255,255,255,.35);
-    padding: 4px 12px;
-    border-radius: 8px;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
   }
-  .cert-top-meta { text-align: left; font-size: 9px; line-height: 1.65; min-width: 42%; }
-  .cert-top-meta strong { font-weight: 700; }
-  .cert-title-wrap { text-align: center; padding: 9px 0 7px; flex-shrink: 0; }
-  .cert-title { font-size: 19px; font-weight: 700; color: ${p.primary}; line-height: 1.35; }
-  .cert-title-bar { width: 56px; height: 3px; background: ${p.accent}; border-radius: 2px; margin: 6px auto 0; }
-  .cert-body {
-    font-size: 10.5px;
-    line-height: 1.72;
-    color: #334155;
-    text-align: justify;
-    padding: 0 2px;
-    flex: 0 1 auto;
-    max-height: 52mm;
-    overflow: hidden;
+  .cert-logo-tag {
+    font-size: 7px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    opacity: 0.85;
   }
-  .cert-info {
-    margin-top: 8px;
-    background: ${surfaceTint};
-    border: 1px solid ${borderSoft};
-    border-right: 3px solid ${p.accent};
+  .cert-top-meta {
+    text-align: left;
+    font-size: 9px;
+    line-height: 1.75;
+    min-width: 44%;
+    background: rgba(255,255,255,.12);
+    border: 1px solid rgba(255,255,255,.22);
     border-radius: 10px;
     padding: 8px 10px;
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 5px 10px;
+    backdrop-filter: blur(4px);
+  }
+  .cert-top-meta strong { font-weight: 700; }
+  .cert-badge-row {
+    display: flex;
+    justify-content: center;
+    margin-top: 10px;
     flex-shrink: 0;
   }
-  .cert-info .cell { min-width: 0; }
+  .cert-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    border-radius: 999px;
+    font-size: 8.5px;
+    font-weight: 700;
+    color: ${p.primary};
+    background: ${accentTint};
+    border: 1px solid ${accentSoft};
+  }
+  .cert-badge-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: ${p.accent};
+    box-shadow: 0 0 0 3px ${hexWithAlpha(p.accent, 0.25)};
+  }
+  .cert-title-wrap {
+    text-align: center;
+    padding: 12px 0 10px;
+    flex-shrink: 0;
+  }
+  .cert-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: ${p.primary};
+    line-height: 1.35;
+    letter-spacing: -0.01em;
+  }
+  .cert-title-bar {
+    width: 72px;
+    height: 4px;
+    background: linear-gradient(90deg, ${p.accent}, ${p.accentHover});
+    border-radius: 4px;
+    margin: 8px auto 0;
+  }
+  .cert-body-wrap {
+    flex: 0 1 auto;
+    max-height: 54mm;
+    overflow: hidden;
+    margin: 0 2px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: linear-gradient(180deg, ${surfaceTint}, #fff);
+    border: 1px solid ${borderSoft};
+  }
+  .cert-body {
+    font-size: 10.5px;
+    line-height: 1.85;
+    color: #334155;
+    text-align: justify;
+  }
+  .cert-info {
+    margin-top: 10px;
+    background: #fff;
+    border: 1px solid ${borderSoft};
+    border-radius: 12px;
+    padding: 10px 12px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px 12px;
+    flex-shrink: 0;
+    box-shadow: 0 8px 24px -18px ${hexWithAlpha(p.primary, 0.4)};
+  }
+  .cert-info .cell {
+    min-width: 0;
+    padding: 6px 8px;
+    border-radius: 8px;
+    background: ${surfaceTint};
+    border-right: 3px solid ${p.accent};
+  }
   .cert-info .label {
     display: block;
     color: ${p.primaryLight};
-    font-size: 8.5px;
+    font-size: 8px;
     font-weight: 500;
-    margin-bottom: 1px;
+    margin-bottom: 2px;
   }
   .cert-info .val {
     display: block;
@@ -169,44 +286,85 @@ export function buildInspectionCertificateHtml(
     font-weight: 700;
     font-size: 9.5px;
     word-break: break-word;
+    line-height: 1.45;
   }
   .cert-result {
-    margin-top: 7px;
-    padding: 6px 9px;
-    background: ${accentTint};
-    border-radius: 8px;
+    margin-top: 9px;
+    padding: 10px 12px;
+    background: linear-gradient(135deg, ${accentTint}, #fff);
+    border: 1px solid ${accentSoft};
+    border-radius: 10px;
     font-size: 9.5px;
-    line-height: 1.6;
+    line-height: 1.7;
     color: ${p.primary};
     flex-shrink: 0;
   }
-  .cert-result strong { color: ${p.accentHover}; font-weight: 700; }
+  .cert-result strong {
+    display: block;
+    color: ${p.accentHover};
+    font-weight: 700;
+    font-size: 10px;
+    margin-bottom: 4px;
+  }
   .cert-bottom {
     margin-top: auto;
     display: flex;
     align-items: flex-end;
     justify-content: space-between;
-    gap: 12px;
-    padding-top: 8px;
+    gap: 16px;
+    padding-top: 10px;
     flex-shrink: 0;
   }
-  .cert-stamp-wrap { text-align: center; min-width: 120px; }
-  .cert-stamp { max-height: 72px; max-width: 100px; object-fit: contain; }
-  .cert-stamp-label { font-size: 8px; color: #64748b; margin-top: 3px; line-height: 1.4; }
+  .cert-stamp-wrap {
+    text-align: center;
+    min-width: 130px;
+    padding: 8px;
+    border-radius: 10px;
+    background: ${surfaceTint};
+    border: 1px dashed ${borderDash};
+  }
+  .cert-stamp { max-height: 80px; max-width: 110px; object-fit: contain; }
+  .cert-stamp-placeholder {
+    width: 72px;
+    height: 72px;
+    margin: 0 auto;
+    border-radius: 50%;
+    border: 2px dashed ${borderDash};
+    background: radial-gradient(circle, ${accentTint}, transparent 70%);
+  }
+  .cert-stamp-label {
+    font-size: 8px;
+    color: #64748b;
+    margin-top: 5px;
+    line-height: 1.45;
+    font-weight: 500;
+  }
   .cert-sign {
     text-align: center;
-    min-width: 110px;
-    padding-top: 28px;
-    border-top: 1px solid ${signBorder};
+    min-width: 120px;
+    padding: 32px 12px 0;
+    border-top: 2px solid ${signBorder};
     font-size: 8.5px;
     color: #64748b;
+    font-weight: 500;
+  }
+  .cert-sign::before {
+    content: '';
+    display: block;
+    width: 80%;
+    height: 28px;
+    margin: 0 auto 6px;
+    border-bottom: 1px solid ${hexWithAlpha(p.primary, 0.15)};
+    opacity: 0.7;
   }
   .cert-footer {
-    margin-top: 7px;
-    padding-top: 7px;
-    border-top: 1px dashed ${borderDash};
+    margin-top: 8px;
+    padding: 9px 12px;
+    border-radius: 10px;
+    background: ${surfaceTint};
+    border: 1px dashed ${borderDash};
     font-size: 8.5px;
-    line-height: 1.55;
+    line-height: 1.6;
     color: #64748b;
     text-align: center;
     flex-shrink: 0;
@@ -214,43 +372,55 @@ export function buildInspectionCertificateHtml(
 </style>
 </head>
 <body>
-  <div class="cert-page">
-    <header class="cert-top">
-      ${logoBlock}
-      <div class="cert-top-meta">
-        <div><strong>شماره گواهی:</strong> ${escapeHtml(context.certificateNumber)}</div>
-        <div><strong>تاریخ صدور:</strong> ${escapeHtml(context.verifiedDate)}</div>
-        <div><strong>شماره سفارش:</strong> ${escapeHtml(context.orderId.slice(-12))}</div>
+  <div class="cert-outer">
+    <div class="cert-frame">
+      <div class="cert-page">
+        <header class="cert-top">
+          <div class="cert-logo-wrap">
+            ${logoBlock}
+          </div>
+          <div class="cert-top-meta">
+            <div><strong>شماره گواهی:</strong> ${escapeHtml(context.certificateNumber)}</div>
+            <div><strong>تاریخ صدور:</strong> ${escapeHtml(context.verifiedDate)}</div>
+            <div><strong>شماره سفارش:</strong> ${escapeHtml(context.orderId.slice(-12))}</div>
+          </div>
+        </header>
+
+        <div class="cert-badge-row">
+          <span class="cert-badge"><span class="cert-badge-dot"></span>سند رسمی کارشناسی فنی</span>
+        </div>
+
+        <div class="cert-title-wrap">
+          <h1 class="cert-title">${escapeHtml(title)}</h1>
+          <div class="cert-title-bar"></div>
+        </div>
+
+        <div class="cert-body-wrap">
+          <div class="cert-body">${nl2br(body)}</div>
+        </div>
+
+        <section class="cert-info">
+          <div class="cell"><span class="label">صاحب کالا</span><span class="val">${escapeHtml(context.ownerName)}</span></div>
+          <div class="cell"><span class="label">کد ملی</span><span class="val">${escapeHtml(context.ownerNationalCode)}</span></div>
+          <div class="cell"><span class="label">عنوان کالا</span><span class="val">${escapeHtml(context.itemTitle)}</span></div>
+          <div class="cell"><span class="label">دسته‌بندی</span><span class="val">${escapeHtml(context.categoryTitle)}</span></div>
+          <div class="cell"><span class="label">وضعیت</span><span class="val">${escapeHtml(context.itemCondition)}</span></div>
+          <div class="cell"><span class="label">کد رهگیری</span><span class="val">${escapeHtml(context.trackingCode)}</span></div>
+        </section>
+
+        <div class="cert-result"><strong>نتیجه کارشناسی</strong>${escapeHtml(context.inspectionResult)}</div>
+
+        <div class="cert-bottom">
+          <div class="cert-stamp-wrap">
+            ${stampBlock}
+            <div class="cert-stamp-label">مهر مرکز پردازش طبقه</div>
+          </div>
+          <div class="cert-sign">امضای کارشناس مسئول</div>
+        </div>
+
+        <footer class="cert-footer">${nl2br(footer)}</footer>
       </div>
-    </header>
-
-    <div class="cert-title-wrap">
-      <h1 class="cert-title">${escapeHtml(title)}</h1>
-      <div class="cert-title-bar"></div>
     </div>
-
-    <div class="cert-body">${nl2br(body)}</div>
-
-    <section class="cert-info">
-      <div class="cell"><span class="label">صاحب کالا</span><span class="val">${escapeHtml(context.ownerName)}</span></div>
-      <div class="cell"><span class="label">کد ملی</span><span class="val">${escapeHtml(context.ownerNationalCode)}</span></div>
-      <div class="cell"><span class="label">عنوان کالا</span><span class="val">${escapeHtml(context.itemTitle)}</span></div>
-      <div class="cell"><span class="label">دسته‌بندی</span><span class="val">${escapeHtml(context.categoryTitle)}</span></div>
-      <div class="cell"><span class="label">وضعیت</span><span class="val">${escapeHtml(context.itemCondition)}</span></div>
-      <div class="cell"><span class="label">کد رهگیری</span><span class="val">${escapeHtml(context.trackingCode)}</span></div>
-    </section>
-
-    <div class="cert-result"><strong>نتیجه کارشناسی:</strong> ${escapeHtml(context.inspectionResult)}</div>
-
-    <div class="cert-bottom">
-      <div class="cert-stamp-wrap">
-        ${stampBlock}
-        <div class="cert-stamp-label">مهر مرکز پردازش طبقه</div>
-      </div>
-      <div class="cert-sign">امضای کارشناس مسئول</div>
-    </div>
-
-    <footer class="cert-footer">${nl2br(footer)}</footer>
   </div>
 </body>
 </html>`;

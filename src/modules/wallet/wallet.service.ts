@@ -402,6 +402,119 @@ export class WalletService {
     });
   }
 
+  /**
+   * تسویه مزایده پس از پرداخت موفق درگاه: ودیعه از بلوکه خریدار آزاد می‌شود
+   * و سهم فروشنده (شامل سهم ودیعه + مبلغ درگاه) در کیف پول فروشنده بلوکه می‌شود.
+   */
+  async settleAuctionGatewayPayment(
+    params: {
+      buyerId: string;
+      sellerId: string;
+      listingId: string;
+      gatewayPaidAmount: number;
+      sellerRevenue: number;
+      blockedDeposit: number;
+      listingTitle?: string;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const prisma = tx || this.prisma;
+    const {
+      buyerId,
+      sellerId,
+      listingId,
+      gatewayPaidAmount,
+      sellerRevenue,
+      blockedDeposit,
+      listingTitle,
+    } = params;
+
+    const depositDec = new Decimal(blockedDeposit);
+    const sellerRevDec = new Decimal(sellerRevenue);
+    const gatewayDec = new Decimal(gatewayPaidAmount);
+
+    if (depositDec.gt(0)) {
+      const buyerWallet = await prisma.wallet.findUnique({
+        where: { userId: buyerId },
+      });
+      if (!buyerWallet) {
+        throw new BadRequestException('کیف پول خریدار یافت نشد');
+      }
+      if (new Decimal(buyerWallet.balanceBlocked).lt(depositDec)) {
+        throw new BadRequestException('ودیعه بلوکه‌شده کافی نیست');
+      }
+      await prisma.wallet.update({
+        where: { userId: buyerId },
+        data: { balanceBlocked: { decrement: depositDec.toString() } },
+      });
+    }
+
+    if (sellerRevDec.gt(0)) {
+      let sellerWallet = await prisma.wallet.findUnique({
+        where: { userId: sellerId },
+      });
+      if (!sellerWallet) {
+        sellerWallet = await prisma.wallet.create({
+          data: { userId: sellerId, balanceAvailable: 0, balanceBlocked: 0 },
+        });
+      }
+      await prisma.wallet.update({
+        where: { userId: sellerId },
+        data: { balanceBlocked: { increment: sellerRevDec.toString() } },
+      });
+
+      const titleQuoted = listingTitle ? `«${listingTitle}»` : 'این آگهی';
+      await prisma.walletTransaction.create({
+        data: {
+          walletId: sellerWallet.id,
+          amount: sellerRevDec.toNumber(),
+          type: WalletTransactionType.DEPOSIT,
+          status: WalletTransactionStatus.PENDING,
+          referenceId: listingId,
+          meta: {
+            kind: 'auction-escrow',
+            phase: 'seller_blocked',
+            paymentSource: 'GATEWAY',
+            listingId,
+            ...(listingTitle ? { listingTitle } : {}),
+            description: `درآمد فروش مزایده برای ${titleQuoted} از درگاه و ودیعه بلوکه شد.`,
+          },
+        },
+      });
+    }
+
+    if (gatewayDec.gt(0)) {
+      const buyerWallet = await prisma.wallet.upsert({
+        where: { userId: buyerId },
+        create: {
+          userId: buyerId,
+          balanceAvailable: 0,
+          balanceBlocked: 0,
+        },
+        update: {},
+      });
+      await prisma.walletTransaction.create({
+        data: {
+          walletId: buyerWallet.id,
+          amount: gatewayDec.toNumber(),
+          type: WalletTransactionType.SETTLEMENT,
+          status: WalletTransactionStatus.SUCCESS,
+          referenceId: listingId,
+          meta: {
+            kind: 'auction-escrow',
+            phase: 'buyer_gateway',
+            paymentSource: 'GATEWAY',
+            listingId,
+            ...(listingTitle ? { listingTitle } : {}),
+            description: listingTitle
+              ? `پرداخت مابه‌التفاوت مزایده از درگاه — «${listingTitle}».`
+              : 'پرداخت مابه‌التفاوت مزایده از درگاه.',
+          },
+        },
+      });
+    }
+  }
+
   // =================================================================
   // ESCROW LOGIC (Direct Buy & Exchange)
   // =================================================================

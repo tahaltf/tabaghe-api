@@ -4,6 +4,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  AuctionBidStatus,
+  AuctionSettlementStatus,
   ListingStatus,
   NotificationType,
   OrderStatus,
@@ -458,56 +460,115 @@ export class PaymentsService {
         );
       }
 
-      await this.walletService.creditExternalPaymentToEscrow(
-        payeeUserId,
-        paidAmount,
-        platformCut,
-        locked.listingId,
-        tx,
-        { isExchangeEscrow: isExchangeOrder, blockedAmount },
-      );
-
-      const payerUserId =
-        locked.type === 'EXCHANGE' && payerId ? payerId : locked.buyerId;
-      const payerWallet = await tx.wallet.upsert({
-        where: { userId: payerUserId },
-        create: {
-          userId: payerUserId,
-          balanceAvailable: 0,
-          balanceBlocked: 0,
-        },
-        update: {},
-      });
       const listing = await tx.listing.findUnique({
         where: { id: locked.listingId },
         select: { title: true },
       });
       const listingTitle = listing?.title;
-      await tx.walletTransaction.create({
-        data: {
-          walletId: payerWallet.id,
-          amount: paidAmount,
-          type: WalletTransactionType.SETTLEMENT,
-          status: WalletTransactionStatus.SUCCESS,
-          referenceId: locked.listingId,
-          meta: {
-            kind: 'order-escrow',
-            phase: isExchangeOrder ? 'exchange_participant_paid' : 'buyer_paid',
-            ...(isExchangeOrder ? { payerUserId } : {}),
-            orderId: locked.id,
+
+      if (locked.type === OrderType.AUCTION) {
+        const winnerBid = await tx.auctionBid.findFirst({
+          where: {
             listingId: locked.listingId,
-            ...(listingTitle ? { listingTitle } : {}),
-            paymentSource: 'GATEWAY',
-            description: isExchangeOrder
-              ? listingTitle
-                ? `پرداخت سهم معاوضه (کارشناسی/مابه‌التفاوت) برای «${listingTitle}» از درگاه ثبت شد.`
-                : 'پرداخت سهم معاوضه (کارشناسی/مابه‌التفاوت) از درگاه ثبت شد.'
-              : listingTitle
-                ? `پرداخت خرید برای «${listingTitle}» از درگاه ثبت شد.`
-                : 'پرداخت خرید از درگاه ثبت شد.',
+            bidderId: locked.buyerId,
+            status: AuctionBidStatus.ACTIVE,
           },
-        },
-      });
+          orderBy: { amount: 'desc' },
+        });
+        const blockedDeposit = Number(winnerBid?.blockedAmount ?? 0);
+
+        await this.walletService.settleAuctionGatewayPayment(
+          {
+            buyerId: locked.buyerId,
+            sellerId: locked.sellerId,
+            listingId: locked.listingId,
+            gatewayPaidAmount: paidAmount,
+            sellerRevenue: Number(locked.sellerRevenue),
+            blockedDeposit,
+            listingTitle: listingTitle ?? undefined,
+          },
+          tx,
+        );
+
+        const otherActiveBids = await tx.auctionBid.findMany({
+          where: {
+            listingId: locked.listingId,
+            status: AuctionBidStatus.ACTIVE,
+            bidderId: { not: locked.buyerId },
+          },
+        });
+        for (const bid of otherActiveBids) {
+          const blocked = Number(bid.blockedAmount || 0);
+          if (blocked > 0) {
+            await this.walletService.unblockAmount(
+              bid.bidderId,
+              blocked,
+              locked.listingId,
+              tx,
+            );
+          }
+          await tx.auctionBid.update({
+            where: { id: bid.id },
+            data: { status: AuctionBidStatus.LOST, blockedAmount: 0 },
+          });
+        }
+        if (winnerBid) {
+          await tx.auctionBid.update({
+            where: { id: winnerBid.id },
+            data: { status: AuctionBidStatus.WON, blockedAmount: 0 },
+          });
+        }
+        await tx.listingAuction.update({
+          where: { listingId: locked.listingId },
+          data: { settlementStatus: AuctionSettlementStatus.PAID },
+        });
+      } else {
+        await this.walletService.creditExternalPaymentToEscrow(
+          payeeUserId,
+          paidAmount,
+          platformCut,
+          locked.listingId,
+          tx,
+          { isExchangeEscrow: isExchangeOrder, blockedAmount },
+        );
+
+        const payerUserId =
+          locked.type === 'EXCHANGE' && payerId ? payerId : locked.buyerId;
+        const payerWallet = await tx.wallet.upsert({
+          where: { userId: payerUserId },
+          create: {
+            userId: payerUserId,
+            balanceAvailable: 0,
+            balanceBlocked: 0,
+          },
+          update: {},
+        });
+        await tx.walletTransaction.create({
+          data: {
+            walletId: payerWallet.id,
+            amount: paidAmount,
+            type: WalletTransactionType.SETTLEMENT,
+            status: WalletTransactionStatus.SUCCESS,
+            referenceId: locked.listingId,
+            meta: {
+              kind: 'order-escrow',
+              phase: isExchangeOrder ? 'exchange_participant_paid' : 'buyer_paid',
+              ...(isExchangeOrder ? { payerUserId } : {}),
+              orderId: locked.id,
+              listingId: locked.listingId,
+              ...(listingTitle ? { listingTitle } : {}),
+              paymentSource: 'GATEWAY',
+              description: isExchangeOrder
+                ? listingTitle
+                  ? `پرداخت سهم معاوضه (کارشناسی/مابه‌التفاوت) برای «${listingTitle}» از درگاه ثبت شد.`
+                  : 'پرداخت سهم معاوضه (کارشناسی/مابه‌التفاوت) از درگاه ثبت شد.'
+                : listingTitle
+                  ? `پرداخت خرید برای «${listingTitle}» از درگاه ثبت شد.`
+                  : 'پرداخت خرید از درگاه ثبت شد.',
+            },
+          },
+        });
+      }
 
       let paidStatus: OrderStatus =
         locked.requiresVerification || locked.type === 'EXCHANGE'

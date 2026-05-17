@@ -1028,6 +1028,21 @@ export class AuctionService {
         },
       });
 
+      // checkout/order به رکورد ACTIVE bid وابسته است
+      await tx.auctionBid.updateMany({
+        where: { listingId, bidderId: userId },
+        data: { status: AuctionBidStatus.LOST, blockedAmount: 0 },
+      });
+      await tx.auctionBid.create({
+        data: {
+          listingId,
+          bidderId: userId,
+          amount,
+          blockedAmount: 0,
+          status: AuctionBidStatus.ACTIVE,
+        },
+      });
+
       return { buyerId: userId, amount };
     });
 

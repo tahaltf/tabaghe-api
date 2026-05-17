@@ -622,8 +622,9 @@ export class OrdersService {
             },
           },
         });
-        if (!listing || !listing.auction || !listing.auction.bids[0])
+        if (!listing || !listing.auction) {
           throw new BadRequestException('اطلاعات مزایده یافت نشد');
+        }
         if (listing.auction.status !== AuctionStatus.FINISHED) {
           throw new BadRequestException('این مزایده هنوز نهایی نشده است');
         }
@@ -682,13 +683,21 @@ export class OrdersService {
           }
         }
 
-        const winnerBidAmount = Number(listing.auction.bids[0].amount);
-        const guaranteeBlocked = Number(
-          listing.auction.bids[0].blockedAmount || 0,
-        );
-        auctionWinnerBidId = listing.auction.bids[0].id;
-        finalPrice = winnerBidAmount;
-        auctionBlockedDeposit = Math.max(0, guaranteeBlocked);
+        const winnerBid = listing.auction.bids[0];
+        if (winnerBid) {
+          auctionWinnerBidId = winnerBid.id;
+          finalPrice = Number(winnerBid.amount);
+          auctionBlockedDeposit = Math.max(
+            0,
+            Number(winnerBid.blockedAmount || 0),
+          );
+        } else if (listing.auction.highestBidAmount != null) {
+          auctionWinnerBidId = null;
+          finalPrice = Number(listing.auction.highestBidAmount);
+          auctionBlockedDeposit = 0;
+        } else {
+          throw new BadRequestException('اطلاعات مزایده یافت نشد');
+        }
 
         sellerId = listing.authorId;
         categoryId = listing.categoryId;
