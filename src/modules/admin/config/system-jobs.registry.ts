@@ -91,6 +91,18 @@ export const SYSTEM_JOBS_REGISTRY: SystemJobDefinition[] = [
     relatedSettingKeys: [],
   },
   {
+    id: 'listings_display_expiry',
+    name: 'انقضای نمایش آگهی و یادآوری فروشنده',
+    schedule: '0 */15 * * * *',
+    scheduleLabel: 'هر ۱۵ دقیقه',
+    description:
+      'یک روز قبل از پایان مدت نمایش (طبق LISTING_DISPLAY_DAYS از زمان تایید)، به فروشنده اطلاع می‌دهد؛ پس از اتمام، آگهی را آرشیو و از سایت حذف می‌کند.',
+    module: 'listing/services/listing-expiry.service.ts',
+    method: 'runListingExpiryJob',
+    managedBy: 'nestjs_cron',
+    relatedSettingKeys: ['LISTING_DISPLAY_DAYS'],
+  },
+  {
     id: 'notifications_deadline_reminders',
     name: 'یادآوری مهلت اقدامات (پیامک/سایت)',
     schedule: '*/15 * * * *',
@@ -139,6 +151,21 @@ export const SYSTEM_JOBS_REGISTRY: SystemJobDefinition[] = [
       'EXCHANGE_PAYMENT_DEADLINE_MINUTES',
       'EXCHANGE_NO_PAYMENT_TIMEOUT_HOURS',
       'EXCHANGE_SECOND_PAYMENT_TIMEOUT_HOURS',
+    ],
+  },
+  {
+    id: 'orders_seller_return_auto_confirm',
+    name: 'تایید خودکار دریافت مرجوعی توسط فروشنده',
+    schedule: '* * * * *',
+    scheduleLabel: 'هر ۱ دقیقه',
+    description:
+      'سفارش‌های RETURN_SHIPPED که فروشنده در مهلت دریافت مرجوعی را تایید نکرده را خودکار تایید و بازگشت وجه می‌کند.',
+    module: 'orders/orders.service.ts',
+    method: 'autoConfirmSellerReturnReceipt',
+    managedBy: 'nestjs_cron',
+    relatedSettingKeys: [
+      'SELLER_RETURN_CONFIRM_DEADLINE_MINUTES',
+      'SELLER_RETURN_CONFIRM_DEADLINE_HOURS',
     ],
   },
   {

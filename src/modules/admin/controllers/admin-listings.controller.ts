@@ -17,6 +17,7 @@ import { AdminListingsQueryService } from '../services/admin-listings-query.serv
 import { AdminListingDeleteService } from '../services/admin-listing-delete.service';
 import {
   AdminListingListQueryDto,
+  AdminSetListingFeaturedDto,
   AdminSetListingStatusDto,
 } from '../dto/admin-query.dto';
 import { AdminBulkIdsDto } from '../dto/admin-bulk-ids.dto';
@@ -49,6 +50,14 @@ export class AdminListingsQueryController {
   @Patch(':id/status')
   setStatus(@Param('id') id: string, @Body() dto: AdminSetListingStatusDto) {
     return this.service.setStatus(id, dto.status);
+  }
+
+  @Patch(':id/featured')
+  setFeatured(
+    @Param('id') id: string,
+    @Body() dto: AdminSetListingFeaturedDto,
+  ) {
+    return this.service.setFeatured(id, dto.isFeatured);
   }
 
   @Delete(':id/hard')

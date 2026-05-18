@@ -10,10 +10,15 @@ import {
   CreateLocationDto,
   UpdateLocationDto,
 } from '../dto/admin-location.dto';
+import {
+  ensureUniqueLocationSlug,
+  suggestLocationSlug,
+} from '../../../common-module/location-slug.util';
 
 const LOCATION_SELECT = {
   id: true,
   name: true,
+  slug: true,
   type: true,
   parentId: true,
   createdAt: true,
@@ -64,9 +69,13 @@ export class AdminLocationsService {
         throw new BadRequestException('والد شهر باید از نوع استان باشد');
       }
     }
+    const baseSlug = suggestLocationSlug(dto.name, dto.type);
+    const slug = await ensureUniqueLocationSlug(this.prisma, baseSlug);
+
     return this.prisma.location.create({
       data: {
         name: dto.name.trim(),
+        slug,
         type: dto.type,
         parentId: dto.parentId ?? null,
       },

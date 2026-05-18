@@ -36,6 +36,35 @@ export class CommonController {
     return this.commonService.getHomeCategories();
   }
 
+  @Get('categories/seo-index')
+  async categorySeoIndex() {
+    return this.commonService.getCategorySeoIndex();
+  }
+
+  @Get('categories/slug/:slug/location/:locationSlug')
+  async categoryBySlugAndLocation(
+    @Param('slug') slug: string,
+    @Param('locationSlug') locationSlug: string,
+  ) {
+    const data = await this.commonService.getCategoryLocationLandingBySlugs(
+      slug,
+      locationSlug,
+    );
+    if (!data) {
+      return { found: false };
+    }
+    return { found: true, ...data };
+  }
+
+  @Get('categories/slug/:slug')
+  async categoryBySlug(@Param('slug') slug: string) {
+    const data = await this.commonService.getCategoryLandingBySlug(slug);
+    if (!data) {
+      return { found: false };
+    }
+    return { found: true, ...data };
+  }
+
   @Get('repair-categories')
   async repairCategories() {
     return this.commonService.getRepairCategories();

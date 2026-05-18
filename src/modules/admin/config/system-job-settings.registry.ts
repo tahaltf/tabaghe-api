@@ -47,6 +47,11 @@ export const SYSTEM_JOB_SETTING_GROUPS: SystemJobSettingGroup[] = [
     label: 'تعمیرات',
     description: 'تکمیل خودکار پس از ارسال برگشتی',
   },
+  {
+    id: 'listings',
+    label: 'آگهی و نمایش',
+    description: 'مدت نمایش آگهی‌های تاییدشده روی سایت',
+  },
 ];
 
 export const SYSTEM_JOB_SETTINGS_REGISTRY: SystemJobSettingDefinition[] = [
@@ -72,6 +77,18 @@ export const SYSTEM_JOB_SETTINGS_REGISTRY: SystemJobSettingDefinition[] = [
     unit: 'minutes',
     min: 60,
     max: 60 * 24 * 30,
+  },
+  {
+    key: 'LISTING_DISPLAY_DAYS',
+    label: 'مدت نمایش آگهی روی سایت',
+    description:
+      'پس از تایید ادمین، آگهی چند روز روی سایت می‌ماند. یک روز قبل از پایان، به فروشنده اطلاع داده می‌شود؛ پس از اتمام، آگهی آرشیو می‌شود.',
+    groupId: 'listings',
+    type: 'number',
+    defaultValue: '7',
+    unit: 'days',
+    min: 1,
+    max: 365,
   },
   {
     key: 'ACTION_DEADLINE_REMINDER_HOURS',
@@ -233,6 +250,18 @@ export const SYSTEM_JOB_SETTINGS_REGISTRY: SystemJobSettingDefinition[] = [
     unit: 'count',
     min: 1,
     max: 1000,
+  },
+  {
+    key: 'SELLER_RETURN_CONFIRM_DEADLINE_MINUTES',
+    label: 'مهلت تایید دریافت مرجوعی توسط فروشنده (دقیقه)',
+    description:
+      'پس از ثبت مرجوعی توسط خریدار، اگر فروشنده دریافت را تایید نکند، پس از این مدت به‌صورت خودکار تایید و بازگشت وجه انجام می‌شود.',
+    groupId: 'orders',
+    type: 'number',
+    defaultValue: '4320',
+    unit: 'minutes',
+    min: 60,
+    max: 43200,
   },
   {
     key: 'REPAIR_RETURN_CONFIRM_DEADLINE_MINUTES',

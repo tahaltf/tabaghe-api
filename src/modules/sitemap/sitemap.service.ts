@@ -37,12 +37,21 @@ export class SitemapService {
 
   async buildUrlEntries(): Promise<SitemapUrlEntry[]> {
     const staticPages = this.getStaticPages();
-    const [listings, blogPosts] = await Promise.all([
-      this.fetchListingEntries(),
-      this.fetchBlogEntries(),
-    ]);
+    const [listings, blogPosts, categories, categoryLocations] =
+      await Promise.all([
+        this.fetchListingEntries(),
+        this.fetchBlogEntries(),
+        this.fetchCategoryEntries(),
+        this.fetchCategoryLocationEntries(),
+      ]);
 
-    return [...staticPages, ...listings, ...blogPosts];
+    return [
+      ...staticPages,
+      ...categories,
+      ...categoryLocations,
+      ...listings,
+      ...blogPosts,
+    ];
   }
 
   buildSitemapXml(entries: SitemapUrlEntry[]): string {
@@ -102,6 +111,7 @@ export class SitemapService {
     }> = [
       { path: '/', priority: 1.0, changefreq: 'daily' },
       { path: '/listings', priority: 0.9, changefreq: 'hourly' },
+      { path: '/categories', priority: 0.85, changefreq: 'weekly' },
       { path: '/blog', priority: 0.8, changefreq: 'daily' },
       { path: '/plans', priority: 0.7, changefreq: 'weekly' },
       { path: '/about', priority: 0.5, changefreq: 'monthly' },
@@ -117,6 +127,90 @@ export class SitemapService {
       changefreq: page.changefreq,
       priority: page.priority,
     }));
+  }
+
+  private async fetchCategoryLocationEntries(): Promise<SitemapUrlEntry[]> {
+    const rows = await this.prisma.listing.findMany({
+      where: {
+        status: ListingStatus.APPROVED,
+        deletedAt: null,
+      },
+      select: {
+        categoryId: true,
+        cityId: true,
+        provinceId: true,
+        updatedAt: true,
+        category: { select: { slug: true } },
+        city: { select: { slug: true } },
+        province: { select: { slug: true } },
+      },
+    });
+
+    const comboMap = new Map<
+      string,
+      { categorySlug: string; locationSlug: string; lastmod: Date }
+    >();
+
+    for (const row of rows) {
+      const categorySlug = row.category?.slug;
+      if (!categorySlug) continue;
+
+      if (row.city?.slug) {
+        const key = `${categorySlug}::${row.city.slug}`;
+        const prev = comboMap.get(key);
+        if (!prev || row.updatedAt > prev.lastmod) {
+          comboMap.set(key, {
+            categorySlug,
+            locationSlug: row.city.slug,
+            lastmod: row.updatedAt,
+          });
+        }
+      }
+
+      if (row.province?.slug) {
+        const key = `${categorySlug}::${row.province.slug}`;
+        const prev = comboMap.get(key);
+        if (!prev || row.updatedAt > prev.lastmod) {
+          comboMap.set(key, {
+            categorySlug,
+            locationSlug: row.province.slug,
+            lastmod: row.updatedAt,
+          });
+        }
+      }
+    }
+
+    const now = new Date().toISOString();
+    return [...comboMap.values()].map((entry) => ({
+      loc: `${this.siteOrigin}/category/${entry.categorySlug}/${entry.locationSlug}`,
+      lastmod: entry.lastmod.toISOString() || now,
+      changefreq: 'weekly' as const,
+      priority: 0.72,
+    }));
+  }
+
+  private async fetchCategoryEntries(): Promise<SitemapUrlEntry[]> {
+    const rows = await this.prisma.category.findMany({
+      select: { slug: true, id: true },
+      orderBy: { title: 'asc' },
+    });
+    const withListings = await this.prisma.listing.groupBy({
+      by: ['categoryId'],
+      where: { status: ListingStatus.APPROVED, deletedAt: null },
+      _count: { _all: true },
+    });
+    const countByCategory = new Map(
+      withListings.map((g) => [g.categoryId, g._count._all]),
+    );
+    const now = new Date().toISOString();
+    return rows
+      .filter((c) => (countByCategory.get(c.id) ?? 0) > 0)
+      .map((c) => ({
+        loc: `${this.siteOrigin}/category/${c.slug}`,
+        lastmod: now,
+        changefreq: 'weekly' as const,
+        priority: 0.75,
+      }));
   }
 
   private async fetchListingEntries(): Promise<SitemapUrlEntry[]> {

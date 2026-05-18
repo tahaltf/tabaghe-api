@@ -6,6 +6,7 @@ import {
   PaginatedResult,
 } from '../../../shared/contracts/pagination';
 import { AdminListingListQueryDto } from '../dto/admin-query.dto';
+import { ListingExpiryService } from '../../listing/services/listing-expiry.service';
 
 const LISTING_LIST_INCLUDE = {
   category: { select: { id: true, title: true } },
@@ -46,7 +47,10 @@ export type AdminListingItem = Prisma.ListingGetPayload<{
 
 @Injectable()
 export class AdminListingsQueryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly listingExpiry: ListingExpiryService,
+  ) {}
 
   async list(
     query: AdminListingListQueryDto,
@@ -70,8 +74,14 @@ export class AdminListingsQueryService {
     }
 
     const dir: 'asc' | 'desc' = query.sortDir === 'asc' ? 'asc' : 'desc';
-    const orderBy: Prisma.ListingOrderByWithRelationInput =
+    const secondary: Prisma.ListingOrderByWithRelationInput =
       query.sortBy === 'updatedAt' ? { updatedAt: dir } : { createdAt: dir };
+    // آگهی‌های ویژه همیشه بالاتر، سپس مرتب‌سازی انتخابی
+    const orderBy: Prisma.ListingOrderByWithRelationInput[] = [
+      { isFeatured: 'desc' },
+      { featuredAt: 'desc' },
+      secondary,
+    ];
 
     const [items, total] = await Promise.all([
       this.prisma.listing.findMany({
@@ -155,10 +165,31 @@ export class AdminListingsQueryService {
 
   async setStatus(id: string, status: ListingStatus) {
     const data: Prisma.ListingUpdateInput = { status };
-    if (status === ListingStatus.APPROVED) data.approvedAt = new Date();
+    if (status === ListingStatus.APPROVED) {
+      const approvedAt = new Date();
+      const expiryFields = await this.listingExpiry.approvalExpiryFields(approvedAt);
+      data.approvedAt = approvedAt;
+      data.expiresAt = expiryFields.expiresAt as Date;
+      data.expiryReminderSentAt = null;
+    }
     return this.prisma.listing.update({
       where: { id },
       data,
+    });
+  }
+
+  /**
+   * نشان دادن/برداشتن وضعیت ویژهٔ یک آگهی توسط ادمین.
+   * - با ست‌شدن، featuredAt به now تنظیم می‌شود تا مرتب‌سازی ثانویه روی آگهی‌های ویژه هم برقرار باشد.
+   * - با برداشتن، featuredAt به null برمی‌گردد.
+   */
+  async setFeatured(id: string, isFeatured: boolean) {
+    return this.prisma.listing.update({
+      where: { id },
+      data: {
+        isFeatured,
+        featuredAt: isFeatured ? new Date() : null,
+      },
     });
   }
 }

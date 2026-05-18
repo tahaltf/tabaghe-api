@@ -144,14 +144,15 @@ export class ListingQueryService {
       this.prisma.listing.findMany({
         where,
         include: LIST_ITEM_INCLUDE,
-        orderBy,
+        // آگهی‌های ویژه همیشه بالاتر قرار می‌گیرند، سپس مرتب‌سازی انتخابی کاربر اعمال می‌شود.
+        orderBy: [{ isFeatured: 'desc' }, { featuredAt: 'desc' }, orderBy],
         skip: useRelevanceSort ? 0 : skip,
         take: takeForRanking,
       }),
       this.prisma.listing.count({ where }),
     ]);
     const items = useRelevanceSort
-      ? this.rankByRelevance(query.search ?? '', rawItems).slice(
+      ? this.rankFeaturedAndRelevance(query.search ?? '', rawItems).slice(
           skip,
           skip + pageSize,
         )
@@ -408,6 +409,23 @@ export class ListingQueryService {
     return [...items].sort(
       (a, b) => this.relevanceScore(q, b) - this.relevanceScore(q, a),
     );
+  }
+
+  /**
+   * هنگام جست‌وجو، آگهی‌های ویژه باید همچنان بالاتر بمانند ولی در داخل هر گروه
+   * بر اساس نمرهٔ ربط مرتب شوند.
+   */
+  private rankFeaturedAndRelevance(
+    search: string,
+    items: ListingListItem[],
+  ): ListingListItem[] {
+    const q = this.normalize(search);
+    return [...items].sort((a, b) => {
+      const af = a.isFeatured ? 1 : 0;
+      const bf = b.isFeatured ? 1 : 0;
+      if (af !== bf) return bf - af;
+      return this.relevanceScore(q, b) - this.relevanceScore(q, a);
+    });
   }
 
   private relevanceScore(query: string, item: ListingListItem): number {

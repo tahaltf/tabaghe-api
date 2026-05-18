@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { ListingStatus, NotificationType } from '@prisma/client';
+import { ListingStatus, LocationType, NotificationType } from '@prisma/client';
 import { PrismaService } from '../infrastructure/prisma/prisma.service';
 import { NotificationService } from '../modules/notification/notification.service';
+import { findLocationBySlug } from './location-slug.util';
 
 @Injectable()
 export class CommonService {
@@ -15,7 +16,7 @@ export class CommonService {
     return this.prisma.location.findMany({
       where: { type: 'PROVINCE' },
       orderBy: { name: 'asc' },
-      select: { id: true, name: true },
+      select: { id: true, name: true, slug: true },
     });
   }
 
@@ -24,7 +25,7 @@ export class CommonService {
     return this.prisma.location.findMany({
       where: { parentId: provinceId, type: 'CITY' },
       orderBy: { name: 'asc' },
-      select: { id: true, name: true },
+      select: { id: true, name: true, slug: true },
     });
   }
 
@@ -49,6 +50,313 @@ export class CommonService {
   async getHomeCategories() {
     const tree = await this.getCategories();
     return tree.filter((c) => (c.listingCount ?? 0) > 0);
+  }
+
+  /** صفحه لندینگ SEO دسته‌بندی */
+  async getCategoryLandingBySlug(slug: string) {
+    const category = await this.findCategoryBySlug(slug);
+    if (!category) return null;
+    return this.buildCategoryLandingPayload(category, null);
+  }
+
+  /** صفحه لندینگ SEO دسته + شهر یا استان */
+  async getCategoryLocationLandingBySlugs(
+    categorySlug: string,
+    locationSlug: string,
+  ) {
+    const category = await this.findCategoryBySlug(categorySlug);
+    if (!category) return null;
+
+    const location = await findLocationBySlug(this.prisma, locationSlug);
+    if (!location) return null;
+
+    return this.buildCategoryLandingPayload(category, location);
+  }
+
+  private async findCategoryBySlug(slug: string) {
+    const normalized = String(slug ?? '').trim().toLowerCase();
+    if (!normalized) return null;
+
+    return this.prisma.category.findFirst({
+      where: { slug: normalized },
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        icon: true,
+        parentId: true,
+        parent: { select: { id: true, title: true, slug: true } },
+        children: {
+          orderBy: { title: 'asc' },
+          select: { id: true, title: true, slug: true, icon: true },
+        },
+      },
+    });
+  }
+
+  private categoryIdsForLanding(category: {
+    id: string;
+    children: Array<{ id: string }>;
+  }): string[] {
+    const childIds = category.children.map((c) => c.id);
+    return [category.id, ...childIds];
+  }
+
+  private listingWhereForCategoryLocation(
+    categoryIds: string[],
+    location: {
+      type: LocationType;
+      id: string;
+    } | null,
+  ) {
+    const base = {
+      status: ListingStatus.APPROVED,
+      deletedAt: null,
+      categoryId: { in: categoryIds },
+    } as const;
+
+    if (!location) return base;
+    if (location.type === LocationType.CITY) {
+      return { ...base, cityId: location.id };
+    }
+    return { ...base, provinceId: location.id };
+  }
+
+  private async buildCategoryLandingPayload(
+    category: {
+      id: string;
+      title: string;
+      slug: string;
+      icon: string | null;
+      parent: { id: string; title: string; slug: string } | null;
+      children: Array<{
+        id: string;
+        title: string;
+        slug: string;
+        icon: string | null;
+      }>;
+    },
+    location: {
+      id: string;
+      name: string;
+      slug: string;
+      type: LocationType;
+      parent?: { id: string; name: string; slug: string } | null;
+    } | null,
+  ) {
+    const rollup = await this.getApprovedListingRollupCounts();
+    const categoryIds = this.categoryIdsForLanding(category);
+    const listingWhere = this.listingWhereForCategoryLocation(
+      categoryIds,
+      location,
+    );
+
+    const listingCount = await this.prisma.listing.count({
+      where: listingWhere,
+    });
+
+    const children = category.children.map((child) => ({
+      ...child,
+      listingCount: rollup.get(child.id) ?? 0,
+    }));
+
+    const recentListings = await this.prisma.listing.findMany({
+      where: listingWhere,
+      select: {
+        id: true,
+        title: true,
+        type: true,
+        thumbnail: true,
+        createdAt: true,
+        category: { select: { id: true, title: true, slug: true } },
+        city: { select: { id: true, name: true, slug: true } },
+        direct: { select: { price: true } },
+        auction: {
+          select: {
+            basePrice: true,
+            highestBidAmount: true,
+            endDatetime: true,
+            status: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 24,
+    });
+
+    const topLocations = location
+      ? []
+      : await this.fetchTopLocationsForCategory(categoryIds);
+
+    const locationLabel = location
+      ? location.type === LocationType.PROVINCE
+        ? `استان ${location.name}`
+        : location.name
+      : null;
+
+    const seoTitle = this.buildCategoryLocationSeoTitle(
+      category,
+      locationLabel,
+    );
+    const seoDescription = this.buildCategoryLocationSeoDescription(
+      category,
+      locationLabel,
+      listingCount,
+    );
+    const canonicalPath = location
+      ? `/category/${category.slug}/${location.slug}`
+      : `/category/${category.slug}`;
+
+    return {
+      category: {
+        id: category.id,
+        title: category.title,
+        slug: category.slug,
+        icon: category.icon,
+        parent: category.parent,
+        listingCount,
+      },
+      location: location
+        ? {
+            id: location.id,
+            name: location.name,
+            slug: location.slug,
+            type: location.type,
+            province: location.parent ?? null,
+          }
+        : null,
+      children,
+      recentListings,
+      topLocations,
+      seo: {
+        title: seoTitle,
+        description: seoDescription,
+        canonicalPath,
+      },
+    };
+  }
+
+  private buildCategoryLocationSeoTitle(
+    category: {
+      title: string;
+      parent: { title: string } | null;
+    },
+    locationLabel: string | null,
+  ): string {
+    if (locationLabel) {
+      return category.parent
+        ? `خرید و فروش ${category.title} در ${locationLabel} | ${category.parent.title} | طبقه`
+        : `خرید و فروش ${category.title} در ${locationLabel} | طبقه`;
+    }
+    return category.parent
+      ? `خرید و فروش ${category.title} | ${category.parent.title} | طبقه`
+      : `خرید و فروش ${category.title} | طبقه`;
+  }
+
+  private buildCategoryLocationSeoDescription(
+    category: {
+      title: string;
+      parent: { title: string } | null;
+    },
+    locationLabel: string | null,
+    listingCount: number,
+  ): string {
+    if (locationLabel) {
+      return category.parent
+        ? `آگهی‌های خرید، فروش، مزایده و معاوضه ${category.title} در ${locationLabel} (دسته ${category.parent.title}) — ${listingCount} آگهی فعال در طبقه.`
+        : `آگهی‌های خرید، فروش، مزایده و معاوضه ${category.title} در ${locationLabel} — ${listingCount} آگهی فعال در طبقه.`;
+    }
+    return category.parent
+      ? `آگهی‌های خرید، فروش، مزایده و معاوضه ${category.title} در دسته ${category.parent.title} — ${listingCount} آگهی فعال در بازار امن طبقه.`
+      : `آگهی‌های خرید، فروش، مزایده و معاوضه ${category.title} — ${listingCount} آگهی فعال در بازار امن طبقه.`;
+  }
+
+  private async fetchTopLocationsForCategory(categoryIds: string[]) {
+    const rows = await this.prisma.listing.findMany({
+      where: {
+        status: ListingStatus.APPROVED,
+        deletedAt: null,
+        categoryId: { in: categoryIds },
+      },
+      select: { cityId: true },
+    });
+
+    const counts = new Map<string, number>();
+    for (const row of rows) {
+      if (!row.cityId) continue;
+      counts.set(row.cityId, (counts.get(row.cityId) ?? 0) + 1);
+    }
+
+    const topCityIds = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 12)
+      .map(([id]) => id);
+    if (!topCityIds.length) return [];
+
+    const cities = await this.prisma.location.findMany({
+      where: { id: { in: topCityIds }, type: LocationType.CITY },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        parent: { select: { name: true } },
+      },
+    });
+    const cityById = new Map(cities.map((c) => [c.id, c]));
+
+    return topCityIds
+      .map((cityId) => {
+        const city = cityById.get(cityId);
+        if (!city?.slug) return null;
+        return {
+          id: city.id,
+          name: city.name,
+          slug: city.slug,
+          provinceName: city.parent?.name ?? null,
+          listingCount: counts.get(cityId) ?? 0,
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => row != null);
+  }
+
+  /** فهرست دسته‌ها برای صفحه ایندکس SEO */
+  async getCategorySeoIndex() {
+    const tree = await this.getCategories();
+    const flat: Array<{
+      id: string;
+      title: string;
+      slug: string;
+      parentTitle: string | null;
+      listingCount: number;
+    }> = [];
+
+    const walk = (
+      nodes: Array<{
+        id: string;
+        title: string;
+        slug: string;
+        listingCount?: number;
+        children?: typeof nodes;
+      }>,
+      parentTitle: string | null,
+    ) => {
+      for (const node of nodes) {
+        if ((node.listingCount ?? 0) > 0) {
+          flat.push({
+            id: node.id,
+            title: node.title,
+            slug: node.slug,
+            parentTitle,
+            listingCount: node.listingCount ?? 0,
+          });
+        }
+        if (node.children?.length) {
+          walk(node.children, node.title);
+        }
+      }
+    };
+    walk(tree, null);
+    return flat.sort((a, b) => b.listingCount - a.listingCount);
   }
 
   private async getApprovedListingRollupCounts(): Promise<Map<string, number>> {

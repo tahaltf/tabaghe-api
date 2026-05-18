@@ -46,6 +46,8 @@ export class OrdersService {
   private static readonly DEFAULT_EXCHANGE_SHIPMENT_TIMEOUT_HOURS = 48;
   private static readonly DEFAULT_EXCHANGE_RETURN_CONFIRM_DEADLINE_MINUTES =
     48 * 60;
+  private static readonly DEFAULT_SELLER_RETURN_CONFIRM_DEADLINE_MINUTES =
+    72 * 60;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -1215,18 +1217,44 @@ export class OrdersService {
       throw new BadRequestException('کد رهگیری مرجوعی قبلاً ثبت شده است');
     }
 
-    return this.prisma.order.update({
+    const minutes = await this.getSellerReturnConfirmDeadlineMinutes();
+    const returnConfirmDeadline = new Date(Date.now() + minutes * 60 * 1000);
+
+    const updated = await this.prisma.order.update({
       where: { id: orderId },
       data: {
         returnTrackingCode: trackingCode,
         returnPackagingVideo: videoPath,
         returnShippedAt: new Date(),
+        returnConfirmDeadline,
         status: OrderStatus.RETURN_SHIPPED,
       },
     });
+
+    await this.notificationService.create({
+      userId: updated.sellerId,
+      type: NotificationType.ORDER_STATUS_CHANGED,
+      title: 'مرجوعی ثبت شد — تایید دریافت',
+      message: `خریدار مرجوعی سفارش #${orderId.slice(-6)} را ارسال کرد. تا پایان مهلت، دریافت را تایید کنید؛ در غیر این صورت به‌صورت خودکار تایید و بازگشت وجه انجام می‌شود.`,
+      meta: {
+        orderId,
+        status: OrderStatus.RETURN_SHIPPED,
+        returnConfirmDeadline: returnConfirmDeadline.toISOString(),
+      },
+    });
+
+    return updated;
   }
 
   async confirmReturnReceipt(sellerId: string, orderId: string) {
+    return this.executeReturnReceiptConfirmation(orderId, sellerId);
+  }
+
+  private async executeReturnReceiptConfirmation(
+    orderId: string,
+    confirmedBy: string,
+  ) {
+    const isAuto = confirmedBy === 'AUTO_TIMEOUT';
     return this.prisma.$transaction(async (tx) => {
       const order = await tx.order.findUnique({
         where: { id: orderId },
@@ -1237,7 +1265,7 @@ export class OrdersService {
         },
       });
       if (!order) throw new NotFoundException('سفارش یافت نشد');
-      if (order.sellerId !== sellerId) {
+      if (!isAuto && order.sellerId !== confirmedBy) {
         throw new ForbiddenException(
           'فقط فروشنده می‌تواند دریافت مرجوعی را تایید کند',
         );
@@ -1276,16 +1304,17 @@ export class OrdersService {
       const claimed = await tx.order.updateMany({
         where: {
           id: order.id,
-          sellerId,
+          ...(isAuto ? {} : { sellerId: confirmedBy }),
           status: OrderStatus.RETURN_SHIPPED,
           returnConfirmedAt: null,
         },
         data: {
           status: OrderStatus.CANCELLED,
-          cancelReason:
-            'مرجوعی توسط فروشنده تحویل گرفته شد و بازگشت وجه انجام شد',
+          cancelReason: isAuto
+            ? 'مرجوعی پس از پایان مهلت به‌صورت خودکار تایید و بازگشت وجه انجام شد'
+            : 'مرجوعی توسط فروشنده تحویل گرفته شد و بازگشت وجه انجام شد',
           returnConfirmedAt: new Date(),
-          returnConfirmedBy: sellerId,
+          returnConfirmedBy: confirmedBy,
         },
       });
       if (claimed.count === 0) {
@@ -1313,6 +1342,7 @@ export class OrdersService {
         },
         OrderStatus.RETURN_SHIPPED,
         'FAILURE',
+        { failurePenalizeUserIds: [order.sellerId] },
       );
 
       if (sellerRevenue > 0) {
@@ -1386,22 +1416,28 @@ export class OrdersService {
           {
             userId: order.buyerId,
             type: NotificationType.ORDER_STATUS_CHANGED,
-            title: 'مرجوعی تایید شد و وجه بازگشت',
-            message: `فروشنده دریافت مرجوعی سفارش #${order.id.slice(-6)} را تایید کرد و مبلغ به کیف پول شما برگشت.`,
+            title: isAuto ? 'تایید خودکار مرجوعی و بازگشت وجه' : 'مرجوعی تایید شد و وجه بازگشت',
+            message: isAuto
+              ? `مهلت تایید دریافت مرجوعی سفارش #${order.id.slice(-6)} به پایان رسید؛ دریافت به‌صورت خودکار تایید و مبلغ به کیف پول شما برگشت.`
+              : `فروشنده دریافت مرجوعی سفارش #${order.id.slice(-6)} را تایید کرد و مبلغ به کیف پول شما برگشت.`,
             meta: {
               orderId: order.id,
               status: OrderStatus.CANCELLED,
               refundAmount: refundableToBuyer,
+              autoConfirmed: isAuto,
             } as Prisma.InputJsonValue,
           },
           {
             userId: order.sellerId,
             type: NotificationType.ORDER_STATUS_CHANGED,
-            title: 'مرجوعی تایید شد',
-            message: `شما دریافت مرجوعی سفارش #${order.id.slice(-6)} را تایید کردید و پرونده بسته شد.`,
+            title: isAuto ? 'تایید خودکار دریافت مرجوعی' : 'مرجوعی تایید شد',
+            message: isAuto
+              ? `به‌دلیل عدم تایید در مهلت مقرر، دریافت مرجوعی سفارش #${order.id.slice(-6)} به‌صورت خودکار ثبت شد و بازگشت وجه به خریدار انجام شد.`
+              : `شما دریافت مرجوعی سفارش #${order.id.slice(-6)} را تایید کردید و پرونده بسته شد.`,
             meta: {
               orderId: order.id,
               status: OrderStatus.CANCELLED,
+              autoConfirmed: isAuto,
             } as Prisma.InputJsonValue,
           },
         ],
@@ -1409,10 +1445,133 @@ export class OrdersService {
 
       return {
         success: true,
-        message: 'مرجوعی تایید شد و بازگشت وجه انجام شد',
+        message: isAuto
+          ? 'مرجوعی به‌صورت خودکار تایید و بازگشت وجه انجام شد'
+          : 'مرجوعی تایید شد و بازگشت وجه انجام شد',
         order: updated,
       };
     });
+  }
+
+  private async getSellerReturnConfirmDeadlineMinutes(): Promise<number> {
+    const setting = await this.prisma.systemSetting.findFirst({
+      where: {
+        key: {
+          in: [
+            'SELLER_RETURN_CONFIRM_DEADLINE_MINUTES',
+            'SELLER_RETURN_CONFIRM_DEADLINE_HOURS',
+          ],
+        },
+      },
+      orderBy: { key: 'asc' },
+    });
+    const fallback =
+      OrdersService.DEFAULT_SELLER_RETURN_CONFIRM_DEADLINE_MINUTES;
+    if (!setting?.value?.trim()) return fallback;
+    if (setting.key === 'SELLER_RETURN_CONFIRM_DEADLINE_HOURS') {
+      const hours = Number(setting.value.replace(/[^\d.]/g, ''));
+      if (Number.isFinite(hours) && hours > 0) {
+        return Math.floor(hours * 60);
+      }
+      return fallback;
+    }
+    const minutes = Number(setting.value.replace(/[^\d.]/g, ''));
+    if (Number.isFinite(minutes) && minutes > 0) {
+      return Math.floor(minutes);
+    }
+    return fallback;
+  }
+
+  private async ensureReturnConfirmDeadline(orderId: string): Promise<void> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        status: true,
+        returnConfirmDeadline: true,
+        returnShippedAt: true,
+      },
+    });
+    if (!order || order.status !== OrderStatus.RETURN_SHIPPED) return;
+    if (order.returnConfirmDeadline) return;
+
+    const minutes = await this.getSellerReturnConfirmDeadlineMinutes();
+    const base = order.returnShippedAt ?? new Date();
+    const returnConfirmDeadline = new Date(
+      base.getTime() + minutes * 60 * 1000,
+    );
+    await this.prisma.order.update({
+      where: { id: orderId },
+      data: { returnConfirmDeadline },
+    });
+  }
+
+  async tryAutoConfirmSellerReturnReceipt(orderId: string): Promise<boolean> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        status: true,
+        returnConfirmDeadline: true,
+        returnShippedAt: true,
+        returnConfirmedAt: true,
+      },
+    });
+    if (
+      !order ||
+      order.status !== OrderStatus.RETURN_SHIPPED ||
+      order.returnConfirmedAt
+    ) {
+      return false;
+    }
+
+    let expired = false;
+    if (order.returnConfirmDeadline) {
+      expired = order.returnConfirmDeadline.getTime() <= Date.now();
+    } else if (order.returnShippedAt) {
+      const minutes = await this.getSellerReturnConfirmDeadlineMinutes();
+      expired =
+        Date.now() - order.returnShippedAt.getTime() >= minutes * 60 * 1000;
+    }
+    if (!expired) return false;
+
+    try {
+      await this.executeReturnReceiptConfirmation(orderId, 'AUTO_TIMEOUT');
+      return true;
+    } catch (error) {
+      console.error(
+        `Error auto-confirming seller return receipt for order ${orderId}:`,
+        error,
+      );
+      return false;
+    }
+  }
+
+  @Cron(CronExpression.EVERY_MINUTE)
+  async autoConfirmSellerReturnReceipt(): Promise<void> {
+    const now = new Date();
+    const minutes = await this.getSellerReturnConfirmDeadlineMinutes();
+    const legacyCutoff = new Date(Date.now() - minutes * 60 * 1000);
+    const candidates = await this.prisma.order.findMany({
+      where: {
+        status: OrderStatus.RETURN_SHIPPED,
+        returnConfirmedAt: null,
+        OR: [
+          { returnConfirmDeadline: { lte: now } },
+          {
+            returnConfirmDeadline: null,
+            returnShippedAt: { lte: legacyCutoff },
+          },
+        ],
+      },
+      select: { id: true },
+      take: 100,
+      orderBy: { returnShippedAt: 'asc' },
+    });
+
+    for (const row of candidates) {
+      await this.tryAutoConfirmSellerReturnReceipt(row.id);
+    }
   }
   // =================================================================
   // 5. تایید نهایی سفارش
@@ -1777,6 +1936,65 @@ export class OrdersService {
     }
 
     order = await this.attachBuyerConfirmDeadline(order);
+
+    if (order.status === OrderStatus.RETURN_SHIPPED) {
+      await this.ensureReturnConfirmDeadline(orderId);
+      const returnTiming = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        select: {
+          returnConfirmDeadline: true,
+          returnShippedAt: true,
+          returnPackagingVideo: true,
+          returnTrackingCode: true,
+        },
+      });
+      if (returnTiming) {
+        order = { ...order, ...returnTiming };
+      }
+    }
+
+    const autoReturnConfirmed =
+      await this.tryAutoConfirmSellerReturnReceipt(orderId);
+    if (autoReturnConfirmed) {
+      const refreshedAfterReturn = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+          listing: {
+            select: {
+              id: true,
+              title: true,
+              thumbnail: true,
+              type: true,
+              status: true,
+              condition: true,
+              shippingPayer: true,
+              sellerRequiresVerification: true,
+            },
+          },
+          buyer: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              avatar: true,
+              phone: true,
+            },
+          },
+          seller: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              avatar: true,
+              phone: true,
+            },
+          },
+        },
+      });
+      if (refreshedAfterReturn) {
+        order = await this.attachBuyerConfirmDeadline(refreshedAfterReturn);
+      }
+    }
 
     const autoConfirmed = await this.tryAutoConfirmExpiredOrder(orderId);
     if (autoConfirmed) {

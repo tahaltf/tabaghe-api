@@ -1,31 +1,50 @@
-# به جای دانلود از اینترنت، از ایمیج موجود روی سرورت استفاده می‌کنیم
-FROM tabagheh-backend:latest
-
-# Chromium برای تولید PDF گواهی کارشناسی (Puppeteer)
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends \
-    chromium \
-    fonts-liberation \
-    fonts-noto-core \
-    ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
-
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+# -----------------------------------------------------------------------------
+# Stage 1: Build NestJS Application
+# -----------------------------------------------------------------------------
+FROM node:20-alpine AS build
 
 WORKDIR /app
 
-# فقط کدهای جدید رو کپی می‌کنیم (چون پکیج‌ها قبلاً نصب شدن)
+COPY package*.json ./
+RUN npm ci --legacy-peer-deps
+
 COPY . .
 
-# اجرای بیلد نهایی
+# اجرای بیلد نهایی و ساخت کلاینت پریسما
 ARG DATABASE_URL="postgresql://temp:temp@localhost:5432/temp"
 ENV NODE_ENV=production
 
-# prisma generate = ساخت @prisma/client از schema (جدا از migrate deploy که فقط SQL اجرا می‌کند).
 RUN DATABASE_URL=$DATABASE_URL npx prisma generate && \
     npm run build
-# اضافه کردن این دستور برای اینکه بفهمیم فایل‌ها کجا ساخته شدن (توی لاگ بیلد نشون میده)
+
+# -----------------------------------------------------------------------------
+# Stage 2: Production Env with Chromium (Puppeteer)
+# -----------------------------------------------------------------------------
+FROM node:20-alpine AS production
+
+WORKDIR /app
+
+# نصب کرومیوم و فونت‌های مورد نیاز برای PDF کارشناسی در لینوکس آلپاین
+RUN apk add --no-cache \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont
+
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV NODE_ENV=production
+
+COPY package*.json ./
+RUN npm ci --only=production --legacy-peer-deps
+
+# کپی کردن خروجی‌های اصلی از استیج بیلد
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/prisma ./prisma
+
+# تایید ساختار فایل‌ها جهت اطمینان در لاگ
 RUN ls -R dist
 
 EXPOSE 3000
