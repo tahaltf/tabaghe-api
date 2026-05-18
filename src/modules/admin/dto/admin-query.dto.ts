@@ -1,5 +1,13 @@
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 import {
   ListingStatus,
   ListingType,
@@ -74,6 +82,11 @@ export class AdminListingListQueryDto extends AdminListQueryDto {
 export class AdminSetListingStatusDto {
   @IsEnum(ListingStatus)
   status!: ListingStatus;
+}
+
+export class AdminSetListingFeaturedDto {
+  @IsBoolean()
+  isFeatured!: boolean;
 }
 
 export class AdminOrderListQueryDto extends AdminListQueryDto {

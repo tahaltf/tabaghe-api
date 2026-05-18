@@ -169,6 +169,8 @@ enum NotificationType {
   KYC_REJECTED
   LISTING_APPROVED
   LISTING_REJECTED
+  LISTING_EXPIRY_REMINDER
+  LISTING_EXPIRED
   REPAIR_STATUS_CHANGED
   TICKET_REPLY
   SYSTEM
@@ -386,9 +388,16 @@ model Listing {
   rejectionReason String?
   deleteReason    String?
   approvedAt      DateTime?
+  expiresAt       DateTime?   // پایان مدت نمایش روی سایت (از زمان تایید ادمین)
+  expiryReminderSentAt DateTime?
   rejectedAt      DateTime?
   deletedAt       DateTime?
-sellerRequiresVerification Boolean @default(false)
+
+  /** ویژه بودن آگهی: نمایش با استایل پرمیوم و بالاتر از بقیه */
+  isFeatured      Boolean   @default(false)
+  featuredAt      DateTime?
+
+  sellerRequiresVerification Boolean @default(false)
   direct          ListingDirect?
   exchange        ListingExchange?
   auction         ListingAuction?
@@ -402,6 +411,8 @@ sellerRequiresVerification Boolean @default(false)
   @@index([authorId])
   @@index([provinceId, cityId])
   @@index([createdAt])
+  @@index([status, expiresAt])
+  @@index([isFeatured, createdAt])
 }
 
 model ListingDirect {
@@ -736,6 +747,7 @@ model Category {
 model Location {
   id               String       @id @default(cuid())
   name             String
+  slug             String       @unique
   type             LocationType
   parentId         String?
   parent           Location?    @relation("LocationTree", fields: [parentId], references: [id])

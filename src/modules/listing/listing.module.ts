@@ -12,6 +12,7 @@ import { ListingCommandService } from './services/listing-command.service';
 import { ListingSavedService } from './services/listing-saved.service';
 import { ListingAdminService } from './services/listing-admin.service';
 import { ListingSearchService } from './listing-search.service';
+import { ListingExpiryService } from './services/listing-expiry.service';
 
 @Module({
   imports: [
@@ -32,7 +33,8 @@ import { ListingSearchService } from './listing-search.service';
     ListingSavedService,
     ListingAdminService,
     ListingSearchService,
+    ListingExpiryService,
   ],
-  exports: [ListingQueryService, ListingCommandService],
+  exports: [ListingQueryService, ListingCommandService, ListingExpiryService],
 })
 export class ListingModule {}

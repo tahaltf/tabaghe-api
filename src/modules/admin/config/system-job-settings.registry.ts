@@ -47,6 +47,11 @@ export const SYSTEM_JOB_SETTING_GROUPS: SystemJobSettingGroup[] = [
     label: 'تعمیرات',
     description: 'تکمیل خودکار پس از ارسال برگشتی',
   },
+  {
+    id: 'listings',
+    label: 'آگهی و نمایش',
+    description: 'مدت نمایش آگهی‌های تاییدشده روی سایت',
+  },
 ];
 
 export const SYSTEM_JOB_SETTINGS_REGISTRY: SystemJobSettingDefinition[] = [
@@ -72,6 +77,18 @@ export const SYSTEM_JOB_SETTINGS_REGISTRY: SystemJobSettingDefinition[] = [
     unit: 'minutes',
     min: 60,
     max: 60 * 24 * 30,
+  },
+  {
+    key: 'LISTING_DISPLAY_DAYS',
+    label: 'مدت نمایش آگهی روی سایت',
+    description:
+      'پس از تایید ادمین، آگهی چند روز روی سایت می‌ماند. یک روز قبل از پایان، به فروشنده اطلاع داده می‌شود؛ پس از اتمام، آگهی آرشیو می‌شود.',
+    groupId: 'listings',
+    type: 'number',
+    defaultValue: '7',
+    unit: 'days',
+    min: 1,
+    max: 365,
   },
   {
     key: 'ACTION_DEADLINE_REMINDER_HOURS',

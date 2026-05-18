@@ -26,6 +26,8 @@ const SEARCH_SELECT = {
   cityId: true,
   shippingPayer: true,
   sellerRequiresVerification: true,
+  isFeatured: true,
+  featuredAt: true,
   direct: {
     select: { price: true, allowExchange: true },
   },
@@ -118,7 +120,12 @@ export class ListingSearchService {
         where,
         skip,
         take: limit,
-        orderBy: { createdAt: 'desc' },
+        // آگهی‌های ویژه ابتدا، بعد بر اساس تاریخ ایجاد
+        orderBy: [
+          { isFeatured: 'desc' },
+          { featuredAt: 'desc' },
+          { createdAt: 'desc' },
+        ],
         select: SEARCH_SELECT,
       }),
       this.prisma.listing.count({ where }),

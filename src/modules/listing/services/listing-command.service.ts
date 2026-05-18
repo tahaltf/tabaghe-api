@@ -158,6 +158,8 @@ export class ListingCommandService {
         status: ListingStatus.PENDING,
         rejectionReason: null,
         rejectedAt: null,
+        expiresAt: null,
+        expiryReminderSentAt: null,
         ...(dto.categoryId && {
           category: { connect: { id: dto.categoryId } },
         }),
