@@ -46,7 +46,9 @@ export class AdminBackupController {
 
   @Get('jobs')
   async listJobs() {
-    const { hostScriptPath: _h, ...cfg } = await this.backup.getConfig();
+    const full = await this.backup.getConfig();
+    const { hostScriptPath, ...cfg } = full;
+    void hostScriptPath;
     return this.backup.getServerJobs(cfg);
   }
 
@@ -58,8 +60,11 @@ export class AdminBackupController {
   @Get('files/download/:fileName')
   @RawResponse()
   async download(@Param('fileName') fileName: string) {
-    const { stream, size, fileName: safeName } =
-      await this.backup.getDownloadPayload(fileName);
+    const {
+      stream,
+      size,
+      fileName: safeName,
+    } = await this.backup.getDownloadPayload(fileName);
     return new StreamableFile(stream, {
       type: 'application/octet-stream',
       disposition: `attachment; filename="${safeName}"`,

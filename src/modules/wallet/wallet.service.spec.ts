@@ -135,29 +135,31 @@ describe('WalletService - refundExchangeBothNoShipmentOnCancel', () => {
   it('refunds each participant their actual settlement and unwinds peer blocked deposits', async () => {
     const service = new WalletService(prismaMock, notificationMock);
 
-    const settlementsByWallet: Record<string, { amount: number; meta: object }[]> =
-      {
-        'buyer-1-wallet-id': [
-          {
-            amount: 300_000,
-            meta: {
-              phase: 'exchange_participant_paid',
-              payerUserId: 'buyer-1',
-              orderId: 'ord-1',
-            },
+    const settlementsByWallet: Record<
+      string,
+      { amount: number; meta: object }[]
+    > = {
+      'buyer-1-wallet-id': [
+        {
+          amount: 300_000,
+          meta: {
+            phase: 'exchange_participant_paid',
+            payerUserId: 'buyer-1',
+            orderId: 'ord-1',
           },
-        ],
-        'seller-1-wallet-id': [
-          {
-            amount: 100_000,
-            meta: {
-              phase: 'exchange_participant_paid',
-              payerUserId: 'seller-1',
-              orderId: 'ord-1',
-            },
+        },
+      ],
+      'seller-1-wallet-id': [
+        {
+          amount: 100_000,
+          meta: {
+            phase: 'exchange_participant_paid',
+            payerUserId: 'seller-1',
+            orderId: 'ord-1',
           },
-        ],
-      };
+        },
+      ],
+    };
 
     const pendingDepositsByWallet: Record<
       string,
@@ -288,29 +290,31 @@ describe('WalletService - refundExchangeOneSideNoShipmentOnCancel', () => {
   it('refunds sender fully, offender minus penalty, credits compensation to sender', async () => {
     const service = new WalletService(prismaMock, notificationMock);
 
-    const settlementsByWallet: Record<string, { amount: number; meta: object }[]> =
-      {
-        'buyer-1-wallet-id': [
-          {
-            amount: 300_000,
-            meta: {
-              phase: 'exchange_participant_paid',
-              payerUserId: 'buyer-1',
-              orderId: 'ord-1',
-            },
+    const settlementsByWallet: Record<
+      string,
+      { amount: number; meta: object }[]
+    > = {
+      'buyer-1-wallet-id': [
+        {
+          amount: 300_000,
+          meta: {
+            phase: 'exchange_participant_paid',
+            payerUserId: 'buyer-1',
+            orderId: 'ord-1',
           },
-        ],
-        'seller-1-wallet-id': [
-          {
-            amount: 100_000,
-            meta: {
-              phase: 'exchange_participant_paid',
-              payerUserId: 'seller-1',
-              orderId: 'ord-1',
-            },
+        },
+      ],
+      'seller-1-wallet-id': [
+        {
+          amount: 100_000,
+          meta: {
+            phase: 'exchange_participant_paid',
+            payerUserId: 'seller-1',
+            orderId: 'ord-1',
           },
-        ],
-      };
+        },
+      ],
+    };
 
     const tx: any = {
       listing: {

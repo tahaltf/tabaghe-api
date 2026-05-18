@@ -11,9 +11,7 @@ export function normalizePickupIso(raw?: string | null): string | null {
   );
   if (localMatch) {
     const [, date, hh, mm, ss] = localMatch;
-    const parsed = new Date(
-      `${date}T${hh}:${mm}:${ss ?? '00'}`,
-    );
+    const parsed = new Date(`${date}T${hh}:${mm}:${ss ?? '00'}`);
     if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
   }
 

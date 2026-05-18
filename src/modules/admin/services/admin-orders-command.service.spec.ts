@@ -101,7 +101,9 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
       recordTerminalOutcome: jest.fn().mockResolvedValue(undefined),
     };
     const walletService = {
-      repairMissingDirectCancelRefund: jest.fn().mockResolvedValue({ repaired: false }),
+      repairMissingDirectCancelRefund: jest
+        .fn()
+        .mockResolvedValue({ repaired: false }),
     };
     const ordersService = {
       ensureBuyerConfirmDeadline: jest.fn().mockResolvedValue(undefined),
@@ -271,13 +273,18 @@ describe('AdminOrdersCommandService - exchange hub return inspection', () => {
         }),
       },
       ticket: {
-        create: jest
-          .fn()
-          .mockImplementation(
-            async ({ data }: { data: { userId: string; messages: { create: { message: string } } } }) => ({
-              id: `ticket-${data.userId}`,
-            }),
-          ),
+        create: jest.fn().mockImplementation(
+          async ({
+            data,
+          }: {
+            data: {
+              userId: string;
+              messages: { create: { message: string } };
+            };
+          }) => ({
+            id: `ticket-${data.userId}`,
+          }),
+        ),
       },
       notification: { create: jest.fn().mockResolvedValue({}) },
     };
@@ -299,7 +306,9 @@ describe('AdminOrdersCommandService - exchange hub return inspection', () => {
 
     const service = new AdminOrdersCommandService(
       prisma as never,
-      { getApiUrl: jest.fn().mockReturnValue('https://api.example.com') } as never,
+      {
+        getApiUrl: jest.fn().mockReturnValue('https://api.example.com'),
+      } as never,
       {} as never,
       orderReputation as never,
       { repairMissingDirectCancelRefund: jest.fn() } as never,
@@ -431,7 +440,9 @@ describe('AdminOrdersCommandService - exchange release escrow', () => {
       recordTerminalOutcome: jest.fn().mockResolvedValue(undefined),
     };
     const walletService = {
-      repairMissingDirectCancelRefund: jest.fn().mockResolvedValue({ repaired: false }),
+      repairMissingDirectCancelRefund: jest
+        .fn()
+        .mockResolvedValue({ repaired: false }),
     };
     const ordersService = {
       ensureBuyerConfirmDeadline: jest.fn().mockResolvedValue(undefined),

@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import type { VaultPurgeTarget } from '../dto/admin-vault.dto';
@@ -168,16 +164,20 @@ export class AdminVaultService {
       case 'reviews':
         return { reviews: (await this.prisma.review.deleteMany()).count };
       case 'quotaLedger':
-        return { quotaLedger: (await this.prisma.quotaLedger.deleteMany()).count };
+        return {
+          quotaLedger: (await this.prisma.quotaLedger.deleteMany()).count,
+        };
       case 'planPurchases':
         return {
-          planPurchases: (await this.prisma.userPlanPurchase.deleteMany()).count,
+          planPurchases: (await this.prisma.userPlanPurchase.deleteMany())
+            .count,
         };
       case 'otpCodes':
         return { otpCodes: (await this.prisma.otpCode.deleteMany()).count };
       case 'idempotencyKeys':
         return {
-          idempotencyKeys: (await this.prisma.idempotencyKey.deleteMany()).count,
+          idempotencyKeys: (await this.prisma.idempotencyKey.deleteMany())
+            .count,
         };
       case 'contactMessages':
         return this.purgeContactMessages();
@@ -247,7 +247,8 @@ export class AdminVaultService {
       const orders = (await tx.order.deleteMany()).count;
       const exchangeOffers = (await tx.exchangeOffer.deleteMany()).count;
       const auctionBids = (await tx.auctionBid.deleteMany()).count;
-      const secondChanceOffers = (await tx.secondChanceOffer.deleteMany()).count;
+      const secondChanceOffers = (await tx.secondChanceOffer.deleteMany())
+        .count;
       const savedListings = (await tx.savedListing.deleteMany()).count;
       const quotaOnListings = (
         await tx.quotaLedger.deleteMany({
@@ -359,7 +360,9 @@ export class AdminVaultService {
         ).count;
 
         out.planPurchases = (
-          await tx.userPlanPurchase.deleteMany({ where: { userId: { in: ids } } })
+          await tx.userPlanPurchase.deleteMany({
+            where: { userId: { in: ids } },
+          })
         ).count;
 
         out.walletTransactions = (
@@ -376,8 +379,9 @@ export class AdminVaultService {
           await tx.address.deleteMany({ where: { userId: { in: ids } } })
         ).count;
 
-        out.users = (await tx.user.deleteMany({ where: { id: { in: ids } } }))
-          .count;
+        out.users = (
+          await tx.user.deleteMany({ where: { id: { in: ids } } })
+        ).count;
 
         return out;
       },
@@ -414,9 +418,8 @@ export class AdminVaultService {
   private async purgeAuctionData(): Promise<Record<string, number>> {
     return this.prisma.$transaction(async (tx) => {
       const auctionBids = (await tx.auctionBid.deleteMany()).count;
-      const secondChanceOffers = (
-        await tx.secondChanceOffer.deleteMany()
-      ).count;
+      const secondChanceOffers = (await tx.secondChanceOffer.deleteMany())
+        .count;
       return { auctionBids, secondChanceOffers };
     });
   }

@@ -253,8 +253,7 @@ export class InspectionCertificateService implements OnModuleDestroy {
         DEFAULT_INSPECTION_CERTIFICATE_FOOTER,
       logoFilename:
         map.get(SETTING_KEYS.INSPECTION_CERTIFICATE_LOGO)?.trim() || '',
-      userAppLogoFilename:
-        map.get(SETTING_KEYS.USER_APP_LOGO)?.trim() || '',
+      userAppLogoFilename: map.get(SETTING_KEYS.USER_APP_LOGO)?.trim() || '',
       stampFilename:
         map.get(SETTING_KEYS.INSPECTION_CERTIFICATE_STAMP)?.trim() || '',
       platformAddress: map.get(SETTING_KEYS.PLATFORM_ADDRESS)?.trim() || '',
@@ -283,7 +282,7 @@ export class InspectionCertificateService implements OnModuleDestroy {
       nationalCode: string | null;
     };
     let itemTitle: string;
-    let itemCondition: 'NEW' | 'USED' = order.listing?.condition ?? 'USED';
+    const itemCondition: 'NEW' | 'USED' = order.listing?.condition ?? 'USED';
     let categoryTitle: string = order.listing?.category?.title ?? '—';
 
     if (order.type === OrderType.EXCHANGE && side === 'OFFER') {
@@ -394,10 +393,7 @@ export class InspectionCertificateService implements OnModuleDestroy {
     return this.fontFaceCssCache;
   }
 
-  private readAssetDataUri(
-    fullPath: string,
-    mime: string,
-  ): string | null {
+  private readAssetDataUri(fullPath: string, mime: string): string | null {
     if (!existsSync(fullPath)) {
       this.logger.warn(`Certificate asset not found: ${fullPath}`);
       return null;
@@ -420,8 +416,7 @@ export class InspectionCertificateService implements OnModuleDestroy {
       this.fileToDataUri(
         certificateLogoFilename,
         INSPECTION_CERTIFICATE_ASSET_UPLOAD_PATH,
-      ) ??
-      this.fileToDataUri(userAppLogoFilename, BRAND_LOGO_UPLOAD_PATH)
+      ) ?? this.fileToDataUri(userAppLogoFilename, BRAND_LOGO_UPLOAD_PATH)
     );
   }
 
@@ -539,9 +534,9 @@ export class InspectionCertificateService implements OnModuleDestroy {
    * مسیر اجرایی کرومیوم/کروم/اج را پیدا می‌کنیم.
    * اولویت: env var → مسیرهای رایج سیستم → Chromium باندل Puppeteer.
    */
-  private resolveChromiumExecutablePath(
-    puppeteerModule?: { executablePath: (channel?: string) => string },
-  ): string | null {
+  private resolveChromiumExecutablePath(puppeteerModule?: {
+    executablePath: (channel?: string) => string;
+  }): string | null {
     const envPath =
       process.env.PUPPETEER_EXECUTABLE_PATH ||
       process.env.CHROME_PATH ||

@@ -324,7 +324,9 @@ export class UsersService {
       const orderId = String(meta['orderId'] ?? '').trim();
       if (orderId) return `order:${orderId}`;
     }
-    const offerId = String(meta['exchangeOfferId'] ?? meta['offerId'] ?? '').trim();
+    const offerId = String(
+      meta['exchangeOfferId'] ?? meta['offerId'] ?? '',
+    ).trim();
     if (offerId) return `offer:${offerId}`;
     const listingId = String(meta['listingId'] ?? '').trim();
     if (listingId && type !== NotificationType.ORDER_STATUS_CHANGED) {
@@ -332,7 +334,9 @@ export class UsersService {
     }
     const ticketId = String(meta['ticketId'] ?? '').trim();
     if (ticketId) return `ticket:${ticketId}`;
-    const repairId = String(meta['repairRequestId'] ?? meta['repairId'] ?? '').trim();
+    const repairId = String(
+      meta['repairRequestId'] ?? meta['repairId'] ?? '',
+    ).trim();
     if (repairId) return `repair:${repairId}`;
     return `notif:${notificationId}`;
   }
@@ -365,10 +369,7 @@ export class UsersService {
       const orderId = String(meta['orderId'] ?? '').trim();
       if (orderId) {
         const order = orderMetaById.get(orderId);
-        if (
-          order &&
-          TERMINAL_ORDER_STATUSES_FOR_BADGE.includes(order.status)
-        ) {
+        if (order && TERMINAL_ORDER_STATUSES_FOR_BADGE.includes(order.status)) {
           return null;
         }
       }

@@ -732,8 +732,7 @@ export class AuctionService {
         deadlineTimestamp > finishTimestamp
           ? (deadlineTimestamp - finishTimestamp) / (60 * 60 * 1000)
           : DEFAULT_WINNER_PAYMENT_DEADLINE_HOURS;
-      const isSecondChanceRound =
-        deadlineHours <= secondChancePaymentHours + 1;
+      const isSecondChanceRound = deadlineHours <= secondChancePaymentHours + 1;
       await this.processNextWinner(
         auction.listingId,
         isSecondChanceRound

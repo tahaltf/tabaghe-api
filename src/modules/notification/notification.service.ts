@@ -203,7 +203,10 @@ export class NotificationService {
           );
           this.logger.log(`پیامک ${type} برای GODADMIN ${ga.phone} ارسال شد.`);
         } catch (error: unknown) {
-          const err = error as { response?: { data?: unknown }; message?: string };
+          const err = error as {
+            response?: { data?: unknown };
+            message?: string;
+          };
           this.logger.error(
             `خطا در ارسال پیامک ادمین به ${ga.phone}:`,
             err?.response?.data || err?.message,

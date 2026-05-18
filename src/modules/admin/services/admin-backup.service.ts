@@ -3,7 +3,6 @@ import {
   ConflictException,
   Injectable,
   Logger,
-  NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -167,7 +166,9 @@ export class AdminBackupService {
     path: string;
   }> {
     if (this.runLock) {
-      throw new ConflictException('یک بک‌اپ در حال اجراست؛ لطفاً چند دقیقه صبر کنید');
+      throw new ConflictException(
+        'یک بک‌اپ در حال اجراست؛ لطفاً چند دقیقه صبر کنید',
+      );
     }
 
     this.runLock = true;
@@ -191,11 +192,17 @@ export class AdminBackupService {
         lastFileSizeBytes: st.size,
         nextRunAt:
           cfg.enabled && cfg.scheduleMode === 'interval'
-            ? this.computeNextRunAt(true, cfg.intervalHours, new Date().toISOString())
+            ? this.computeNextRunAt(
+                true,
+                cfg.intervalHours,
+                new Date().toISOString(),
+              )
             : null,
       };
       await this.saveConfig(updated);
-      this.logger.log(`Backup ${source} OK: ${result.fileName} (${st.size} bytes)`);
+      this.logger.log(
+        `Backup ${source} OK: ${result.fileName} (${st.size} bytes)`,
+      );
       return {
         fileName: result.fileName,
         sizeBytes: st.size,
@@ -295,7 +302,8 @@ export class AdminBackupService {
     ];
 
     const hostCron = this.intervalToCron(cfg.intervalHours);
-    const script = this.hostScriptPath() ?? '/usr/local/bin/tabagheh_pg_backup.sh';
+    const script =
+      this.hostScriptPath() ?? '/usr/local/bin/tabagheh_pg_backup.sh';
     const recommendedHostCrons: ServerJobInfo[] = [
       {
         id: 'host_pg_backup',
@@ -502,9 +510,7 @@ export class AdminBackupService {
           const fileName = line.split(/[/\\]/).pop()!;
           return resolve({ fileName, path: line });
         }
-        this.findLatestBackup(cfg.backupDir)
-          .then(resolve)
-          .catch(reject);
+        this.findLatestBackup(cfg.backupDir).then(resolve).catch(reject);
       });
     });
   }
@@ -522,9 +528,13 @@ export class AdminBackupService {
     const path = join(cfg.backupDir, fileName);
 
     return new Promise((resolve, reject) => {
-      const child = spawn('pg_dump', [dbUrl, '--format=custom', '--file', path], {
-        env: process.env,
-      });
+      const child = spawn(
+        'pg_dump',
+        [dbUrl, '--format=custom', '--file', path],
+        {
+          env: process.env,
+        },
+      );
       let stderr = '';
       child.stderr.on('data', (d) => (stderr += String(d)));
       child.on('error', (err) => {
@@ -559,7 +569,10 @@ export class AdminBackupService {
     return { fileName, path: join(dir, fileName) };
   }
 
-  private async pruneOldBackups(dir: string, retentionDays: number): Promise<void> {
+  private async pruneOldBackups(
+    dir: string,
+    retentionDays: number,
+  ): Promise<void> {
     const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
     const files = await this.listFiles().catch(() => [] as BackupFileItem[]);
     for (const f of files) {

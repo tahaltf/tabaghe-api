@@ -132,10 +132,7 @@ export class AdminPlansService {
         orderBy: { createdAt: 'desc' },
       }),
     ]);
-    return [
-      builtin,
-      ...rows.map((p) => ({ ...p, isBuiltinFree: false })),
-    ];
+    return [builtin, ...rows.map((p) => ({ ...p, isBuiltinFree: false }))];
   }
 
   async findOne(id: string): Promise<AdminPlanItem> {
@@ -157,27 +154,31 @@ export class AdminPlansService {
         'حداقل یک قاعدهٔ سهمیه با تعداد معتبر لازم است',
       );
     }
-    return this.prisma.plan.create({
-      data: {
-        title: dto.title,
-        marketingTitle: normalizeMarketingTitle(dto.marketingTitle),
-        description: dto.description,
-        price: dto.price,
-        isActive: dto.isActive ?? true,
-        durationDays: dto.durationDays ?? 365,
-        feeDiscountDirectPercent: dto.feeDiscountDirectPercent ?? 0,
-        feeDiscountAuctionPercent: dto.feeDiscountAuctionPercent ?? 0,
-        badgeLabel: normalizePlanBadgeLabel(dto.badgeLabel ?? null),
-        badgeColor: sanitizePlanBadgeColor(dto.badgeColor),
-        rules: {
-          create: merged.map((r) => ({ type: r.type, count: r.count })),
+    return this.prisma.plan
+      .create({
+        data: {
+          title: dto.title,
+          marketingTitle: normalizeMarketingTitle(dto.marketingTitle),
+          description: dto.description,
+          price: dto.price,
+          isActive: dto.isActive ?? true,
+          durationDays: dto.durationDays ?? 365,
+          feeDiscountDirectPercent: dto.feeDiscountDirectPercent ?? 0,
+          feeDiscountAuctionPercent: dto.feeDiscountAuctionPercent ?? 0,
+          badgeLabel: normalizePlanBadgeLabel(dto.badgeLabel ?? null),
+          badgeColor: sanitizePlanBadgeColor(dto.badgeColor),
+          rules: {
+            create: merged.map((r) => ({ type: r.type, count: r.count })),
+          },
         },
-      },
-      include: PLAN_INCLUDE,
-    }).then((p) => ({ ...p, isBuiltinFree: false }));
+        include: PLAN_INCLUDE,
+      })
+      .then((p) => ({ ...p, isBuiltinFree: false }));
   }
 
-  private async updateBuiltinFreePlan(dto: UpdatePlanDto): Promise<AdminPlanItem> {
+  private async updateBuiltinFreePlan(
+    dto: UpdatePlanDto,
+  ): Promise<AdminPlanItem> {
     const store = await this.readBuiltinDisplayStore();
 
     if (dto.title !== undefined) store.title = dto.title;

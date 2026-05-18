@@ -6,7 +6,14 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 export interface SitemapUrlEntry {
   loc: string;
   lastmod?: string;
-  changefreq?: 'always' | 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'never';
+  changefreq?:
+    | 'always'
+    | 'hourly'
+    | 'daily'
+    | 'weekly'
+    | 'monthly'
+    | 'yearly'
+    | 'never';
   priority?: number;
 }
 
@@ -18,7 +25,9 @@ export class SitemapService {
     private readonly prisma: PrismaService,
     config: ConfigService,
   ) {
-    const configured = (config.get<string>('FRONTEND_APP_URL') ?? 'https://tabagheh.com').trim();
+    const configured = (
+      config.get<string>('FRONTEND_APP_URL') ?? 'https://tabagheh.com'
+    ).trim();
     this.siteOrigin = configured.replace(/\/+$/, '');
   }
 
@@ -86,7 +95,11 @@ export class SitemapService {
 
   private getStaticPages(): SitemapUrlEntry[] {
     const now = new Date().toISOString();
-    const pages: Array<{ path: string; priority: number; changefreq: SitemapUrlEntry['changefreq'] }> = [
+    const pages: Array<{
+      path: string;
+      priority: number;
+      changefreq: SitemapUrlEntry['changefreq'];
+    }> = [
       { path: '/', priority: 1.0, changefreq: 'daily' },
       { path: '/listings', priority: 0.9, changefreq: 'hourly' },
       { path: '/blog', priority: 0.8, changefreq: 'daily' },

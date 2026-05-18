@@ -72,7 +72,8 @@ export const SYSTEM_JOBS_REGISTRY: SystemJobDefinition[] = [
     name: 'گزارش روزانه تطبیق مزایده',
     schedule: '10 2 * * *',
     scheduleLabel: 'هر روز ۰۲:۱۰',
-    description: 'گزارش تطبیق وضعیت مزایده‌ها را در SystemSetting ذخیره می‌کند.',
+    description:
+      'گزارش تطبیق وضعیت مزایده‌ها را در SystemSetting ذخیره می‌کند.',
     module: 'auction/auction.scheduler.ts',
     method: 'runDailyAuctionLedgerReconciliation',
     managedBy: 'nestjs_cron',

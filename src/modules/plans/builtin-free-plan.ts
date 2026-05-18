@@ -52,14 +52,10 @@ export function buildBuiltinFreePlan(
   const isActive = o.isActive !== false;
 
   const badgeLabel =
-    o.badgeLabel !== undefined
-      ? normalizePlanBadgeLabel(o.badgeLabel)
-      : null;
+    o.badgeLabel !== undefined ? normalizePlanBadgeLabel(o.badgeLabel) : null;
 
   const badgeColor =
-    o.badgeColor !== undefined
-      ? sanitizePlanBadgeColor(o.badgeColor)
-      : null;
+    o.badgeColor !== undefined ? sanitizePlanBadgeColor(o.badgeColor) : null;
 
   const rules: Array<{
     id: string;

@@ -347,11 +347,15 @@ describe('OrdersService', () => {
       async (cb: (trx: typeof tx) => Promise<unknown>) => cb(tx),
     );
 
-    walletMock.refundExchangeBothNoShipmentOnCancel.mockResolvedValue(undefined);
+    walletMock.refundExchangeBothNoShipmentOnCancel.mockResolvedValue(
+      undefined,
+    );
 
     await service.autoCancelExpiredOrders();
 
-    expect(walletMock.refundExchangeBothNoShipmentOnCancel).toHaveBeenCalledWith(
+    expect(
+      walletMock.refundExchangeBothNoShipmentOnCancel,
+    ).toHaveBeenCalledWith(
       tx,
       expect.objectContaining({
         orderId,
@@ -482,7 +486,11 @@ describe('OrdersService', () => {
 
     expect(orderReputationMock.recordTerminalOutcome).toHaveBeenCalledWith(
       tx,
-      expect.objectContaining({ id: orderId, buyerId: 'buyer-1', sellerId: 'seller-1' }),
+      expect.objectContaining({
+        id: orderId,
+        buyerId: 'buyer-1',
+        sellerId: 'seller-1',
+      }),
       OrderStatus.PAID,
       'FAILURE',
       expect.objectContaining({ failurePenalizeUserIds: ['seller-1'] }),

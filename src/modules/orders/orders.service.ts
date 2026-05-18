@@ -989,9 +989,7 @@ export class OrdersService {
           orderType === 'EXCHANGE'
             ? await this.getExchangeShipmentDeadlineMinutes()
             : sellerShipDeadlineMinutes;
-        const deadline = new Date(
-          Date.now() + shipDeadlineMinutes * 60 * 1000,
-        );
+        const deadline = new Date(Date.now() + shipDeadlineMinutes * 60 * 1000);
         orderPayload.shippingDeadline = deadline;
       }
 
@@ -1092,7 +1090,9 @@ export class OrdersService {
       order.status === OrderStatus.CANCELLED ||
       order.status === OrderStatus.REJECTED_AT_HUB
     ) {
-      throw new BadRequestException('این سفارش لغو شده و امکان ثبت اطلاعات ارسال وجود ندارد.');
+      throw new BadRequestException(
+        'این سفارش لغو شده و امکان ثبت اطلاعات ارسال وجود ندارد.',
+      );
     }
 
     if (await this.isShippingDeadlineExpired(order)) {
@@ -1130,10 +1130,7 @@ export class OrdersService {
       ? OrderStatus.SHIPPED_TO_HUB
       : OrderStatus.SHIPPED;
     updateData.status = nextShipStatus;
-    if (
-      nextShipStatus === OrderStatus.SHIPPED &&
-      !order.buyerConfirmDeadline
-    ) {
+    if (nextShipStatus === OrderStatus.SHIPPED && !order.buyerConfirmDeadline) {
       updateData.buyerConfirmDeadline =
         await this.buildBuyerConfirmDeadlineFrom(new Date());
     }
@@ -1823,9 +1820,8 @@ export class OrdersService {
       }
     }
 
-    const shippingCancelled = await this.tryCancelExpiredShippingForOrder(
-      orderId,
-    );
+    const shippingCancelled =
+      await this.tryCancelExpiredShippingForOrder(orderId);
     if (shippingCancelled) {
       const refreshed = await this.prisma.order.findUnique({
         where: { id: orderId },
@@ -2245,9 +2241,10 @@ export class OrdersService {
     },
   ): Promise<void> {
     const shortId = params.orderId.slice(-6);
-    const amountFa = Math.max(0, Number(params.totalAmount) || 0).toLocaleString(
-      'fa-IR',
-    );
+    const amountFa = Math.max(
+      0,
+      Number(params.totalAmount) || 0,
+    ).toLocaleString('fa-IR');
     const penalty = params.trustPenaltyPoints ?? 15;
     const listingTitle = params.listingTitle?.trim() || 'کالا';
 
@@ -2405,13 +2402,20 @@ export class OrdersService {
           `سهم پرداختی شما (${refundAmountFa} تومان) به کیف پولتان برگشت داده شد.`,
         );
       }
-      if (params.offenderIds.includes(role === 'buyer' ? params.buyerId : params.sellerId)) {
+      if (
+        params.offenderIds.includes(
+          role === 'buyer' ? params.buyerId : params.sellerId,
+        )
+      ) {
         lines.push(
           '',
           `طبق قوانین طبقه، ${penalty} واحد از امتیاز اعتماد شما کسر شد.`,
         );
       }
-      lines.push('', 'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.');
+      lines.push(
+        '',
+        'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.',
+      );
       return lines.join('\n');
     };
 
@@ -2419,7 +2423,10 @@ export class OrdersService {
       const isBuyer = role === 'buyer';
       const userId = isBuyer ? params.buyerId : params.sellerId;
       if (!params.offenderIds.includes(userId)) {
-        return buildCompliantPartyMessage(role, isBuyer ? buyerAmountFa : sellerAmountFa);
+        return buildCompliantPartyMessage(
+          role,
+          isBuyer ? buyerAmountFa : sellerAmountFa,
+        );
       }
       return [
         'سلام،',
@@ -2865,7 +2872,9 @@ export class OrdersService {
     };
   }
 
-  private enrichOrderClientFields<T extends Record<string, unknown>>(order: T): T {
+  private enrichOrderClientFields<T extends Record<string, unknown>>(
+    order: T,
+  ): T {
     const o = order as T & {
       cancelReason?: string | null;
       status?: OrderStatus;
@@ -2957,8 +2966,7 @@ export class OrdersService {
     const base = order.updatedAt ?? order.createdAt ?? new Date();
     const ageMs = Date.now() - base.getTime();
     // اگر سفارش قدیمی است ولی مهلت در DB ثبت نشده، از «الان» شمارش شود تا UI و کرون منطقی بمانند
-    const deadlineBase =
-      ageMs > minutes * 60 * 1000 ? new Date() : base;
+    const deadlineBase = ageMs > minutes * 60 * 1000 ? new Date() : base;
     const deadline = await this.buildBuyerConfirmDeadlineFrom(deadlineBase);
     await this.prisma.order.update({
       where: { id: orderId },
@@ -2970,7 +2978,9 @@ export class OrdersService {
    * تایید خودکار یک سفارش منقضی‌شده (مشابه کرون؛ هنگام باز کردن صفحه سفارش).
    */
   async tryAutoConfirmExpiredOrder(orderId: string): Promise<boolean> {
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
     if (!order) return false;
     if (!(await this.isBuyerConfirmDeadlineExpired(order))) return false;
     await this.processAutoConfirmOrder(order);
@@ -3077,258 +3087,246 @@ export class OrdersService {
     }
 
     const sellerSent = Boolean(order.trackingCode);
-          const buyerSentForExchange =
-            order.type === OrderType.EXCHANGE &&
-            Boolean(order.sellerTrackingCode);
-          const exchangeOnlyOneSent =
-            order.type === OrderType.EXCHANGE &&
-            sellerSent !== buyerSentForExchange;
+    const buyerSentForExchange =
+      order.type === OrderType.EXCHANGE && Boolean(order.sellerTrackingCode);
+    const exchangeOnlyOneSent =
+      order.type === OrderType.EXCHANGE && sellerSent !== buyerSentForExchange;
 
-          let oneSideRefundSummary: {
-            senderRefund: number;
-            offenderRefund: number;
-            compensation: number;
-          } | null = null;
+    let oneSideRefundSummary: {
+      senderRefund: number;
+      offenderRefund: number;
+      compensation: number;
+    } | null = null;
 
-          if (order.type === OrderType.EXCHANGE && exchangeOnlyOneSent) {
-            const senderId = sellerSent ? order.sellerId : order.buyerId;
-            const offenderId = sellerSent ? order.buyerId : order.sellerId;
-            const verificationFee = Number(order.verificationFee || 0);
-            oneSideRefundSummary =
-              await this.walletService.refundExchangeOneSideNoShipmentOnCancel(
-                tx,
-                {
-                  orderId: order.id,
-                  listingId: order.listingId,
-                  buyerId: order.buyerId,
-                  sellerId: order.sellerId,
-                  senderId,
-                  offenderId,
-                  verificationFee,
-                  inspectionPenaltyPercent:
-                    exchangeNoShipmentCompensationPercent,
-                },
-              );
-          } else if (order.type === OrderType.EXCHANGE) {
-            const exchangeOffer = order.exchangeOfferId
-              ? await tx.exchangeOffer.findUnique({
-                  where: { id: order.exchangeOfferId },
-                  select: { extraPayment: true, isPayerMe: true },
-                })
-              : null;
-            await this.walletService.refundExchangeBothNoShipmentOnCancel(tx, {
-              orderId: order.id,
-              listingId: order.listingId,
-              buyerId: order.buyerId,
-              sellerId: order.sellerId,
-              verificationFee: Number(order.verificationFee || 0),
-              isPayerMe: Boolean(exchangeOffer?.isPayerMe),
-              extraPayment: Number(exchangeOffer?.extraPayment || 0),
-            });
-          } else {
-            const cancelReason =
-              'عدم ارسال فروشنده در مهلت مقرر؛ معامله لغو شد';
-            await this.walletService.refundDirectOrderEscrowOnCancel(tx, {
-              orderId: order.id,
-              listingId: order.listingId,
-              buyerId: order.buyerId,
-              sellerId: order.sellerId,
-              totalAmount: Number(order.totalAmount || 0),
-              sellerRevenue: Number(order.sellerRevenue || 0),
-              cancelReason,
-              refundReason: 'shipping-timeout-cancel',
-            });
-          }
+    if (order.type === OrderType.EXCHANGE && exchangeOnlyOneSent) {
+      const senderId = sellerSent ? order.sellerId : order.buyerId;
+      const offenderId = sellerSent ? order.buyerId : order.sellerId;
+      const verificationFee = Number(order.verificationFee || 0);
+      oneSideRefundSummary =
+        await this.walletService.refundExchangeOneSideNoShipmentOnCancel(tx, {
+          orderId: order.id,
+          listingId: order.listingId,
+          buyerId: order.buyerId,
+          sellerId: order.sellerId,
+          senderId,
+          offenderId,
+          verificationFee,
+          inspectionPenaltyPercent: exchangeNoShipmentCompensationPercent,
+        });
+    } else if (order.type === OrderType.EXCHANGE) {
+      const exchangeOffer = order.exchangeOfferId
+        ? await tx.exchangeOffer.findUnique({
+            where: { id: order.exchangeOfferId },
+            select: { extraPayment: true, isPayerMe: true },
+          })
+        : null;
+      await this.walletService.refundExchangeBothNoShipmentOnCancel(tx, {
+        orderId: order.id,
+        listingId: order.listingId,
+        buyerId: order.buyerId,
+        sellerId: order.sellerId,
+        verificationFee: Number(order.verificationFee || 0),
+        isPayerMe: Boolean(exchangeOffer?.isPayerMe),
+        extraPayment: Number(exchangeOffer?.extraPayment || 0),
+      });
+    } else {
+      const cancelReason = 'عدم ارسال فروشنده در مهلت مقرر؛ معامله لغو شد';
+      await this.walletService.refundDirectOrderEscrowOnCancel(tx, {
+        orderId: order.id,
+        listingId: order.listingId,
+        buyerId: order.buyerId,
+        sellerId: order.sellerId,
+        totalAmount: Number(order.totalAmount || 0),
+        sellerRevenue: Number(order.sellerRevenue || 0),
+        cancelReason,
+        refundReason: 'shipping-timeout-cancel',
+      });
+    }
 
-          const exchangeBothNoShipment =
-            order.type === OrderType.EXCHANGE && !exchangeOnlyOneSent;
-          const isDirectShippingTimeoutCancel =
-            order.type !== OrderType.EXCHANGE || exchangeOnlyOneSent;
+    const exchangeBothNoShipment =
+      order.type === OrderType.EXCHANGE && !exchangeOnlyOneSent;
+    const isDirectShippingTimeoutCancel =
+      order.type !== OrderType.EXCHANGE || exchangeOnlyOneSent;
 
-          if (order.type === OrderType.EXCHANGE && exchangeOnlyOneSent) {
-            const offenderId = sellerSent ? order.buyerId : order.sellerId;
-            await tx.user.update({
-              where: { id: offenderId },
-              data: { trustScore: { decrement: 15 } },
-            });
-          } else if (exchangeBothNoShipment) {
-            await tx.user.update({
-              where: { id: order.buyerId },
-              data: { trustScore: { decrement: 15 } },
-            });
-            await tx.user.update({
-              where: { id: order.sellerId },
-              data: { trustScore: { decrement: 15 } },
-            });
-          } else {
-            await tx.user.update({
-              where: { id: order.sellerId },
-              data: { trustScore: { decrement: 15 } },
-            });
-          }
-          const targetStatus =
-            order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
-              ? OrderStatus.REJECTED_AT_HUB
-              : OrderStatus.CANCELLED;
-          this.stateMachine.assertTransition(
-            order.status,
-            targetStatus,
-            'auto-cancel-expired',
-          );
-          const prevShipCancel = order.status;
-          await tx.order.update({
-            where: { id: order.id },
-            data: {
-              status: targetStatus,
-              cancelReason:
-                order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
-                  ? 'عدم ارسال یکی از طرفین در مهلت ۴۸ ساعته پس از ارسال طرف مقابل؛ مرجوعی کالای ارسال‌شده الزامی است'
-                  : exchangeBothNoShipment
-                    ? 'عدم ارسال هر دو طرف در مهلت مقرر؛ معامله معاوضه لغو شد'
-                    : 'عدم ارسال فروشنده در مهلت مقرر؛ معامله لغو شد',
-              ...(order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
-                ? {
-                    exchangeHubInspection: {
-                      ...(order.exchangeHubInspection as Record<
-                        string,
-                        unknown
-                      > | null),
-                      resolution: 'RETURN_BOTH_TO_SENDERS',
-                      singleSideNoShipmentTimeout: true,
-                      skipInspection: true,
-                      returnOnlyLeg: sellerSent ? 'SELLER' : 'BUYER',
-                      returnSenderUserId: sellerSent
-                        ? order.sellerId
-                        : order.buyerId,
-                      awaitingReturnConfirmations: false,
-                      refundsReleasedAt: new Date().toISOString(),
-                    } as Prisma.InputJsonValue,
-                  }
-                : {}),
-            },
-          });
-          const failurePenalizeUserIds: string[] =
-            order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
-              ? [sellerSent ? order.buyerId : order.sellerId]
-              : exchangeBothNoShipment
-                ? [order.buyerId, order.sellerId]
-                : [order.sellerId];
-          await this.orderReputation.recordTerminalOutcome(
-            tx,
-            {
-              id: order.id,
-              buyerId: order.buyerId,
-              sellerId: order.sellerId,
-              tradeReputationAt: order.tradeReputationAt,
-            },
-            prevShipCancel,
-            'FAILURE',
-            { failurePenalizeUserIds },
-          );
-          if (exchangeBothNoShipment) {
-            await this.rejectListingAfterShippingTimeoutCancel(tx, {
-              listingId: order.listingId,
-              sellerId: order.sellerId,
-              listingTitle: order.listing?.title ?? 'کالا',
-              rejectionReason:
-                'معامله معاوضه به‌دلیل عدم ارسال هر دو طرف در مهلت مقرر لغو شد. آگهی از انتشار خارج شد؛ برای فروش مجدد آن را ویرایش و دوباره ثبت کنید.',
-              orderId: order.id,
-            });
-          } else if (order.type === OrderType.EXCHANGE && exchangeOnlyOneSent) {
-            const offenderId = sellerSent ? order.buyerId : order.sellerId;
-            if (offenderId === order.sellerId) {
-              await this.rejectListingAfterShippingTimeoutCancel(tx, {
-                listingId: order.listingId,
-                sellerId: order.sellerId,
-                listingTitle: order.listing?.title ?? 'کالا',
-                rejectionReason:
-                  'معامله به‌دلیل عدم ارسال فروشنده در مهلت مقرر لغو شد. آگهی از انتشار خارج شد؛ برای فروش مجدد آن را ویرایش و دوباره ثبت کنید.',
-                orderId: order.id,
-              });
-            } else {
-              await tx.listing.update({
-                where: { id: order.listingId },
-                data: { status: ListingStatus.APPROVED },
-              });
-              if (order.exchangeOfferId) {
-                await tx.exchangeOffer.updateMany({
-                  where: {
-                    listingId: order.listingId,
-                    status: ExchangeOfferStatus.WAITLISTED,
-                  },
-                  data: { status: ExchangeOfferStatus.PENDING },
-                });
-              }
+    if (order.type === OrderType.EXCHANGE && exchangeOnlyOneSent) {
+      const offenderId = sellerSent ? order.buyerId : order.sellerId;
+      await tx.user.update({
+        where: { id: offenderId },
+        data: { trustScore: { decrement: 15 } },
+      });
+    } else if (exchangeBothNoShipment) {
+      await tx.user.update({
+        where: { id: order.buyerId },
+        data: { trustScore: { decrement: 15 } },
+      });
+      await tx.user.update({
+        where: { id: order.sellerId },
+        data: { trustScore: { decrement: 15 } },
+      });
+    } else {
+      await tx.user.update({
+        where: { id: order.sellerId },
+        data: { trustScore: { decrement: 15 } },
+      });
+    }
+    const targetStatus =
+      order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
+        ? OrderStatus.REJECTED_AT_HUB
+        : OrderStatus.CANCELLED;
+    this.stateMachine.assertTransition(
+      order.status,
+      targetStatus,
+      'auto-cancel-expired',
+    );
+    const prevShipCancel = order.status;
+    await tx.order.update({
+      where: { id: order.id },
+      data: {
+        status: targetStatus,
+        cancelReason:
+          order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
+            ? 'عدم ارسال یکی از طرفین در مهلت ۴۸ ساعته پس از ارسال طرف مقابل؛ مرجوعی کالای ارسال‌شده الزامی است'
+            : exchangeBothNoShipment
+              ? 'عدم ارسال هر دو طرف در مهلت مقرر؛ معامله معاوضه لغو شد'
+              : 'عدم ارسال فروشنده در مهلت مقرر؛ معامله لغو شد',
+        ...(order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
+          ? {
+              exchangeHubInspection: {
+                ...(order.exchangeHubInspection as Record<
+                  string,
+                  unknown
+                > | null),
+                resolution: 'RETURN_BOTH_TO_SENDERS',
+                singleSideNoShipmentTimeout: true,
+                skipInspection: true,
+                returnOnlyLeg: sellerSent ? 'SELLER' : 'BUYER',
+                returnSenderUserId: sellerSent ? order.sellerId : order.buyerId,
+                awaitingReturnConfirmations: false,
+                refundsReleasedAt: new Date().toISOString(),
+              } as Prisma.InputJsonValue,
             }
-          } else if (order.type !== OrderType.EXCHANGE) {
-            await this.rejectListingAfterShippingTimeoutCancel(tx, {
+          : {}),
+      },
+    });
+    const failurePenalizeUserIds: string[] =
+      order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
+        ? [sellerSent ? order.buyerId : order.sellerId]
+        : exchangeBothNoShipment
+          ? [order.buyerId, order.sellerId]
+          : [order.sellerId];
+    await this.orderReputation.recordTerminalOutcome(
+      tx,
+      {
+        id: order.id,
+        buyerId: order.buyerId,
+        sellerId: order.sellerId,
+        tradeReputationAt: order.tradeReputationAt,
+      },
+      prevShipCancel,
+      'FAILURE',
+      { failurePenalizeUserIds },
+    );
+    if (exchangeBothNoShipment) {
+      await this.rejectListingAfterShippingTimeoutCancel(tx, {
+        listingId: order.listingId,
+        sellerId: order.sellerId,
+        listingTitle: order.listing?.title ?? 'کالا',
+        rejectionReason:
+          'معامله معاوضه به‌دلیل عدم ارسال هر دو طرف در مهلت مقرر لغو شد. آگهی از انتشار خارج شد؛ برای فروش مجدد آن را ویرایش و دوباره ثبت کنید.',
+        orderId: order.id,
+      });
+    } else if (order.type === OrderType.EXCHANGE && exchangeOnlyOneSent) {
+      const offenderId = sellerSent ? order.buyerId : order.sellerId;
+      if (offenderId === order.sellerId) {
+        await this.rejectListingAfterShippingTimeoutCancel(tx, {
+          listingId: order.listingId,
+          sellerId: order.sellerId,
+          listingTitle: order.listing?.title ?? 'کالا',
+          rejectionReason:
+            'معامله به‌دلیل عدم ارسال فروشنده در مهلت مقرر لغو شد. آگهی از انتشار خارج شد؛ برای فروش مجدد آن را ویرایش و دوباره ثبت کنید.',
+          orderId: order.id,
+        });
+      } else {
+        await tx.listing.update({
+          where: { id: order.listingId },
+          data: { status: ListingStatus.APPROVED },
+        });
+        if (order.exchangeOfferId) {
+          await tx.exchangeOffer.updateMany({
+            where: {
               listingId: order.listingId,
-              sellerId: order.sellerId,
-              listingTitle: order.listing?.title ?? 'کالا',
-              rejectionReason:
-                'معامله به‌دلیل عدم ارسال فروشنده در مهلت مقرر لغو شد. آگهی از انتشار خارج شد؛ برای فروش مجدد آن را ویرایش و دوباره ثبت کنید.',
-              orderId: order.id,
-            });
-          }
+              status: ExchangeOfferStatus.WAITLISTED,
+            },
+            data: { status: ExchangeOfferStatus.PENDING },
+          });
+        }
+      }
+    } else if (order.type !== OrderType.EXCHANGE) {
+      await this.rejectListingAfterShippingTimeoutCancel(tx, {
+        listingId: order.listingId,
+        sellerId: order.sellerId,
+        listingTitle: order.listing?.title ?? 'کالا',
+        rejectionReason:
+          'معامله به‌دلیل عدم ارسال فروشنده در مهلت مقرر لغو شد. آگهی از انتشار خارج شد؛ برای فروش مجدد آن را ویرایش و دوباره ثبت کنید.',
+        orderId: order.id,
+      });
+    }
 
-          if (
-            exchangeBothNoShipment &&
-            targetStatus === OrderStatus.CANCELLED
-          ) {
-            const exchangeOffer = order.exchangeOfferId
-              ? await tx.exchangeOffer.findUnique({
-                  where: { id: order.exchangeOfferId },
-                  select: { extraPayment: true, isPayerMe: true },
-                })
-              : null;
-            const verificationFee = Number(order.verificationFee || 0);
-            const extra = Number(exchangeOffer?.extraPayment || 0);
-            const buyerShare =
-              verificationFee + (exchangeOffer?.isPayerMe ? extra : 0);
-            const sellerShare =
-              verificationFee + (!exchangeOffer?.isPayerMe ? extra : 0);
-            await this.createExchangeBothNoShipmentCancelTickets(tx, {
-              orderId: order.id,
-              buyerId: order.buyerId,
-              sellerId: order.sellerId,
-              listingTitle: order.listing?.title ?? 'کالا',
-              buyerRefundAmount: buyerShare,
-              sellerRefundAmount: sellerShare,
-              trustPenaltyPoints: 15,
-            });
-          } else if (
-            order.type === OrderType.EXCHANGE &&
-            exchangeOnlyOneSent &&
-            oneSideRefundSummary
-          ) {
-            const senderId = sellerSent ? order.sellerId : order.buyerId;
-            const offenderId = sellerSent ? order.buyerId : order.sellerId;
-            await this.createExchangeOneSideNoShipmentCancelTickets(tx, {
-              orderId: order.id,
-              buyerId: order.buyerId,
-              sellerId: order.sellerId,
-              senderId,
-              offenderId,
-              listingTitle: order.listing?.title ?? 'کالا',
-              senderRefundAmount: oneSideRefundSummary.senderRefund,
-              offenderRefundAmount: oneSideRefundSummary.offenderRefund,
-              compensationAmount: oneSideRefundSummary.compensation,
-              inspectionPenaltyPercent: exchangeNoShipmentCompensationPercent,
-              trustPenaltyPoints: 15,
-            });
-          } else if (
-            isDirectShippingTimeoutCancel &&
-            targetStatus === OrderStatus.CANCELLED
-          ) {
-            await this.createShippingTimeoutCancelTickets(tx, {
-              orderId: order.id,
-              buyerId: order.buyerId,
-              sellerId: order.sellerId,
-              listingTitle: order.listing?.title ?? 'کالا',
-              totalAmount: Number(order.totalAmount || 0),
-              trustPenaltyPoints: 15,
-            });
-          }
+    if (exchangeBothNoShipment && targetStatus === OrderStatus.CANCELLED) {
+      const exchangeOffer = order.exchangeOfferId
+        ? await tx.exchangeOffer.findUnique({
+            where: { id: order.exchangeOfferId },
+            select: { extraPayment: true, isPayerMe: true },
+          })
+        : null;
+      const verificationFee = Number(order.verificationFee || 0);
+      const extra = Number(exchangeOffer?.extraPayment || 0);
+      const buyerShare =
+        verificationFee + (exchangeOffer?.isPayerMe ? extra : 0);
+      const sellerShare =
+        verificationFee + (!exchangeOffer?.isPayerMe ? extra : 0);
+      await this.createExchangeBothNoShipmentCancelTickets(tx, {
+        orderId: order.id,
+        buyerId: order.buyerId,
+        sellerId: order.sellerId,
+        listingTitle: order.listing?.title ?? 'کالا',
+        buyerRefundAmount: buyerShare,
+        sellerRefundAmount: sellerShare,
+        trustPenaltyPoints: 15,
+      });
+    } else if (
+      order.type === OrderType.EXCHANGE &&
+      exchangeOnlyOneSent &&
+      oneSideRefundSummary
+    ) {
+      const senderId = sellerSent ? order.sellerId : order.buyerId;
+      const offenderId = sellerSent ? order.buyerId : order.sellerId;
+      await this.createExchangeOneSideNoShipmentCancelTickets(tx, {
+        orderId: order.id,
+        buyerId: order.buyerId,
+        sellerId: order.sellerId,
+        senderId,
+        offenderId,
+        listingTitle: order.listing?.title ?? 'کالا',
+        senderRefundAmount: oneSideRefundSummary.senderRefund,
+        offenderRefundAmount: oneSideRefundSummary.offenderRefund,
+        compensationAmount: oneSideRefundSummary.compensation,
+        inspectionPenaltyPercent: exchangeNoShipmentCompensationPercent,
+        trustPenaltyPoints: 15,
+      });
+    } else if (
+      isDirectShippingTimeoutCancel &&
+      targetStatus === OrderStatus.CANCELLED
+    ) {
+      await this.createShippingTimeoutCancelTickets(tx, {
+        orderId: order.id,
+        buyerId: order.buyerId,
+        sellerId: order.sellerId,
+        listingTitle: order.listing?.title ?? 'کالا',
+        totalAmount: Number(order.totalAmount || 0),
+        trustPenaltyPoints: 15,
+      });
+    }
   }
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -3346,7 +3344,8 @@ export class OrdersService {
   @Cron(CronExpression.EVERY_HOUR)
   async autoCancelTimedOutExchangeCompletions() {
     const now = Date.now();
-    const paymentDeadlineMinutes = await this.getExchangePaymentDeadlineMinutes();
+    const paymentDeadlineMinutes =
+      await this.getExchangePaymentDeadlineMinutes();
     const timedOutAcceptedOffers = await this.prisma.exchangeOffer.findMany({
       where: {
         status: 'ACCEPTED',
@@ -3366,7 +3365,7 @@ export class OrdersService {
         if (now < paymentDeadlineMs) continue;
 
         await this.prisma.$transaction(async (tx) => {
-          await this.processExchangePaymentTimeoutInTx(tx, offer, now);
+          await this.processExchangePaymentTimeoutInTx(tx, offer);
         });
       } catch (error) {
         console.error(
@@ -3387,7 +3386,6 @@ export class OrdersService {
       offererId: string;
       listing: { id: string; title: string | null; authorId: string } | null;
     },
-    _now: number,
   ): Promise<void> {
     const linkedOrder = await tx.order.findFirst({
       where: { exchangeOfferId: offer.id },
@@ -3416,22 +3414,18 @@ export class OrdersService {
     let buyerPaidAmount = 0;
     let sellerPaidAmount = 0;
     if (linkedOrder) {
-      buyerPaidAmount = await this.walletService.resolveExchangeParticipantPaidAmount(
-        tx,
-        {
+      buyerPaidAmount =
+        await this.walletService.resolveExchangeParticipantPaidAmount(tx, {
           participantUserId: linkedOrder.buyerId,
           orderId: linkedOrder.id,
           listingId: offer.listingId,
-        },
-      );
-      sellerPaidAmount = await this.walletService.resolveExchangeParticipantPaidAmount(
-        tx,
-        {
+        });
+      sellerPaidAmount =
+        await this.walletService.resolveExchangeParticipantPaidAmount(tx, {
           participantUserId: linkedOrder.sellerId,
           orderId: linkedOrder.id,
           listingId: offer.listingId,
-        },
-      );
+        });
     }
 
     const buyerPaidFully =
@@ -3497,17 +3491,15 @@ export class OrdersService {
     let buyerRefund = 0;
     let sellerRefund = 0;
     if (linkedOrder) {
-      const refunds = await this.walletService.refundExchangePaymentTimeoutOnCancel(
-        tx,
-        {
+      const refunds =
+        await this.walletService.refundExchangePaymentTimeoutOnCancel(tx, {
           orderId: linkedOrder.id,
           listingId: offer.listingId,
           buyerId: linkedOrder.buyerId,
           sellerId: linkedOrder.sellerId,
           refundBuyer: buyerPaidAmount > 0,
           refundSeller: sellerPaidAmount > 0,
-        },
-      );
+        });
       buyerRefund = refunds.buyerRefund;
       sellerRefund = refunds.sellerRefund;
 

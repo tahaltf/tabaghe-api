@@ -1,9 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
-  ArrayMinSize,
   IsArray,
-  IsDateString,
   IsIn,
   IsNumber,
   IsOptional,

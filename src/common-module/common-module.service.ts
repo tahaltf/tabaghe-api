@@ -57,9 +57,7 @@ export class CommonService {
       where: { status: ListingStatus.APPROVED },
       _count: { _all: true },
     });
-    const direct = new Map(
-      grouped.map((g) => [g.categoryId, g._count._all]),
-    );
+    const direct = new Map(grouped.map((g) => [g.categoryId, g._count._all]));
     const rows = await this.prisma.category.findMany({
       select: { id: true, parentId: true },
     });
@@ -84,7 +82,10 @@ export class CommonService {
     return rollup;
   }
 
-  private attachListingCounts(nodes: any[], rollup: Map<string, number>): any[] {
+  private attachListingCounts(
+    nodes: any[],
+    rollup: Map<string, number>,
+  ): any[] {
     return nodes.map((node) => {
       const rawChildren = Array.isArray(node.children) ? node.children : [];
       const children = rawChildren.length
@@ -106,9 +107,10 @@ export class CommonService {
       icon: string | null;
       parentId: string | null;
     },
-  >(rows: T[], parentId: string | null): Array<
-    T & { children?: Array<T & { children?: unknown[] }> }
-  > {
+  >(
+    rows: T[],
+    parentId: string | null,
+  ): Array<T & { children?: Array<T & { children?: unknown[] }> }> {
     return rows
       .filter((r) => r.parentId === parentId)
       .map((row) => {
@@ -259,18 +261,19 @@ export class CommonService {
       if (Array.isArray(parsed)) {
         for (const item of parsed) {
           if (!item || typeof item !== 'object') continue;
-          const network = String(
-            (item as { network?: string }).network ?? '',
-          )
+          const network = String((item as { network?: string }).network ?? '')
             .trim()
             .toLowerCase();
           const urlRaw = String((item as { url?: string }).url ?? '').trim();
           if (!allowedSocial.has(network) || !urlRaw) continue;
           let url = urlRaw;
           if (!/^https?:\/\//i.test(url)) {
-            url = url.startsWith('//') ? `https:${url}` : `https://${url.replace(/^\/+/, '')}`;
+            url = url.startsWith('//')
+              ? `https:${url}`
+              : `https://${url.replace(/^\/+/, '')}`;
           }
-          if (/^https?:\/\//i.test(url)) footerSocialLinks.push({ network, url });
+          if (/^https?:\/\//i.test(url))
+            footerSocialLinks.push({ network, url });
         }
       }
     } catch {

@@ -31,7 +31,8 @@ export function parseBuiltinFreePlanDisplay(
     const out: BuiltinFreePlanDisplayOverrides = {};
     if (typeof o.title === 'string') out.title = o.title;
     if (o.marketingTitle === null) out.marketingTitle = null;
-    else if (typeof o.marketingTitle === 'string') out.marketingTitle = o.marketingTitle;
+    else if (typeof o.marketingTitle === 'string')
+      out.marketingTitle = o.marketingTitle;
     if (o.description === null) out.description = null;
     else if (typeof o.description === 'string') out.description = o.description;
     if (o.badgeLabel === null) out.badgeLabel = null;

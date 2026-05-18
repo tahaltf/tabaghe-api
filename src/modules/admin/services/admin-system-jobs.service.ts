@@ -107,7 +107,7 @@ export class AdminSystemJobsService {
     };
   }
 
-  async updateSettings(dto: UpdateSystemJobSettingsDto, _updatedByUserId: string) {
+  async updateSettings(dto: UpdateSystemJobSettingsDto) {
     for (const item of dto.items) {
       if (!SYSTEM_JOB_SETTING_KEYS.has(item.key)) {
         throw new BadRequestException(`تنظیم مجاز نیست: ${item.key}`);

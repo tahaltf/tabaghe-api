@@ -552,7 +552,9 @@ export class PaymentsService {
             referenceId: locked.listingId,
             meta: {
               kind: 'order-escrow',
-              phase: isExchangeOrder ? 'exchange_participant_paid' : 'buyer_paid',
+              phase: isExchangeOrder
+                ? 'exchange_participant_paid'
+                : 'buyer_paid',
               ...(isExchangeOrder ? { payerUserId } : {}),
               orderId: locked.id,
               listingId: locked.listingId,
@@ -579,9 +581,7 @@ export class PaymentsService {
         locked.type === 'EXCHANGE'
           ? await this.getExchangeShipDeadlineMinutes(tx)
           : await this.getSellerShipDeadlineMinutes(tx);
-      const deadline = new Date(
-        Date.now() + shipDeadlineMinutes * 60 * 1000,
-      );
+      const deadline = new Date(Date.now() + shipDeadlineMinutes * 60 * 1000);
 
       if (locked.type === 'EXCHANGE') {
         const offer = locked.exchangeOfferId

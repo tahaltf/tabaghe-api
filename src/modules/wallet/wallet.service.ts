@@ -907,7 +907,10 @@ export class WalletService {
       buyerId: params.buyerId,
       totalAmount: params.totalAmount,
     });
-    const listingTitle = await this.listingTitleForWalletTx(tx, params.listingId);
+    const listingTitle = await this.listingTitleForWalletTx(
+      tx,
+      params.listingId,
+    );
     const titleQuoted = listingTitle ? `«${listingTitle}»` : 'این آگهی';
 
     if (sellerRevenue > 0) {
@@ -1254,7 +1257,10 @@ export class WalletService {
     });
     if (paid <= 0) return 0;
 
-    const listingTitle = await this.listingTitleForWalletTx(tx, params.listingId);
+    const listingTitle = await this.listingTitleForWalletTx(
+      tx,
+      params.listingId,
+    );
 
     const wallet = await tx.wallet.upsert({
       where: { userId: params.userId },
@@ -1397,8 +1403,7 @@ export class WalletService {
       orderId: params.orderId,
       listingId: params.listingId,
       userId: params.senderId,
-      participantRole:
-        params.senderId === params.buyerId ? 'buyer' : 'seller',
+      participantRole: params.senderId === params.buyerId ? 'buyer' : 'seller',
       refundKind: 'exchange-one-side-shipment-sender-refund',
       refundReason: 'exchange-one-side-no-shipment-cancel',
       description: `بازگشت کامل سهم پرداختی شما برای ${titleQuoted} به‌دلیل لغو معاوضه (عدم ارسال طرف مقابل).`,

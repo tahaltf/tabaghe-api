@@ -820,8 +820,7 @@ export class AdminOrdersCommandService {
         );
 
         const rejectReason =
-          locked.cancelReason?.trim() ||
-          'رد کارشناسی؛ مرجوع از هاب به فروشنده';
+          locked.cancelReason?.trim() || 'رد کارشناسی؛ مرجوع از هاب به فروشنده';
         const listingRow = await tx.listing.findUnique({
           where: { id: locked.listingId },
           select: { title: true },
@@ -1667,18 +1666,19 @@ export class AdminOrdersCommandService {
         });
       }
 
-      const sellerTicketMessage = this.buildExchangeReturnInspectionTicketMessage({
-        role: 'seller',
-        orderId: id,
-        listingTitle: existing.listing.title,
-        listingUrl,
-        ownTrackingCode: existing.trackingCode,
-        packagingVideoUrl,
-        listingFailed,
-        offerFailed,
-        ownNote: dto.listingNote?.trim() || null,
-        otherNote: dto.offerNote?.trim() || null,
-      });
+      const sellerTicketMessage =
+        this.buildExchangeReturnInspectionTicketMessage({
+          role: 'seller',
+          orderId: id,
+          listingTitle: existing.listing.title,
+          listingUrl,
+          ownTrackingCode: existing.trackingCode,
+          packagingVideoUrl,
+          listingFailed,
+          offerFailed,
+          ownNote: dto.listingNote?.trim() || null,
+          otherNote: dto.offerNote?.trim() || null,
+        });
 
       const sellerTicket = await tx.ticket.create({
         data: {
@@ -1708,18 +1708,19 @@ export class AdminOrdersCommandService {
         },
       });
 
-      const buyerTicketMessage = this.buildExchangeReturnInspectionTicketMessage({
-        role: 'buyer',
-        orderId: id,
-        listingTitle: existing.listing.title,
-        listingUrl,
-        ownTrackingCode: existing.sellerTrackingCode,
-        packagingVideoUrl: buyerPackagingVideoUrl,
-        listingFailed,
-        offerFailed,
-        ownNote: dto.offerNote?.trim() || null,
-        otherNote: dto.listingNote?.trim() || null,
-      });
+      const buyerTicketMessage =
+        this.buildExchangeReturnInspectionTicketMessage({
+          role: 'buyer',
+          orderId: id,
+          listingTitle: existing.listing.title,
+          listingUrl,
+          ownTrackingCode: existing.sellerTrackingCode,
+          packagingVideoUrl: buyerPackagingVideoUrl,
+          listingFailed,
+          offerFailed,
+          ownNote: dto.offerNote?.trim() || null,
+          otherNote: dto.listingNote?.trim() || null,
+        });
 
       const buyerTicket = await tx.ticket.create({
         data: {

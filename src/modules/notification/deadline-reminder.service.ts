@@ -129,7 +129,13 @@ export class DeadlineReminderService {
     hoursLeft: number;
     actionLabel: string;
   }): Promise<void> {
-    if (await this.hasReminderBeenSent(params.userId, params.action, params.entityId)) {
+    if (
+      await this.hasReminderBeenSent(
+        params.userId,
+        params.action,
+        params.entityId,
+      )
+    ) {
       return;
     }
 
@@ -153,7 +159,8 @@ export class DeadlineReminderService {
   private async processExchangePaymentReminders(
     windowHours: number,
   ): Promise<void> {
-    const paymentDeadlineMinutes = await this.getExchangePaymentDeadlineMinutes();
+    const paymentDeadlineMinutes =
+      await this.getExchangePaymentDeadlineMinutes();
     const feeRow = await this.prisma.systemSetting.findUnique({
       where: { key: 'VERIFICATION_FEE' },
     });
@@ -195,7 +202,9 @@ export class DeadlineReminderService {
         continue;
       }
 
-      const verificationFee = Number(order?.verificationFee || defaultVerificationFee);
+      const verificationFee = Number(
+        order?.verificationFee || defaultVerificationFee,
+      );
       const extra = Number(offer.extraPayment || 0);
       const buyerShare = verificationFee + (offer.isPayerMe ? extra : 0);
       const sellerShare = verificationFee + (!offer.isPayerMe ? extra : 0);
@@ -203,9 +212,7 @@ export class DeadlineReminderService {
       const currentTotal = Number(order?.totalAmount || 0);
 
       const buyerPaid =
-        !!order &&
-        Boolean(order.shippingAddress) &&
-        currentTotal >= buyerShare;
+        !!order && Boolean(order.shippingAddress) && currentTotal >= buyerShare;
       const sellerPaid =
         !!order &&
         Boolean(order.sellerShippingAddress) &&

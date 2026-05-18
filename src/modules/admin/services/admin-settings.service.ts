@@ -155,8 +155,7 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   INSPECTION_CERTIFICATE_FOOTER:
     'پاورقی گواهی کارشناسی (نام مرکز، آدرس، تلفن پشتیبانی)',
   INSPECTION_CERTIFICATE_LOGO: 'فایل لوگوی بالای گواهی کارشناسی PDF',
-  INSPECTION_CERTIFICATE_STAMP:
-    'فایل تصویر مهر/امضای پایین گواهی کارشناسی PDF',
+  INSPECTION_CERTIFICATE_STAMP: 'فایل تصویر مهر/امضای پایین گواهی کارشناسی PDF',
 };
 
 @Injectable()
@@ -326,8 +325,7 @@ export class AdminSettingsService {
   }
 
   async setInspectionCertificateStamp(filename: string) {
-    if (!filename)
-      throw new BadRequestException('فایل مهر گواهی نامعتبر است');
+    if (!filename) throw new BadRequestException('فایل مهر گواهی نامعتبر است');
     return this.setInspectionCertAssetByKey(
       SETTING_KEYS.INSPECTION_CERTIFICATE_STAMP,
       filename,

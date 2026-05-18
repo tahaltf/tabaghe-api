@@ -58,9 +58,7 @@ export class PlansService {
     const displaySetting = await this.prisma.systemSetting.findUnique({
       where: { key: BUILTIN_FREE_PLAN_DISPLAY_KEY },
     });
-    const builtinOverrides = parseBuiltinFreePlanDisplay(
-      displaySetting?.value,
-    );
+    const builtinOverrides = parseBuiltinFreePlanDisplay(displaySetting?.value);
     const builtin = buildBuiltinFreePlan(
       { direct: freeDirectLimit, exchange: freeExchangeLimit },
       builtinOverrides,

@@ -943,8 +943,7 @@ export class RepairService {
     const minutes = await this.getReturnConfirmDeadlineMinutes();
     const base = repair.updatedAt ?? repair.createdAt ?? new Date();
     const ageMs = Date.now() - base.getTime();
-    const deadlineBase =
-      ageMs > minutes * 60 * 1000 ? new Date() : base;
+    const deadlineBase = ageMs > minutes * 60 * 1000 ? new Date() : base;
     const returnConfirmDeadline = new Date(
       deadlineBase.getTime() + minutes * 60 * 1000,
     );
