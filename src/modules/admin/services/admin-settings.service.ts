@@ -28,6 +28,7 @@ export const SETTING_KEYS = {
   SHIPPING_COST: 'SHIPPING_COST',
   SELLER_SHIP_DEADLINE_MINUTES: 'SELLER_SHIP_DEADLINE_MINUTES',
   BUYER_CONFIRM_DEADLINE_MINUTES: 'BUYER_CONFIRM_DEADLINE_MINUTES',
+  LISTING_DISPLAY_DAYS: 'LISTING_DISPLAY_DAYS',
   EXCHANGE_NO_SHIPMENT_COMPENSATION: 'EXCHANGE_NO_SHIPMENT_COMPENSATION',
   PLATFORM_ADDRESS: 'PLATFORM_ADDRESS',
   PLATFORM_ADDRESSES: 'PLATFORM_ADDRESSES',
@@ -105,6 +106,8 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   SHIPPING_COST: 'هزینه ارسال پیش‌فرض (تومان)',
   SELLER_SHIP_DEADLINE_MINUTES: 'مهلت ارسال فروشنده پس از پرداخت (دقیقه)',
   BUYER_CONFIRM_DEADLINE_MINUTES: 'مهلت تایید/شکایت خریدار پس از ارسال (دقیقه)',
+  LISTING_DISPLAY_DAYS:
+    'پس از تایید ادمین، آگهی چند روز روی سایت می‌ماند (۱ تا ۳۶۵). یک روز قبل از پایان به فروشنده اطلاع داده می‌شود؛ پس از اتمام آرشیو می‌شود.',
   EXCHANGE_NO_SHIPMENT_COMPENSATION:
     'مبلغ دلجویی برای طرف ارسال‌کننده در صورت عدم ارسال طرف مقابل (تومان)',
   PLATFORM_ADDRESS: 'آدرس دفتر / هاب طبقه',
