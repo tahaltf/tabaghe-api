@@ -235,6 +235,18 @@ export const SYSTEM_JOB_SETTINGS_REGISTRY: SystemJobSettingDefinition[] = [
     max: 1000,
   },
   {
+    key: 'SELLER_RETURN_CONFIRM_DEADLINE_MINUTES',
+    label: 'مهلت تایید دریافت مرجوعی توسط فروشنده (دقیقه)',
+    description:
+      'پس از ثبت مرجوعی توسط خریدار، اگر فروشنده دریافت را تایید نکند، پس از این مدت به‌صورت خودکار تایید و بازگشت وجه انجام می‌شود.',
+    groupId: 'orders',
+    type: 'number',
+    defaultValue: '4320',
+    unit: 'minutes',
+    min: 60,
+    max: 43200,
+  },
+  {
     key: 'REPAIR_RETURN_CONFIRM_DEADLINE_MINUTES',
     label: 'مهلت تایید دریافت تعمیر پس از ارسال برگشتی (دقیقه)',
     description:

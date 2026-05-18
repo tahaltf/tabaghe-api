@@ -141,6 +141,21 @@ export const SYSTEM_JOBS_REGISTRY: SystemJobDefinition[] = [
     ],
   },
   {
+    id: 'orders_seller_return_auto_confirm',
+    name: 'تایید خودکار دریافت مرجوعی توسط فروشنده',
+    schedule: '* * * * *',
+    scheduleLabel: 'هر ۱ دقیقه',
+    description:
+      'سفارش‌های RETURN_SHIPPED که فروشنده در مهلت دریافت مرجوعی را تایید نکرده را خودکار تایید و بازگشت وجه می‌کند.',
+    module: 'orders/orders.service.ts',
+    method: 'autoConfirmSellerReturnReceipt',
+    managedBy: 'nestjs_cron',
+    relatedSettingKeys: [
+      'SELLER_RETURN_CONFIRM_DEADLINE_MINUTES',
+      'SELLER_RETURN_CONFIRM_DEADLINE_HOURS',
+    ],
+  },
+  {
     id: 'orders_auto_confirm',
     name: 'تایید خودکار سفارش پس از مهلت خریدار',
     schedule: '* * * * *',

@@ -28,12 +28,13 @@ export class SitemapService {
 
   async buildUrlEntries(): Promise<SitemapUrlEntry[]> {
     const staticPages = this.getStaticPages();
-    const [listings, blogPosts] = await Promise.all([
+    const [listings, blogPosts, categories] = await Promise.all([
       this.fetchListingEntries(),
       this.fetchBlogEntries(),
+      this.fetchCategoryEntries(),
     ]);
 
-    return [...staticPages, ...listings, ...blogPosts];
+    return [...staticPages, ...categories, ...listings, ...blogPosts];
   }
 
   buildSitemapXml(entries: SitemapUrlEntry[]): string {
@@ -89,6 +90,7 @@ export class SitemapService {
     const pages: Array<{ path: string; priority: number; changefreq: SitemapUrlEntry['changefreq'] }> = [
       { path: '/', priority: 1.0, changefreq: 'daily' },
       { path: '/listings', priority: 0.9, changefreq: 'hourly' },
+      { path: '/categories', priority: 0.85, changefreq: 'weekly' },
       { path: '/blog', priority: 0.8, changefreq: 'daily' },
       { path: '/plans', priority: 0.7, changefreq: 'weekly' },
       { path: '/about', priority: 0.5, changefreq: 'monthly' },
@@ -104,6 +106,30 @@ export class SitemapService {
       changefreq: page.changefreq,
       priority: page.priority,
     }));
+  }
+
+  private async fetchCategoryEntries(): Promise<SitemapUrlEntry[]> {
+    const rows = await this.prisma.category.findMany({
+      select: { slug: true, id: true },
+      orderBy: { title: 'asc' },
+    });
+    const withListings = await this.prisma.listing.groupBy({
+      by: ['categoryId'],
+      where: { status: ListingStatus.APPROVED, deletedAt: null },
+      _count: { _all: true },
+    });
+    const countByCategory = new Map(
+      withListings.map((g) => [g.categoryId, g._count._all]),
+    );
+    const now = new Date().toISOString();
+    return rows
+      .filter((c) => (countByCategory.get(c.id) ?? 0) > 0)
+      .map((c) => ({
+        loc: `${this.siteOrigin}/category/${c.slug}`,
+        lastmod: now,
+        changefreq: 'weekly' as const,
+        priority: 0.75,
+      }));
   }
 
   private async fetchListingEntries(): Promise<SitemapUrlEntry[]> {

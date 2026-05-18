@@ -868,7 +868,9 @@ paymentMethod    PaymentMethod @default(GATEWAY)
   returnTrackingCode   String?   // کد رهگیری مرجوعی که خریدار ثبت می‌کند
   returnPackagingVideo String?   // ویدیوی بسته‌بندی مرجوعی خریدار
   returnShippedAt      DateTime? // زمان ثبت مرجوعی توسط خریدار
-  returnConfirmedAt    DateTime? // زمان تایید ادمین بابت ارسال مرجوعی
+  /** پایان مهلت تایید دریافت مرجوعی توسط فروشنده */
+  returnConfirmDeadline DateTime?
+  returnConfirmedAt    DateTime? // زمان تایید دریافت مرجوعی
   returnConfirmedBy    String?   // شناسه ادمینی که مرجوعی را تایید کرده
 
   /** یک‌بار: اعمال امتیاز معامله (موفق +۰.۷ یا شکست/مرجوعی −۱.۵) */

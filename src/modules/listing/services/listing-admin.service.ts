@@ -9,6 +9,7 @@ import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { QuotaService } from '../../quota/quota.service';
 import { RejectListingDto } from '../dto/reject-listing.dto';
 import { NotificationService } from '../../notification/notification.service';
+import { TRADE_REPUTATION_PENALTY_DELTA } from '../../orders/order-reputation.service';
 
 const ADMIN_LISTING_INCLUDE = {
   direct: true,
@@ -78,11 +79,24 @@ export class ListingAdminService {
       });
       await this.quotaService.releaseOnReject(tx, listingId);
 
+      const author = await tx.user.findUnique({
+        where: { id: updated.authorId },
+        select: { rating: true },
+      });
+      if (author) {
+        const current = Number(author.rating ?? 5);
+        const next = Math.max(0, current - TRADE_REPUTATION_PENALTY_DELTA);
+        await tx.user.update({
+          where: { id: updated.authorId },
+          data: { rating: next },
+        });
+      }
+
       await this.notificationService.create({
         userId: updated.authorId,
         type: NotificationType.LISTING_REJECTED,
         title: 'آگهی شما رد شد',
-        message: `آگهی «${updated.title}» رد شد. دلیل رد: ${dto.rejectionReason}`,
+        message: `آگهی «${updated.title}» رد شد. دلیل رد: ${dto.rejectionReason}. طبق قوانین طبقه، ${TRADE_REPUTATION_PENALTY_DELTA} واحد از امتیاز اعتماد شما کسر شد.`,
         meta: { listingId: updated.id, reason: dto.rejectionReason },
       });
 

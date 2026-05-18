@@ -51,6 +51,133 @@ export class CommonService {
     return tree.filter((c) => (c.listingCount ?? 0) > 0);
   }
 
+  /** صفحه لندینگ SEO دسته‌بندی */
+  async getCategoryLandingBySlug(slug: string) {
+    const normalized = String(slug ?? '').trim().toLowerCase();
+    if (!normalized) return null;
+
+    const category = await this.prisma.category.findFirst({
+      where: { slug: normalized },
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        icon: true,
+        parentId: true,
+        parent: { select: { id: true, title: true, slug: true } },
+        children: {
+          orderBy: { title: 'asc' },
+          select: { id: true, title: true, slug: true, icon: true },
+        },
+      },
+    });
+    if (!category) return null;
+
+    const rollup = await this.getApprovedListingRollupCounts();
+    const listingCount = rollup.get(category.id) ?? 0;
+    const children = category.children.map((child) => ({
+      ...child,
+      listingCount: rollup.get(child.id) ?? 0,
+    }));
+
+    const recentListings = await this.prisma.listing.findMany({
+      where: {
+        status: ListingStatus.APPROVED,
+        deletedAt: null,
+        OR: [
+          { categoryId: category.id },
+          ...(children.length
+            ? [{ categoryId: { in: children.map((c) => c.id) } }]
+            : []),
+        ],
+      },
+      select: {
+        id: true,
+        title: true,
+        type: true,
+        thumbnail: true,
+        createdAt: true,
+        category: { select: { id: true, title: true, slug: true } },
+        direct: { select: { price: true } },
+        auction: {
+          select: {
+            basePrice: true,
+            highestBidAmount: true,
+            endDatetime: true,
+            status: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 24,
+    });
+
+    const seoTitle = category.parent
+      ? `خرید و فروش ${category.title} | ${category.parent.title} | طبقه`
+      : `خرید و فروش ${category.title} | طبقه`;
+    const seoDescription = category.parent
+      ? `آگهی‌های خرید، فروش، مزایده و معاوضه ${category.title} در دسته ${category.parent.title} — ${listingCount} آگهی فعال در بازار امن طبقه.`
+      : `آگهی‌های خرید، فروش، مزایده و معاوضه ${category.title} — ${listingCount} آگهی فعال در بازار امن طبقه.`;
+
+    return {
+      category: {
+        id: category.id,
+        title: category.title,
+        slug: category.slug,
+        icon: category.icon,
+        parent: category.parent,
+        listingCount,
+      },
+      children,
+      recentListings,
+      seo: {
+        title: seoTitle,
+        description: seoDescription,
+        canonicalPath: `/category/${category.slug}`,
+      },
+    };
+  }
+
+  /** فهرست دسته‌ها برای صفحه ایندکس SEO */
+  async getCategorySeoIndex() {
+    const tree = await this.getCategories();
+    const flat: Array<{
+      id: string;
+      title: string;
+      slug: string;
+      parentTitle: string | null;
+      listingCount: number;
+    }> = [];
+
+    const walk = (
+      nodes: Array<{
+        id: string;
+        title: string;
+        slug: string;
+        listingCount?: number;
+        children?: typeof nodes;
+      }>,
+      parentTitle: string | null,
+    ) => {
+      for (const node of nodes) {
+        if ((node.listingCount ?? 0) > 0) {
+          flat.push({
+            id: node.id,
+            title: node.title,
+            slug: node.slug,
+            parentTitle,
+            listingCount: node.listingCount ?? 0,
+          });
+        }
+        if (node.children?.length) {
+          walk(node.children, node.title);
+        }
+      }
+    };
+    walk(tree, null);
+    return flat.sort((a, b) => b.listingCount - a.listingCount);
+  }
+
   private async getApprovedListingRollupCounts(): Promise<Map<string, number>> {
     const grouped = await this.prisma.listing.groupBy({
       by: ['categoryId'],

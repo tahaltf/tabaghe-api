@@ -68,6 +68,16 @@ export class OrderReputationService {
     );
   }
 
+  /** کسر امتیاز برای رد آگهی یا موارد مشابه (فقط فروشنده/نویسنده) */
+  async penalizeUsers(
+    tx: Prisma.TransactionClient,
+    userIds: string[],
+    delta = -TRADE_REPUTATION_PENALTY_DELTA,
+  ): Promise<void> {
+    if (!userIds.length) return;
+    await this.bumpUsers(tx, userIds, delta, 'floor');
+  }
+
   private async bumpUsers(
     tx: Prisma.TransactionClient,
     userIds: string[],
