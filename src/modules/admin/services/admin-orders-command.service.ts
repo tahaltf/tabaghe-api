@@ -1744,6 +1744,7 @@ export class AdminOrdersCommandService {
       );
 
       if (hasAnyFail) {
+        const bothFailed = listingFailed && offerFailed;
         const rejectionReason = bothFailed
           ? 'رد کارشناسی هر دو کالا در معاوضه؛ آگهی از انتشار خارج شد.'
           : listingFailed
