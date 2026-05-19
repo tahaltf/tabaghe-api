@@ -28,6 +28,8 @@ export const SETTING_KEYS = {
   VERIFICATION_FEE: 'VERIFICATION_FEE',
   SHIPPING_COST: 'SHIPPING_COST',
   SELLER_SHIP_DEADLINE_MINUTES: 'SELLER_SHIP_DEADLINE_MINUTES',
+  SELLER_RETURN_CONFIRM_DEADLINE_MINUTES:
+    'SELLER_RETURN_CONFIRM_DEADLINE_MINUTES',
   BUYER_CONFIRM_DEADLINE_MINUTES: 'BUYER_CONFIRM_DEADLINE_MINUTES',
   LISTING_DISPLAY_DAYS: 'LISTING_DISPLAY_DAYS',
   LISTING_TYPE_DIRECT_ENABLED: LISTING_TYPE_ENABLED_SETTING_KEYS.DIRECT,
@@ -109,6 +111,8 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   VERIFICATION_FEE: 'مبلغ کارشناسی هر کالا (تومان)',
   SHIPPING_COST: 'هزینه ارسال پیش‌فرض (تومان)',
   SELLER_SHIP_DEADLINE_MINUTES: 'مهلت ارسال فروشنده پس از پرداخت (دقیقه)',
+  SELLER_RETURN_CONFIRM_DEADLINE_MINUTES:
+    'مهلت تأیید دریافت مرجوعی توسط فروشنده؛ پس از شکایت و ثبت بازگشت کالا؛ در صورت تأخیر قطعی تأیید (دقیقه)',
   BUYER_CONFIRM_DEADLINE_MINUTES: 'مهلت تایید/شکایت خریدار پس از ارسال (دقیقه)',
   LISTING_DISPLAY_DAYS:
     'پس از تایید ادمین، آگهی چند روز روی سایت می‌ماند (۱ تا ۳۶۵). یک روز قبل از پایان به فروشنده اطلاع داده می‌شود؛ پس از اتمام آرشیو می‌شود.',
@@ -192,6 +196,7 @@ export class AdminSettingsService {
             ...Object.values(SETTING_KEYS),
             'SELLER_SHIP_DEADLINE_DAYS',
             'BUYER_CONFIRM_DEADLINE_DAYS',
+            'SELLER_RETURN_CONFIRM_DEADLINE_HOURS',
           ],
         },
       },
@@ -227,6 +232,21 @@ export class AdminSettingsService {
         result[key] =
           Number.isFinite(legacyDays) && legacyDays > 0
             ? String(Math.floor(legacyDays * 24 * 60))
+            : '';
+        continue;
+      }
+      if (key === SETTING_KEYS.SELLER_RETURN_CONFIRM_DEADLINE_MINUTES) {
+        const minutes = byKey.get(key)?.value?.trim();
+        if (minutes) {
+          result[key] = minutes;
+          continue;
+        }
+        const legacyHours = Number(
+          byKey.get('SELLER_RETURN_CONFIRM_DEADLINE_HOURS')?.value ?? '',
+        );
+        result[key] =
+          Number.isFinite(legacyHours) && legacyHours > 0
+            ? String(Math.floor(legacyHours * 60))
             : '';
         continue;
       }

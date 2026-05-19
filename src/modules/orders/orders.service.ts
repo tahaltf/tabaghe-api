@@ -1463,7 +1463,7 @@ export class OrdersService {
   }
 
   private async getSellerReturnConfirmDeadlineMinutes(): Promise<number> {
-    const setting = await this.prisma.systemSetting.findFirst({
+    const rows = await this.prisma.systemSetting.findMany({
       where: {
         key: {
           in: [
@@ -1472,21 +1472,25 @@ export class OrdersService {
           ],
         },
       },
-      orderBy: { key: 'asc' },
     });
+    const byKey = new Map(rows.map((r) => [r.key, r]));
     const fallback =
       OrdersService.DEFAULT_SELLER_RETURN_CONFIRM_DEADLINE_MINUTES;
-    if (!setting?.value?.trim()) return fallback;
-    if (setting.key === 'SELLER_RETURN_CONFIRM_DEADLINE_HOURS') {
-      const hours = Number(setting.value.replace(/[^\d.]/g, ''));
+    const minutesRow =
+      byKey.get('SELLER_RETURN_CONFIRM_DEADLINE_MINUTES')?.value?.trim();
+    if (minutesRow) {
+      const minutes = Number(minutesRow.replace(/[^\d.]/g, ''));
+      if (Number.isFinite(minutes) && minutes > 0) {
+        return Math.floor(minutes);
+      }
+    }
+    const hoursRow =
+      byKey.get('SELLER_RETURN_CONFIRM_DEADLINE_HOURS')?.value?.trim();
+    if (hoursRow) {
+      const hours = Number(hoursRow.replace(/[^\d.]/g, ''));
       if (Number.isFinite(hours) && hours > 0) {
         return Math.floor(hours * 60);
       }
-      return fallback;
-    }
-    const minutes = Number(setting.value.replace(/[^\d.]/g, ''));
-    if (Number.isFinite(minutes) && minutes > 0) {
-      return Math.floor(minutes);
     }
     return fallback;
   }
