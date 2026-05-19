@@ -209,20 +209,19 @@ describe('WalletService - refundExchangeBothNoShipmentOnCancel', () => {
       buyerId: 'buyer-1',
       sellerId: 'seller-1',
       verificationFee: 100_000,
-      isPayerMe: true,
-      extraPayment: 200_000,
+      inspectionPenaltyPercent: 20,
     });
 
     expect(tx.wallet.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { userId: 'buyer-1' },
-        data: { balanceAvailable: { increment: 300_000 } },
+        data: { balanceAvailable: { increment: 280_000 } },
       }),
     );
     expect(tx.wallet.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { userId: 'seller-1' },
-        data: { balanceAvailable: { increment: 100_000 } },
+        data: { balanceAvailable: { increment: 80_000 } },
       }),
     );
     expect(tx.wallet.update).toHaveBeenCalledWith(
@@ -236,8 +235,8 @@ describe('WalletService - refundExchangeBothNoShipmentOnCancel', () => {
       (c: any) => c[0].data,
     );
     expect(refundCreates).toHaveLength(2);
-    expect(refundCreates[0].amount).toBe(300_000);
-    expect(refundCreates[1].amount).toBe(100_000);
+    expect(refundCreates[0].amount).toBe(280_000);
+    expect(refundCreates[1].amount).toBe(80_000);
     expect(tx.walletTransaction.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: { in: ['dep-1'] } },
@@ -274,8 +273,7 @@ describe('WalletService - refundExchangeBothNoShipmentOnCancel', () => {
       buyerId: 'buyer-1',
       sellerId: 'seller-1',
       verificationFee: 100_000,
-      isPayerMe: true,
-      extraPayment: 0,
+      inspectionPenaltyPercent: 20,
     });
 
     expect(tx.walletTransaction.create).not.toHaveBeenCalled();

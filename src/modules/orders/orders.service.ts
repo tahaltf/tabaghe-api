@@ -33,6 +33,13 @@ import { OrderReputationService } from './order-reputation.service';
 import { ExchangeService } from '../exchange/exchange.service';
 import { QuotaService } from '../quota/quota.service';
 import { ListingCommandService } from '../listing/services/listing-command.service';
+import {
+  clearedOrderVideoUpdateData,
+  collectOrderVideoFilenames,
+  deleteOrderVideoFile,
+  orderHasStoredVideos,
+} from '../../common/upload/order-video-storage.util';
+import { enrichOrderUpdateForCompletion } from './order-lifecycle.util';
 
 @Injectable()
 export class OrdersService {
@@ -48,6 +55,8 @@ export class OrdersService {
     48 * 60;
   private static readonly DEFAULT_SELLER_RETURN_CONFIRM_DEADLINE_MINUTES =
     72 * 60;
+  private static readonly DEFAULT_ORDER_VIDEO_RETENTION_DAYS = 10;
+  private static readonly PURGE_COMPLETED_ORDER_VIDEOS_BATCH = 100;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -1822,7 +1831,9 @@ export class OrdersService {
         const prevExchangeStatus = order.status;
         const completedExchange = await tx.order.update({
           where: { id: orderId },
-          data: { status: OrderStatus.COMPLETED },
+          data: enrichOrderUpdateForCompletion({
+            status: OrderStatus.COMPLETED,
+          }),
         });
         await this.orderReputation.recordTerminalOutcome(
           tx,
@@ -1873,7 +1884,9 @@ export class OrdersService {
       const prevDirectStatus = order.status;
       const completedDirect = await tx.order.update({
         where: { id: orderId },
-        data: { status: OrderStatus.COMPLETED },
+        data: enrichOrderUpdateForCompletion({
+          status: OrderStatus.COMPLETED,
+        }),
       });
       await this.orderReputation.recordTerminalOutcome(
         tx,
@@ -3344,8 +3357,7 @@ export class OrdersService {
         buyerId: order.buyerId,
         sellerId: order.sellerId,
         verificationFee: Number(order.verificationFee || 0),
-        isPayerMe: Boolean(exchangeOffer?.isPayerMe),
-        extraPayment: Number(exchangeOffer?.extraPayment || 0),
+        inspectionPenaltyPercent: exchangeNoShipmentCompensationPercent,
       });
     } else {
       const cancelReason = 'عدم ارسال فروشنده در مهلت مقرر؛ معامله لغو شد';
@@ -3921,11 +3933,11 @@ export class OrdersService {
         const prevAutoConfirm = locked.status;
         await tx.order.update({
           where: { id: locked.id },
-          data: {
+          data: enrichOrderUpdateForCompletion({
             buyerConfirmedDelivery: true,
             sellerConfirmedDelivery: true,
             status: OrderStatus.COMPLETED,
-          },
+          }),
         });
         await this.orderReputation.recordTerminalOutcome(
           tx,
@@ -4378,5 +4390,75 @@ export class OrdersService {
         },
       }),
     ]);
+  }
+
+  /** ویدیوهای سفارش‌های تکمیل‌شده پس از مهلت نگهداری (پیش‌فرض ۱۰ روز) از دیسک و دیتابیس حذف می‌شوند. */
+  @Cron('30 3 * * *')
+  async purgeCompletedOrderVideos() {
+    const retentionDays = await this.getOrderVideoRetentionDays();
+    const cutoff = new Date(
+      Date.now() - retentionDays * 24 * 60 * 60 * 1000,
+    );
+    const orders = await this.prisma.order.findMany({
+      where: {
+        status: OrderStatus.COMPLETED,
+        AND: [
+          {
+            OR: [
+              { completedAt: { lte: cutoff } },
+              { completedAt: null, updatedAt: { lte: cutoff } },
+            ],
+          },
+          {
+            OR: [
+              { packagingVideo: { not: null } },
+              { buyerPackagingVideo: { not: null } },
+              { unboxingVideo: { not: null } },
+              { sellerUnboxingVideo: { not: null } },
+              { returnPackagingVideo: { not: null } },
+            ],
+          },
+        ],
+      },
+      select: {
+        id: true,
+        packagingVideo: true,
+        buyerPackagingVideo: true,
+        unboxingVideo: true,
+        sellerUnboxingVideo: true,
+        returnPackagingVideo: true,
+      },
+      take: OrdersService.PURGE_COMPLETED_ORDER_VIDEOS_BATCH,
+      orderBy: { completedAt: 'asc' },
+    });
+
+    for (const order of orders) {
+      if (!orderHasStoredVideos(order)) continue;
+      try {
+        for (const filename of collectOrderVideoFilenames(order)) {
+          deleteOrderVideoFile(filename);
+        }
+        await this.prisma.order.update({
+          where: { id: order.id },
+          data: clearedOrderVideoUpdateData(),
+        });
+      } catch (error) {
+        console.error(
+          `Error purging order videos for order ${order.id}:`,
+          error,
+        );
+      }
+    }
+  }
+
+  private async getOrderVideoRetentionDays(): Promise<number> {
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'ORDER_COMPLETED_VIDEO_RETENTION_DAYS' },
+      select: { value: true },
+    });
+    return this.parsePositiveIntSetting(
+      setting?.value,
+      OrdersService.DEFAULT_ORDER_VIDEO_RETENTION_DAYS,
+    );
   }
 }

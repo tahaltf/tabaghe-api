@@ -23,6 +23,7 @@ import {
   ResolveDisputeDto,
 } from '../dto/admin-dispute.dto';
 import { OrderReputationService } from '../../orders/order-reputation.service';
+import { enrichOrderUpdateForCompletion } from '../../orders/order-lifecycle.util';
 import { ListingCommandService } from '../../listing/services/listing-command.service';
 
 const DISPUTE_INCLUDE = {
@@ -255,7 +256,9 @@ export class AdminDisputesService {
           });
           await tx.order.update({
             where: { id },
-            data: { status: OrderStatus.COMPLETED },
+            data: enrichOrderUpdateForCompletion({
+              status: OrderStatus.COMPLETED,
+            }),
           });
           await this.orderReputation.recordTerminalOutcome(
             tx,
@@ -365,7 +368,9 @@ export class AdminDisputesService {
           }
           await tx.order.update({
             where: { id },
-            data: { status: OrderStatus.COMPLETED },
+            data: enrichOrderUpdateForCompletion({
+              status: OrderStatus.COMPLETED,
+            }),
           });
           await this.orderReputation.recordTerminalOutcome(
             tx,

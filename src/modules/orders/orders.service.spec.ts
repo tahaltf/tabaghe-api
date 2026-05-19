@@ -10,6 +10,7 @@ import { NotificationService } from '../notification/notification.service';
 import { OrderReputationService } from './order-reputation.service';
 import { ExchangeService } from '../exchange/exchange.service';
 import { QuotaService } from '../quota/quota.service';
+import { ListingCommandService } from '../listing/services/listing-command.service';
 import {
   ListingStatus,
   OrderStatus,
@@ -22,8 +23,15 @@ describe('OrdersService', () => {
   let service: OrdersService;
 
   const prismaMock = {
-    order: { findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
-    systemSetting: { findFirst: jest.fn().mockResolvedValue(null) },
+    order: {
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
+    },
+    systemSetting: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      findUnique: jest.fn().mockResolvedValue(null),
+    },
     $transaction: jest.fn(),
   };
 
@@ -31,6 +39,7 @@ describe('OrdersService', () => {
     releaseEscrow: jest.fn(),
     refundExchangeExtraOnCancel: jest.fn(),
     refundExchangeBothNoShipmentOnCancel: jest.fn(),
+    refundExchangeOneSideNoShipmentOnCancel: jest.fn(),
     refundDirectOrderEscrowOnCancel: jest.fn(),
   };
   const feeMock = {};
@@ -43,6 +52,9 @@ describe('OrdersService', () => {
   const orderReputationMock = { recordTerminalOutcome: jest.fn() };
   const exchangeMock = { rejectNonWinningExchangeOffersAfterSale: jest.fn() };
   const quotaMock = { releaseOnReject: jest.fn().mockResolvedValue(undefined) };
+  const listingCommandMock = {
+    rejectAfterTradeFailure: jest.fn().mockResolvedValue(undefined),
+  };
   const stateMachineMock = {
     canTransition: jest.fn(),
     assertTransition: jest.fn(),
@@ -63,6 +75,7 @@ describe('OrdersService', () => {
         { provide: OrderReputationService, useValue: orderReputationMock },
         { provide: ExchangeService, useValue: exchangeMock },
         { provide: QuotaService, useValue: quotaMock },
+        { provide: ListingCommandService, useValue: listingCommandMock },
       ],
     }).compile();
 
@@ -167,16 +180,8 @@ describe('OrdersService', () => {
 
     const tx = {
       exchangeOffer: {
-        findUnique: jest.fn().mockResolvedValue({
-          extraPayment: 200,
-          isPayerMe: true, // payer = buyer, so buyerRefundable = 200
-        }),
-      },
-      wallet: {
-        upsert: jest.fn().mockResolvedValue({}),
-      },
-      walletTransaction: {
-        create: jest.fn().mockResolvedValue({}),
+        findUnique: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       user: {
         update: jest.fn().mockResolvedValue({}),
@@ -187,13 +192,10 @@ describe('OrdersService', () => {
           .mockResolvedValue({ status: OrderStatus.AWAITING_SHIPMENT_TO_HUB }),
         update: jest.fn().mockResolvedValue({}),
       },
-      notification: {
-        create: jest.fn().mockResolvedValue({}),
-      },
       listing: {
         update: jest
           .fn()
-          .mockResolvedValue({ id: listingId, status: ListingStatus.REJECTED }),
+          .mockResolvedValue({ id: listingId, status: ListingStatus.APPROVED }),
       },
     };
 
@@ -201,43 +203,26 @@ describe('OrdersService', () => {
       async (cb: (trx: typeof tx) => Promise<unknown>) => cb(tx),
     );
 
-    walletMock.refundExchangeExtraOnCancel.mockResolvedValue(undefined);
-
-    const creditSpy = jest
-      .spyOn(service as any, 'creditExchangeCompensation')
-      .mockResolvedValue(undefined);
+    walletMock.refundExchangeOneSideNoShipmentOnCancel.mockResolvedValue({
+      senderRefund: 100,
+      offenderRefund: 0,
+      compensation: 20,
+    });
 
     await service.autoCancelExpiredOrders();
 
-    // Refund: only extra refund should happen to the payer (buyer) = non-sender here.
-    expect(walletMock.refundExchangeExtraOnCancel).toHaveBeenCalledWith(
+    expect(walletMock.refundExchangeOneSideNoShipmentOnCancel).toHaveBeenCalledWith(
       tx,
       expect.objectContaining({
+        orderId,
+        listingId,
         buyerId,
         sellerId,
-        listingId,
-        orderId,
-        isPayerMe: true,
-        buyerRefundable: 200,
-        sellerRefundable: 0,
+        senderId: sellerId,
+        offenderId: buyerId,
+        verificationFee: 100,
       }),
     );
-
-    // Sender refund (seller sent) includes verification fee only (sellerShare = 100, because buyer pays extra).
-    expect(tx.wallet.upsert).toHaveBeenCalledTimes(1);
-    expect(tx.walletTransaction.create).toHaveBeenCalledTimes(1);
-    expect(tx.walletTransaction.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          type: WalletTransactionType.REFUND,
-          status: WalletTransactionStatus.SUCCESS,
-          amount: 100,
-        }),
-      }),
-    );
-
-    // 20% compensation for sender
-    expect(creditSpy).toHaveBeenCalledWith(tx, sellerId, 20, orderId, 20);
 
     // State machine transition: we keep exchange in flow by marking REJECTED_AT_HUB
     expect(stateMachineMock.assertTransition).toHaveBeenCalledWith(
@@ -269,18 +254,10 @@ describe('OrdersService', () => {
       expect.objectContaining({ failurePenalizeUserIds: [buyerId] }),
     );
 
-    expect(tx.listing.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: listingId },
-        data: expect.objectContaining({
-          status: ListingStatus.REJECTED,
-          rejectionReason: expect.stringContaining('عدم ارسال'),
-        }),
-      }),
-    );
-    expect(quotaMock.releaseOnReject).toHaveBeenCalledWith(tx, listingId);
-
-    creditSpy.mockRestore();
+    expect(tx.listing.update).toHaveBeenCalledWith({
+      where: { id: listingId },
+      data: { status: ListingStatus.APPROVED },
+    });
   });
 
   it('autoCancelExpiredOrders: exchange both no shipment -> CANCELLED + per-party refunds + both penalized', async () => {
@@ -363,8 +340,7 @@ describe('OrdersService', () => {
         sellerId,
         listingId,
         verificationFee: 100_000,
-        isPayerMe: true,
-        extraPayment: 200,
+        inspectionPenaltyPercent: expect.any(Number),
       }),
     );
     expect(walletMock.refundDirectOrderEscrowOnCancel).not.toHaveBeenCalled();
@@ -456,16 +432,16 @@ describe('OrdersService', () => {
 
     await service.autoCancelExpiredOrders();
 
-    expect(tx.listing.update).toHaveBeenCalledWith(
+    expect(listingCommandMock.rejectAfterTradeFailure).toHaveBeenCalledWith(
+      tx,
       expect.objectContaining({
-        where: { id: listingId },
-        data: expect.objectContaining({
-          status: ListingStatus.REJECTED,
-          rejectionReason: expect.stringContaining('عدم ارسال فروشنده'),
-        }),
+        listingId,
+        sellerId: 'seller-1',
+        rejectionReason: expect.stringContaining('عدم ارسال فروشنده'),
+        source: 'shipping-timeout',
+        orderId,
       }),
     );
-    expect(quotaMock.releaseOnReject).toHaveBeenCalledWith(tx, listingId);
 
     expect(walletMock.refundDirectOrderEscrowOnCancel).toHaveBeenCalledWith(
       tx,
@@ -696,6 +672,39 @@ describe('OrdersService', () => {
           packagingVideo: 'video-2.mp4',
           status: OrderStatus.SHIPPED,
         }),
+      });
+    });
+  });
+
+  describe('purgeCompletedOrderVideos', () => {
+    it('clears video fields for completed orders past retention', async () => {
+      prismaMock.systemSetting.findUnique = jest
+        .fn()
+        .mockResolvedValue({ value: '10' });
+      prismaMock.order.findMany = jest.fn().mockResolvedValue([
+        {
+          id: 'ord-old',
+          packagingVideo: 'pack.mp4',
+          buyerPackagingVideo: null,
+          unboxingVideo: null,
+          sellerUnboxingVideo: null,
+          returnPackagingVideo: null,
+        },
+      ]);
+      prismaMock.order.update = jest.fn().mockResolvedValue({ id: 'ord-old' });
+
+      await service.purgeCompletedOrderVideos();
+
+      expect(prismaMock.order.findMany).toHaveBeenCalled();
+      expect(prismaMock.order.update).toHaveBeenCalledWith({
+        where: { id: 'ord-old' },
+        data: {
+          packagingVideo: null,
+          buyerPackagingVideo: null,
+          unboxingVideo: null,
+          sellerUnboxingVideo: null,
+          returnPackagingVideo: null,
+        },
       });
     });
   });

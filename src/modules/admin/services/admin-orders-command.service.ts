@@ -30,6 +30,7 @@ import {
 } from '../../orders/order-reputation.service';
 import { WalletService } from '../../wallet/wallet.service';
 import { OrdersService } from '../../orders/orders.service';
+import { enrichOrderUpdateForCompletion } from '../../orders/order-lifecycle.util';
 import { ListingCommandService } from '../../listing/services/listing-command.service';
 
 @Injectable()
@@ -339,7 +340,7 @@ export class AdminOrdersCommandService {
     const order = await this.prisma.$transaction(async (tx) => {
       const o = await tx.order.update({
         where: { id },
-        data: { status },
+        data: enrichOrderUpdateForCompletion({ status }),
       });
       // مسیر CANCELLED در بالا برگردانده شده؛ اینجا فقط سایر انتقال‌ها (از جمله COMPLETED)
       if (status === OrderStatus.COMPLETED) {
@@ -1330,7 +1331,9 @@ export class AdminOrdersCommandService {
       };
       const inspectionPayload = mergeInspectionPayload({
         awaitingFinanceSettlement: false,
+        pendingFinancialSettlement: null,
         financialSettlementSummary: settlementSummary,
+        financeSettledAt: new Date().toISOString(),
       });
       const summaryText = [
         'نتیجه کارشناسی هر کالا ثبت شد و توافق مالی در همان مرحله نهایی شد:',
@@ -1388,18 +1391,31 @@ export class AdminOrdersCommandService {
           select: { id: true, balanceAvailable: true, balanceBlocked: true },
         });
 
+        if (listingSettlementAmount > 0 && !sellerIsExtraReceiver) {
+          const sellerAvailableNow = Number(sellerWallet.balanceAvailable || 0);
+          if (listingSettlementAmount > sellerAvailableNow) {
+            return {
+              kind: 'awaiting_wallet_topup' as const,
+              debtorUserId: existing.sellerId,
+              shortfall: listingSettlementAmount - sellerAvailableNow,
+            };
+          }
+        }
+        if (offerSettlementAmount > 0 && !buyerIsExtraReceiver) {
+          const buyerAvailableNow = Number(buyerWallet.balanceAvailable || 0);
+          if (offerSettlementAmount > buyerAvailableNow) {
+            return {
+              kind: 'awaiting_wallet_topup' as const,
+              debtorUserId: existing.buyerId,
+              shortfall: offerSettlementAmount - buyerAvailableNow,
+            };
+          }
+        }
+
         // ۱) اصلاح مالی کالای فروشنده: کاهش از فروشنده -> افزایش به خریدار
         if (listingSettlementAmount > 0) {
           if (!sellerIsExtraReceiver) {
             // حالت ۱: کسر از پرداخت‌کننده سرک -> از available و افزودن به blocked طرف مقابل
-            const sellerAvailableNow = Number(
-              sellerWallet.balanceAvailable || 0,
-            );
-            if (listingSettlementAmount > sellerAvailableNow) {
-              throw new BadRequestException(
-                'برای اعمال اصلاح مالی کالای فروشنده، موجودی کیف پول فروشنده کافی نیست',
-              );
-            }
             await tx.wallet.update({
               where: { userId: existing.sellerId },
               data: {
@@ -1495,12 +1511,6 @@ export class AdminOrdersCommandService {
         if (offerSettlementAmount > 0) {
           if (!buyerIsExtraReceiver) {
             // حالت ۱: کسر از پرداخت‌کننده سرک -> از available و افزودن به blocked طرف مقابل
-            const buyerAvailableNow = Number(buyerWallet.balanceAvailable || 0);
-            if (offerSettlementAmount > buyerAvailableNow) {
-              throw new BadRequestException(
-                'برای اعمال اصلاح مالی کالای خریدار، موجودی کیف پول خریدار کافی نیست',
-              );
-            }
             await tx.wallet.update({
               where: { userId: existing.buyerId },
               data: { balanceAvailable: { decrement: offerSettlementAmount } },
@@ -1588,16 +1598,80 @@ export class AdminOrdersCommandService {
           }
         }
 
-        return tx.order.update({
+        return {
+          kind: 'completed' as const,
+          order: await tx.order.update({
+            where: { id },
+            data: {
+              status: OrderStatus.VERIFIED_AT_HUB,
+              cancelReason: summaryText,
+              sellerRevenue: sellerAfter,
+              exchangeHubInspection: inspectionPayload as Prisma.InputJsonValue,
+            },
+          }),
+        };
+      });
+
+      if (updated.kind === 'awaiting_wallet_topup') {
+        const pendingPayload = mergeInspectionPayload({
+          awaitingFinanceSettlement: true,
+          pendingFinancialSettlement: {
+            listingItem: dto.listingItem,
+            offerItem: dto.offerItem,
+            listingSettlementAmount,
+            offerSettlementAmount,
+            listingSettlementDirection,
+            offerSettlementDirection,
+            listingNote: dto.listingNote?.trim() || null,
+            offerNote: dto.offerNote?.trim() || null,
+            debtorUserId: updated.debtorUserId,
+            shortfall: updated.shortfall,
+            requestedAt: new Date().toISOString(),
+          },
+          financialSettlementSummary: null,
+        });
+        const awaitingOrder = await this.prisma.order.update({
           where: { id },
           data: {
-            status: OrderStatus.VERIFIED_AT_HUB,
-            cancelReason: summaryText,
-            sellerRevenue: sellerAfter,
-            exchangeHubInspection: inspectionPayload as Prisma.InputJsonValue,
+            status: OrderStatus.CHECKING_AT_HUB,
+            cancelReason: [
+              summaryText,
+              'در انتظار شارژ کیف پول برای تکمیل توافق مالی.',
+              `کسری موجودی: ${updated.shortfall.toLocaleString('fa-IR')} تومان`,
+            ].join('\n'),
+            exchangeHubInspection: pendingPayload as Prisma.InputJsonValue,
           },
         });
-      });
+        const debtorLabel =
+          updated.debtorUserId === existing.sellerId ? 'فروشنده' : 'خریدار';
+        await this.prisma.notification.createMany({
+          data: [
+            {
+              userId: updated.debtorUserId,
+              type: NotificationType.ORDER_STATUS_CHANGED,
+              title: 'شارژ کیف پول برای ادامه معاوضه',
+              message: `برای اعمال توافق مالی کارشناسی، ${updated.shortfall.toLocaleString('fa-IR')} تومان به کیف پول شما نیاز است. پس از شارژ، پشتیبانی دوباره تسویه را ثبت می‌کند.`,
+              meta: {
+                orderId: id,
+                shortfall: updated.shortfall,
+                awaitingFinanceSettlement: true,
+              } as Prisma.InputJsonValue,
+            },
+            {
+              userId:
+                updated.debtorUserId === existing.buyerId
+                  ? existing.sellerId
+                  : existing.buyerId,
+              type: NotificationType.ORDER_STATUS_CHANGED,
+              title: 'در انتظار تسویه مالی معاوضه',
+              message: `معامله در انتظار شارژ کیف پول ${debtorLabel} برای تکمیل توافق مالی کارشناسی است.`,
+              meta: { orderId: id } as Prisma.InputJsonValue,
+            },
+          ],
+        });
+        return awaitingOrder;
+      }
+
       await this.notifyParties(
         existing.buyerId,
         existing.sellerId,
@@ -1605,7 +1679,7 @@ export class AdminOrdersCommandService {
         OrderStatus.VERIFIED_AT_HUB,
         summaryText,
       );
-      return updated;
+      return updated.order;
     }
 
     // RETURN_BOTH_TO_SENDERS
@@ -1618,17 +1692,31 @@ export class AdminOrdersCommandService {
     ].filter(Boolean) as string[];
 
     const summaryText = summaryLines.join('\n');
-    const inspectionPayload = mergeInspectionPayload({
-      awaitingFinanceSettlement: false,
-      financialSettlementSummary: null,
-      lastFinancialSettlement: null,
-      awaitingReturnConfirmations: true,
-      buyerReturnReceived: false,
-      sellerReturnReceived: false,
-      refundsReleasedAt: null,
-    });
+    const compensationPercent =
+      await this.readExchangeNoShipmentCompensationPercent();
 
     return this.prisma.$transaction(async (tx) => {
+      await this.walletService.applyExchangeHubInspectionOutcomeRefunds(tx, {
+        orderId: id,
+        listingId: existing.listing.id,
+        buyerId: existing.buyerId,
+        sellerId: existing.sellerId,
+        verificationFee: Number(existing.verificationFee || 0),
+        inspectionPenaltyPercent: compensationPercent,
+        listingFailed,
+        offerFailed,
+      });
+
+      const inspectionPayload = mergeInspectionPayload({
+        awaitingFinanceSettlement: false,
+        financialSettlementSummary: null,
+        lastFinancialSettlement: null,
+        awaitingReturnConfirmations: true,
+        buyerReturnReceived: false,
+        sellerReturnReceived: false,
+        refundsReleasedAt: new Date().toISOString(),
+      });
+
       const updatedOrder = await tx.order.update({
         where: { id },
         data: {
@@ -1655,12 +1743,17 @@ export class AdminOrdersCommandService {
         { failurePenalizeUserIds },
       );
 
-      if (listingFailed) {
+      if (hasAnyFail) {
+        const rejectionReason = bothFailed
+          ? 'رد کارشناسی هر دو کالا در معاوضه؛ آگهی از انتشار خارج شد.'
+          : listingFailed
+            ? `رد کارشناسی کالای آگهی (معاوضه): ${dto.listingNote?.trim() || 'مطابق گزارش کارشناسی'}`
+            : `رد کارشناسی کالای پیشنهاد (معاوضه): ${dto.offerNote?.trim() || 'مطابق گزارش کارشناسی'}`;
         await this.listingCommand.rejectAfterTradeFailure(tx, {
           listingId: existing.listing.id,
           sellerId: existing.sellerId,
           listingTitle: existing.listing.title,
-          rejectionReason: `رد کارشناسی کالای آگهی (معاوضه): ${dto.listingNote?.trim() || 'مطابق گزارش کارشناسی معاوضه'}`,
+          rejectionReason,
           source: 'hub-inspection',
           orderId: id,
         });
@@ -2566,7 +2659,9 @@ export class AdminOrdersCommandService {
         const prevReleaseSeller = order.status;
         const updated = await tx.order.update({
           where: { id: order.id },
-          data: { status: OrderStatus.COMPLETED },
+          data: enrichOrderUpdateForCompletion({
+            status: OrderStatus.COMPLETED,
+          }),
         });
         await this.orderReputation.recordTerminalOutcome(
           tx,
@@ -2807,6 +2902,17 @@ export class AdminOrdersCommandService {
         },
       ],
     });
+  }
+
+  private async readExchangeNoShipmentCompensationPercent(): Promise<number> {
+    const setting = await this.prisma.systemSetting.findFirst({
+      where: { key: 'EXCHANGE_NO_SHIPMENT_COMPENSATION' },
+    });
+    const parsed = Number(setting?.value);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return 20;
+    }
+    return Math.min(100, Math.floor(parsed));
   }
 }
 

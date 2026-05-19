@@ -169,6 +169,18 @@ export const SYSTEM_JOBS_REGISTRY: SystemJobDefinition[] = [
     ],
   },
   {
+    id: 'orders_purge_completed_videos',
+    name: 'حذف ویدیوهای سفارش تکمیل‌شده پس از نگهداری',
+    schedule: '30 3 * * *',
+    scheduleLabel: 'هر روز ۰۳:۳۰',
+    description:
+      'ویدیوهای بسته‌بندی/بازگشایی/مرجوعی سفارش‌های COMPLETED را پس از مهلت (پیش‌فرض ۱۰ روز از completedAt) از دیسک و رکورد سفارش پاک می‌کند.',
+    module: 'orders/orders.service.ts',
+    method: 'purgeCompletedOrderVideos',
+    managedBy: 'nestjs_cron',
+    relatedSettingKeys: ['ORDER_COMPLETED_VIDEO_RETENTION_DAYS'],
+  },
+  {
     id: 'orders_auto_confirm',
     name: 'تایید خودکار سفارش پس از مهلت خریدار',
     schedule: '* * * * *',

@@ -849,6 +849,8 @@ paymentMethod    PaymentMethod @default(GATEWAY)
   platformAddress      String?  // اسنپ‌شات آدرس طبقه در لحظه سفارش
 
   status            OrderStatus @default(PENDING)
+  /** زمان نهایی‌شدن سفارش (برای نگهداری موقت ویدیوها) */
+  completedAt       DateTime?
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
 
