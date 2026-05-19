@@ -13,6 +13,7 @@ import {
 import { BANNER_UPLOAD_PATH } from '../../../common/upload/banner-upload.config';
 import { BRAND_LOGO_UPLOAD_PATH } from '../../../common/upload/brand-logo-upload.config';
 import { INSPECTION_CERTIFICATE_ASSET_UPLOAD_PATH } from '../../../common/upload/inspection-certificate-asset-upload.config';
+import { LISTING_TYPE_ENABLED_SETTING_KEYS } from '../../../common/system-settings/listing-type-enabled';
 
 export const SETTING_KEYS = {
   HOMEPAGE_BANNER: 'HOMEPAGE_BANNER',
@@ -29,6 +30,9 @@ export const SETTING_KEYS = {
   SELLER_SHIP_DEADLINE_MINUTES: 'SELLER_SHIP_DEADLINE_MINUTES',
   BUYER_CONFIRM_DEADLINE_MINUTES: 'BUYER_CONFIRM_DEADLINE_MINUTES',
   LISTING_DISPLAY_DAYS: 'LISTING_DISPLAY_DAYS',
+  LISTING_TYPE_DIRECT_ENABLED: LISTING_TYPE_ENABLED_SETTING_KEYS.DIRECT,
+  LISTING_TYPE_EXCHANGE_ENABLED: LISTING_TYPE_ENABLED_SETTING_KEYS.EXCHANGE,
+  LISTING_TYPE_AUCTION_ENABLED: LISTING_TYPE_ENABLED_SETTING_KEYS.AUCTION,
   EXCHANGE_NO_SHIPMENT_COMPENSATION: 'EXCHANGE_NO_SHIPMENT_COMPENSATION',
   PLATFORM_ADDRESS: 'PLATFORM_ADDRESS',
   PLATFORM_ADDRESSES: 'PLATFORM_ADDRESSES',
@@ -108,6 +112,12 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   BUYER_CONFIRM_DEADLINE_MINUTES: 'مهلت تایید/شکایت خریدار پس از ارسال (دقیقه)',
   LISTING_DISPLAY_DAYS:
     'پس از تایید ادمین، آگهی چند روز روی سایت می‌ماند (۱ تا ۳۶۵). یک روز قبل از پایان به فروشنده اطلاع داده می‌شود؛ پس از اتمام آرشیو می‌شود.',
+  LISTING_TYPE_DIRECT_ENABLED:
+    'فعال بودن ثبت آگهی فروش مستقیم برای کاربران (true/false)',
+  LISTING_TYPE_EXCHANGE_ENABLED:
+    'فعال بودن ثبت آگهی معاوضه برای کاربران (true/false)',
+  LISTING_TYPE_AUCTION_ENABLED:
+    'فعال بودن ثبت آگهی مزایده برای کاربران (true/false)',
   EXCHANGE_NO_SHIPMENT_COMPENSATION:
     'مبلغ دلجویی برای طرف ارسال‌کننده در صورت عدم ارسال طرف مقابل (تومان)',
   PLATFORM_ADDRESS: 'آدرس دفتر / هاب طبقه',

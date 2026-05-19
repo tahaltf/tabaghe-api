@@ -20,6 +20,12 @@ import { QuotaService } from '../../quota/quota.service';
 import { CreateListingDto } from '../dto/create-listing.dto';
 import { UpdateListingDto } from '../dto/update-listing.dto';
 import { DeleteListingDto } from '../dto/delete-listing.dto';
+import {
+  ALL_LISTING_TYPE_ENABLED_SETTING_KEYS,
+  isListingTypeEnabled,
+  listingTypePersianLabel,
+  parseListingTypesEnabledFromMap,
+} from '../../../common/system-settings/listing-type-enabled';
 
 @Injectable()
 export class ListingCommandService {
@@ -30,6 +36,7 @@ export class ListingCommandService {
   ) {}
 
   async create(userId: string, dto: CreateListingDto): Promise<Listing> {
+    await this.assertListingTypeEnabledForCreate(dto.type);
     this.validateListingPayload(dto, false);
     const auctionEndDate = this.resolveAuctionEndDate(dto);
 
@@ -133,6 +140,9 @@ export class ListingCommandService {
     });
 
     const currentType = dto.type ?? listing.type;
+    if (dto.type !== undefined && dto.type !== listing.type) {
+      await this.assertListingTypeEnabledForCreate(dto.type);
+    }
     this.validateListingPayload(dto, true, currentType);
     const auctionEndDate =
       currentType === ListingType.AUCTION && dto.auction?.endDatetime
@@ -299,6 +309,25 @@ export class ListingCommandService {
       );
     }
     return end;
+  }
+
+  private async loadListingTypesEnabled() {
+    const rows = await this.prisma.systemSetting.findMany({
+      where: { key: { in: [...ALL_LISTING_TYPE_ENABLED_SETTING_KEYS] } },
+      select: { key: true, value: true },
+    });
+    const map: Record<string, string> = {};
+    for (const row of rows) map[row.key] = row.value;
+    return parseListingTypesEnabledFromMap(map);
+  }
+
+  private async assertListingTypeEnabledForCreate(type: ListingType): Promise<void> {
+    const enabled = await this.loadListingTypesEnabled();
+    if (!isListingTypeEnabled(type, enabled)) {
+      throw new BadRequestException(
+        `ثبت آگهی ${listingTypePersianLabel(type)} در حال حاضر فعال نیست.`,
+      );
+    }
   }
 
   private validateListingPayload(

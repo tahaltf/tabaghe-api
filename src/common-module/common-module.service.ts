@@ -3,6 +3,7 @@ import { ListingStatus, LocationType, NotificationType } from '@prisma/client';
 import { PrismaService } from '../infrastructure/prisma/prisma.service';
 import { NotificationService } from '../modules/notification/notification.service';
 import { findLocationBySlug } from './location-slug.util';
+import { parseListingTypesEnabledFromMap } from '../common/system-settings/listing-type-enabled';
 
 @Injectable()
 export class CommonService {
@@ -492,6 +493,9 @@ export class CommonService {
       'FOOTER_SOCIAL_LINKS',
       'BUYER_CONFIRM_DEADLINE_MINUTES',
       'BUYER_CONFIRM_DEADLINE_DAYS',
+      'LISTING_TYPE_DIRECT_ENABLED',
+      'LISTING_TYPE_EXCHANGE_ENABLED',
+      'LISTING_TYPE_AUCTION_ENABLED',
     ];
 
     const rows = await this.prisma.systemSetting.findMany({
@@ -617,6 +621,7 @@ export class CommonService {
         : 10000000,
       buyerConfirmDeadlineMinutes,
       footerSocialLinks,
+      listingTypesEnabled: parseListingTypesEnabledFromMap(map),
     };
   }
 
