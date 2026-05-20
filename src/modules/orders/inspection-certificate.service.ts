@@ -27,6 +27,7 @@ import {
 import { resolveCertificateFontFiles } from './inspection-certificate-fonts';
 import {
   formatTomanAmountsInPlainText,
+  maskOwnerNationalCodeForCertificate,
   sanitizeInspectionResultForCertificate,
 } from './inspection-certificate-text.util';
 
@@ -52,13 +53,18 @@ interface CertificateContext {
   itemTitle: string;
   itemCondition: string;
   categoryTitle: string;
-  trackingCode: string;
+  /** شناسهٔ کوتاه‌شدهٔ سفارش برای نمایش در گواهی */
+  orderIdShort: string;
   orderId: string;
   certificateNumber: string;
   verifiedDate: string;
   platformAddress: string;
   supportPhone: string;
   inspectionResult: string;
+  /**
+   * عمداً خالی — در قالب‌های قدیمی ادمین اگر {{trackingCode}} مانده باشد، چیزی در گواهی چاپ نمی‌شود.
+   */
+  trackingCode: string;
 }
 
 const DEFAULT_THEME_PALETTE: CertificateThemePalette = {
@@ -326,12 +332,9 @@ export class InspectionCertificateService implements OnModuleDestroy {
     const ownerFullName =
       [owner?.firstName, owner?.lastName].filter(Boolean).join(' ').trim() ||
       'صاحب کالا';
-    const ownerNationalCode = owner?.nationalCode || '—';
-    const trackingCode =
-      order.hubToBuyerTrackingCode ||
-      order.hubToSellerTrackingCode ||
-      order.trackingCode ||
-      '—';
+    const ownerNationalCode = maskOwnerNationalCodeForCertificate(
+      owner?.nationalCode || null,
+    );
 
     const inspectionResultRaw = this.extractInspectionResultText(order, side);
     let inspectionResult = sanitizeInspectionResultForCertificate(
@@ -353,13 +356,14 @@ export class InspectionCertificateService implements OnModuleDestroy {
       itemTitle,
       itemCondition: itemCondition === 'NEW' ? 'نو' : 'کارکرده',
       categoryTitle,
-      trackingCode,
+      orderIdShort: order.id.slice(-12),
       orderId: order.id,
       certificateNumber,
       verifiedDate: this.formatJalaliDate(new Date()),
       platformAddress: platformAddress || '—',
       supportPhone: supportPhone || '—',
       inspectionResult,
+      trackingCode: '',
     };
   }
 

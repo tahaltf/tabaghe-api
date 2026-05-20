@@ -78,3 +78,19 @@ export function sanitizeInspectionResultForCertificate(text: string): string {
     .join('\n')
     .trim();
 }
+
+/**
+ * نمایش امن کد ملی در گواهی: فقط دو رقم اول و دو رقم آخر؛ بقیه ستاره.
+ */
+export function maskOwnerNationalCodeForCertificate(
+  code: string | null | undefined,
+): string {
+  const raw = String(code ?? '').trim();
+  if (!raw || raw === '—') return '—';
+  const digits = persianDigitsToAscii(raw).replace(/\D/g, '');
+  if (digits.length < 4) return '—';
+  const first = digits.slice(0, 2);
+  const last = digits.slice(-2);
+  const stars = '*'.repeat(digits.length - 4);
+  return `${first}${stars}${last}`;
+}

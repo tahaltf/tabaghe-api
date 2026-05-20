@@ -84,9 +84,9 @@ export const SETTING_KEYS = {
  * Placeholderهای پشتیبانی‌شده توسط InspectionCertificateService جایگزین می‌شوند.
  */
 export const DEFAULT_INSPECTION_CERTIFICATE_TITLE = 'گواهی کارشناسی کالا';
-export const DEFAULT_INSPECTION_CERTIFICATE_BODY = `بدینوسیله گواهی می‌شود کالای زیر متعلق به {{ownerName}} با شناسه ملی {{ownerNationalCode}} توسط کارشناسان مرکز پردازش طبقه مورد بررسی فنی قرار گرفته و مطابق مشخصات اعلامی مورد تایید است.
+export const DEFAULT_INSPECTION_CERTIFICATE_BODY = `بدینوسیله گواهی می‌شود کالای «{{itemTitle}}» در دستهٔ {{categoryTitle}} با وضعیت {{itemCondition}} متعلق به {{ownerName}} با شناسه ملی {{ownerNationalCode}} توسط کارشناسان مرکز پردازش طبقه در تاریخ {{verifiedDate}} از نظر فنی بررسی و مطابق مشخصات اعلامی تأیید شد.
 
-جزئیات کالا و شماره‌ها در جدول همین صفحه درج شده است. این گواهی صرفاً برای اعلام نتیجه بررسی فنی صادر شده است.`;
+شمارهٔ این سند {{certificateNumber}} است و پیگیری سفارش با شناسه {{orderIdShort}} در سامانه طبقه ثبت شده است. این گواهی صرفاً برای تأیید کارشناسی فنی کالا و اطلاعات همین سفارش صادر شده است.`;
 export const DEFAULT_INSPECTION_CERTIFICATE_FOOTER = `مرکز پردازش و کارشناسی طبقه
 آدرس: {{platformAddress}}
 تلفن پشتیبانی: {{supportPhone}}`;
@@ -165,7 +165,7 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   INSPECTION_CERTIFICATE_TITLE:
     'عنوان گواهی کارشناسی کالا (نمایش بالای گواهی PDF)',
   INSPECTION_CERTIFICATE_BODY:
-    'متن اصلی گواهی کارشناسی؛ از placeholderهایی مثل {{ownerName}}, {{itemTitle}}, {{verifiedDate}} پشتیبانی می‌کند',
+    'متن اصلی گواهی کارشناسی؛ از placeholderهایی مثل {{ownerName}}, {{itemTitle}}, {{orderIdShort}}, {{certificateNumber}}, {{verifiedDate}} پشتیبانی می‌کند',
   INSPECTION_CERTIFICATE_FOOTER:
     'پاورقی گواهی کارشناسی (نام مرکز، آدرس، تلفن پشتیبانی)',
   INSPECTION_CERTIFICATE_LOGO: 'فایل لوگوی بالای گواهی کارشناسی PDF',
