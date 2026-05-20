@@ -84,19 +84,9 @@ export const SETTING_KEYS = {
  * Placeholderهای پشتیبانی‌شده توسط InspectionCertificateService جایگزین می‌شوند.
  */
 export const DEFAULT_INSPECTION_CERTIFICATE_TITLE = 'گواهی کارشناسی کالا';
-export const DEFAULT_INSPECTION_CERTIFICATE_BODY = `بدینوسیله گواهی می‌شود کالای زیر متعلق به جناب/سرکار خانم {{ownerName}} با شناسه ملی {{ownerNationalCode}} توسط کارشناسان مرکز پردازش طبقه مورد بررسی فنی و سلامت قرار گرفته و سالم و مطابق با مشخصات اعلامی تایید گردید.
+export const DEFAULT_INSPECTION_CERTIFICATE_BODY = `بدینوسیله گواهی می‌شود کالای زیر متعلق به {{ownerName}} با شناسه ملی {{ownerNationalCode}} توسط کارشناسان مرکز پردازش طبقه مورد بررسی فنی قرار گرفته و مطابق مشخصات اعلامی مورد تایید است.
 
-مشخصات کالا:
-- عنوان: {{itemTitle}}
-- دسته‌بندی: {{categoryTitle}}
-- وضعیت: {{itemCondition}}
-- شماره سفارش: {{orderId}}
-- شماره گواهی: {{certificateNumber}}
-- تاریخ کارشناسی: {{verifiedDate}}
-
-نتیجه کارشناسی: {{inspectionResult}}
-
-این گواهی صرفاً جهت اعلام نتیجه بررسی فنی توسط کارشناسان طبقه صادر شده و معتبر می‌باشد.`;
+جزئیات کالا و شماره‌ها در جدول همین صفحه درج شده است. این گواهی صرفاً برای اعلام نتیجه بررسی فنی صادر شده است.`;
 export const DEFAULT_INSPECTION_CERTIFICATE_FOOTER = `مرکز پردازش و کارشناسی طبقه
 آدرس: {{platformAddress}}
 تلفن پشتیبانی: {{supportPhone}}`;

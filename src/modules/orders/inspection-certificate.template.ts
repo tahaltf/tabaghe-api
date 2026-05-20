@@ -77,14 +77,14 @@ export function buildInspectionCertificateHtml(
 <title>${escapeHtml(title)}</title>
 <style>
   ${fontFaceCss}
-  @page { size: A4 portrait; margin: 12mm; }
+  @page { size: A4 portrait; margin: 10mm; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
     direction: rtl;
     text-align: right;
     font-family: ${fontStack};
-    font-size: 10.5pt;
-    line-height: 1.65;
+    font-size: 10pt;
+    line-height: 1.55;
     letter-spacing: 0;
     word-spacing: normal;
     color: ${p.primary};
@@ -94,40 +94,56 @@ export function buildInspectionCertificateHtml(
     width: 100%;
     max-width: 186mm;
     margin: 0 auto;
+    padding-inline: 3mm;
+    box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 6px;
     page-break-inside: avoid;
+    page-break-after: avoid;
   }
   .cert-top {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 14px;
-    padding-bottom: 10px;
+    gap: 10px;
+    padding: 0 4px 6px;
     border-bottom: 2px solid ${p.accent};
   }
   .cert-logo-wrap {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 8px;
     min-width: 0;
+    flex: 0 1 auto;
+    max-width: 48%;
+    padding: 4px 8px;
+    box-sizing: border-box;
   }
   .cert-logo {
-    max-height: 48px;
-    max-width: 140px;
+    display: block;
+    max-height: 72px;
+    max-width: min(220px, 100%);
+    width: auto;
+    height: auto;
     object-fit: contain;
+    object-position: center center;
   }
   .cert-logo-wordmark {
     display: flex;
     flex-direction: column;
     gap: 2px;
+    align-items: center;
+    max-width: 100%;
   }
   .cert-logo-word {
-    font-size: 20pt;
+    font-size: 28pt;
     font-weight: 700;
     color: ${p.accent};
-    line-height: 1.1;
+    line-height: 1.15;
+    padding: 0 2px;
+    box-sizing: border-box;
   }
   .cert-logo-tag {
     font-size: 7pt;
@@ -136,14 +152,17 @@ export function buildInspectionCertificateHtml(
     letter-spacing: 0.12em;
   }
   .cert-top-meta {
-    text-align: left;
+    text-align: right;
+    text-align-last: right;
+    unicode-bidi: plaintext;
     font-size: 8.5pt;
-    line-height: 1.7;
+    line-height: 1.65;
     min-width: 42%;
+    flex: 0 1 auto;
     color: ${p.primaryLight};
     border: 1px solid ${p.accent};
     border-radius: 8px;
-    padding: 8px 10px;
+    padding: 6px 10px;
   }
   .cert-top-meta strong {
     color: ${p.accent};
@@ -164,10 +183,10 @@ export function buildInspectionCertificateHtml(
   }
   .cert-title-wrap {
     text-align: center;
-    padding: 4px 0 2px;
+    padding: 2px 0 0;
   }
   .cert-title {
-    font-size: 18pt;
+    font-size: 16pt;
     font-weight: 700;
     color: ${p.accent};
     line-height: 1.35;
@@ -180,14 +199,14 @@ export function buildInspectionCertificateHtml(
     margin: 6px auto 0;
   }
   .cert-body-wrap {
-    padding: 10px 12px;
+    padding: 7px 10px;
     border: 1px solid ${p.primaryLight};
     border-radius: 8px;
     border-right: 3px solid ${p.accent};
   }
   .cert-body {
-    font-size: 10pt;
-    line-height: 1.8;
+    font-size: 9.5pt;
+    line-height: 1.65;
     color: #334155;
     text-align: right;
     text-align-last: right;
@@ -197,10 +216,10 @@ export function buildInspectionCertificateHtml(
   .cert-info {
     border: 1px solid ${p.primaryLight};
     border-radius: 8px;
-    padding: 8px 10px;
+    padding: 6px 8px;
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
-    gap: 6px 10px;
+    gap: 4px 8px;
   }
   .cert-info .cell {
     min-width: 0;
@@ -223,11 +242,11 @@ export function buildInspectionCertificateHtml(
     line-height: 1.45;
   }
   .cert-result {
-    padding: 10px 12px;
+    padding: 7px 10px;
     border: 1px solid ${p.accent};
     border-radius: 8px;
-    font-size: 9.5pt;
-    line-height: 1.7;
+    font-size: 9pt;
+    line-height: 1.6;
     color: ${p.primary};
     text-align: right;
     unicode-bidi: plaintext;
@@ -240,20 +259,20 @@ export function buildInspectionCertificateHtml(
     margin-bottom: 4px;
   }
   .cert-bottom {
-    margin-top: 4px;
+    margin-top: 2px;
     display: flex;
     align-items: flex-end;
     justify-content: space-between;
-    gap: 16px;
-    padding-top: 8px;
+    gap: 12px;
+    padding-top: 5px;
   }
   .cert-stamp-wrap {
     text-align: center;
     min-width: 120px;
   }
   .cert-stamp {
-    max-height: 72px;
-    max-width: 100px;
+    max-height: 64px;
+    max-width: 92px;
     object-fit: contain;
   }
   .cert-stamp-label {
@@ -265,17 +284,17 @@ export function buildInspectionCertificateHtml(
   .cert-sign {
     text-align: center;
     min-width: 110px;
-    padding: 28px 10px 0;
+    padding: 22px 10px 0;
     border-top: 1px solid ${p.primaryLight};
     font-size: 8.5pt;
     color: ${p.primaryLight};
     font-weight: 500;
   }
   .cert-footer {
-    padding: 8px 10px;
+    padding: 5px 8px;
     border-top: 1px dashed ${p.primaryLight};
-    font-size: 8.5pt;
-    line-height: 1.6;
+    font-size: 8pt;
+    line-height: 1.5;
     color: ${p.primaryLight};
     text-align: center;
   }
@@ -284,13 +303,13 @@ export function buildInspectionCertificateHtml(
 <body>
   <div class="cert-page">
     <header class="cert-top">
-      <div class="cert-logo-wrap">
-        ${logoBlock}
-      </div>
       <div class="cert-top-meta">
         <div><strong>شماره گواهی:</strong> ${escapeHtml(context.certificateNumber)}</div>
         <div><strong>تاریخ صدور:</strong> ${escapeHtml(context.verifiedDate)}</div>
         <div><strong>شماره سفارش:</strong> ${escapeHtml(context.orderId.slice(-12))}</div>
+      </div>
+      <div class="cert-logo-wrap">
+        ${logoBlock}
       </div>
     </header>
 
@@ -316,7 +335,7 @@ export function buildInspectionCertificateHtml(
       <div class="cell"><span class="label">کد رهگیری</span><span class="val">${escapeHtml(context.trackingCode)}</span></div>
     </section>
 
-    <div class="cert-result"><strong>نتیجه کارشناسی</strong>${escapeHtml(context.inspectionResult)}</div>
+    <div class="cert-result"><strong>نتیجه کارشناسی</strong><br/>${nl2br(context.inspectionResult)}</div>
 
     <div class="cert-bottom">
       <div class="cert-stamp-wrap">

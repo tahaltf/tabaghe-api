@@ -25,6 +25,10 @@ import {
   type CertificateThemePalette,
 } from './inspection-certificate.template';
 import { resolveCertificateFontFiles } from './inspection-certificate-fonts';
+import {
+  formatTomanAmountsInPlainText,
+  sanitizeInspectionResultForCertificate,
+} from './inspection-certificate-text.util';
 
 /**
  * طرف کالای کارشناسی‌شده در سفارش معاوضه:
@@ -213,9 +217,15 @@ export class InspectionCertificateService implements OnModuleDestroy {
     });
 
     const html = this.renderCertificateHtml({
-      title: this.applyPlaceholders(settings.title, context),
-      body: this.applyPlaceholders(settings.body, context),
-      footer: this.applyPlaceholders(settings.footer, context),
+      title: formatTomanAmountsInPlainText(
+        this.applyPlaceholders(settings.title, context),
+      ),
+      body: formatTomanAmountsInPlainText(
+        this.applyPlaceholders(settings.body, context),
+      ),
+      footer: formatTomanAmountsInPlainText(
+        this.applyPlaceholders(settings.footer, context),
+      ),
       logoDataUri: this.resolveCertificateLogoDataUri(
         settings.logoFilename,
         settings.userAppLogoFilename,
@@ -323,7 +333,15 @@ export class InspectionCertificateService implements OnModuleDestroy {
       order.trackingCode ||
       '—';
 
-    const inspectionResult = this.extractInspectionResultText(order, side);
+    const inspectionResultRaw = this.extractInspectionResultText(order, side);
+    let inspectionResult = sanitizeInspectionResultForCertificate(
+      inspectionResultRaw,
+    );
+    if (!inspectionResult) {
+      inspectionResult =
+        'سلامت فنی و مطابقت کالا با مشخصات اعلامی توسط کارشناسان طبقه تایید شد.';
+    }
+    inspectionResult = formatTomanAmountsInPlainText(inspectionResult);
 
     const certificateNumber = `CERT-${order.id.slice(-10).toUpperCase()}${
       side ? `-${side[0]}` : ''
