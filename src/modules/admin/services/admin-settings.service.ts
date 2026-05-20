@@ -18,6 +18,11 @@ import { LISTING_TYPE_ENABLED_SETTING_KEYS } from '../../../common/system-settin
 export const SETTING_KEYS = {
   HOMEPAGE_BANNER: 'HOMEPAGE_BANNER',
   MEDIA_FALLBACK_LOGO: 'MEDIA_FALLBACK_LOGO',
+  /** لوگوی تم روشن (هدر، داشبورد، …) — در صورت خالی بودن از USER_APP_LOGO قدیمی استفاده می‌شود */
+  USER_APP_LOGO_LIGHT: 'USER_APP_LOGO_LIGHT',
+  /** لوگوی تم تاریک */
+  USER_APP_LOGO_DARK: 'USER_APP_LOGO_DARK',
+  /** @deprecated فقط برای سازگاری؛ ترجیح با LIGHT/DARK */
   USER_APP_LOGO: 'USER_APP_LOGO',
   ADMIN_PANEL_LOGO: 'ADMIN_PANEL_LOGO',
   CRITICAL_ALERT_ENABLED: 'CRITICAL_ALERT_ENABLED',
@@ -101,7 +106,9 @@ export type SettingKey = keyof typeof SETTING_KEYS;
 const KNOWN_DESCRIPTIONS: Record<string, string> = {
   HOMEPAGE_BANNER: 'نام فایل تصویر بنر بالای صفحه اصلی',
   MEDIA_FALLBACK_LOGO: 'لوگوی جایگزین وقتی تصویر آگهی/بندانگشتی لود نمی‌شود',
-  USER_APP_LOGO: 'لوگوی سمت کاربر (هدر و داشبورد کاربر)',
+  USER_APP_LOGO_LIGHT: 'لوگوی رابط کاربر — تم روشن',
+  USER_APP_LOGO_DARK: 'لوگوی رابط کاربر — تم تاریک',
+  USER_APP_LOGO: 'لوگوی سمت کاربر (قدیمی؛ در صورت خالی بودن LIGHT/DARK استفاده می‌شود)',
   ADMIN_PANEL_LOGO: 'لوگوی پنل مدیریت',
   CRITICAL_ALERT_ENABLED: 'وضعیت نمایش اعلان بحرانی سراسری (true/false)',
   CRITICAL_ALERT_LABEL: 'متن لیبل اعلان بحرانی سراسری',
@@ -290,6 +297,8 @@ export class AdminSettingsService {
     if (
       (key === SETTING_KEYS.MEDIA_FALLBACK_LOGO ||
         key === SETTING_KEYS.USER_APP_LOGO ||
+        key === SETTING_KEYS.USER_APP_LOGO_LIGHT ||
+        key === SETTING_KEYS.USER_APP_LOGO_DARK ||
         key === SETTING_KEYS.ADMIN_PANEL_LOGO) &&
       existing.value
     ) {
@@ -340,6 +349,18 @@ export class AdminSettingsService {
     if (!filename)
       throw new BadRequestException('فایل لوگوی کاربر نامعتبر است');
     return this.setBrandLogoByKey(SETTING_KEYS.USER_APP_LOGO, filename);
+  }
+
+  async setUserAppLogoLight(filename: string) {
+    if (!filename)
+      throw new BadRequestException('فایل لوگوی تم روشن نامعتبر است');
+    return this.setBrandLogoByKey(SETTING_KEYS.USER_APP_LOGO_LIGHT, filename);
+  }
+
+  async setUserAppLogoDark(filename: string) {
+    if (!filename)
+      throw new BadRequestException('فایل لوگوی تم تاریک نامعتبر است');
+    return this.setBrandLogoByKey(SETTING_KEYS.USER_APP_LOGO_DARK, filename);
   }
 
   async setAdminPanelLogo(filename: string) {
@@ -397,6 +418,14 @@ export class AdminSettingsService {
 
   async removeUserAppLogo() {
     return this.clearBrandLogoByKey(SETTING_KEYS.USER_APP_LOGO);
+  }
+
+  async removeUserAppLogoLight() {
+    return this.clearBrandLogoByKey(SETTING_KEYS.USER_APP_LOGO_LIGHT);
+  }
+
+  async removeUserAppLogoDark() {
+    return this.clearBrandLogoByKey(SETTING_KEYS.USER_APP_LOGO_DARK);
   }
 
   async removeAdminPanelLogo() {

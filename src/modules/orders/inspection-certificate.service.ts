@@ -244,6 +244,8 @@ export class InspectionCertificateService implements OnModuleDestroy {
       SETTING_KEYS.INSPECTION_CERTIFICATE_FOOTER,
       SETTING_KEYS.INSPECTION_CERTIFICATE_LOGO,
       SETTING_KEYS.INSPECTION_CERTIFICATE_STAMP,
+      SETTING_KEYS.USER_APP_LOGO_LIGHT,
+      SETTING_KEYS.USER_APP_LOGO_DARK,
       SETTING_KEYS.USER_APP_LOGO,
       SETTING_KEYS.PLATFORM_ADDRESS,
       SETTING_KEYS.SUPPORT_PHONE,
@@ -266,7 +268,11 @@ export class InspectionCertificateService implements OnModuleDestroy {
         DEFAULT_INSPECTION_CERTIFICATE_FOOTER,
       logoFilename:
         map.get(SETTING_KEYS.INSPECTION_CERTIFICATE_LOGO)?.trim() || '',
-      userAppLogoFilename: map.get(SETTING_KEYS.USER_APP_LOGO)?.trim() || '',
+      /** برای PDF تم روشن؛ در صورت خالی بودن از USER_APP_LOGO قدیمی استفاده می‌شود */
+      userAppLogoFilename:
+        map.get(SETTING_KEYS.USER_APP_LOGO_LIGHT)?.trim() ||
+        map.get(SETTING_KEYS.USER_APP_LOGO)?.trim() ||
+        '',
       stampFilename:
         map.get(SETTING_KEYS.INSPECTION_CERTIFICATE_STAMP)?.trim() || '',
       platformAddress: map.get(SETTING_KEYS.PLATFORM_ADDRESS)?.trim() || '',
@@ -420,7 +426,7 @@ export class InspectionCertificateService implements OnModuleDestroy {
     }
   }
 
-  /** لوگوی اختصاصی گواهی؛ در صورت نبود، لوگوی هدر (USER_APP_LOGO) استفاده می‌شود. */
+  /** لوگوی اختصاصی گواهی؛ در صورت نبود، لوگوی تم روشن (USER_APP_LOGO_LIGHT یا USER_APP_LOGO قدیمی) استفاده می‌شود. */
   private resolveCertificateLogoDataUri(
     certificateLogoFilename: string,
     userAppLogoFilename: string,

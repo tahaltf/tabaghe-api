@@ -87,6 +87,30 @@ export class AdminSettingsController {
     return this.service.removeUserAppLogo();
   }
 
+  @Post('user-logo-light')
+  @UseInterceptors(FileInterceptor('file', brandLogoMulterOptions))
+  async uploadUserLogoLight(@UploadedFile() file?: Express.Multer.File) {
+    if (!file) throw new BadRequestException('فایلی ارسال نشده است');
+    return this.service.setUserAppLogoLight(file.filename);
+  }
+
+  @Delete('user-logo-light')
+  removeUserLogoLight() {
+    return this.service.removeUserAppLogoLight();
+  }
+
+  @Post('user-logo-dark')
+  @UseInterceptors(FileInterceptor('file', brandLogoMulterOptions))
+  async uploadUserLogoDark(@UploadedFile() file?: Express.Multer.File) {
+    if (!file) throw new BadRequestException('فایلی ارسال نشده است');
+    return this.service.setUserAppLogoDark(file.filename);
+  }
+
+  @Delete('user-logo-dark')
+  removeUserLogoDark() {
+    return this.service.removeUserAppLogoDark();
+  }
+
   @Post('admin-logo')
   @UseInterceptors(FileInterceptor('file', brandLogoMulterOptions))
   async uploadAdminLogo(@UploadedFile() file?: Express.Multer.File) {

@@ -473,6 +473,8 @@ export class CommonService {
       'HOMEPAGE_BANNER',
       'MEDIA_FALLBACK_LOGO',
       'USER_APP_LOGO',
+      'USER_APP_LOGO_LIGHT',
+      'USER_APP_LOGO_DARK',
       'CRITICAL_ALERT_ENABLED',
       'CRITICAL_ALERT_LABEL',
       'CRITICAL_ALERT_TEXT',
@@ -592,10 +594,19 @@ export class CommonService {
       // ignore
     }
 
+    const legacyUserLogo = map.USER_APP_LOGO?.trim() || null;
+    const rawLight = map.USER_APP_LOGO_LIGHT?.trim() || null;
+    const rawDark = map.USER_APP_LOGO_DARK?.trim() || null;
+    const userAppLogoLight = rawLight || legacyUserLogo;
+    const userAppLogoDark = rawDark || legacyUserLogo;
+
     return {
       homepageBanner: map.HOMEPAGE_BANNER || null,
       mediaFallbackLogo: map.MEDIA_FALLBACK_LOGO || null,
-      userAppLogo: map.USER_APP_LOGO || null,
+      /** @deprecated برای سازگاری؛ همان لوگوی تم روشن یا قدیمی */
+      userAppLogo: userAppLogoLight,
+      userAppLogoLight,
+      userAppLogoDark,
       criticalAlertEnabled: map.CRITICAL_ALERT_ENABLED === 'true',
       criticalAlertLabel: map.CRITICAL_ALERT_LABEL || null,
       criticalAlertText: map.CRITICAL_ALERT_TEXT || null,
