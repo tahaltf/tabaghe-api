@@ -120,14 +120,20 @@ describe('Exchange E2E', () => {
       create: { slug: 'test-exchange', title: 'Test Exchange' },
       update: { title: 'Test Exchange' },
     });
+    const locSuffix = Date.now();
     const province = await prisma.location.create({
-      data: { name: `Tehran-ex-${Date.now()}`, type: 'PROVINCE' },
+      data: {
+        name: `Tehran-ex-${locSuffix}`,
+        type: 'PROVINCE',
+        slug: `e2e-exchange-prov-${locSuffix}`,
+      },
     });
     const city = await prisma.location.create({
       data: {
-        name: `Tehran-ex-city-${Date.now()}`,
+        name: `Tehran-ex-city-${locSuffix}`,
         type: 'CITY',
         parentId: province.id,
+        slug: `e2e-exchange-city-${locSuffix}`,
       },
     });
 

@@ -140,10 +140,10 @@ describe('Auction E2E', () => {
       update: { title: 'Test Auction', auctionDepositPercent: 10 },
     });
     const province = await prisma.location.create({
-      data: { name: 'Tehran', type: 'PROVINCE' },
+      data: { name: 'Tehran', type: 'PROVINCE', slug: 'e2e-auction-prov-tehran' },
     });
     const city = await prisma.location.create({
-      data: { name: 'Tehran', type: 'CITY', parentId: province.id },
+      data: { name: 'Tehran', type: 'CITY', parentId: province.id, slug: 'e2e-auction-city-tehran' },
     });
 
     const listing = await prisma.listing.create({
@@ -275,10 +275,10 @@ describe('Auction E2E', () => {
       where: { slug: 'test-auction' },
     });
     const province = await prisma.location.create({
-      data: { name: 'Tehran6', type: 'PROVINCE' },
+      data: { name: 'Tehran6', type: 'PROVINCE', slug: 'e2e-auction-prov-tehran6' },
     });
     const city = await prisma.location.create({
-      data: { name: 'Tehran6', type: 'CITY', parentId: province.id },
+      data: { name: 'Tehran6', type: 'CITY', parentId: province.id, slug: 'e2e-auction-city-tehran6' },
     });
 
     const listing = await prisma.listing.create({
@@ -376,10 +376,10 @@ describe('Auction E2E', () => {
       where: { slug: 'test-auction' },
     });
     const province = await prisma.location.create({
-      data: { name: 'Tehran2', type: 'PROVINCE' },
+      data: { name: 'Tehran2', type: 'PROVINCE', slug: 'e2e-auction-prov-tehran2' },
     });
     const city = await prisma.location.create({
-      data: { name: 'Tehran2', type: 'CITY', parentId: province.id },
+      data: { name: 'Tehran2', type: 'CITY', parentId: province.id, slug: 'e2e-auction-city-tehran2' },
     });
 
     const listing = await prisma.listing.create({
@@ -492,10 +492,10 @@ describe('Auction E2E', () => {
       where: { slug: 'test-auction' },
     });
     const province = await prisma.location.create({
-      data: { name: 'Tehran3', type: 'PROVINCE' },
+      data: { name: 'Tehran3', type: 'PROVINCE', slug: 'e2e-auction-prov-tehran3' },
     });
     const city = await prisma.location.create({
-      data: { name: 'Tehran3', type: 'CITY', parentId: province.id },
+      data: { name: 'Tehran3', type: 'CITY', parentId: province.id, slug: 'e2e-auction-city-tehran3' },
     });
 
     const listing = await prisma.listing.create({
@@ -591,10 +591,10 @@ describe('Auction E2E', () => {
       where: { slug: 'test-auction' },
     });
     const province = await prisma.location.create({
-      data: { name: 'Tehran4', type: 'PROVINCE' },
+      data: { name: 'Tehran4', type: 'PROVINCE', slug: 'e2e-auction-prov-tehran4' },
     });
     const city = await prisma.location.create({
-      data: { name: 'Tehran4', type: 'CITY', parentId: province.id },
+      data: { name: 'Tehran4', type: 'CITY', parentId: province.id, slug: 'e2e-auction-city-tehran4' },
     });
 
     const listing = await prisma.listing.create({
@@ -682,10 +682,10 @@ describe('Auction E2E', () => {
       where: { slug: 'test-auction' },
     });
     const province = await prisma.location.create({
-      data: { name: 'Tehran5', type: 'PROVINCE' },
+      data: { name: 'Tehran5', type: 'PROVINCE', slug: 'e2e-auction-prov-tehran5' },
     });
     const city = await prisma.location.create({
-      data: { name: 'Tehran5', type: 'CITY', parentId: province.id },
+      data: { name: 'Tehran5', type: 'CITY', parentId: province.id, slug: 'e2e-auction-city-tehran5' },
     });
 
     const listing = await prisma.listing.create({

@@ -184,9 +184,9 @@ export function buildInspectionCertificateHtml(
   }
   .cert-logo {
     display: block;
-    height: 42mm;
+    height: 18mm;
     width: auto;
-    max-width: 98mm;
+    max-width: 48mm;
     object-fit: contain;
     object-position: right center;
   }
@@ -198,7 +198,7 @@ export function buildInspectionCertificateHtml(
     max-width: 100%;
   }
   .cert-logo-word {
-    font-size: 56pt;
+    font-size: 22pt;
     font-weight: 700;
     color: ${p.accent};
     line-height: 1.12;
