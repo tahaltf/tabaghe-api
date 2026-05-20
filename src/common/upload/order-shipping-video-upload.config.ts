@@ -6,8 +6,8 @@ import { randomUUID } from 'crypto';
 import type { MulterOptions } from '@nestjs/platform-express/multer/interfaces/multer-options.interface';
 
 export const ORDER_VIDEO_UPLOAD_DIR = './uploads/orders/videos';
-export const ORDER_SHIPPING_VIDEO_MAX_BYTES = 50 * 1024 * 1024;
-export const ORDER_SHIPPING_VIDEO_MAX_LABEL = '۵۰ مگابایت';
+export const ORDER_SHIPPING_VIDEO_MAX_BYTES = 20 * 1024 * 1024;
+export const ORDER_SHIPPING_VIDEO_MAX_LABEL = '۲۰ مگابایت';
 
 const VIDEO_MIME =
   /\/(mp4|mov|quicktime|x-msvideo|mpeg|webm|3gpp|3gp|x-matroska)$/;

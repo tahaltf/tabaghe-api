@@ -24,6 +24,7 @@ import {
   buildInspectionCertificateHtml,
   type CertificateThemePalette,
 } from './inspection-certificate.template';
+import { resolveCertificateFontFiles } from './inspection-certificate-fonts';
 
 /**
  * طرف کالای کارشناسی‌شده در سفارش معاوضه:
@@ -65,9 +66,17 @@ const DEFAULT_THEME_PALETTE: CertificateThemePalette = {
 };
 
 const THEME_PALETTE_SETTING_KEY = 'THEME_PALETTE';
-const CERTIFICATE_FONTS_DIR = join(process.cwd(), 'assets', 'fonts');
+/** نام پیش‌فرض وقتی شناسه آگهی در دسترس نیست */
 export const INSPECTION_CERTIFICATE_DOWNLOAD_FILENAME =
-  'گواهی کارشناسی طبقه.pdf';
+  'کارشناسی طبقه.pdf';
+
+export function buildInspectionCertificateDownloadFilename(
+  listingId: string,
+): string {
+  const id = String(listingId ?? '').trim();
+  if (!id) return INSPECTION_CERTIFICATE_DOWNLOAD_FILENAME;
+  return `کارشناسی طبقه - ${id}.pdf`;
+}
 
 @Injectable()
 export class InspectionCertificateService implements OnModuleDestroy {
@@ -214,10 +223,14 @@ export class InspectionCertificateService implements OnModuleDestroy {
       stampDataUri: this.fileToDataUri(settings.stampFilename),
       context,
       palette: settings.palette,
+      fontFamily: this.getCertificateFontFamily(),
     });
 
     const pdf = await this.renderHtmlToPdf(html);
-    return { pdf, filename: INSPECTION_CERTIFICATE_DOWNLOAD_FILENAME };
+    return {
+      pdf,
+      filename: buildInspectionCertificateDownloadFilename(order.listingId),
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -367,30 +380,30 @@ export class InspectionCertificateService implements OnModuleDestroy {
   private buildFontFaceCss(): string {
     if (this.fontFaceCssCache) return this.fontFaceCssCache;
 
-    const regular = this.readAssetDataUri(
-      join(CERTIFICATE_FONTS_DIR, 'Vazir-FD-WOL.woff2'),
-      'font/woff2',
-    );
-    const medium = this.readAssetDataUri(
-      join(CERTIFICATE_FONTS_DIR, 'Vazir-Medium-FD-WOL.woff2'),
-      'font/woff2',
-    );
-    const bold = this.readAssetDataUri(
-      join(CERTIFICATE_FONTS_DIR, 'Vazir-Bold-FD-WOL.woff2'),
-      'font/woff2',
-    );
+    const fonts = resolveCertificateFontFiles();
+    const regular = this.readAssetDataUri(fonts.regular, 'font/woff2');
+    const bold = this.readAssetDataUri(fonts.bold, 'font/woff2');
+
+    if (!regular) {
+      this.logger.warn(
+        `Certificate font not found at ${fonts.regular}; PDF may use system fallback`,
+      );
+    }
 
     const face = (family: string, weight: number, uri: string | null) =>
       uri
-        ? `@font-face{font-family:'${family}';src:url('${uri}') format('woff2');font-weight:${weight};font-style:normal;font-display:swap;}`
+        ? `@font-face{font-family:'${family}';src:url('${uri}') format('woff2');font-weight:${weight};font-style:normal;font-display:block;}`
         : '';
 
     this.fontFaceCssCache = [
-      face('Vazir FD-WOL', 400, regular),
-      face('Vazir FD-WOL', 500, medium),
-      face('Vazir FD-WOL', 700, bold),
+      face(fonts.family, 400, regular),
+      face(fonts.family, 700, bold),
     ].join('');
     return this.fontFaceCssCache;
+  }
+
+  private getCertificateFontFamily(): string {
+    return resolveCertificateFontFiles().family;
   }
 
   private readAssetDataUri(fullPath: string, mime: string): string | null {
@@ -486,6 +499,7 @@ export class InspectionCertificateService implements OnModuleDestroy {
     stampDataUri: string | null;
     context: CertificateContext;
     palette: CertificateThemePalette;
+    fontFamily: string;
   }): string {
     return buildInspectionCertificateHtml({
       title: input.title,
@@ -496,6 +510,7 @@ export class InspectionCertificateService implements OnModuleDestroy {
       fontFaceCss: this.buildFontFaceCss(),
       context: input.context,
       palette: input.palette,
+      fontFamily: input.fontFamily,
     });
   }
 
@@ -597,13 +612,15 @@ export class InspectionCertificateService implements OnModuleDestroy {
 
     const page = await browser.newPage();
     try {
-      // 'domcontentloaded' is sufficient because we embed images as data URIs (no network)
-      await page.setContent(html, { waitUntil: 'domcontentloaded' });
+      await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+      await page.evaluate(async () => {
+        await document.fonts.ready;
+      });
       const buffer = await page.pdf({
         format: 'A4',
-        printBackground: true,
+        printBackground: false,
         preferCSSPageSize: true,
-        margin: { top: 0, bottom: 0, left: 0, right: 0 },
+        margin: { top: '12mm', bottom: '12mm', left: '12mm', right: '12mm' },
       });
       return Buffer.from(buffer);
     } finally {

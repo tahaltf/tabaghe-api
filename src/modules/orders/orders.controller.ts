@@ -194,7 +194,10 @@ export class OrdersController {
       });
 
     res.setHeader('Content-Type', 'application/pdf');
-    const asciiFallback = 'inspection-certificate-tabaghe.pdf';
+    const listingIdInName = filename?.match(/ - ([^.]+)\.pdf$/)?.[1];
+    const asciiFallback = listingIdInName
+      ? `tabaghe-inspection-${listingIdInName}.pdf`
+      : 'tabaghe-inspection.pdf';
     const utf8Name = encodeURIComponent(
       filename || INSPECTION_CERTIFICATE_DOWNLOAD_FILENAME,
     );
