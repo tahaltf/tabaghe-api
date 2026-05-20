@@ -175,32 +175,30 @@ export function buildInspectionCertificateHtml(
   .cert-logo-wrap {
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     gap: 8px;
+    flex: 0 0 auto;
     min-width: 0;
-    flex: 1 1 52%;
-    max-width: 58%;
-    padding: 6px 10px;
+    padding: 4px 0 4px 8px;
     box-sizing: border-box;
   }
   .cert-logo {
     display: block;
-    max-height: 104px;
-    max-width: min(280px, 100%);
+    height: 42mm;
     width: auto;
-    height: auto;
+    max-width: 98mm;
     object-fit: contain;
-    object-position: center center;
+    object-position: right center;
   }
   .cert-logo-wordmark {
     display: flex;
     flex-direction: column;
     gap: 3px;
-    align-items: center;
+    align-items: flex-start;
     max-width: 100%;
   }
   .cert-logo-word {
-    font-size: 36pt;
+    font-size: 56pt;
     font-weight: 700;
     color: ${p.accent};
     line-height: 1.12;
