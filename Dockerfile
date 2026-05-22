@@ -6,6 +6,8 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 COPY package*.json ./
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 RUN npm ci --legacy-peer-deps
 
 COPY . .
