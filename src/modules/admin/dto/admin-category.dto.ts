@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsNumber,
   IsOptional,
   IsString,
@@ -10,6 +11,11 @@ import {
 } from 'class-validator';
 
 class BaseCategoryFields {
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  isActive?: boolean;
+
   @IsOptional()
   @IsString()
   @MaxLength(120)
@@ -80,6 +86,12 @@ export class CreateCategoryDto extends BaseCategoryFields {
   @MinLength(2)
   @MaxLength(120)
   slug!: string;
+}
+
+export class SetCategoryActiveDto {
+  @Type(() => Boolean)
+  @IsBoolean()
+  isActive!: boolean;
 }
 
 export class UpdateCategoryDto extends BaseCategoryFields {

@@ -16,6 +16,7 @@ import { Roles } from '../../auth/decorators/roles.decorator';
 import { AdminCategoriesService } from '../services/admin-categories.service';
 import {
   CreateCategoryDto,
+  SetCategoryActiveDto,
   UpdateCategoryDto,
 } from '../dto/admin-category.dto';
 import { AdminBulkIdsDto } from '../dto/admin-bulk-ids.dto';
@@ -44,6 +45,11 @@ export class AdminCategoriesController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateCategoryDto) {
     return this.service.update(id, dto);
+  }
+
+  @Patch(':id/active')
+  setActive(@Param('id') id: string, @Body() dto: SetCategoryActiveDto) {
+    return this.service.setActive(id, dto);
   }
 
   @Post('bulk-force-delete')

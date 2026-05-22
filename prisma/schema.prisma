@@ -725,6 +725,7 @@ model Category {
   children  Category[] @relation("CategoryTree")
   listings  Listing[]
   feeRules  FeeRule[]
+  isActive  Boolean    @default(true)
   createdAt DateTime   @default(now())
 
   // Legacy generic fee (kept for backwards compat; new code uses type-specific below)
@@ -742,6 +743,8 @@ model Category {
   // Percentage of the starting price that must be blocked in the bidder's
   // wallet in order to participate in an auction for this category.
   auctionDepositPercent Float  @default(10.0)
+
+  @@index([isActive])
 }
 
 model Location {

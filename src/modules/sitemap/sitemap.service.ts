@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ListingStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { isCategoryVisibleOnSite } from '../../common/category-visibility.util';
 
 export interface SitemapUrlEntry {
   loc: string;
@@ -130,6 +131,11 @@ export class SitemapService {
   }
 
   private async fetchCategoryLocationEntries(): Promise<SitemapUrlEntry[]> {
+    const visibilityRows = await this.prisma.category.findMany({
+      select: { id: true, parentId: true, isActive: true },
+    });
+    const categoryById = new Map(visibilityRows.map((r) => [r.id, r]));
+
     const rows = await this.prisma.listing.findMany({
       where: {
         status: ListingStatus.APPROVED,
@@ -146,12 +152,16 @@ export class SitemapService {
       },
     });
 
+    const visibleRows = rows.filter((row) =>
+      isCategoryVisibleOnSite(row.categoryId, categoryById),
+    );
+
     const comboMap = new Map<
       string,
       { categorySlug: string; locationSlug: string; lastmod: Date }
     >();
 
-    for (const row of rows) {
+    for (const row of visibleRows) {
       const categorySlug = row.category?.slug;
       if (!categorySlug) continue;
 
@@ -190,10 +200,14 @@ export class SitemapService {
   }
 
   private async fetchCategoryEntries(): Promise<SitemapUrlEntry[]> {
-    const rows = await this.prisma.category.findMany({
-      select: { slug: true, id: true },
+    const allCategories = await this.prisma.category.findMany({
+      select: { slug: true, id: true, parentId: true, isActive: true },
       orderBy: { title: 'asc' },
     });
+    const categoryById = new Map(allCategories.map((r) => [r.id, r]));
+    const rows = allCategories.filter((c) =>
+      isCategoryVisibleOnSite(c.id, categoryById),
+    );
     const withListings = await this.prisma.listing.groupBy({
       by: ['categoryId'],
       where: { status: ListingStatus.APPROVED, deletedAt: null },

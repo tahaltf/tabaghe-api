@@ -4,6 +4,7 @@ import { PrismaService } from '../infrastructure/prisma/prisma.service';
 import { NotificationService } from '../modules/notification/notification.service';
 import { findLocationBySlug } from './location-slug.util';
 import { parseListingTypesEnabledFromMap } from '../common/system-settings/listing-type-enabled';
+import { filterCategoriesVisibleOnSite, isCategoryVisibleOnSite } from '../common/category-visibility.util';
 
 @Injectable()
 export class CommonService {
@@ -40,10 +41,12 @@ export class CommonService {
         slug: true,
         icon: true,
         parentId: true,
+        isActive: true,
       },
     });
+    const visible = filterCategoriesVisibleOnSite(rows);
     const rollup = await this.getApprovedListingRollupCounts();
-    const tree = this.buildCategoryTree(rows, null);
+    const tree = this.buildCategoryTree(visible, null);
     return this.attachListingCounts(tree, rollup);
   }
 
@@ -78,7 +81,7 @@ export class CommonService {
     const normalized = String(slug ?? '').trim().toLowerCase();
     if (!normalized) return null;
 
-    return this.prisma.category.findFirst({
+    const category = await this.prisma.category.findFirst({
       where: { slug: normalized },
       select: {
         id: true,
@@ -86,13 +89,28 @@ export class CommonService {
         slug: true,
         icon: true,
         parentId: true,
-        parent: { select: { id: true, title: true, slug: true } },
+        isActive: true,
+        parent: { select: { id: true, title: true, slug: true, isActive: true } },
         children: {
           orderBy: { title: 'asc' },
-          select: { id: true, title: true, slug: true, icon: true },
+          select: { id: true, title: true, slug: true, icon: true, isActive: true },
         },
       },
     });
+    if (!category) return null;
+
+    const visibilityRows = await this.prisma.category.findMany({
+      select: { id: true, parentId: true, isActive: true },
+    });
+    const byId = new Map(visibilityRows.map((r) => [r.id, r]));
+    if (!isCategoryVisibleOnSite(category.id, byId)) return null;
+
+    return {
+      ...category,
+      children: category.children.filter((c) =>
+        isCategoryVisibleOnSite(c.id, byId),
+      ),
+    };
   }
 
   private categoryIdsForLanding(category: {

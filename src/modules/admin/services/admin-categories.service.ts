@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import {
   CreateCategoryDto,
+  SetCategoryActiveDto,
   UpdateCategoryDto,
 } from '../dto/admin-category.dto';
 import { AdminListingDeleteService } from './admin-listing-delete.service';
@@ -25,8 +26,9 @@ const CATEGORY_SELECT = {
   feePercentageAuction: true,
   feeCapAuction: true,
   auctionDepositPercent: true,
+  isActive: true,
   createdAt: true,
-  parent: { select: { id: true, title: true } },
+  parent: { select: { id: true, title: true, isActive: true } },
   _count: { select: { listings: true, children: true } },
 } satisfies Prisma.CategorySelect;
 
@@ -94,9 +96,41 @@ export class AdminCategoriesService {
         feePercentageAuction: feeAuction,
         feeCapAuction: capAuction,
         auctionDepositPercent: dto.auctionDepositPercent ?? 10,
+        isActive: dto.isActive ?? true,
       },
       select: CATEGORY_SELECT,
     });
+  }
+
+  async setActive(id: string, dto: SetCategoryActiveDto): Promise<{ id: string; isActive: boolean; affected: number }> {
+    const existing = await this.prisma.category.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('دسته‌بندی یافت نشد');
+
+    if (dto.isActive) {
+      if (existing.parentId) {
+        const parent = await this.prisma.category.findUnique({
+          where: { id: existing.parentId },
+          select: { isActive: true, title: true },
+        });
+        if (parent && !parent.isActive) {
+          throw new BadRequestException(
+            `ابتدا دسته والد «${parent.title}» را فعال کنید`,
+          );
+        }
+      }
+      await this.prisma.category.update({
+        where: { id },
+        data: { isActive: true },
+      });
+      return { id, isActive: true, affected: 1 };
+    }
+
+    const subtreeIds = await this.collectSubtreeIdsRootFirst([id]);
+    const result = await this.prisma.category.updateMany({
+      where: { id: { in: subtreeIds } },
+      data: { isActive: false },
+    });
+    return { id, isActive: false, affected: result.count };
   }
 
   async update(id: string, dto: UpdateCategoryDto): Promise<AdminCategoryItem> {
@@ -125,6 +159,7 @@ export class AdminCategoriesService {
         feePercentageAuction: dto.feePercentageAuction ?? undefined,
         feeCapAuction: dto.feeCapAuction ?? undefined,
         auctionDepositPercent: dto.auctionDepositPercent ?? undefined,
+        isActive: dto.isActive ?? undefined,
       },
       select: CATEGORY_SELECT,
     });
@@ -195,6 +230,14 @@ export class AdminCategoriesService {
     }
     await this.prisma.category.delete({ where: { id } });
     return { id };
+  }
+
+  /** خود ریشه و تمام زیردسته‌ها (والد قبل از فرزند) */
+  private async collectSubtreeIdsRootFirst(
+    rootIds: string[],
+  ): Promise<string[]> {
+    const leafFirst = await this.collectSubtreeIdsLeafFirst(rootIds);
+    return leafFirst.reverse();
   }
 
   /** زیردسته‌ها قبل از والد (برای حذف امن FK) */

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   Listing,
   ListingStatus,
@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { QuotaService } from '../../quota/quota.service';
 import { RejectListingDto } from '../dto/reject-listing.dto';
+import { AdminListingCorrectionsDto } from '../dto/admin-listing-corrections.dto';
 import { NotificationService } from '../../notification/notification.service';
 import { TRADE_REPUTATION_PENALTY_DELTA } from '../../orders/order-reputation.service';
 import { ListingExpiryService } from './listing-expiry.service';
@@ -52,7 +53,85 @@ export class ListingAdminService {
     });
   }
 
-  async approve(listingId: string): Promise<Listing> {
+  private hasCorrections(dto: AdminListingCorrectionsDto): boolean {
+    return (
+      dto.title !== undefined ||
+      dto.description !== undefined ||
+      dto.desiredTitle !== undefined ||
+      dto.desiredDescription !== undefined
+    );
+  }
+
+  async applyCorrections(
+    listingId: string,
+    dto: AdminListingCorrectionsDto,
+  ): Promise<Listing> {
+    if (!this.hasCorrections(dto)) {
+      throw new BadRequestException('حداقل یک فیلد برای اصلاح ارسال کنید');
+    }
+
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      include: { exchange: true },
+    });
+    if (!listing) throw new NotFoundException('آگهی یافت نشد');
+    if (listing.status !== ListingStatus.PENDING) {
+      throw new BadRequestException(
+        'فقط آگهی‌های در انتظار تایید توسط ادمین قابل ویرایش هستند',
+      );
+    }
+
+    const listingData: Prisma.ListingUpdateInput = {};
+    if (dto.title !== undefined) {
+      const title = dto.title.trim();
+      if (title.length < 2) {
+        throw new BadRequestException('عنوان آگهی باید حداقل ۲ کاراکتر باشد');
+      }
+      listingData.title = title;
+    }
+    if (dto.description !== undefined) {
+      listingData.description = dto.description.trim() || null;
+    }
+
+    const exchangeData: Prisma.ListingExchangeUpdateInput = {};
+    if (dto.desiredTitle !== undefined) {
+      exchangeData.desiredTitle = dto.desiredTitle.trim();
+    }
+    if (dto.desiredDescription !== undefined) {
+      exchangeData.desiredDescription =
+        dto.desiredDescription.trim() || null;
+    }
+    const patchExchange = Object.keys(exchangeData).length > 0;
+
+    if (patchExchange && !listing.exchange) {
+      throw new BadRequestException(
+        'این آگهی فیلد کالای درخواستی معاوضه ندارد',
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      if (patchExchange) {
+        await tx.listingExchange.update({
+          where: { listingId },
+          data: exchangeData,
+        });
+      }
+      return tx.listing.update({
+        where: { id: listingId },
+        data: listingData,
+        include: ADMIN_LISTING_INCLUDE,
+      });
+    });
+  }
+
+  async approve(
+    listingId: string,
+    dto?: AdminListingCorrectionsDto,
+  ): Promise<Listing> {
+    if (dto && this.hasCorrections(dto)) {
+      await this.applyCorrections(listingId, dto);
+    }
+
     const approvedAt = new Date();
     const expiryFields = await this.listingExpiry.approvalExpiryFields(approvedAt);
     const updated = await this.prisma.listing.update({

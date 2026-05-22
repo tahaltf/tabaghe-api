@@ -26,6 +26,7 @@ import {
   listingTypePersianLabel,
   parseListingTypesEnabledFromMap,
 } from '../../../common/system-settings/listing-type-enabled';
+import { isCategoryVisibleOnSite } from '../../../common/category-visibility.util';
 
 @Injectable()
 export class ListingCommandService {
@@ -38,6 +39,10 @@ export class ListingCommandService {
   async create(userId: string, dto: CreateListingDto): Promise<Listing> {
     await this.assertListingTypeEnabledForCreate(dto.type);
     this.validateListingPayload(dto, false);
+    await this.assertCategoriesVisibleOnSite([
+      dto.categoryId,
+      dto.exchange?.desiredCategoryId,
+    ]);
     const auctionEndDate = this.resolveAuctionEndDate(dto);
 
     const listing = await this.prisma.$transaction(async (tx) => {
@@ -144,6 +149,10 @@ export class ListingCommandService {
       await this.assertListingTypeEnabledForCreate(dto.type);
     }
     this.validateListingPayload(dto, true, currentType);
+    await this.assertCategoriesVisibleOnSite([
+      dto.categoryId,
+      dto.exchange?.desiredCategoryId,
+    ]);
     const auctionEndDate =
       currentType === ListingType.AUCTION && dto.auction?.endDatetime
         ? new Date(dto.auction.endDatetime)
@@ -319,6 +328,29 @@ export class ListingCommandService {
     const map: Record<string, string> = {};
     for (const row of rows) map[row.key] = row.value;
     return parseListingTypesEnabledFromMap(map);
+  }
+
+  private async assertCategoriesVisibleOnSite(
+    categoryIds: Array<string | undefined | null>,
+  ): Promise<void> {
+    const ids = [
+      ...new Set(
+        categoryIds.filter((id): id is string => typeof id === 'string' && !!id.trim()),
+      ),
+    ];
+    if (!ids.length) return;
+
+    const rows = await this.prisma.category.findMany({
+      select: { id: true, parentId: true, isActive: true },
+    });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    for (const id of ids) {
+      if (!isCategoryVisibleOnSite(id, byId)) {
+        throw new BadRequestException(
+          'دسته‌بندی انتخاب‌شده در حال حاضر غیرفعال است.',
+        );
+      }
+    }
   }
 
   private async assertListingTypeEnabledForCreate(type: ListingType): Promise<void> {
