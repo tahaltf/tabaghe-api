@@ -3606,14 +3606,17 @@ export class OrdersService {
     }
   }
 
-  @Cron(CronExpression.EVERY_HOUR)
+  @Cron(CronExpression.EVERY_MINUTE)
   async autoCancelTimedOutExchangeCompletions() {
-    const now = Date.now();
     const paymentDeadlineMinutes =
       await this.getExchangePaymentDeadlineMinutes();
+    const acceptanceCutoff = new Date(
+      Date.now() - paymentDeadlineMinutes * 60 * 1000,
+    );
     const timedOutAcceptedOffers = await this.prisma.exchangeOffer.findMany({
       where: {
-        status: 'ACCEPTED',
+        status: ExchangeOfferStatus.ACCEPTED,
+        updatedAt: { lte: acceptanceCutoff },
       },
       include: {
         listing: {
@@ -3624,11 +3627,6 @@ export class OrdersService {
 
     for (const offer of timedOutAcceptedOffers) {
       try {
-        const paymentDeadlineMs =
-          new Date(offer.updatedAt).getTime() +
-          paymentDeadlineMinutes * 60 * 1000;
-        if (now < paymentDeadlineMs) continue;
-
         await this.prisma.$transaction(async (tx) => {
           await this.processExchangePaymentTimeoutInTx(tx, offer);
         });
@@ -4052,7 +4050,7 @@ export class OrdersService {
     await this.confirmOrder(order.buyerId, order.id);
   }
 
-  @Cron(CronExpression.EVERY_HOUR)
+  @Cron(CronExpression.EVERY_MINUTE)
   async autoReleaseExchangeReturnEscrow() {
     const now = new Date();
     const deadlineMinutes =

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import {
   AuctionStatus,
   ListingStatus,
@@ -72,7 +72,7 @@ export class ListingExpiryService {
     );
   }
 
-  @Cron('0 */15 * * * *')
+  @Cron(CronExpression.EVERY_MINUTE)
   async runListingExpiryJob(): Promise<void> {
     try {
       await this.backfillMissingExpiresAt();

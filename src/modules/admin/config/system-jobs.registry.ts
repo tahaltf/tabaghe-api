@@ -93,8 +93,8 @@ export const SYSTEM_JOBS_REGISTRY: SystemJobDefinition[] = [
   {
     id: 'listings_display_expiry',
     name: 'انقضای نمایش آگهی و یادآوری فروشنده',
-    schedule: '0 */15 * * * *',
-    scheduleLabel: 'هر ۱۵ دقیقه',
+    schedule: '*/1 * * * *',
+    scheduleLabel: 'هر ۱ دقیقه',
     description:
       'یک روز قبل از پایان مدت نمایش (طبق LISTING_DISPLAY_DAYS از زمان تایید)، به فروشنده اطلاع می‌دهد؛ پس از اتمام، آگهی را آرشیو و از سایت حذف می‌کند.',
     module: 'listing/services/listing-expiry.service.ts',
@@ -105,8 +105,8 @@ export const SYSTEM_JOBS_REGISTRY: SystemJobDefinition[] = [
   {
     id: 'notifications_deadline_reminders',
     name: 'یادآوری مهلت اقدامات (پیامک/سایت)',
-    schedule: '*/15 * * * *',
-    scheduleLabel: 'هر ۱۵ دقیقه',
+    schedule: '*/1 * * * *',
+    scheduleLabel: 'هر ۱ دقیقه',
     description:
       'اگر کمتر از مهلت تنظیم‌شده (پیش‌فرض ۱۲ ساعت) به پایان مهلت پرداخت/ارسال مانده و کار انجام نشده باشد، به کاربر مسئول نوتیف و در صورت فعال بودن قالب پیامک، SMS ارسال می‌شود.',
     module: 'notification/deadline-reminder.service.ts',
@@ -140,10 +140,10 @@ export const SYSTEM_JOBS_REGISTRY: SystemJobDefinition[] = [
   {
     id: 'orders_exchange_payment_timeout',
     name: 'لغو معاوضهٔ بدون پرداخت / تاخیر پرداخت دوم',
-    schedule: '0 * * * *',
-    scheduleLabel: 'هر ۱ ساعت',
+    schedule: '*/1 * * * *',
+    scheduleLabel: 'هر ۱ دقیقه',
     description:
-      'پیشنهادهای پذیرفته‌شده‌ای که هیچ‌کس پرداخت نکرده یا فقط یک طرف پرداخت کرده را لغو می‌کند.',
+      'پیشنهادهای پذیرفته‌شده‌ای که هیچ‌کس پرداخت نکرده یا فقط یک طرف پرداخت کرده را لغو می‌کند (بر اساس EXCHANGE_PAYMENT_DEADLINE_MINUTES).',
     module: 'orders/orders.service.ts',
     method: 'autoCancelTimedOutExchangeCompletions',
     managedBy: 'nestjs_cron',
@@ -195,8 +195,8 @@ export const SYSTEM_JOBS_REGISTRY: SystemJobDefinition[] = [
   {
     id: 'orders_exchange_return_escrow',
     name: 'آزادسازی خودکار امانت بازگشت معاوضه',
-    schedule: '0 * * * *',
-    scheduleLabel: 'هر ۱ ساعت',
+    schedule: '*/1 * * * *',
+    scheduleLabel: 'هر ۱ دقیقه',
     description: 'پس از مهلت تایید بازگشت، امانت معاوضه را آزاد می‌کند.',
     module: 'orders/orders.service.ts',
     method: 'autoReleaseExchangeReturnEscrow',

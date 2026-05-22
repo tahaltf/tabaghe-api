@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import {
   AuctionSettlementStatus,
   AuctionStatus,
@@ -34,7 +34,7 @@ export class DeadlineReminderService {
     private readonly notificationService: NotificationService,
   ) {}
 
-  @Cron('0 */15 * * * *')
+  @Cron(CronExpression.EVERY_MINUTE)
   async runDeadlineReminders(): Promise<void> {
     try {
       const windowHours = await this.getReminderWindowHours();
