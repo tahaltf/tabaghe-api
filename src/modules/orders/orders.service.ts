@@ -312,8 +312,14 @@ export class OrdersService {
       const mySharePaid = isOfferer
         ? Boolean(linked?.shippingAddress)
         : Boolean(linked?.sellerShippingAddress);
+      const status =
+        linked?.status === OrderStatus.CANCELLED &&
+        offer.status === ExchangeOfferStatus.ACCEPTED
+          ? ExchangeOfferStatus.CANCELLED
+          : offer.status;
       return {
         ...offer,
+        status,
         isOfferer,
         exchangeOrderId: linked?.id ?? null,
         exchangeOrderStatus: linked?.status ?? null,
@@ -2463,6 +2469,31 @@ export class OrdersService {
     });
   }
 
+  private isExchangePaymentTimeoutCancelReason(
+    reason: string | null | undefined,
+  ): boolean {
+    const text = String(reason ?? '').trim();
+    return text.includes('مهلت پرداخت') || text.includes('اتمام مهلت پرداخت');
+  }
+
+  /** رد پیشنهادهای صف/معلق وقتی معاملهٔ پذیرفته‌شده به‌دلیل مهلت پرداخت بسته می‌شود */
+  private async rejectQueuedExchangeOffersAfterPaymentTimeout(
+    tx: Prisma.TransactionClient,
+    listingId: string,
+    exceptOfferId: string,
+  ): Promise<void> {
+    await tx.exchangeOffer.updateMany({
+      where: {
+        listingId,
+        id: { not: exceptOfferId },
+        status: {
+          in: [ExchangeOfferStatus.PENDING, ExchangeOfferStatus.WAITLISTED],
+        },
+      },
+      data: { status: ExchangeOfferStatus.REJECTED },
+    });
+  }
+
   /** تیکت و اعلان برای لغو فروش مستقیم به‌دلیل عدم ارسال فروشنده در مهلت */
   private async createShippingTimeoutCancelTickets(
     tx: Prisma.TransactionClient,
@@ -3623,6 +3654,18 @@ export class OrdersService {
   ): Promise<void> {
     const linkedOrder = await tx.order.findFirst({
       where: { exchangeOfferId: offer.id },
+      select: {
+        id: true,
+        status: true,
+        buyerId: true,
+        sellerId: true,
+        tradeReputationAt: true,
+        cancelReason: true,
+        verificationFee: true,
+        totalAmount: true,
+        shippingAddress: true,
+        sellerShippingAddress: true,
+      },
     });
 
     if (
@@ -3630,6 +3673,46 @@ export class OrdersService {
       linkedOrder.status !== OrderStatus.AWAITING_PAYMENT &&
       linkedOrder.status !== OrderStatus.PENDING
     ) {
+      const acceptedStillOpen = await tx.exchangeOffer.findUnique({
+        where: { id: offer.id },
+        select: { status: true },
+      });
+      if (acceptedStillOpen?.status === ExchangeOfferStatus.ACCEPTED) {
+        await tx.exchangeOffer.update({
+          where: { id: offer.id },
+          data: { status: ExchangeOfferStatus.CANCELLED },
+        });
+      }
+      if (linkedOrder.status === OrderStatus.CANCELLED) {
+        await this.rejectQueuedExchangeOffersAfterPaymentTimeout(
+          tx,
+          offer.listingId,
+          offer.id,
+        );
+        if (
+          !linkedOrder.tradeReputationAt &&
+          this.isExchangePaymentTimeoutCancelReason(linkedOrder.cancelReason)
+        ) {
+          await this.orderReputation.recordTerminalOutcome(
+            tx,
+            {
+              id: linkedOrder.id,
+              buyerId: linkedOrder.buyerId,
+              sellerId: linkedOrder.sellerId,
+              tradeReputationAt: linkedOrder.tradeReputationAt,
+            },
+            OrderStatus.AWAITING_PAYMENT,
+            'FAILURE',
+            {
+              failurePenalizeUserIds: [
+                linkedOrder.buyerId,
+                linkedOrder.sellerId,
+              ],
+              ignoreEarlyAbort: true,
+            },
+          );
+        }
+      }
       return;
     }
 
@@ -3721,6 +3804,9 @@ export class OrdersService {
         data: { trustScore: { decrement: penalty } },
       });
     }
+    if (!linkedOrder && offenderIds.length > 0) {
+      await this.orderReputation.penalizeUsers(tx, offenderIds);
+    }
 
     let buyerRefund = 0;
     let sellerRefund = 0;
@@ -3773,6 +3859,11 @@ export class OrdersService {
     });
 
     if (rejectListing) {
+      await this.rejectQueuedExchangeOffersAfterPaymentTimeout(
+        tx,
+        offer.listingId,
+        offer.id,
+      );
       await this.rejectListingAfterShippingTimeoutCancel(tx, {
         listingId: offer.listingId,
         sellerId,
