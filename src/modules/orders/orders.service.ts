@@ -220,13 +220,11 @@ export class OrdersService {
     const pageSize = Math.min(50, Math.max(1, options.pageSize ?? 20));
     const skip = (page - 1) * pageSize;
 
-    const [exchangeOffers, rawBids] = await Promise.all([
+    const [exchangeOffersRaw, rawBids] = await Promise.all([
       this.prisma.exchangeOffer.findMany({
         where: {
           OR: [{ offererId: userId }, { listing: { authorId: userId } }],
         },
-        skip,
-        take: pageSize,
         select: {
           id: true,
           offererId: true,
@@ -245,6 +243,7 @@ export class OrdersService {
               gallery: true,
               status: true,
               authorId: true,
+              exchangeOffersSince: true,
             },
           },
           offerer: {
@@ -289,6 +288,14 @@ export class OrdersService {
         orderBy: { createdAt: 'desc' },
       }),
     ]);
+
+    const exchangeOffers = exchangeOffersRaw
+      .filter(
+        (o) =>
+          !o.listing.exchangeOffersSince ||
+          o.createdAt >= o.listing.exchangeOffersSince,
+      )
+      .slice(skip, skip + pageSize);
 
     const offerIds = exchangeOffers.map((o) => o.id);
     const linkedOrders = offerIds.length

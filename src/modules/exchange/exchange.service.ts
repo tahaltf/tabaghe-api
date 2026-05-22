@@ -41,7 +41,14 @@ export class ExchangeService {
 
     const listing = await this.prisma.listing.findUnique({
       where: { id: listingId },
-      include: { direct: true },
+      select: {
+        id: true,
+        authorId: true,
+        type: true,
+        status: true,
+        exchangeOffersSince: true,
+        direct: true,
+      },
     });
 
     if (!listing) {
@@ -71,6 +78,9 @@ export class ExchangeService {
         status: {
           in: [ExchangeOfferStatus.PENDING, ExchangeOfferStatus.WAITLISTED],
         },
+        ...(listing.exchangeOffersSince
+          ? { createdAt: { gte: listing.exchangeOffersSince } }
+          : {}),
       },
     });
 
@@ -131,7 +141,7 @@ export class ExchangeService {
 
     const listing = await this.prisma.listing.findUnique({
       where: { id: listingId },
-      select: { authorId: true },
+      select: { authorId: true, exchangeOffersSince: true },
     });
 
     if (!listing) throw new NotFoundException('آگهی پیدا نشد');
@@ -139,6 +149,9 @@ export class ExchangeService {
     const isOwner = listing.authorId === userId;
     const where = {
       listingId,
+      ...(listing.exchangeOffersSince
+        ? { createdAt: { gte: listing.exchangeOffersSince } }
+        : {}),
       ...(isOwner ? {} : { offererId: userId }),
     };
 
@@ -231,10 +244,26 @@ export class ExchangeService {
   async acceptOffer(userId: string, offerId: string) {
     const offer = await this.prisma.exchangeOffer.findUnique({
       where: { id: offerId },
-      include: { listing: true },
+      include: {
+        listing: {
+          select: {
+            id: true,
+            authorId: true,
+            title: true,
+            status: true,
+            exchangeOffersSince: true,
+          },
+        },
+      },
     });
 
     if (!offer) throw new NotFoundException('پیشنهاد یافت نشد');
+    if (
+      offer.listing.exchangeOffersSince &&
+      offer.createdAt < offer.listing.exchangeOffersSince
+    ) {
+      throw new NotFoundException('این پیشنهاد مربوط به دورهٔ قبلی آگهی است');
+    }
     if (offer.listing.authorId !== userId)
       throw new ForbiddenException('شما مالک نیستید');
     if (offer.status !== ExchangeOfferStatus.PENDING)
@@ -253,6 +282,9 @@ export class ExchangeService {
         listingId: offer.listingId,
         id: { not: offerId },
         status: ExchangeOfferStatus.PENDING,
+        ...(offer.listing.exchangeOffersSince
+          ? { createdAt: { gte: offer.listing.exchangeOffersSince } }
+          : {}),
       },
       data: { status: ExchangeOfferStatus.WAITLISTED },
     });
@@ -419,6 +451,12 @@ export class ExchangeService {
       throw new ForbiddenException(
         'شما اجازه مشاهده یا پرداخت این معامله را ندارید',
       );
+    }
+    if (
+      offer.listing.exchangeOffersSince &&
+      offer.createdAt < offer.listing.exchangeOffersSince
+    ) {
+      throw new NotFoundException('این پیشنهاد مربوط به دورهٔ قبلی آگهی است');
     }
 
     const linkedOrder = await this.prisma.order.findFirst({

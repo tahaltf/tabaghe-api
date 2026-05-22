@@ -177,6 +177,7 @@ export class ListingCommandService {
         status: ListingStatus.PENDING,
         rejectionReason: null,
         rejectedAt: null,
+        ...(wasRejected ? { exchangeOffersSince: new Date() } : {}),
         expiresAt: null,
         expiryReminderSentAt: null,
         ...(dto.categoryId && {
@@ -245,13 +246,19 @@ export class ListingCommandService {
     if (!listing || listing.authorId !== params.sellerId) return;
     if (listing.status === ListingStatus.DELETED_BY_USER) return;
 
+    const cycleStartedAt = new Date();
     await tx.listing.update({
       where: { id: params.listingId },
       data: {
         status: ListingStatus.REJECTED,
         rejectionReason: reason,
-        rejectedAt: new Date(),
+        rejectedAt: cycleStartedAt,
+        exchangeOffersSince: cycleStartedAt,
       },
+    });
+    await tx.exchangeOffer.updateMany({
+      where: { listingId: params.listingId },
+      data: { status: ExchangeOfferStatus.REJECTED },
     });
     await this.quotaService.releaseOnReject(tx, params.listingId);
 

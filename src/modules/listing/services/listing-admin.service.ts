@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
+  ExchangeOfferStatus,
   Listing,
   ListingStatus,
   NotificationType,
@@ -156,13 +157,19 @@ export class ListingAdminService {
 
   reject(listingId: string, dto: RejectListingDto): Promise<Listing> {
     return this.prisma.$transaction(async (tx) => {
+      const cycleStartedAt = new Date();
       const updated = await tx.listing.update({
         where: { id: listingId },
         data: {
           status: ListingStatus.REJECTED,
           rejectionReason: dto.rejectionReason,
-          rejectedAt: new Date(),
+          rejectedAt: cycleStartedAt,
+          exchangeOffersSince: cycleStartedAt,
         },
+      });
+      await tx.exchangeOffer.updateMany({
+        where: { listingId },
+        data: { status: ExchangeOfferStatus.REJECTED },
       });
       await this.quotaService.releaseOnReject(tx, listingId);
 

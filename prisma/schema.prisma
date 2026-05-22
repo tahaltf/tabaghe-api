@@ -391,6 +391,8 @@ model Listing {
   expiresAt       DateTime?   // پایان مدت نمایش روی سایت (از زمان تایید ادمین)
   expiryReminderSentAt DateTime?
   rejectedAt      DateTime?
+  /** پس از رد آگهی یا ارسال مجدد؛ پیشنهادهای قدیمی‌تر از این زمان در UI نشان داده نمی‌شوند */
+  exchangeOffersSince DateTime?
   deletedAt       DateTime?
 
   /** ویژه بودن آگهی: نمایش با استایل پرمیوم و بالاتر از بقیه */
