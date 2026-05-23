@@ -82,6 +82,16 @@ export const SETTING_KEYS = {
   INSPECTION_CERTIFICATE_FOOTER: 'INSPECTION_CERTIFICATE_FOOTER',
   INSPECTION_CERTIFICATE_LOGO: 'INSPECTION_CERTIFICATE_LOGO',
   INSPECTION_CERTIFICATE_STAMP: 'INSPECTION_CERTIFICATE_STAMP',
+  ACTION_DEADLINE_REMINDER_DEFAULT_MINUTES:
+    'ACTION_DEADLINE_REMINDER_DEFAULT_MINUTES',
+  ACTION_DEADLINE_REMINDER_EXCHANGE_PAYMENT_MINUTES:
+    'ACTION_DEADLINE_REMINDER_EXCHANGE_PAYMENT_MINUTES',
+  ACTION_DEADLINE_REMINDER_EXCHANGE_SHIPMENT_MINUTES:
+    'ACTION_DEADLINE_REMINDER_EXCHANGE_SHIPMENT_MINUTES',
+  ACTION_DEADLINE_REMINDER_ORDER_SELLER_SHIPMENT_MINUTES:
+    'ACTION_DEADLINE_REMINDER_ORDER_SELLER_SHIPMENT_MINUTES',
+  ACTION_DEADLINE_REMINDER_AUCTION_PAYMENT_MINUTES:
+    'ACTION_DEADLINE_REMINDER_AUCTION_PAYMENT_MINUTES',
 } as const;
 
 /**
@@ -126,6 +136,16 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
     'فعال بودن ثبت آگهی مزایده برای کاربران (true/false)',
   EXCHANGE_NO_SHIPMENT_COMPENSATION:
     'مبلغ دلجویی برای طرف ارسال‌کننده در صورت عدم ارسال طرف مقابل (تومان)',
+  ACTION_DEADLINE_REMINDER_DEFAULT_MINUTES:
+    'پیش‌فرض یادآوری مهلت: اگر برای هر نوع اقدام مقدار جدا خالی باشد، وقتی کمتر از این دقیقه به پایان مهلت مانده نوتیف ارسال می‌شود',
+  ACTION_DEADLINE_REMINDER_EXCHANGE_PAYMENT_MINUTES:
+    'یادآوری پرداخت معاوضه: ارسال نوتیف وقتی کمتر از این دقیقه به پایان مهلت پرداخت مانده',
+  ACTION_DEADLINE_REMINDER_EXCHANGE_SHIPMENT_MINUTES:
+    'یادآوری ارسال معاوضه: ارسال نوتیف وقتی کمتر از این دقیقه به پایان مهلت ارسال به هاب مانده',
+  ACTION_DEADLINE_REMINDER_ORDER_SELLER_SHIPMENT_MINUTES:
+    'یادآوری ارسال فروشنده (خرید/مزایده): ارسال نوتیف وقتی کمتر از این دقیقه به پایان مهلت ثبت رهگیری مانده',
+  ACTION_DEADLINE_REMINDER_AUCTION_PAYMENT_MINUTES:
+    'یادآوری پرداخت مزایده: ارسال نوتیف وقتی کمتر از این دقیقه به پایان مهلت پرداخت برنده مانده',
   PLATFORM_ADDRESS: 'آدرس دفتر / هاب طبقه',
   PLATFORM_ADDRESSES: 'لیست آدرس‌های هاب طبقه با کد پستی (JSON)',
   SUPPORT_PHONE: 'شماره پشتیبانی',

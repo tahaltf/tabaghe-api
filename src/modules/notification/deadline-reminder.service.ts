@@ -9,17 +9,20 @@ import {
   OrderType,
 } from '@prisma/client';
 import {
+  DEADLINE_REMINDER_ACTION_SETTING_KEY,
+  DEADLINE_REMINDER_SETTING_KEYS,
+  DEFAULT_DEADLINE_REMINDER_MINUTES,
+  MAX_DEADLINE_REMINDER_MINUTES,
+  type DeadlineReminderAction,
+} from '../../common/deadline-reminder-settings';
+import {
   formatLessThanRemainingFa,
   formatRemainingDurationFa,
 } from '../../common/format-remaining-duration-fa.util';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NotificationService } from './notification.service';
 
-type ReminderAction =
-  | 'exchange_payment'
-  | 'exchange_shipment'
-  | 'order_seller_shipment'
-  | 'auction_payment';
+type ReminderAction = DeadlineReminderAction;
 
 const AWAITING_SHIPMENT_STATUSES: OrderStatus[] = [
   OrderStatus.PAID,
@@ -29,7 +32,6 @@ const AWAITING_SHIPMENT_STATUSES: OrderStatus[] = [
 @Injectable()
 export class DeadlineReminderService {
   private readonly logger = new Logger(DeadlineReminderService.name);
-  private static readonly DEFAULT_REMINDER_HOURS = 12;
   private static readonly DEFAULT_EXCHANGE_PAYMENT_DEADLINE_MINUTES = 24 * 60;
   private static readonly DEFAULT_EXCHANGE_SHIP_DEADLINE_MINUTES = 48 * 60;
 
@@ -41,11 +43,19 @@ export class DeadlineReminderService {
   @Cron(CronExpression.EVERY_MINUTE)
   async runDeadlineReminders(): Promise<void> {
     try {
-      const windowHours = await this.getReminderWindowHours();
-      await this.processExchangePaymentReminders(windowHours);
-      await this.processExchangeShipmentReminders(windowHours);
-      await this.processSellerShipmentReminders(windowHours);
-      await this.processAuctionPaymentReminders(windowHours);
+      const reminderWindows = await this.loadReminderWindowMinutesByAction();
+      await this.processExchangePaymentReminders(
+        reminderWindows.exchange_payment,
+      );
+      await this.processExchangeShipmentReminders(
+        reminderWindows.exchange_shipment,
+      );
+      await this.processSellerShipmentReminders(
+        reminderWindows.order_seller_shipment,
+      );
+      await this.processAuctionPaymentReminders(
+        reminderWindows.auction_payment,
+      );
     } catch (err) {
       this.logger.error(
         'Deadline reminder job failed',
@@ -54,16 +64,52 @@ export class DeadlineReminderService {
     }
   }
 
-  private async getReminderWindowHours(): Promise<number> {
-    const row = await this.prisma.systemSetting.findUnique({
-      where: { key: 'ACTION_DEADLINE_REMINDER_HOURS' },
-      select: { value: true },
+  private parsePositiveMinutes(raw: string | null | undefined): number | null {
+    const parsed = Number(String(raw ?? '').trim());
+    if (!Number.isFinite(parsed) || parsed <= 0) return null;
+    return Math.min(MAX_DEADLINE_REMINDER_MINUTES, Math.floor(parsed));
+  }
+
+  private async loadReminderWindowMinutesByAction(): Promise<
+    Record<ReminderAction, number>
+  > {
+    const keys = [
+      ...Object.values(DEADLINE_REMINDER_ACTION_SETTING_KEY),
+      DEADLINE_REMINDER_SETTING_KEYS.defaultMinutes,
+      DEADLINE_REMINDER_SETTING_KEYS.legacyHours,
+    ];
+    const rows = await this.prisma.systemSetting.findMany({
+      where: { key: { in: keys } },
+      select: { key: true, value: true },
     });
-    const parsed = Number(row?.value ?? '');
-    if (Number.isFinite(parsed) && parsed > 0) {
-      return Math.min(168, Math.floor(parsed));
-    }
-    return DeadlineReminderService.DEFAULT_REMINDER_HOURS;
+    const byKey = new Map(rows.map((r) => [r.key, r.value]));
+
+    const defaultMinutes =
+      this.parsePositiveMinutes(
+        byKey.get(DEADLINE_REMINDER_SETTING_KEYS.defaultMinutes),
+      ) ??
+      (() => {
+        const legacyHours = Number(
+          byKey.get(DEADLINE_REMINDER_SETTING_KEYS.legacyHours) ?? '',
+        );
+        if (Number.isFinite(legacyHours) && legacyHours > 0) {
+          return Math.min(MAX_DEADLINE_REMINDER_MINUTES, Math.floor(legacyHours * 60));
+        }
+        return null;
+      })() ??
+      DEFAULT_DEADLINE_REMINDER_MINUTES;
+
+    const resolve = (action: ReminderAction): number =>
+      this.parsePositiveMinutes(
+        byKey.get(DEADLINE_REMINDER_ACTION_SETTING_KEY[action]),
+      ) ?? defaultMinutes;
+
+    return {
+      exchange_payment: resolve('exchange_payment'),
+      exchange_shipment: resolve('exchange_shipment'),
+      order_seller_shipment: resolve('order_seller_shipment'),
+      auction_payment: resolve('auction_payment'),
+    };
   }
 
   private async getExchangePaymentDeadlineMinutes(): Promise<number> {
@@ -82,10 +128,10 @@ export class DeadlineReminderService {
     return DeadlineReminderService.DEFAULT_EXCHANGE_PAYMENT_DEADLINE_MINUTES;
   }
 
-  private isInReminderWindow(deadline: Date, windowHours: number): boolean {
+  private isInReminderWindow(deadline: Date, windowMinutes: number): boolean {
     const now = Date.now();
     const end = deadline.getTime();
-    const windowMs = windowHours * 60 * 60 * 1000;
+    const windowMs = windowMinutes * 60 * 1000;
     return end > now && end <= now + windowMs;
   }
 
@@ -175,7 +221,7 @@ export class DeadlineReminderService {
   }
 
   private async processExchangePaymentReminders(
-    windowHours: number,
+    windowMinutes: number,
   ): Promise<void> {
     const paymentDeadlineMinutes =
       await this.getExchangePaymentDeadlineMinutes();
@@ -198,7 +244,7 @@ export class DeadlineReminderService {
         new Date(offer.updatedAt).getTime() +
           paymentDeadlineMinutes * 60 * 1000,
       );
-      if (!this.isInReminderWindow(deadline, windowHours)) continue;
+      if (!this.isInReminderWindow(deadline, windowMinutes)) continue;
 
       const order = await this.prisma.order.findFirst({
         where: { exchangeOfferId: offer.id },
@@ -275,7 +321,7 @@ export class DeadlineReminderService {
   }
 
   private async processExchangeShipmentReminders(
-    windowHours: number,
+    windowMinutes: number,
   ): Promise<void> {
     const orders = await this.prisma.order.findMany({
       where: {
@@ -292,7 +338,7 @@ export class DeadlineReminderService {
 
     for (const order of orders) {
       const deadline = order.shippingDeadline!;
-      if (!this.isInReminderWindow(deadline, windowHours)) continue;
+      if (!this.isInReminderWindow(deadline, windowMinutes)) continue;
 
       const { lessThanText, timeLeftFa, hoursLeft } =
         this.remainingUntilDeadline(deadline, now);
@@ -331,7 +377,7 @@ export class DeadlineReminderService {
   }
 
   private async processSellerShipmentReminders(
-    windowHours: number,
+    windowMinutes: number,
   ): Promise<void> {
     const orders = await this.prisma.order.findMany({
       where: {
@@ -349,7 +395,7 @@ export class DeadlineReminderService {
 
     for (const order of orders) {
       const deadline = order.shippingDeadline!;
-      if (!this.isInReminderWindow(deadline, windowHours)) continue;
+      if (!this.isInReminderWindow(deadline, windowMinutes)) continue;
 
       const { lessThanText, timeLeftFa, hoursLeft } =
         this.remainingUntilDeadline(deadline, now);
@@ -371,10 +417,10 @@ export class DeadlineReminderService {
   }
 
   private async processAuctionPaymentReminders(
-    windowHours: number,
+    windowMinutes: number,
   ): Promise<void> {
     const now = new Date();
-    const windowEnd = new Date(now.getTime() + windowHours * 60 * 60 * 1000);
+    const windowEnd = new Date(now.getTime() + windowMinutes * 60 * 1000);
 
     const auctions = await this.prisma.listingAuction.findMany({
       where: {
