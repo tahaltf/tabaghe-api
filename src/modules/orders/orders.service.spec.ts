@@ -37,6 +37,7 @@ describe('OrdersService', () => {
 
   const walletMock = {
     releaseEscrow: jest.fn(),
+    transferToEscrow: jest.fn(),
     refundExchangeExtraOnCancel: jest.fn(),
     refundExchangeBothNoShipmentOnCancel: jest.fn(),
     refundExchangeOneSideNoShipmentOnCancel: jest.fn(),
@@ -84,6 +85,100 @@ describe('OrdersService', () => {
 
   it('should be defined', () => {
     expect(service).toBeDefined();
+  });
+
+  it('handleUniversalOrder EXCHANGE: removes stale cancelled listing order before create', async () => {
+    const offerId = 'offer-new';
+    const listingId = 'lst-1';
+    const buyerId = 'buyer-1';
+    const sellerId = 'seller-1';
+
+    prismaMock.systemSetting.findUnique = jest
+      .fn()
+      .mockImplementation(({ where }: { where: { key: string } }) => {
+        if (where.key === 'VERIFICATION_FEE') {
+          return Promise.resolve({ value: '250000' });
+        }
+        if (where.key === 'PLATFORM_ADDRESS') {
+          return Promise.resolve({ value: 'تهران' });
+        }
+        return Promise.resolve(null);
+      });
+    prismaMock.systemSetting.findFirst = jest.fn().mockResolvedValue(null);
+
+    walletMock.transferToEscrow.mockResolvedValue(undefined);
+
+    const tx = {
+      systemSetting: {
+        findUnique: jest.fn().mockImplementation(({ where }: { where: { key: string } }) => {
+          if (where.key === 'VERIFICATION_FEE') {
+            return Promise.resolve({ value: '250000' });
+          }
+          if (where.key === 'PLATFORM_ADDRESS') {
+            return Promise.resolve({ value: 'تهران' });
+          }
+          return Promise.resolve(null);
+        }),
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
+      exchangeOffer: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: offerId,
+          status: 'ACCEPTED',
+          listingId,
+          offererId: buyerId,
+          isPayerMe: false,
+          extraPayment: 0,
+          listing: { authorId: sellerId, categoryId: 'cat-1', direct: null },
+        }),
+      },
+      wallet: {
+        upsert: jest.fn().mockResolvedValue({ balanceAvailable: 500000 }),
+      },
+      address: {
+        findUnique: jest.fn().mockResolvedValue({
+          province: 'تهران',
+          city: 'تهران',
+          fullAddress: 'خیابان 1',
+          phone: '09120000000',
+          postalCode: '1234567890',
+        }),
+      },
+      order: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'old-order',
+          status: OrderStatus.CANCELLED,
+          exchangeOfferId: null,
+          totalAmount: 0,
+        }),
+        delete: jest.fn().mockResolvedValue({}),
+        create: jest.fn().mockResolvedValue({
+          id: 'ord-new',
+          type: OrderType.EXCHANGE,
+          status: OrderStatus.AWAITING_PAYMENT,
+          totalAmount: 250000,
+        }),
+      },
+    };
+
+    prismaMock.$transaction.mockImplementation(
+      async (cb: (trx: typeof tx) => Promise<unknown>) => cb(tx),
+    );
+
+    const result = await service.handleUniversalOrder(buyerId, {
+      orderType: 'EXCHANGE',
+      paymentMethod: 'WALLET',
+      exchangeOfferId: offerId,
+      listingId,
+      addressId: 'addr-1',
+      requiresVerification: true,
+    });
+
+    expect(tx.order.delete).toHaveBeenCalledWith({ where: { id: 'old-order' } });
+    expect(tx.order.create).toHaveBeenCalled();
+    expect(walletMock.transferToEscrow).toHaveBeenCalled();
+    expect(result.id).toBe('ord-new');
   });
 
   it('releases exchange escrow to buyer when seller is payer', async () => {

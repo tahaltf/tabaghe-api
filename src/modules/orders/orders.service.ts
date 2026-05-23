@@ -378,7 +378,9 @@ export class OrdersService {
     let listingId = dto.listingId;
     let paymentUrl = null;
 
-    const order = await this.prisma.$transaction(async (tx) => {
+    let order;
+    try {
+      order = await this.prisma.$transaction(async (tx) => {
       let finalPrice = 0;
       let shippingCost = 0;
       let sellerId = '';
@@ -460,8 +462,16 @@ export class OrdersService {
 
         // 💳 کسر از کیف پول شخص فعلی و انتقال به حساب امانی
         if (paymentMethod === 'WALLET' && totalPayable > 0) {
-          const wallet = await tx.wallet.findUnique({ where: { userId } });
-          if (!wallet || Number(wallet.balanceAvailable) < totalPayable) {
+          const wallet = await tx.wallet.upsert({
+            where: { userId },
+            create: {
+              userId,
+              balanceAvailable: 0,
+              balanceBlocked: 0,
+            },
+            update: {},
+          });
+          if (Number(wallet.balanceAvailable) < totalPayable) {
             throw new BadRequestException('موجودی کیف پول شما کافی نیست');
           }
 
@@ -497,9 +507,44 @@ export class OrdersService {
         }
 
         // 🔍 بررسی اینکه آیا طرف مقابل قبلاً سفارش را ایجاد کرده است یا نه؟
-        const existingExchangeOrder = await tx.order.findFirst({
+        let existingExchangeOrder = await tx.order.findFirst({
           where: { exchangeOfferId: finalExchangeId },
         });
+
+        if (existingExchangeOrder?.status === OrderStatus.CANCELLED) {
+          await tx.order.delete({ where: { id: existingExchangeOrder.id } });
+          existingExchangeOrder = null;
+        }
+
+        if (!existingExchangeOrder) {
+          const blockingListingOrder = await tx.order.findUnique({
+            where: { listingId },
+            select: {
+              id: true,
+              status: true,
+              exchangeOfferId: true,
+              totalAmount: true,
+            },
+          });
+          if (blockingListingOrder) {
+            const unpaidAwaiting =
+              blockingListingOrder.status === OrderStatus.AWAITING_PAYMENT &&
+              Number(blockingListingOrder.totalAmount ?? 0) === 0;
+            const removable =
+              blockingListingOrder.status === OrderStatus.CANCELLED ||
+              blockingListingOrder.status === OrderStatus.PENDING ||
+              unpaidAwaiting;
+            if (removable) {
+              await tx.order.delete({
+                where: { id: blockingListingOrder.id },
+              });
+            } else {
+              throw new BadRequestException(
+                'این کالا در حال حاضر در جریان معامله است.',
+              );
+            }
+          }
+        }
 
         if (existingExchangeOrder) {
           const updateData: any = {};
@@ -1058,6 +1103,17 @@ export class OrdersService {
 
       return createdOrder;
     });
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new BadRequestException(
+          'این کالا در حال حاضر در جریان معامله است. لطفاً چند لحظه بعد دوباره تلاش کنید.',
+        );
+      }
+      throw err;
+    }
 
     // در معاوضه، مبلغ قابل پرداخت هر طرف جداگانه در PaymentsService محاسبه می‌شود
     // و ممکن است totalAmount سفارش (در لحظه ساخت/به‌روزرسانی) معیار خوبی نباشد.
