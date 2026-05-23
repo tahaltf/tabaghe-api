@@ -456,21 +456,41 @@ export class ExchangeService {
       where: { exchangeOfferId: offer.id },
       select: { id: true, status: true },
     });
+
     let mySharePaid = false;
     if (linkedOrder?.id) {
-      const mySettlement = await this.prisma.walletTransaction.findFirst({
-        where: {
-          wallet: { userId },
-          type: WalletTransactionType.SETTLEMENT,
-          status: WalletTransactionStatus.SUCCESS,
-          AND: [
-            { meta: { path: ['kind'], equals: 'order-escrow' } },
-            { meta: { path: ['orderId'], equals: linkedOrder.id } },
-          ],
-        },
+      const wallet = await this.prisma.wallet.findUnique({
+        where: { userId },
         select: { id: true },
       });
-      mySharePaid = Boolean(mySettlement);
+      if (wallet) {
+        const settlements = await this.prisma.walletTransaction.findMany({
+          where: {
+            walletId: wallet.id,
+            type: WalletTransactionType.SETTLEMENT,
+            status: WalletTransactionStatus.SUCCESS,
+            OR: [
+              { referenceId: linkedOrder.id },
+              { referenceId: offer.listingId },
+            ],
+          },
+          select: { meta: true },
+        });
+        mySharePaid = settlements.some((t) => {
+          const meta = (t.meta ?? {}) as Record<string, unknown>;
+          if (String(meta['kind'] ?? '') !== 'order-escrow') return false;
+          if (String(meta['phase'] ?? '') !== 'exchange_participant_paid') {
+            return false;
+          }
+          const payerUserId = String(meta['payerUserId'] ?? userId).trim();
+          if (payerUserId !== userId) return false;
+          const metaOrderId = String(meta['orderId'] ?? '').trim();
+          const metaListingId = String(meta['listingId'] ?? '').trim();
+          if (metaOrderId && metaOrderId !== linkedOrder.id) return false;
+          if (metaListingId && metaListingId !== offer.listingId) return false;
+          return true;
+        });
+      }
     }
 
     let effectiveStatus = offer.status;
@@ -481,12 +501,64 @@ export class ExchangeService {
       effectiveStatus = ExchangeOfferStatus.CANCELLED;
     }
 
+    const paymentDeadlineMinutes = await this.getExchangePaymentDeadlineMinutes();
+    const paymentDeadlineAt =
+      effectiveStatus === ExchangeOfferStatus.ACCEPTED
+        ? new Date(
+            new Date(offer.updatedAt).getTime() +
+              paymentDeadlineMinutes * 60 * 1000,
+          ).toISOString()
+        : null;
+
+    const orderCancelled = linkedOrder?.status === OrderStatus.CANCELLED;
+    let checkoutBlockedReason: string | null = null;
+    if (mySharePaid) {
+      checkoutBlockedReason =
+        'سهم شما برای این معاوضه قبلاً پرداخت شده است.';
+    } else if (orderCancelled) {
+      checkoutBlockedReason = 'سفارش معاوضه لغو شده است.';
+    } else if (effectiveStatus === ExchangeOfferStatus.CANCELLED) {
+      checkoutBlockedReason =
+        'مهلت پرداخت این معاوضه به پایان رسیده و معامله لغو شده است.';
+    } else if (effectiveStatus === ExchangeOfferStatus.REJECTED) {
+      checkoutBlockedReason = 'این پیشنهاد معاوضه رد شده است.';
+    } else if (effectiveStatus !== ExchangeOfferStatus.ACCEPTED) {
+      checkoutBlockedReason = 'این معامله دیگر قابل ادامه نیست.';
+    }
+
+    const canCheckout =
+      !mySharePaid &&
+      effectiveStatus === ExchangeOfferStatus.ACCEPTED &&
+      !orderCancelled;
+
     return {
       ...offer,
       status: effectiveStatus,
       exchangeOrderId: linkedOrder?.id ?? null,
       exchangeOrderStatus: linkedOrder?.status ?? null,
       mySharePaid,
+      canCheckout,
+      checkoutBlockedReason,
+      paymentDeadlineAt,
     };
+  }
+
+  private async getExchangePaymentDeadlineMinutes(): Promise<number> {
+    const minutesSetting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'EXCHANGE_PAYMENT_DEADLINE_MINUTES' },
+      select: { value: true },
+    });
+    if (minutesSetting?.value?.trim()) {
+      const parsed = Number(minutesSetting.value);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return Math.floor(parsed);
+      }
+    }
+    const hoursSetting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'EXCHANGE_NO_PAYMENT_TIMEOUT_HOURS' },
+      select: { value: true },
+    });
+    const hours = Number(hoursSetting?.value ?? 24);
+    return Number.isFinite(hours) && hours > 0 ? Math.floor(hours * 60) : 24 * 60;
   }
 }

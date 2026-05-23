@@ -433,7 +433,19 @@ export class OrdersService {
 
         if (!offer) throw new NotFoundException('درخواست معاوضه یافت نشد');
         if (offer.status !== 'ACCEPTED')
-          throw new BadRequestException('این معاوضه هنوز تایید نشده است');
+          throw new BadRequestException(
+            offer.status === 'CANCELLED'
+              ? 'مهلت پرداخت این معاوضه تمام شده و معامله لغو شده است'
+              : 'این معاوضه هنوز تایید نشده است',
+          );
+
+        const cancelledLinkedOrder = await tx.order.findFirst({
+          where: { exchangeOfferId: finalExchangeId },
+          select: { status: true },
+        });
+        if (cancelledLinkedOrder?.status === OrderStatus.CANCELLED) {
+          throw new BadRequestException('سفارش این معاوضه لغو شده است');
+        }
 
         listingId = offer.listingId;
         categoryId = offer.listing.categoryId;
