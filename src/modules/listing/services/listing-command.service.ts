@@ -28,6 +28,9 @@ import {
 } from '../../../common/system-settings/listing-type-enabled';
 import { isCategoryVisibleOnSite } from '../../../common/category-visibility.util';
 
+/** حداقل امتیاز (rating) برای ثبت یا ارسال مجدد آگهی */
+export const MIN_LISTING_AUTHOR_RATING = 1;
+
 @Injectable()
 export class ListingCommandService {
   constructor(
@@ -53,11 +56,7 @@ export class ListingCommandService {
       if (!author) {
         throw new NotFoundException('کاربر یافت نشد');
       }
-      if (Number(author.rating) < 1.5) {
-        throw new ForbiddenException(
-          'با امتیاز کمتر از ۱.۵ امکان ثبت آگهی ندارید.',
-        );
-      }
+      this.assertAuthorCanPublishListing(author.rating);
 
       const listing = await tx.listing.create({
         data: {
@@ -138,6 +137,15 @@ export class ListingCommandService {
     dto: UpdateListingDto,
   ): Promise<Listing> {
     await this.ensureListingCanBeModified(listingId, userId);
+
+    const author = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { rating: true },
+    });
+    if (!author) {
+      throw new NotFoundException('کاربر یافت نشد');
+    }
+    this.assertAuthorCanPublishListing(author.rating);
 
     const listing = await this.prisma.listing.findUniqueOrThrow({
       where: { id: listingId },
@@ -439,6 +447,15 @@ export class ListingCommandService {
     if (dto.type === ListingType.DIRECT && dto.direct?.allowExchange)
       return true;
     return false;
+  }
+
+  private assertAuthorCanPublishListing(rating: unknown): void {
+    const value = Number(rating);
+    if (!Number.isFinite(value) || value < MIN_LISTING_AUTHOR_RATING) {
+      throw new ForbiddenException(
+        `با امتیاز کمتر از ${MIN_LISTING_AUTHOR_RATING} امکان ثبت یا ارسال مجدد آگهی ندارید.`,
+      );
+    }
   }
 
   private async ensureListingCanBeModified(

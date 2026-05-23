@@ -452,13 +452,6 @@ export class ExchangeService {
         'شما اجازه مشاهده یا پرداخت این معامله را ندارید',
       );
     }
-    if (
-      offer.listing.exchangeOffersSince &&
-      offer.createdAt < offer.listing.exchangeOffersSince
-    ) {
-      throw new NotFoundException('این پیشنهاد مربوط به دورهٔ قبلی آگهی است');
-    }
-
     const linkedOrder = await this.prisma.order.findFirst({
       where: { exchangeOfferId: offer.id },
       select: { id: true, status: true },
@@ -480,8 +473,17 @@ export class ExchangeService {
       mySharePaid = Boolean(mySettlement);
     }
 
+    let effectiveStatus = offer.status;
+    if (
+      linkedOrder?.status === OrderStatus.CANCELLED &&
+      offer.status === ExchangeOfferStatus.ACCEPTED
+    ) {
+      effectiveStatus = ExchangeOfferStatus.CANCELLED;
+    }
+
     return {
       ...offer,
+      status: effectiveStatus,
       exchangeOrderId: linkedOrder?.id ?? null,
       exchangeOrderStatus: linkedOrder?.status ?? null,
       mySharePaid,

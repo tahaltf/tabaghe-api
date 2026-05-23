@@ -290,11 +290,15 @@ export class OrdersService {
     ]);
 
     const exchangeOffers = exchangeOffersRaw
-      .filter(
-        (o) =>
+      .filter((o) => {
+        // پیشنهاددهنده همیشه تاریخچهٔ درخواست‌های خود را می‌بیند (حتی پس از لغو معامله)
+        if (o.offererId === userId) return true;
+        // صاحب آگهی فقط پیشنهادهای دورهٔ فعلی آگهی را می‌بیند
+        return (
           !o.listing.exchangeOffersSince ||
-          o.createdAt >= o.listing.exchangeOffersSince,
-      )
+          o.createdAt >= o.listing.exchangeOffersSince
+        );
+      })
       .slice(skip, skip + pageSize);
 
     const offerIds = exchangeOffers.map((o) => o.id);

@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { OrderStatus, Prisma } from '@prisma/client';
 
 /** موفقیت معامله: به هر طرف */
-export const TRADE_REPUTATION_SUCCESS_DELTA = 0.7;
+export const TRADE_REPUTATION_SUCCESS_DELTA = 0.5;
 /** مرجوعی / شکست معامله جدی */
 export const TRADE_REPUTATION_PENALTY_DELTA = 1.5;
 export const TRADE_REPUTATION_CAP = 5;
