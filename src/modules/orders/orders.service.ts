@@ -460,8 +460,8 @@ export class OrdersService {
 
         const totalPayable = finalPrice + shippingCost + verificationFee;
 
-        // 💳 کسر از کیف پول شخص فعلی و انتقال به حساب امانی
-        if (paymentMethod === 'WALLET' && totalPayable > 0) {
+        const executeExchangeWalletPayment = async (orderId: string) => {
+          if (paymentMethod !== 'WALLET' || totalPayable <= 0) return;
           const wallet = await tx.wallet.upsert({
             where: { userId },
             create: {
@@ -487,9 +487,13 @@ export class OrdersService {
             0,
             listingId,
             tx,
-            { isExchangeEscrow: true, blockedAmount: peerEscrowAmount },
+            {
+              isExchangeEscrow: true,
+              blockedAmount: peerEscrowAmount,
+              orderId,
+            },
           );
-        }
+        };
 
         // پردازش آدرس شخصی که الان داره چک‌اوت میکنه
         let currentAddressStr = null;
@@ -589,7 +593,11 @@ export class OrdersService {
           }
 
           // در کیف پول، مبلغ همین لحظه واقعاً پرداخت می‌شود؛ در درگاه بعد از callback.
-          if (paymentMethod === 'WALLET') {
+          if (paymentMethod === 'WALLET' && totalPayable > 0) {
+            await executeExchangeWalletPayment(existingExchangeOrder.id);
+            updateData.totalAmount =
+              Number(existingExchangeOrder.totalAmount) + totalPayable;
+          } else if (paymentMethod === 'WALLET') {
             updateData.totalAmount =
               Number(existingExchangeOrder.totalAmount) + totalPayable;
           }
@@ -659,7 +667,7 @@ export class OrdersService {
             finalPrice: totalExchangeExtraPayment,
 
             shippingCost: shippingCost,
-            totalAmount: paymentMethod === 'WALLET' ? totalPayable : 0, // درگاه بعد از callback اضافه می‌شود
+            totalAmount: 0, // پرداخت کیف پول بلافاصله پس از ساخت سفارش ثبت می‌شود
             requiresVerification: true,
             verificationFee: verificationFee,
             platformAddress: hubAddress,
@@ -680,6 +688,13 @@ export class OrdersService {
           }
 
           const createdOrder = await tx.order.create({ data: orderPayload });
+          if (paymentMethod === 'WALLET' && totalPayable > 0) {
+            await executeExchangeWalletPayment(createdOrder.id);
+            return tx.order.update({
+              where: { id: createdOrder.id },
+              data: { totalAmount: totalPayable },
+            });
+          }
           return createdOrder;
         }
       }
@@ -3895,6 +3910,8 @@ export class OrdersService {
           sellerId: linkedOrder.sellerId,
           refundBuyer: buyerPaidAmount > 0,
           refundSeller: sellerPaidAmount > 0,
+          buyerMaxRefund: buyerShare,
+          sellerMaxRefund: sellerShare,
         });
       buyerRefund = refunds.buyerRefund;
       sellerRefund = refunds.sellerRefund;

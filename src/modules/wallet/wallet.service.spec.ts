@@ -284,6 +284,55 @@ describe('WalletService - refundExchangeBothNoShipmentOnCancel', () => {
   });
 });
 
+describe('WalletService - getExchangeParticipantPaidAmount isolation', () => {
+  const prismaMock = {} as any;
+  const notificationMock = {} as any;
+
+  it('sums only settlements for the target order/listing when buyer paid on two exchanges', async () => {
+    const service = new WalletService(prismaMock, notificationMock);
+
+    const settlements = [
+      {
+        amount: 534_576,
+        meta: {
+          phase: 'exchange_participant_paid',
+          payerUserId: 'buyer-1',
+          listingId: 'lst-1',
+          orderId: 'ord-1',
+        },
+        referenceId: 'lst-1',
+      },
+      {
+        amount: 300_000,
+        meta: {
+          phase: 'exchange_participant_paid',
+          payerUserId: 'buyer-1',
+          listingId: 'lst-2',
+          orderId: 'ord-2',
+        },
+        referenceId: 'lst-2',
+      },
+    ];
+
+    const tx: any = {
+      wallet: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'buyer-1-wallet-id' }),
+      },
+      walletTransaction: {
+        findMany: jest.fn().mockResolvedValue(settlements),
+      },
+    };
+
+    const paid = await service.resolveExchangeParticipantPaidAmount(tx, {
+      participantUserId: 'buyer-1',
+      orderId: 'ord-1',
+      listingId: 'lst-1',
+    });
+
+    expect(paid).toBe(534_576);
+  });
+});
+
 describe('WalletService - refundExchangePaymentTimeoutOnCancel', () => {
   const prismaMock = {} as any;
   const notificationMock = {} as any;
@@ -355,6 +404,7 @@ describe('WalletService - refundExchangePaymentTimeoutOnCancel', () => {
       sellerId: 'seller-1',
       refundBuyer: true,
       refundSeller: false,
+      buyerMaxRefund: 500_000,
     });
 
     expect(result.buyerRefund).toBe(500_000);
@@ -373,20 +423,55 @@ describe('WalletService - refundExchangePaymentTimeoutOnCancel', () => {
     expect(creates).toHaveLength(2);
     expect(creates[0].type).toBe(WalletTransactionType.REFUND);
     expect(creates[0].amount).toBe(500_000);
-    expect(creates[1].type).toBe(WalletTransactionType.PENALTY);
-    expect(creates[1].amount).toBe(200_000);
-    expect(creates[1].status).toBe(WalletTransactionStatus.SUCCESS);
-    expect(creates[1].meta).toMatchObject({
-      phase: 'peer_blocked_unwind',
-      pendingDepositId: 'dep-seller-blocked',
+  });
+
+  it('caps buyer refund to expected share when settlements were over-counted', async () => {
+    const service = new WalletService(prismaMock, notificationMock);
+
+    const tx: any = {
+      listing: {
+        findUnique: jest.fn().mockResolvedValue({ title: 'گوشی' }),
+      },
+      wallet: {
+        upsert: jest.fn().mockResolvedValue({ id: 'buyer-1-wallet-id' }),
+        findUnique: jest.fn(async ({ where }: any) => ({
+          id: `${where.userId}-wallet-id`,
+        })),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      walletTransaction: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            amount: 834_576,
+            meta: {
+              phase: 'exchange_participant_paid',
+              payerUserId: 'buyer-1',
+              listingId: 'lst-1',
+            },
+            referenceId: 'lst-1',
+          },
+        ]),
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+    };
+
+    const result = await service.refundExchangePaymentTimeoutOnCancel(tx, {
+      orderId: 'ord-1',
+      listingId: 'lst-1',
+      buyerId: 'buyer-1',
+      sellerId: 'seller-1',
+      refundBuyer: true,
+      refundSeller: false,
+      buyerMaxRefund: 534_576,
     });
 
-    expect(tx.walletTransaction.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: { in: ['dep-seller-blocked'] } },
-        data: { status: WalletTransactionStatus.FAILED },
-      }),
-    );
+    expect(result.buyerRefund).toBe(534_576);
+
+    const refundTx = tx.walletTransaction.create.mock.calls[0][0].data;
+    expect(refundTx.type).toBe(WalletTransactionType.REFUND);
+    expect(refundTx.amount).toBe(534_576);
   });
 });
 

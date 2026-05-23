@@ -28,6 +28,31 @@ export class WalletService {
     private readonly notificationService: NotificationService,
   ) {}
 
+  /** آیا تراکنش پرداخت/تسویه به سفارش معاوضهٔ مشخص تعلق دارد؟ */
+  private settlementBelongsToExchangeOrder(
+    t: { referenceId: string | null; meta: unknown },
+    params: { orderId: string; listingId: string },
+  ): boolean {
+    const meta = (t.meta ?? {}) as Record<string, unknown>;
+    const metaListingId = String(meta['listingId'] ?? '').trim();
+    const metaOrderId = String(meta['orderId'] ?? '').trim();
+    const ref = String(t.referenceId ?? '').trim();
+
+    if (metaListingId && metaListingId !== params.listingId) {
+      return false;
+    }
+    if (metaOrderId && metaOrderId !== params.orderId) {
+      return false;
+    }
+
+    return (
+      ref === params.orderId ||
+      ref === params.listingId ||
+      metaOrderId === params.orderId ||
+      metaListingId === params.listingId
+    );
+  }
+
   /** عنوان آگهی برای توضیح تراکنش‌های امانی سفارش */
   private async listingTitleForWalletTx(
     prisma: Prisma.TransactionClient | PrismaService,
@@ -530,6 +555,7 @@ export class WalletService {
     opts?: {
       isExchangeEscrow?: boolean;
       blockedAmount?: number | string | Decimal;
+      orderId?: string;
     },
   ) {
     const prisma = tx || this.prisma;
@@ -580,6 +606,7 @@ export class WalletService {
           phase: isExchangeEscrow ? 'exchange_participant_paid' : 'buyer_paid',
           ...(isExchangeEscrow ? { payerUserId: buyerId } : {}),
           listingId: refId,
+          ...(opts?.orderId ? { orderId: opts.orderId } : {}),
           ...(listingTitle ? { listingTitle } : {}),
           paymentSource: 'WALLET',
           description: isExchangeEscrow
@@ -617,6 +644,7 @@ export class WalletService {
             kind: 'order-escrow',
             phase: 'seller_blocked',
             listingId: refId,
+            ...(opts?.orderId ? { orderId: opts.orderId } : {}),
             ...(listingTitle ? { listingTitle } : {}),
             description: isExchangeEscrow
               ? `مبلغ امانی معاوضه برای ${titleQuoted} در کیف پول شما بلوکه شد و پس از تایید نهایی طرفین آزاد می‌شود.`
@@ -777,18 +805,20 @@ export class WalletService {
           { referenceId: params.listingId },
         ],
       },
-      select: { amount: true, meta: true },
+      select: { amount: true, meta: true, referenceId: true },
     });
 
     let sum = 0;
     for (const t of settlements) {
       const meta = (t.meta ?? {}) as Record<string, unknown>;
-      const metaOrderId = String(meta['orderId'] ?? '').trim();
-      if (metaOrderId && metaOrderId !== params.orderId) continue;
       const phase = String(meta['phase'] ?? '');
-      if (phase === 'buyer_paid' || phase === 'exchange_participant_paid') {
-        sum += Math.max(0, Number(t.amount) || 0);
+      if (phase !== 'buyer_paid' && phase !== 'exchange_participant_paid') {
+        continue;
       }
+      if (!this.settlementBelongsToExchangeOrder(t, params)) {
+        continue;
+      }
+      sum += Math.max(0, Number(t.amount) || 0);
     }
     return sum;
   }
@@ -818,7 +848,7 @@ export class WalletService {
           { referenceId: params.listingId },
         ],
       },
-      select: { amount: true, meta: true },
+      select: { amount: true, meta: true, referenceId: true },
     });
 
     let sum = 0;
@@ -826,8 +856,7 @@ export class WalletService {
       const meta = (t.meta ?? {}) as Record<string, unknown>;
       const phase = String(meta['phase'] ?? '');
       if (phase !== 'exchange_participant_paid') continue;
-      const metaOrderId = String(meta['orderId'] ?? '').trim();
-      if (metaOrderId && metaOrderId !== params.orderId) continue;
+      if (!this.settlementBelongsToExchangeOrder(t, params)) continue;
       const payerUserId = String(
         meta['payerUserId'] ?? params.participantUserId,
       ).trim();
@@ -877,7 +906,16 @@ export class WalletService {
 
       const escrowPending = pending.filter((t) => {
         const meta = (t.meta ?? {}) as Record<string, unknown>;
-        return meta['kind'] === 'order-escrow';
+        if (meta['kind'] !== 'order-escrow') return false;
+        const metaListingId = String(meta['listingId'] ?? '').trim();
+        if (metaListingId && metaListingId !== params.listingId) {
+          return false;
+        }
+        const metaOrderId = String(meta['orderId'] ?? '').trim();
+        if (params.orderId && metaOrderId && metaOrderId !== params.orderId) {
+          return false;
+        }
+        return true;
       });
       if (!escrowPending.length) continue;
 
@@ -1298,6 +1336,7 @@ export class WalletService {
       refundKind: string;
       refundReason: string;
       description: string;
+      maxRefundAmount?: number;
     },
   ): Promise<number> {
     const paid = await this.getExchangeParticipantPaidAmount(tx, {
@@ -1305,7 +1344,10 @@ export class WalletService {
       orderId: params.orderId,
       listingId: params.listingId,
     });
-    if (paid <= 0) return 0;
+    const cap = Math.max(0, Number(params.maxRefundAmount) || 0);
+    const refundAmount =
+      cap > 0 ? Math.min(paid, cap) : paid;
+    if (refundAmount <= 0) return 0;
 
     const listingTitle = await this.listingTitleForWalletTx(
       tx,
@@ -1332,13 +1374,13 @@ export class WalletService {
 
     await tx.wallet.update({
       where: { userId: params.userId },
-      data: { balanceAvailable: { increment: paid } },
+      data: { balanceAvailable: { increment: refundAmount } },
     });
 
     await tx.walletTransaction.create({
       data: {
         walletId: wallet.id,
-        amount: paid,
+        amount: refundAmount,
         type: WalletTransactionType.REFUND,
         status: WalletTransactionStatus.SUCCESS,
         referenceId: params.orderId,
@@ -1353,7 +1395,7 @@ export class WalletService {
         } as Prisma.InputJsonValue,
       },
     });
-    return paid;
+    return refundAmount;
   }
 
   /**
@@ -1368,6 +1410,8 @@ export class WalletService {
       sellerId: string;
       refundBuyer: boolean;
       refundSeller: boolean;
+      buyerMaxRefund?: number;
+      sellerMaxRefund?: number;
     },
   ): Promise<{ buyerRefund: number; sellerRefund: number }> {
     const listingTitle = await this.listingTitleForWalletTx(
@@ -1390,6 +1434,7 @@ export class WalletService {
         refundKind,
         refundReason,
         description: `بازگشت سهم پرداختی معاوضه برای ${titleQuoted} به‌دلیل لغو معامله (اتمام مهلت پرداخت).`,
+        maxRefundAmount: params.buyerMaxRefund,
       });
     }
     if (params.refundSeller) {
@@ -1401,6 +1446,7 @@ export class WalletService {
         refundKind,
         refundReason,
         description: `بازگشت سهم پرداختی معاوضه برای ${titleQuoted} به‌دلیل لغو معامله (اتمام مهلت پرداخت).`,
+        maxRefundAmount: params.sellerMaxRefund,
       });
     }
 

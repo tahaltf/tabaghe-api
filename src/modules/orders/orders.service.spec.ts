@@ -157,6 +157,12 @@ describe('OrdersService', () => {
           id: 'ord-new',
           type: OrderType.EXCHANGE,
           status: OrderStatus.AWAITING_PAYMENT,
+          totalAmount: 0,
+        }),
+        update: jest.fn().mockResolvedValue({
+          id: 'ord-new',
+          type: OrderType.EXCHANGE,
+          status: OrderStatus.AWAITING_PAYMENT,
           totalAmount: 250000,
         }),
       },
@@ -177,7 +183,22 @@ describe('OrdersService', () => {
 
     expect(tx.order.delete).toHaveBeenCalledWith({ where: { id: 'old-order' } });
     expect(tx.order.create).toHaveBeenCalled();
-    expect(walletMock.transferToEscrow).toHaveBeenCalled();
+    expect(tx.order.update).toHaveBeenCalledWith({
+      where: { id: 'ord-new' },
+      data: { totalAmount: 250000 },
+    });
+    expect(walletMock.transferToEscrow).toHaveBeenCalledWith(
+      buyerId,
+      sellerId,
+      250000,
+      0,
+      listingId,
+      tx,
+      expect.objectContaining({
+        isExchangeEscrow: true,
+        orderId: 'ord-new',
+      }),
+    );
     expect(result.id).toBe('ord-new');
   });
 
