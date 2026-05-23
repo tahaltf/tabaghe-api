@@ -486,7 +486,7 @@ describe('OrdersService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           userId: 'buyer-1',
-          subject: expect.stringContaining('لغو سفارش'),
+          subject: expect.stringContaining('عدم ارسال فروشنده'),
         }),
       }),
     );
@@ -494,7 +494,7 @@ describe('OrdersService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           userId: 'seller-1',
-          subject: expect.stringContaining('لغو سفارش'),
+          subject: expect.stringContaining('عدم ارسال در مهلت'),
         }),
       }),
     );

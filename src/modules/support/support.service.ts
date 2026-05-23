@@ -3,6 +3,7 @@ import { NotificationType } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { NotificationService } from '../notification/notification.service';
+import { normalizeTicketMessage } from '../../common/ticket-message.util';
 
 @Injectable()
 export class SupportService {
@@ -19,7 +20,7 @@ export class SupportService {
         repairRequestId: dto.repairRequestId,
         messages: {
           create: {
-            message: dto.message,
+            message: normalizeTicketMessage(dto.message),
             senderRole: 'USER',
           },
         },
@@ -98,7 +99,7 @@ export class SupportService {
     const created = await this.prisma.ticketMessage.create({
       data: {
         ticketId,
-        message,
+        message: normalizeTicketMessage(message),
         senderRole: 'USER',
       },
     });

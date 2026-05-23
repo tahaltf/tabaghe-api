@@ -40,6 +40,10 @@ import {
   orderHasStoredVideos,
 } from '../../common/upload/order-video-storage.util';
 import { enrichOrderUpdateForCompletion } from './order-lifecycle.util';
+import {
+  buildOrderTicketSubject,
+  formatTicketMessageBody,
+} from '../../common/ticket-message.util';
 
 @Injectable()
 export class OrdersService {
@@ -2414,12 +2418,19 @@ export class OrdersService {
         ? `\n🎥 ویدیو: ${apiUrl}/uploads/orders/${videoPath}`
         : '';
 
-      const ticketMessage = `🚨 **اعلام مغایرت سفارش**\nکالا: ${order.listing.title}\nعلت: ${reason}\n${videoLink}`;
+      const ticketMessage = formatTicketMessageBody(
+        [
+          'اعلام مغایرت سفارش شما ثبت شد و برای کارشناسی ارسال گردید.',
+          `کالا: «${order.listing.title}»`,
+          `شرح مغایرت: ${reason.trim()}`,
+          videoPath ? `ویدیوی پیوست: ${apiUrl}/uploads/orders/${videoPath}` : '',
+        ].filter((line): line is string => Boolean(line)),
+      );
 
       const createdTicket = await tx.ticket.create({
         data: {
           userId: buyerId,
-          subject: `شکایت سفارش #${order.id.slice(-6)}`,
+          subject: buildOrderTicketSubject('شکایت — مغایرت کالا', order.id),
           status: 'OPEN',
           messages: {
             create: { senderRole: 'USER', message: ticketMessage },
@@ -2540,38 +2551,27 @@ export class OrdersService {
     const penalty = params.trustPenaltyPoints ?? 15;
     const listingTitle = params.listingTitle?.trim() || 'کالا';
 
-    const buyerTicketMessage = [
-      'سلام،',
-      '',
+    const buyerTicketMessage = formatTicketMessageBody([
       `متأسفیم؛ سفارش #${shortId} برای «${listingTitle}» لغو شد.`,
       'دلیل: فروشنده در مهلت قانونی ارسال، مرسوله را ثبت نکرد.',
-      '',
       `مبلغ پرداختی شما (${amountFa} تومان) به کیف پولتان در طبقه برگشت داده شد.`,
       'از صبر و شکیبایی شما سپاسگزاریم و بابت ناراحتی پیش‌آمده پوزش می‌خواهیم.',
-      '',
       `طبق قوانین طبقه، ${penalty} واحد از امتیاز اعتماد فروشنده کسر شد.`,
-      '',
       'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.',
-    ].join('\n');
+    ]);
 
-    const sellerTicketMessage = [
-      'سلام،',
-      '',
+    const sellerTicketMessage = formatTicketMessageBody([
       `سفارش #${shortId} برای «${listingTitle}» لغو شد.`,
       'دلیل: شما در مهلت قانونی ارسال، کد رهگیری یا ویدیوی بسته‌بندی را ثبت نکردید.',
-      '',
-      `وجه پرداختی خریدار (${amountFa} تومان) به کیف پول او برگشت داده شد.`,
-      'مبلغ بلوکه‌شده در کیف پول شما نیز آزاد شد.',
-      '',
+      `وجه پرداختی خریدار (${amountFa} تومان) به کیف پول او برگشت داده شد؛ مبلغ بلوکه‌شده در کیف پول شما نیز آزاد شد.`,
       `به‌دلیل تأخیر در ارسال، ${penalty} واحد از امتیاز اعتماد شما کسر شد.`,
-      '',
       'برای سفارش‌های بعدی لطفاً ارسال را در مهلت مقرر انجام دهید.',
-    ].join('\n');
+    ]);
 
     const buyerTicket = await tx.ticket.create({
       data: {
         userId: params.buyerId,
-        subject: `لغو سفارش — عدم ارسال فروشنده [ORDER:${params.orderId}]`,
+        subject: buildOrderTicketSubject('عدم ارسال فروشنده — لغو', params.orderId),
         status: 'OPEN',
         messages: {
           create: {
@@ -2586,7 +2586,7 @@ export class OrdersService {
     const sellerTicket = await tx.ticket.create({
       data: {
         userId: params.sellerId,
-        subject: `لغو سفارش — عدم ارسال در مهلت [ORDER:${params.orderId}]`,
+        subject: buildOrderTicketSubject('عدم ارسال در مهلت — لغو', params.orderId),
         status: 'OPEN',
         messages: {
           create: {
@@ -2664,8 +2664,6 @@ export class OrdersService {
       refundAmountFa: string,
     ) => {
       const lines = [
-        'سلام،',
-        '',
         `متأسفیم؛ معامله معاوضه${params.orderId ? ` #${shortId}` : ''} برای «${listingTitle}» لغو شد.`,
       ];
       if (params.scenario === 'neither_paid') {
@@ -2705,10 +2703,9 @@ export class OrdersService {
         );
       }
       lines.push(
-        '',
         'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.',
       );
-      return lines.join('\n');
+      return formatTicketMessageBody(lines);
     };
 
     const buildOffenderMessage = (role: 'buyer' | 'seller') => {
@@ -2720,25 +2717,25 @@ export class OrdersService {
           isBuyer ? buyerAmountFa : sellerAmountFa,
         );
       }
-      return [
-        'سلام،',
-        '',
+      return formatTicketMessageBody([
         `معامله معاوضه${params.orderId ? ` #${shortId}` : ''} برای «${listingTitle}» لغو شد.`,
         'دلیل: شما در مهلت مقرر پرداخت سهم خود را تکمیل نکردید.',
-        '',
         `طبق قوانین طبقه، ${penalty} واحد از امتیاز اعتماد شما کسر شد.`,
         isBuyer
           ? 'آگهی برای پذیرش پیشنهادهای دیگر در دسترس باقی می‌ماند.'
           : 'آگهی شما به‌دلیل عدم پرداخت در مهلت مقرر از انتشار خارج شد؛ برای فروش مجدد آن را ویرایش و دوباره ثبت کنید.',
-        '',
         'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.',
-      ].join('\n');
+      ]);
     };
+
+    const exchangePaymentSubject = params.orderId
+      ? buildOrderTicketSubject('مهلت پرداخت — لغو معاوضه', params.orderId)
+      : `مهلت پرداخت — لغو معاوضه · ${listingTitle}`;
 
     const buyerTicket = await tx.ticket.create({
       data: {
         userId: params.buyerId,
-        subject: `لغو معاوضه — مهلت پرداخت [${params.orderId ? `ORDER:${params.orderId}` : `LISTING:${listingTitle}`}]`,
+        subject: exchangePaymentSubject,
         status: 'OPEN',
         messages: {
           create: {
@@ -2753,7 +2750,7 @@ export class OrdersService {
     const sellerTicket = await tx.ticket.create({
       data: {
         userId: params.sellerId,
-        subject: `لغو معاوضه — مهلت پرداخت [${params.orderId ? `ORDER:${params.orderId}` : `LISTING:${listingTitle}`}]`,
+        subject: exchangePaymentSubject,
         status: 'OPEN',
         messages: {
           create: {
@@ -2829,38 +2826,33 @@ export class OrdersService {
       Number(params.sellerRefundAmount) || 0,
     ).toLocaleString('fa-IR');
 
-    const buyerTicketMessage = [
-      'سلام،',
-      '',
+    const buyerTicketMessage = formatTicketMessageBody([
       `متأسفیم؛ معامله معاوضه #${shortId} برای «${listingTitle}» لغو شد.`,
       'دلیل: هیچ‌یک از طرفین در مهلت قانونی ارسال، مرسوله را ثبت نکردند.',
-      '',
       `سهم پرداختی شما (${buyerAmountFa} تومان، شامل هزینه کارشناسی) به کیف پولتان برگشت داده شد.`,
       'از صبر و شکیبایی شما سپاسگزاریم و بابت ناراحتی پیش‌آمده پوزش می‌خواهیم.',
-      '',
       `طبق قوانین طبقه، ${penalty} واحد از امتیاز اعتماد شما کسر شد.`,
-      '',
       'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.',
-    ].join('\n');
+    ]);
 
-    const sellerTicketMessage = [
-      'سلام،',
-      '',
+    const sellerTicketMessage = formatTicketMessageBody([
       `متأسفیم؛ معامله معاوضه #${shortId} برای «${listingTitle}» لغو شد.`,
       'دلیل: هیچ‌یک از طرفین در مهلت قانونی ارسال، مرسوله را ثبت نکردند.',
-      '',
       `سهم پرداختی شما (${sellerAmountFa} تومان، شامل هزینه کارشناسی) به کیف پولتان برگشت داده شد.`,
       'از صبر و شکیبایی شما سپاسگزاریم و بابت ناراحتی پیش‌آمده پوزش می‌خواهیم.',
-      '',
       `طبق قوانین طبقه، ${penalty} واحد از امتیاز اعتماد شما کسر شد.`,
-      '',
       'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.',
-    ].join('\n');
+    ]);
+
+    const bothNoShipSubject = buildOrderTicketSubject(
+      'عدم ارسال هر دو طرف — لغو معاوضه',
+      params.orderId,
+    );
 
     const buyerTicket = await tx.ticket.create({
       data: {
         userId: params.buyerId,
-        subject: `لغو معاوضه — عدم ارسال هر دو طرف [ORDER:${params.orderId}]`,
+        subject: bothNoShipSubject,
         status: 'OPEN',
         messages: {
           create: {
@@ -2875,7 +2867,7 @@ export class OrdersService {
     const sellerTicket = await tx.ticket.create({
       data: {
         userId: params.sellerId,
-        subject: `لغو معاوضه — عدم ارسال هر دو طرف [ORDER:${params.orderId}]`,
+        subject: bothNoShipSubject,
         status: 'OPEN',
         messages: {
           create: {
@@ -2949,45 +2941,40 @@ export class OrdersService {
     ).toLocaleString('fa-IR');
     const penaltyPct = params.inspectionPenaltyPercent;
 
-    const senderMessage = [
-      'سلام،',
-      '',
-      `متأسفیم؛ معامله معاوضه #${shortId} برای «${listingTitle}» لغو شد.`,
-      'دلیل: شما به‌موقع ارسال را ثبت کردید اما طرف مقابل در مهلت قانونی ارسال نکرد.',
-      '',
-      `سهم پرداختی شما (${senderAmountFa} تومان) به کیف پولتان برگشت.`,
-      compensationFa !== '۰'
-        ? `همچنین ${compensationFa} تومان بابت ${penaltyPct}٪ جبران از هزینه کارشناسی طرف مقابل به کیف پول شما واریز شد.`
-        : '',
-      'کالای شما بدون کارشناسی در صف مرجوع از هاب قرار می‌گیرد تا به آدرس شما برگردد.',
-      '',
-      'از صبر و شکیبایی شما سپاسگزاریم و بابت ناراحتی پیش‌آمده صمیمانه پوزش می‌خواهیم.',
-      '',
-      'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.',
-    ]
-      .filter(Boolean)
-      .join('\n');
+    const senderMessage = formatTicketMessageBody(
+      [
+        `متأسفیم؛ معامله معاوضه #${shortId} برای «${listingTitle}» لغو شد.`,
+        'دلیل: شما به‌موقع ارسال را ثبت کردید اما طرف مقابل در مهلت قانونی ارسال نکرد.',
+        `سهم پرداختی شما (${senderAmountFa} تومان) به کیف پولتان برگشت.`,
+        compensationFa !== '۰'
+          ? `همچنین ${compensationFa} تومان بابت ${penaltyPct}٪ جبران از هزینه کارشناسی طرف مقابل به کیف پول شما واریز شد.`
+          : '',
+        'کالای شما بدون کارشناسی در صف مرجوع از هاب قرار می‌گیرد تا به آدرس شما برگردد.',
+        'از صبر و شکیبایی شما سپاسگزاریم و بابت ناراحتی پیش‌آمده صمیمانه پوزش می‌خواهیم.',
+        'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.',
+      ].filter((line): line is string => Boolean(line)),
+    );
 
-    const offenderMessage = [
-      'سلام،',
-      '',
+    const offenderMessage = formatTicketMessageBody([
       `معامله معاوضه #${shortId} برای «${listingTitle}» لغو شد.`,
       'دلیل: شما در مهلت قانونی ارسال، کد رهگیری یا ویدیوی بسته‌بندی را ثبت نکردید.',
-      '',
       offenderAmountFa !== '۰'
         ? `پس از کسر ${penaltyPct}٪ جریمه از هزینه کارشناسی، ${offenderAmountFa} تومان به کیف پول شما برگشت.`
         : `طبق قوانین، ${penaltyPct}٪ از هزینه کارشناسی شما به‌عنوان جریمه کسر شد.`,
-      '',
       `به‌دلیل تأخیر در ارسال، ${penalty} واحد از امتیاز اعتماد شما کسر شد.`,
-      '',
       'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.',
-    ].join('\n');
+    ]);
+
+    const oneSideShipSubject = buildOrderTicketSubject(
+      'عدم ارسال طرف مقابل — لغو معاوضه',
+      params.orderId,
+    );
 
     const buyerIsSender = params.senderId === params.buyerId;
     const buyerTicket = await tx.ticket.create({
       data: {
         userId: params.buyerId,
-        subject: `لغو معاوضه — عدم ارسال طرف مقابل [ORDER:${params.orderId}]`,
+        subject: oneSideShipSubject,
         status: 'OPEN',
         messages: {
           create: {
@@ -3002,7 +2989,7 @@ export class OrdersService {
     const sellerTicket = await tx.ticket.create({
       data: {
         userId: params.sellerId,
-        subject: `لغو معاوضه — عدم ارسال طرف مقابل [ORDER:${params.orderId}]`,
+        subject: oneSideShipSubject,
         status: 'OPEN',
         messages: {
           create: {

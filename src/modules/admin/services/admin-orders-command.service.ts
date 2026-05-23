@@ -32,6 +32,10 @@ import { WalletService } from '../../wallet/wallet.service';
 import { OrdersService } from '../../orders/orders.service';
 import { enrichOrderUpdateForCompletion } from '../../orders/order-lifecycle.util';
 import { ListingCommandService } from '../../listing/services/listing-command.service';
+import {
+  buildOrderTicketSubject,
+  formatTicketMessageBody,
+} from '../../../common/ticket-message.util';
 
 @Injectable()
 export class AdminOrdersCommandService {
@@ -135,7 +139,7 @@ export class AdminOrdersCommandService {
         const sellerTicket = await tx.ticket.create({
           data: {
             userId: existing.sellerId,
-            subject: `رد کارشناسی سفارش [ORDER:${id}]`,
+            subject: buildOrderTicketSubject('رد کارشناسی هاب', id),
             status: 'OPEN',
             messages: {
               create: {
@@ -150,7 +154,7 @@ export class AdminOrdersCommandService {
         const buyerTicket = await tx.ticket.create({
           data: {
             userId: existing.buyerId,
-            subject: `رد کارشناسی و پیگیری بازپرداخت [ORDER:${id}]`,
+            subject: buildOrderTicketSubject('رد کارشناسی — بازپرداخت', id),
             status: 'OPEN',
             messages: {
               create: {
@@ -317,15 +321,15 @@ export class AdminOrdersCommandService {
           data: { status: ListingStatus.APPROVED },
         });
 
-        const buyerTicketMessage = [
+        const buyerTicketMessage = formatTicketMessageBody([
           `سفارش «${existing.listing.title}» لغو شد.`,
           `علت: ${normalizedNote || 'لغو سفارش توسط پشتیبانی'}`,
           `مبلغ ${totalAmount.toLocaleString('fa-IR')} تومان به کیف پول شما اضافه شد.`,
-        ].join('\n');
+        ]);
         const buyerTicket = await tx.ticket.create({
           data: {
             userId: existing.buyerId,
-            subject: `لغو سفارش و بازگشت وجه [ORDER:${existing.id}]`,
+            subject: buildOrderTicketSubject('لغو سفارش — بازگشت وجه', existing.id),
             status: 'ANSWERED',
             messages: {
               create: {
@@ -1058,7 +1062,7 @@ export class AdminOrdersCommandService {
     const otherFailed = isSeller ? params.offerFailed : params.listingFailed;
     const bothFailed = params.listingFailed && params.offerFailed;
 
-    const lines: string[] = ['سلام،', ''];
+    const lines: string[] = [];
 
     if (bothFailed) {
       lines.push(
@@ -1088,20 +1092,17 @@ export class AdminOrdersCommandService {
     }
 
     lines.push(
-      '',
       'هزینه کارشناسی مسترد نمی‌شود.',
       'در صورت پرداخت مابه‌التفاوت، پس از ثبت هر دو کد رهگیری مرجوعی از هاب در صف «ارسال از طبقه»، همان مبلغ (بدون کارشناسی) به کیف پول شما بازمی‌گردد.',
-      '',
       `لینک آگهی: ${params.listingUrl}`,
       `کد رهگیری ارسال شما به هاب: ${params.ownTrackingCode ?? 'ثبت نشده'}`,
       params.packagingVideoUrl
         ? `ویدیوی بسته‌بندی شما: ${params.packagingVideoUrl}`
         : null,
-      '',
       'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.',
     );
 
-    return lines.filter(Boolean).join('\n');
+    return formatTicketMessageBody(lines.filter((line): line is string => Boolean(line)));
   }
 
   /**
@@ -1802,7 +1803,7 @@ export class AdminOrdersCommandService {
       const sellerTicket = await tx.ticket.create({
         data: {
           userId: existing.sellerId,
-          subject: `نتیجه کارشناسی معاوضه (مرجوع دوطرفه) [ORDER:${id}]`,
+          subject: buildOrderTicketSubject('کارشناسی معاوضه — مرجوع دوطرفه', id),
           status: 'OPEN',
           messages: {
             create: {
@@ -1844,7 +1845,7 @@ export class AdminOrdersCommandService {
       const buyerTicket = await tx.ticket.create({
         data: {
           userId: existing.buyerId,
-          subject: `نتیجه کارشناسی معاوضه (مرجوع دوطرفه) [ORDER:${id}]`,
+          subject: buildOrderTicketSubject('کارشناسی معاوضه — مرجوع دوطرفه', id),
           status: 'OPEN',
           messages: {
             create: { senderRole: UserRole.ADMIN, message: buyerTicketMessage },
@@ -2362,29 +2363,25 @@ export class AdminOrdersCommandService {
           .filter(Boolean)
           .join(' و ');
 
-        const buyerAgreementTicketMessage = [
+        const buyerAgreementTicketMessage = formatTicketMessageBody([
           `برای سفارش «${order.listing?.title ?? 'کالا'}» توافق مالی ثبت شد.`,
           `مبلغ ${refundAmount.toLocaleString('fa-IR')} تومان به کیف پول شما اضافه شد.`,
           `این مبلغ از طرف فروشنده/صاحب آگهی کسر شد (${debitBreakdownFa || 'جزئیات کسر ثبت شد'}) و به‌صورت توافقی به شما بازگردانده شد.`,
-          note ? `توضیح ادمین: ${note}` : null,
-        ]
-          .filter(Boolean)
-          .join('\n');
-        const sellerAgreementTicketMessage = [
+          note ? `توضیح ادمین: ${note}` : '',
+        ].filter(Boolean));
+        const sellerAgreementTicketMessage = formatTicketMessageBody([
           `برای سفارش «${order.listing?.title ?? 'کالا'}» توافق مالی ثبت شد.`,
           `جمع ${refundAmount.toLocaleString('fa-IR')} تومان از شما کسر شد: ${debitBreakdownFa || '—'}.`,
           'این مبلغ به‌صورت توافقی به کیف پول خریدار اضافه شد و سفارش ادامه پیدا می‌کند.',
-          note ? `توضیح ادمین: ${note}` : null,
-        ]
-          .filter(Boolean)
-          .join('\n');
+          note ? `توضیح ادمین: ${note}` : '',
+        ].filter(Boolean));
 
         const [buyerAgreementTicket, sellerAgreementTicket] = await Promise.all(
           [
             tx.ticket.create({
               data: {
                 userId: order.buyerId,
-                subject: `توافق مالی سفارش [ORDER:${order.id}]`,
+                subject: buildOrderTicketSubject('توافق مالی — واریز به خریدار', order.id),
                 status: 'ANSWERED',
                 messages: {
                   create: {
@@ -2398,7 +2395,7 @@ export class AdminOrdersCommandService {
             tx.ticket.create({
               data: {
                 userId: order.sellerId,
-                subject: `توافق مالی سفارش [ORDER:${order.id}]`,
+                subject: buildOrderTicketSubject('توافق مالی — کسر از فروشنده', order.id),
                 status: 'ANSWERED',
                 messages: {
                   create: {
@@ -2845,15 +2842,15 @@ export class AdminOrdersCommandService {
         (order.status === OrderStatus.REJECTED_AT_HUB
           ? 'کالا در کارشناسی هاب رد شد'
           : 'سفارش توسط ادمین لغو شد');
-      const buyerTicketMessage = [
-        `کاربر گرامی، سفارش «${order.listing?.title ?? 'کالا'}» لغو شد.`,
+      const buyerTicketMessage = formatTicketMessageBody([
+        `سفارش «${order.listing?.title ?? 'کالا'}» لغو شد.`,
         `علت: ${cancelReasonForBuyer}`,
         `مبلغ ${buyerRefundAmount.toLocaleString('fa-IR')} تومان به کیف پول شما اضافه شد.`,
-      ].join('\n');
+      ]);
       const buyerTicket = await tx.ticket.create({
         data: {
           userId: order.buyerId,
-          subject: `لغو سفارش و بازگشت وجه [ORDER:${order.id}]`,
+          subject: buildOrderTicketSubject('لغو سفارش — بازگشت وجه', order.id),
           status: 'ANSWERED',
           messages: {
             create: {
@@ -2927,35 +2924,22 @@ export class AdminOrdersCommandService {
 
     const penaltyExample = `${TRADE_REPUTATION_PENALTY_DELTA}`.replace('.', '٫');
 
-    const sellerTicketBody = [
-      'سلام،',
-      '',
+    const sellerTicketBody = formatTicketMessageBody([
       `کالای مربوط به سفارش شمارهٔ #${opts.orderShortId} (${opts.listingTitle}) از نظر کارشناسی فنی مرکز طبقه رد شده است. هرگونه دل‌آزردگی طرف خریدار و شما برایمان مهم است و از تأخیر در تجربه‌ای که انتظار داشتید خلاف آن بود، معذرت می‌خواهیم.`,
-      '',
       `شرح دلیل کارشناسی (ثبت شده توسط تیم فنی):\n«${opts.normalizedNote}»`,
-      '',
       'سفارش اکنون در وضعیت «رد شده در هاب» است. از همین پیام رسمی پیگیری انجام می‌شود؛ لطفاً برای هماهنگی مرجوعی و تسویه، همین مسیر پیام‌ها را پیگیری کنید.',
-      '',
       'هم‌زمان، آگهی مربوطه از انتشار موقت خارج می‌شود تا بتوانید نقص‌ها را با شفافیت بیشتر اصلاح و پس از اصلاح دوباره در «آگهی‌های من» ارسال کنید.',
-      '',
       `پس از بسته‌شدن قطعی همین پرونده و لغو رسمی از سمت طبقه، تأثیر منفی قانونی بر امتیاز معاملاتی حساب شما اعمال خواهد شد؛ طبق قوانین فعلی تا حدود ${penaltyExample} واحد کسر برای چنین رسیدگی قطعی پیش‌بینی شده است.`,
-      '',
       appendix,
-    ].join('\n');
+    ]);
 
-    const buyerTicketBody = [
-      'سلام گرامی،',
-      '',
+    const buyerTicketBody = formatTicketMessageBody([
       `از پیش‌آمد تجربه‌ای که انتظار داشتید با کارشناسی فنی تأیید شود خلاف شده، پوزش می‌خواهیم.`,
-      '',
       `دلیلی که مرکز کارشناسی طبقه برای این سفارش ثبت کرده است:\n«${opts.normalizedNote}»`,
-      '',
       `سفارش شمارهٔ #${opts.orderShortId} مربوط به «${opts.listingTitle}» در وضعیت «رد شده در هاب» قرار می‌گیرد. پشتیبانی طبقه مرجوعی رسمی را با هر دو طرف هماهنگ کرده؛ پس از تکمیل رسیدگی و قطعی‌شدن لغو رسمی مطابق ضوابط، بازگشت مبلغ پرداخت‌شده به کیف پول شما (یا مسیر تأییدشده قبلی)، طبق پل انتخاب رسمی پیام می‌شود و از همین تیکت هر پرسشی را دارید بازمی‌کنید.`,
-      '',
       `بر اساس ارزیابی کیفیت معامله، تأثیر قانونی احتمالی بر امتیاز معاملاتی فروشندگان خاطی نیز تنها بعد از قطعی‌شدن پرونده رسمی پیگیری می‌شود.`,
-      '',
       appendix,
-    ].join('\n');
+    ]);
 
     return {
       sellerTicketBody,

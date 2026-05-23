@@ -21,6 +21,7 @@ import {
   AdminReplyTicketDto,
   AdminUpdateTicketDto,
 } from '../dto/admin-ticket.dto';
+import { normalizeTicketMessage } from '../../../common/ticket-message.util';
 
 const TICKET_INCLUDE = {
   user: { select: { id: true, phone: true, firstName: true, lastName: true } },
@@ -108,7 +109,7 @@ export class AdminTicketsService {
         messages: {
           create: {
             senderRole: UserRole.ADMIN,
-            message: dto.message.trim(),
+            message: normalizeTicketMessage(dto.message),
           },
         },
       },
@@ -144,7 +145,7 @@ export class AdminTicketsService {
         data: {
           ticketId: id,
           senderRole: UserRole.ADMIN,
-          message: dto.message,
+          message: normalizeTicketMessage(dto.message),
         },
       }),
       this.prisma.ticket.update({
