@@ -1632,7 +1632,14 @@ export class WalletService {
       verificationFee: number;
       inspectionPenaltyPercent: number;
     },
-  ): Promise<void> {
+  ): Promise<{
+    buyerPaid: number;
+    sellerPaid: number;
+    buyerRefund: number;
+    sellerRefund: number;
+    penaltyPerParty: number;
+    penaltyPercent: number;
+  }> {
     const listingTitle = await this.listingTitleForWalletTx(
       tx,
       params.listingId,
@@ -1649,6 +1656,15 @@ export class WalletService {
       Math.floor((verificationFee * penaltyPercent) / 100),
     );
 
+    const summary = {
+      buyerPaid: 0,
+      sellerPaid: 0,
+      buyerRefund: 0,
+      sellerRefund: 0,
+      penaltyPerParty,
+      penaltyPercent,
+    };
+
     for (const party of [
       { userId: params.buyerId, role: 'buyer' as const },
       { userId: params.sellerId, role: 'seller' as const },
@@ -1659,6 +1675,13 @@ export class WalletService {
         listingId: params.listingId,
       });
       const refundAmount = Math.max(0, paid - penaltyPerParty);
+      if (party.role === 'buyer') {
+        summary.buyerPaid = paid;
+        summary.buyerRefund = refundAmount;
+      } else {
+        summary.sellerPaid = paid;
+        summary.sellerRefund = refundAmount;
+      }
       if (refundAmount <= 0) continue;
       await this.creditExchangeFixedRefund(tx, {
         orderId: params.orderId,
@@ -1683,6 +1706,8 @@ export class WalletService {
       cancelReason: 'لغو معامله معاوضه (عدم ارسال هر دو طرف)',
       debitReason: refundReason,
     });
+
+    return summary;
   }
 
   /**

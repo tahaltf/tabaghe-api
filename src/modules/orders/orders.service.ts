@@ -2885,6 +2885,49 @@ export class OrdersService {
   }
 
   /** تیکت و اعلان برای لغو معاوضه به‌دلیل عدم ارسال هر دو طرف در مهلت */
+  private buildExchangeBothNoShipmentPartyTicketLines(params: {
+    shortId: string;
+    listingTitle: string;
+    paidAmount: number;
+    refundAmount: number;
+    penaltyAmount: number;
+    penaltyPercent: number;
+    trustPenaltyPoints: number;
+  }): string[] {
+    const paidFa = Math.max(0, Number(params.paidAmount) || 0).toLocaleString(
+      'fa-IR',
+    );
+    const refundFa = Math.max(
+      0,
+      Number(params.refundAmount) || 0,
+    ).toLocaleString('fa-IR');
+    const penaltyFa = Math.max(
+      0,
+      Number(params.penaltyAmount) || 0,
+    ).toLocaleString('fa-IR');
+    const lines = [
+      `متأسفیم؛ معامله معاوضه #${params.shortId} برای «${params.listingTitle}» لغو شد.`,
+      'دلیل: هیچ‌یک از طرفین در مهلت قانونی ارسال، مرسوله را ثبت نکردند.',
+      `مبلغ پرداختی شما: ${paidFa} تومان.`,
+    ];
+    if (params.penaltyAmount > 0) {
+      lines.push(
+        `جریمه کارشناسی (${params.penaltyPercent}٪ طبق تنظیمات پلتفرم): ${penaltyFa} تومان.`,
+        `مبلغ واریزشده به کیف پول شما: ${refundFa} تومان (پس از کسر جریمه).`,
+      );
+    } else if (params.refundAmount > 0) {
+      lines.push(`مبلغ واریزشده به کیف پول شما: ${refundFa} تومان.`);
+    } else {
+      lines.push('مبلغی برای بازگشت به کیف پول شما ثبت نشد.');
+    }
+    lines.push(
+      'از صبر و شکیبایی شما سپاسگزاریم و بابت ناراحتی پیش‌آمده پوزش می‌خواهیم.',
+      `طبق قوانین طبقه، ${params.trustPenaltyPoints} واحد از امتیاز اعتماد شما کسر شد.`,
+      'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.',
+    );
+    return lines;
+  }
+
   private async createExchangeBothNoShipmentCancelTickets(
     tx: Prisma.TransactionClient,
     params: {
@@ -2892,40 +2935,50 @@ export class OrdersService {
       buyerId: string;
       sellerId: string;
       listingTitle: string;
+      buyerPaidAmount: number;
+      sellerPaidAmount: number;
       buyerRefundAmount: number;
       sellerRefundAmount: number;
+      inspectionPenaltyPercent: number;
+      inspectionPenaltyPerParty: number;
       trustPenaltyPoints?: number;
     },
   ): Promise<void> {
     const shortId = params.orderId.slice(-6);
     const penalty = params.trustPenaltyPoints ?? 15;
     const listingTitle = params.listingTitle?.trim() || 'کالا';
-    const buyerAmountFa = Math.max(
+    const penaltyPct = Math.max(
       0,
-      Number(params.buyerRefundAmount) || 0,
-    ).toLocaleString('fa-IR');
-    const sellerAmountFa = Math.max(
+      Number(params.inspectionPenaltyPercent) || 0,
+    );
+    const penaltyPerParty = Math.max(
       0,
-      Number(params.sellerRefundAmount) || 0,
-    ).toLocaleString('fa-IR');
+      Number(params.inspectionPenaltyPerParty) || 0,
+    );
 
-    const buyerTicketMessage = formatTicketMessageBody([
-      `متأسفیم؛ معامله معاوضه #${shortId} برای «${listingTitle}» لغو شد.`,
-      'دلیل: هیچ‌یک از طرفین در مهلت قانونی ارسال، مرسوله را ثبت نکردند.',
-      `سهم پرداختی شما (${buyerAmountFa} تومان، شامل هزینه کارشناسی) به کیف پولتان برگشت داده شد.`,
-      'از صبر و شکیبایی شما سپاسگزاریم و بابت ناراحتی پیش‌آمده پوزش می‌خواهیم.',
-      `طبق قوانین طبقه، ${penalty} واحد از امتیاز اعتماد شما کسر شد.`,
-      'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.',
-    ]);
+    const buyerTicketMessage = formatTicketMessageBody(
+      this.buildExchangeBothNoShipmentPartyTicketLines({
+        shortId,
+        listingTitle,
+        paidAmount: params.buyerPaidAmount,
+        refundAmount: params.buyerRefundAmount,
+        penaltyAmount: penaltyPerParty,
+        penaltyPercent: penaltyPct,
+        trustPenaltyPoints: penalty,
+      }),
+    );
 
-    const sellerTicketMessage = formatTicketMessageBody([
-      `متأسفیم؛ معامله معاوضه #${shortId} برای «${listingTitle}» لغو شد.`,
-      'دلیل: هیچ‌یک از طرفین در مهلت قانونی ارسال، مرسوله را ثبت نکردند.',
-      `سهم پرداختی شما (${sellerAmountFa} تومان، شامل هزینه کارشناسی) به کیف پولتان برگشت داده شد.`,
-      'از صبر و شکیبایی شما سپاسگزاریم و بابت ناراحتی پیش‌آمده پوزش می‌خواهیم.',
-      `طبق قوانین طبقه، ${penalty} واحد از امتیاز اعتماد شما کسر شد.`,
-      'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.',
-    ]);
+    const sellerTicketMessage = formatTicketMessageBody(
+      this.buildExchangeBothNoShipmentPartyTicketLines({
+        shortId,
+        listingTitle,
+        paidAmount: params.sellerPaidAmount,
+        refundAmount: params.sellerRefundAmount,
+        penaltyAmount: penaltyPerParty,
+        penaltyPercent: penaltyPct,
+        trustPenaltyPoints: penalty,
+      }),
+    );
 
     const bothNoShipSubject = buildOrderTicketSubject(
       'عدم ارسال هر دو طرف — لغو معاوضه',
@@ -2968,7 +3021,10 @@ export class OrdersService {
           userId: params.buyerId,
           type: NotificationType.TICKET_REPLY,
           title: 'معاوضه لغو شد — بازگشت وجه',
-          message: `معاوضه #${shortId} به‌دلیل عدم ارسال هر دو طرف لغو شد و سهم پرداختی شما به کیف پول برگشت.`,
+          message:
+            penaltyPerParty > 0
+              ? `معاوضه #${shortId} لغو شد. ${Math.max(0, params.buyerRefundAmount).toLocaleString('fa-IR')} تومان پس از کسر ${penaltyPct}٪ جریمه کارشناسی به کیف پول شما واریز شد.`
+              : `معاوضه #${shortId} به‌دلیل عدم ارسال هر دو طرف لغو شد و سهم پرداختی شما به کیف پول برگشت.`,
           meta: {
             orderId: params.orderId,
             ticketId: buyerTicket.id,
@@ -2979,7 +3035,10 @@ export class OrdersService {
           userId: params.sellerId,
           type: NotificationType.TICKET_REPLY,
           title: 'معاوضه لغو شد — بازگشت وجه',
-          message: `معاوضه #${shortId} به‌دلیل عدم ارسال هر دو طرف لغو شد و سهم پرداختی شما به کیف پول برگشت.`,
+          message:
+            penaltyPerParty > 0
+              ? `معاوضه #${shortId} لغو شد. ${Math.max(0, params.sellerRefundAmount).toLocaleString('fa-IR')} تومان پس از کسر ${penaltyPct}٪ جریمه کارشناسی به کیف پول شما واریز شد.`
+              : `معاوضه #${shortId} به‌دلیل عدم ارسال هر دو طرف لغو شد و سهم پرداختی شما به کیف پول برگشت.`,
           meta: {
             orderId: params.orderId,
             ticketId: sellerTicket.id,
@@ -3468,6 +3527,14 @@ export class OrdersService {
       offenderRefund: number;
       compensation: number;
     } | null = null;
+    let bothNoShipmentRefundSummary: {
+      buyerPaid: number;
+      sellerPaid: number;
+      buyerRefund: number;
+      sellerRefund: number;
+      penaltyPerParty: number;
+      penaltyPercent: number;
+    } | null = null;
 
     if (order.type === OrderType.EXCHANGE && exchangeOnlyOneSent) {
       const senderId = sellerSent ? order.sellerId : order.buyerId;
@@ -3485,20 +3552,15 @@ export class OrdersService {
           inspectionPenaltyPercent: exchangeNoShipmentCompensationPercent,
         });
     } else if (order.type === OrderType.EXCHANGE) {
-      const exchangeOffer = order.exchangeOfferId
-        ? await tx.exchangeOffer.findUnique({
-            where: { id: order.exchangeOfferId },
-            select: { extraPayment: true, isPayerMe: true },
-          })
-        : null;
-      await this.walletService.refundExchangeBothNoShipmentOnCancel(tx, {
-        orderId: order.id,
-        listingId: order.listingId,
-        buyerId: order.buyerId,
-        sellerId: order.sellerId,
-        verificationFee: Number(order.verificationFee || 0),
-        inspectionPenaltyPercent: exchangeNoShipmentCompensationPercent,
-      });
+      bothNoShipmentRefundSummary =
+        await this.walletService.refundExchangeBothNoShipmentOnCancel(tx, {
+          orderId: order.id,
+          listingId: order.listingId,
+          buyerId: order.buyerId,
+          sellerId: order.sellerId,
+          verificationFee: Number(order.verificationFee || 0),
+          inspectionPenaltyPercent: exchangeNoShipmentCompensationPercent,
+        });
     } else {
       const cancelReason = 'عدم ارسال فروشنده در مهلت مقرر؛ معامله لغو شد';
       await this.walletService.refundDirectOrderEscrowOnCancel(tx, {
@@ -3643,25 +3705,25 @@ export class OrdersService {
     }
 
     if (exchangeBothNoShipment && targetStatus === OrderStatus.CANCELLED) {
-      const exchangeOffer = order.exchangeOfferId
-        ? await tx.exchangeOffer.findUnique({
-            where: { id: order.exchangeOfferId },
-            select: { extraPayment: true, isPayerMe: true },
-          })
-        : null;
-      const verificationFee = Number(order.verificationFee || 0);
-      const extra = Number(exchangeOffer?.extraPayment || 0);
-      const buyerShare =
-        verificationFee + (exchangeOffer?.isPayerMe ? extra : 0);
-      const sellerShare =
-        verificationFee + (!exchangeOffer?.isPayerMe ? extra : 0);
+      const refundSummary = bothNoShipmentRefundSummary ?? {
+        buyerPaid: 0,
+        sellerPaid: 0,
+        buyerRefund: 0,
+        sellerRefund: 0,
+        penaltyPerParty: 0,
+        penaltyPercent: exchangeNoShipmentCompensationPercent,
+      };
       await this.createExchangeBothNoShipmentCancelTickets(tx, {
         orderId: order.id,
         buyerId: order.buyerId,
         sellerId: order.sellerId,
         listingTitle: order.listing?.title ?? 'کالا',
-        buyerRefundAmount: buyerShare,
-        sellerRefundAmount: sellerShare,
+        buyerPaidAmount: refundSummary.buyerPaid,
+        sellerPaidAmount: refundSummary.sellerPaid,
+        buyerRefundAmount: refundSummary.buyerRefund,
+        sellerRefundAmount: refundSummary.sellerRefund,
+        inspectionPenaltyPercent: refundSummary.penaltyPercent,
+        inspectionPenaltyPerParty: refundSummary.penaltyPerParty,
         trustPenaltyPoints: 15,
       });
     } else if (

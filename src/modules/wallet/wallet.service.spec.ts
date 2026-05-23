@@ -203,13 +203,22 @@ describe('WalletService - refundExchangeBothNoShipmentOnCancel', () => {
       },
     };
 
-    await service.refundExchangeBothNoShipmentOnCancel(tx, {
+    const summary = await service.refundExchangeBothNoShipmentOnCancel(tx, {
       orderId: 'ord-1',
       listingId: 'lst-1',
       buyerId: 'buyer-1',
       sellerId: 'seller-1',
       verificationFee: 100_000,
       inspectionPenaltyPercent: 20,
+    });
+
+    expect(summary).toEqual({
+      buyerPaid: 300_000,
+      sellerPaid: 100_000,
+      buyerRefund: 280_000,
+      sellerRefund: 80_000,
+      penaltyPerParty: 20_000,
+      penaltyPercent: 20,
     });
 
     expect(tx.wallet.update).toHaveBeenCalledWith(
@@ -270,7 +279,7 @@ describe('WalletService - refundExchangeBothNoShipmentOnCancel', () => {
       },
     };
 
-    await service.refundExchangeBothNoShipmentOnCancel(tx, {
+    const summary = await service.refundExchangeBothNoShipmentOnCancel(tx, {
       orderId: 'ord-1',
       listingId: 'lst-1',
       buyerId: 'buyer-1',
@@ -279,6 +288,8 @@ describe('WalletService - refundExchangeBothNoShipmentOnCancel', () => {
       inspectionPenaltyPercent: 20,
     });
 
+    expect(summary.buyerRefund).toBe(0);
+    expect(summary.sellerRefund).toBe(0);
     expect(tx.walletTransaction.create).not.toHaveBeenCalled();
     expect(tx.wallet.update).not.toHaveBeenCalled();
   });
