@@ -376,6 +376,75 @@ describe('OrdersService', () => {
     });
   });
 
+  it('autoCancelExpiredOrders: one-side timeout from SHIPPED_TO_HUB after first party ships', async () => {
+    const orderId = 'ord-ex-shipped';
+    const expiredOrder = {
+      id: orderId,
+      type: OrderType.EXCHANGE,
+      buyerId: 'buyer-1',
+      sellerId: 'seller-1',
+      listingId: 'lst-1',
+      exchangeOfferId: 'offer-1',
+      status: OrderStatus.SHIPPED_TO_HUB,
+      trackingCode: null,
+      sellerTrackingCode: 'BUYER-TRACK-24DIGITS000000',
+      sellerRevenue: 0,
+      totalAmount: 0,
+      verificationFee: 100,
+      exchangeHubInspection: {},
+      tradeReputationAt: null,
+      shippingDeadline: new Date(Date.now() - 60_000),
+      updatedAt: new Date(Date.now() - 86_400_000),
+      createdAt: new Date(Date.now() - 86_400_000),
+    };
+
+    prismaMock.order.findMany.mockResolvedValue([expiredOrder]);
+
+    const tx = {
+      exchangeOffer: {
+        findUnique: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      user: { update: jest.fn().mockResolvedValue({}) },
+      order: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ status: OrderStatus.SHIPPED_TO_HUB }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      listing: {
+        update: jest
+          .fn()
+          .mockResolvedValue({ id: 'lst-1', status: ListingStatus.APPROVED }),
+      },
+    };
+
+    prismaMock.$transaction.mockImplementation(
+      async (cb: (trx: typeof tx) => Promise<unknown>) => cb(tx),
+    );
+
+    walletMock.refundExchangeOneSideNoShipmentOnCancel.mockResolvedValue({
+      senderRefund: 200,
+      offenderRefund: 80,
+      compensation: 20,
+    });
+
+    await service.autoCancelExpiredOrders();
+
+    expect(stateMachineMock.assertTransition).toHaveBeenCalledWith(
+      OrderStatus.SHIPPED_TO_HUB,
+      OrderStatus.REJECTED_AT_HUB,
+      'auto-cancel-expired',
+    );
+    expect(walletMock.refundExchangeOneSideNoShipmentOnCancel).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        senderId: 'buyer-1',
+        offenderId: 'seller-1',
+      }),
+    );
+  });
+
   it('autoCancelExpiredOrders: exchange both no shipment -> CANCELLED + per-party refunds + both penalized', async () => {
     const orderId = 'ord-ex-both';
     const listingId = 'lst-1';

@@ -19,6 +19,7 @@ const TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   ],
   [OrderStatus.SHIPPED_TO_HUB]: [
     OrderStatus.RECEIVED_AT_HUB,
+    OrderStatus.REJECTED_AT_HUB,
     OrderStatus.CANCELLED,
   ],
   [OrderStatus.RECEIVED_AT_HUB]: [

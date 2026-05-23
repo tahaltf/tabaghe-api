@@ -3194,6 +3194,11 @@ export class OrdersService {
     OrderStatus.AWAITING_SHIPMENT_TO_HUB,
   ];
 
+  /** معاوضه: یک طرف ارسال کرده و منتظر ارسال طرف مقابل است */
+  private static readonly EXCHANGE_PEER_SHIP_WAIT_STATUSES: OrderStatus[] = [
+    OrderStatus.SHIPPED_TO_HUB,
+  ];
+
   private async getSellerShipDeadlineMinutes(): Promise<number> {
     const setting = await this.prisma.systemSetting.findFirst({
       where: {
@@ -3427,9 +3432,13 @@ export class OrdersService {
     updatedAt: Date;
     createdAt: Date;
   }): Promise<boolean> {
-    if (
-      !OrdersService.AWAITING_SELLER_SHIPMENT_STATUSES.includes(order.status)
-    ) {
+    const awaitingInitialShip =
+      OrdersService.AWAITING_SELLER_SHIPMENT_STATUSES.includes(order.status);
+    const exchangePeerShipWait =
+      order.type === OrderType.EXCHANGE &&
+      OrdersService.EXCHANGE_PEER_SHIP_WAIT_STATUSES.includes(order.status);
+
+    if (!awaitingInitialShip && !exchangePeerShipWait) {
       return false;
     }
 
@@ -3441,7 +3450,8 @@ export class OrdersService {
       const sellerSent = Boolean(order.trackingCode);
       const buyerSent = Boolean(order.sellerTrackingCode);
       if (sellerSent && buyerSent) return false;
-      return true;
+      if (!sellerSent && !buyerSent) return awaitingInitialShip;
+      return exchangePeerShipWait || awaitingInitialShip;
     }
 
     return !order.trackingCode;
@@ -3451,8 +3461,27 @@ export class OrdersService {
     const now = new Date();
     const candidates = await this.prisma.order.findMany({
       where: {
-        status: { in: OrdersService.AWAITING_SELLER_SHIPMENT_STATUSES },
-        OR: [{ shippingDeadline: { lte: now } }, { shippingDeadline: null }],
+        OR: [
+          {
+            status: { in: OrdersService.AWAITING_SELLER_SHIPMENT_STATUSES },
+            OR: [{ shippingDeadline: { lte: now } }, { shippingDeadline: null }],
+          },
+          {
+            type: OrderType.EXCHANGE,
+            status: OrderStatus.SHIPPED_TO_HUB,
+            shippingDeadline: { lte: now },
+            OR: [
+              {
+                trackingCode: { not: null },
+                sellerTrackingCode: null,
+              },
+              {
+                trackingCode: null,
+                sellerTrackingCode: { not: null },
+              },
+            ],
+          },
+        ],
       },
       include: {
         listing: { select: { title: true } },
@@ -3509,10 +3538,14 @@ export class OrdersService {
       where: { id: order.id },
       select: { status: true },
     });
-    if (
-      !current ||
-      !OrdersService.AWAITING_SELLER_SHIPMENT_STATUSES.includes(current.status)
-    ) {
+    const statusAllowsCancel =
+      current &&
+      (OrdersService.AWAITING_SELLER_SHIPMENT_STATUSES.includes(
+        current.status,
+      ) ||
+        (order.type === OrderType.EXCHANGE &&
+          current.status === OrderStatus.SHIPPED_TO_HUB));
+    if (!statusAllowsCancel) {
       return;
     }
 
