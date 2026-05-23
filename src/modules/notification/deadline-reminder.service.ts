@@ -8,6 +8,10 @@ import {
   OrderStatus,
   OrderType,
 } from '@prisma/client';
+import {
+  formatLessThanRemainingFa,
+  formatRemainingDurationFa,
+} from '../../common/format-remaining-duration-fa.util';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NotificationService } from './notification.service';
 
@@ -118,6 +122,18 @@ export class DeadlineReminderService {
     return Boolean(existing);
   }
 
+  private remainingUntilDeadline(
+    deadline: Date,
+    now = Date.now(),
+  ): { lessThanText: string; hoursLeft: number; timeLeftFa: string } {
+    const distance = deadline.getTime() - now;
+    return {
+      lessThanText: formatLessThanRemainingFa(distance),
+      hoursLeft: Math.max(1, Math.ceil(distance / (60 * 60 * 1000))),
+      timeLeftFa: formatRemainingDurationFa(distance) || '۱ دقیقه',
+    };
+  }
+
   private async sendDeadlineReminder(params: {
     userId: string;
     action: ReminderAction;
@@ -127,6 +143,7 @@ export class DeadlineReminderService {
     message: string;
     deadlineAt: Date;
     hoursLeft: number;
+    timeLeftFa: string;
     actionLabel: string;
   }): Promise<void> {
     if (
@@ -150,6 +167,7 @@ export class DeadlineReminderService {
         listingId: params.listingId,
         deadlineAt: params.deadlineAt.toISOString(),
         hoursLeft: params.hoursLeft,
+        timeLeftFa: params.timeLeftFa,
         actionLabel: params.actionLabel,
         deadlineFa: this.formatDeadlineFa(params.deadlineAt),
       },
@@ -218,10 +236,8 @@ export class DeadlineReminderService {
         Boolean(order.sellerShippingAddress) &&
         currentTotal >= expectedTotal;
 
-      const hoursLeft = Math.max(
-        1,
-        Math.ceil((deadline.getTime() - now) / (60 * 60 * 1000)),
-      );
+      const { lessThanText, timeLeftFa, hoursLeft } =
+        this.remainingUntilDeadline(deadline, now);
       const listingTitle = offer.listing?.title ?? 'معاوضه';
       const listingId = offer.listingId;
       const entityId = order?.id ?? offer.id;
@@ -233,9 +249,10 @@ export class DeadlineReminderService {
           entityId: `${entityId}:buyer`,
           listingId,
           title: 'یادآوری: مهلت پرداخت معاوضه',
-          message: `برای «${listingTitle}» کمتر از ${hoursLeft} ساعت تا پایان مهلت پرداخت سهم شما باقی مانده. لطفاً هرچه زودتر پرداخت را تکمیل کنید.`,
+          message: `برای «${listingTitle}» ${lessThanText} تا پایان مهلت پرداخت سهم شما باقی مانده. لطفاً هرچه زودتر پرداخت را تکمیل کنید.`,
           deadlineAt: deadline,
           hoursLeft,
+          timeLeftFa,
           actionLabel: 'پرداخت معاوضه',
         });
       }
@@ -247,9 +264,10 @@ export class DeadlineReminderService {
           entityId: `${entityId}:seller`,
           listingId,
           title: 'یادآوری: مهلت پرداخت معاوضه',
-          message: `برای «${listingTitle}» کمتر از ${hoursLeft} ساعت تا پایان مهلت پرداخت سهم شما باقی مانده. لطفاً هرچه زودتر پرداخت را تکمیل کنید.`,
+          message: `برای «${listingTitle}» ${lessThanText} تا پایان مهلت پرداخت سهم شما باقی مانده. لطفاً هرچه زودتر پرداخت را تکمیل کنید.`,
           deadlineAt: deadline,
           hoursLeft,
+          timeLeftFa,
           actionLabel: 'پرداخت معاوضه',
         });
       }
@@ -276,10 +294,8 @@ export class DeadlineReminderService {
       const deadline = order.shippingDeadline!;
       if (!this.isInReminderWindow(deadline, windowHours)) continue;
 
-      const hoursLeft = Math.max(
-        1,
-        Math.ceil((deadline.getTime() - now) / (60 * 60 * 1000)),
-      );
+      const { lessThanText, timeLeftFa, hoursLeft } =
+        this.remainingUntilDeadline(deadline, now);
       const listingTitle = order.listing?.title ?? 'معاوضه';
 
       if (!order.trackingCode) {
@@ -289,9 +305,10 @@ export class DeadlineReminderService {
           entityId: `${order.id}:seller`,
           listingId: order.listingId,
           title: 'یادآوری: مهلت ارسال به هاب',
-          message: `برای معاوضه «${listingTitle}» کمتر از ${hoursLeft} ساعت تا پایان مهلت ثبت ارسال کالای شما باقی مانده.`,
+          message: `برای معاوضه «${listingTitle}» ${lessThanText} تا پایان مهلت ثبت ارسال کالای شما باقی مانده.`,
           deadlineAt: deadline,
           hoursLeft,
+          timeLeftFa,
           actionLabel: 'ارسال به هاب',
         });
       }
@@ -303,9 +320,10 @@ export class DeadlineReminderService {
           entityId: `${order.id}:buyer`,
           listingId: order.listingId,
           title: 'یادآوری: مهلت ارسال به هاب',
-          message: `برای معاوضه «${listingTitle}» کمتر از ${hoursLeft} ساعت تا پایان مهلت ثبت ارسال کالای شما باقی مانده.`,
+          message: `برای معاوضه «${listingTitle}» ${lessThanText} تا پایان مهلت ثبت ارسال کالای شما باقی مانده.`,
           deadlineAt: deadline,
           hoursLeft,
+          timeLeftFa,
           actionLabel: 'ارسال به هاب',
         });
       }
@@ -333,10 +351,8 @@ export class DeadlineReminderService {
       const deadline = order.shippingDeadline!;
       if (!this.isInReminderWindow(deadline, windowHours)) continue;
 
-      const hoursLeft = Math.max(
-        1,
-        Math.ceil((deadline.getTime() - now) / (60 * 60 * 1000)),
-      );
+      const { lessThanText, timeLeftFa, hoursLeft } =
+        this.remainingUntilDeadline(deadline, now);
       const listingTitle = order.listing?.title ?? 'سفارش';
 
       await this.sendDeadlineReminder({
@@ -345,9 +361,10 @@ export class DeadlineReminderService {
         entityId: order.id,
         listingId: order.listingId,
         title: 'یادآوری: مهلت ارسال سفارش',
-        message: `برای «${listingTitle}» کمتر از ${hoursLeft} ساعت تا پایان مهلت ثبت کد رهگیری و ارسال باقی مانده.`,
+        message: `برای «${listingTitle}» ${lessThanText} تا پایان مهلت ثبت کد رهگیری و ارسال باقی مانده.`,
         deadlineAt: deadline,
         hoursLeft,
+        timeLeftFa,
         actionLabel: 'ارسال کالا',
       });
     }
@@ -391,10 +408,8 @@ export class DeadlineReminderService {
       if (hasCompletedPayment) continue;
 
       const deadline = auction.paymentDeadline;
-      const hoursLeft = Math.max(
-        1,
-        Math.ceil((deadline.getTime() - Date.now()) / (60 * 60 * 1000)),
-      );
+      const { lessThanText, timeLeftFa, hoursLeft } =
+        this.remainingUntilDeadline(deadline);
       const listingTitle = auction.listing?.title ?? 'مزایده';
 
       await this.sendDeadlineReminder({
@@ -403,9 +418,10 @@ export class DeadlineReminderService {
         entityId: auction.listingId,
         listingId: auction.listingId,
         title: 'یادآوری: مهلت پرداخت مزایده',
-        message: `شما برنده «${listingTitle}» هستید. کمتر از ${hoursLeft} ساعت تا پایان مهلت پرداخت باقی مانده.`,
+        message: `شما برنده «${listingTitle}» هستید. ${lessThanText} تا پایان مهلت پرداخت باقی مانده.`,
         deadlineAt: deadline,
         hoursLeft,
+        timeLeftFa,
         actionLabel: 'پرداخت مزایده',
       });
     }

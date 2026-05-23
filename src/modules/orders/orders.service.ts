@@ -89,6 +89,8 @@ export class OrdersService {
         ? { buyerId: userId }
         : {
             sellerId: userId,
+            // معاوضه برای صاحب آگهی فقط از مسیر «درخواست‌های جاری» پیگیری می‌شود
+            type: { not: OrderType.EXCHANGE },
             NOT: {
               AND: [
                 { type: { in: [OrderType.DIRECT, OrderType.AUCTION] } },
@@ -2125,9 +2127,22 @@ export class OrdersService {
           isPayerMe: true,
           status: true,
           createdAt: true,
+          updatedAt: true,
         },
       });
       (order as any).exchangeOffer = exchangeOffer;
+      if (
+        exchangeOffer &&
+        (order.status === OrderStatus.PENDING ||
+          order.status === OrderStatus.AWAITING_PAYMENT)
+      ) {
+        const paymentDeadlineMinutes =
+          await this.getExchangePaymentDeadlineMinutes();
+        const base = exchangeOffer.updatedAt ?? order.createdAt;
+        (order as any).exchangePaymentDeadline = new Date(
+          base.getTime() + paymentDeadlineMinutes * 60_000,
+        );
+      }
       if (exchangeOffer) {
         const verification = Number(order.verificationFee || 0);
         const extra = Number(exchangeOffer.extraPayment || 0);
@@ -3182,9 +3197,18 @@ export class OrdersService {
         : typeof deadlineRaw === 'string'
           ? deadlineRaw
           : null;
+    const exchangePaymentDeadlineRaw = (o as { exchangePaymentDeadline?: unknown })
+      .exchangePaymentDeadline;
+    const exchangePaymentDeadline =
+      exchangePaymentDeadlineRaw instanceof Date
+        ? exchangePaymentDeadlineRaw.toISOString()
+        : typeof exchangePaymentDeadlineRaw === 'string'
+          ? exchangePaymentDeadlineRaw
+          : null;
     return {
       ...order,
       buyerConfirmDeadline,
+      exchangePaymentDeadline,
       returnDestinationAddress: returnDestinationAddress ?? null,
       returnDestinationPostalCode: returnDestinationPostalCode ?? null,
     } as T;

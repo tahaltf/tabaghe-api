@@ -837,11 +837,27 @@ export class WalletService {
     return sum;
   }
 
-  /** لغو DEPOSIT امانی معلق و آزادسازی مبلغ بلوکه‌شده روی کیف طرف مقابل. */
+  /** لغو DEPOSIT امانی معلق و آزادسازی مبلغ بلوکه‌شده روی کیف طرف مقابل + ثبت تراکنش موفق برای گزارش کیف پول. */
   private async failExchangePendingDepositsUnwindBlocked(
     tx: Prisma.TransactionClient,
-    params: { listingId: string; userIds: string[] },
+    params: {
+      listingId: string;
+      userIds: string[];
+      orderId?: string;
+      cancelReason?: string;
+      debitReason?: string;
+    },
   ): Promise<void> {
+    const listingTitle = await this.listingTitleForWalletTx(
+      tx,
+      params.listingId,
+    );
+    const titleQuoted = listingTitle ? `«${listingTitle}»` : 'این آگهی';
+    const cancelReason =
+      params.cancelReason ?? 'لغو معامله معاوضه';
+    const debitReason =
+      params.debitReason ?? 'exchange-escrow-unwind';
+
     for (const userId of params.userIds) {
       const wallet = await tx.wallet.findUnique({
         where: { userId },
@@ -865,10 +881,44 @@ export class WalletService {
       });
       if (!escrowPending.length) continue;
 
-      const totalBlocked = escrowPending.reduce(
-        (sum, t) => sum + Math.max(0, Number(t.amount) || 0),
-        0,
-      );
+      let totalBlocked = 0;
+      for (const dep of escrowPending) {
+        const amount = Math.max(0, Number(dep.amount) || 0);
+        if (amount <= 0) continue;
+        totalBlocked += amount;
+
+        const existingUnwind = await tx.walletTransaction.findFirst({
+          where: {
+            walletId: wallet.id,
+            type: WalletTransactionType.PENALTY,
+            status: WalletTransactionStatus.SUCCESS,
+            meta: { path: ['pendingDepositId'], equals: dep.id },
+          },
+          select: { id: true },
+        });
+        if (existingUnwind) continue;
+
+        await tx.walletTransaction.create({
+          data: {
+            walletId: wallet.id,
+            amount,
+            type: WalletTransactionType.PENALTY,
+            status: WalletTransactionStatus.SUCCESS,
+            referenceId: params.orderId ?? params.listingId,
+            meta: {
+              kind: 'order-escrow',
+              phase: 'peer_blocked_unwind',
+              pendingDepositId: dep.id,
+              debitReason,
+              orderId: params.orderId,
+              listingId: params.listingId,
+              ...(listingTitle ? { listingTitle } : {}),
+              description: `لغو معامله برای ${titleQuoted}: مبلغ ${amount.toLocaleString('fa-IR')} تومان که به‌صورت امانی در کیف پول شما بلوکه شده بود، آزاد شد (${cancelReason}).`,
+            } as Prisma.InputJsonValue,
+          },
+        });
+      }
+
       if (totalBlocked > 0) {
         await tx.wallet.update({
           where: { userId },
@@ -1357,6 +1407,9 @@ export class WalletService {
     await this.failExchangePendingDepositsUnwindBlocked(tx, {
       listingId: params.listingId,
       userIds: [params.buyerId, params.sellerId],
+      orderId: params.orderId,
+      cancelReason: 'اتمام مهلت پرداخت معاوضه',
+      debitReason: refundReason,
     });
 
     return { buyerRefund, sellerRefund };
@@ -1450,6 +1503,9 @@ export class WalletService {
     await this.failExchangePendingDepositsUnwindBlocked(tx, {
       listingId: params.listingId,
       userIds: [params.buyerId, params.sellerId],
+      orderId: params.orderId,
+      cancelReason: 'لغو معامله معاوضه (عدم ارسال یک طرف)',
+      debitReason: 'exchange-one-side-shipment-cancel',
     });
 
     return { senderRefund, offenderRefund, compensation };
@@ -1577,6 +1633,9 @@ export class WalletService {
     await this.failExchangePendingDepositsUnwindBlocked(tx, {
       listingId: params.listingId,
       userIds: [params.buyerId, params.sellerId],
+      orderId: params.orderId,
+      cancelReason: 'لغو معامله معاوضه (عدم ارسال هر دو طرف)',
+      debitReason: refundReason,
     });
   }
 
@@ -1702,6 +1761,9 @@ export class WalletService {
     await this.failExchangePendingDepositsUnwindBlocked(tx, {
       listingId: params.listingId,
       userIds: [params.buyerId, params.sellerId],
+      orderId: params.orderId,
+      cancelReason: 'لغو معامله پس از کارشناسی',
+      debitReason: 'exchange-inspection-outcome',
     });
   }
 

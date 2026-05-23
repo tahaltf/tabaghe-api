@@ -234,9 +234,12 @@ describe('WalletService - refundExchangeBothNoShipmentOnCancel', () => {
     const refundCreates = tx.walletTransaction.create.mock.calls.map(
       (c: any) => c[0].data,
     );
-    expect(refundCreates).toHaveLength(2);
+    expect(refundCreates).toHaveLength(3);
     expect(refundCreates[0].amount).toBe(280_000);
     expect(refundCreates[1].amount).toBe(80_000);
+    expect(refundCreates[2].type).toBe(WalletTransactionType.PENALTY);
+    expect(refundCreates[2].amount).toBe(200_000);
+    expect(refundCreates[2].status).toBe(WalletTransactionStatus.SUCCESS);
     expect(tx.walletTransaction.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: { in: ['dep-1'] } },
@@ -278,6 +281,112 @@ describe('WalletService - refundExchangeBothNoShipmentOnCancel', () => {
 
     expect(tx.walletTransaction.create).not.toHaveBeenCalled();
     expect(tx.wallet.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('WalletService - refundExchangePaymentTimeoutOnCancel', () => {
+  const prismaMock = {} as any;
+  const notificationMock = {} as any;
+
+  it('unwinds peer blocked deposit on seller wallet with SUCCESS PENALTY log', async () => {
+    const service = new WalletService(prismaMock, notificationMock);
+
+    const settlementsByWallet: Record<
+      string,
+      { amount: number; meta: object }[]
+    > = {
+      'buyer-1-wallet-id': [
+        {
+          amount: 500_000,
+          meta: {
+            phase: 'exchange_participant_paid',
+            payerUserId: 'buyer-1',
+            orderId: 'ord-1',
+          },
+        },
+      ],
+    };
+
+    const pendingDepositsByWallet: Record<
+      string,
+      { id: string; amount: number; meta: object }[]
+    > = {
+      'seller-1-wallet-id': [
+        {
+          id: 'dep-seller-blocked',
+          amount: 200_000,
+          meta: { kind: 'order-escrow', phase: 'seller_blocked' },
+        },
+      ],
+    };
+
+    const tx: any = {
+      listing: {
+        findUnique: jest.fn().mockResolvedValue({ title: 'گوشی' }),
+      },
+      wallet: {
+        upsert: jest.fn().mockResolvedValue({}),
+        findUnique: jest.fn(async ({ where }: any) => ({
+          id: `${where.userId}-wallet-id`,
+        })),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      walletTransaction: {
+        findMany: jest.fn(async ({ where }: any) => {
+          const walletId = where.walletId as string;
+          if (where.type === WalletTransactionType.SETTLEMENT) {
+            return settlementsByWallet[walletId] ?? [];
+          }
+          if (where.status === WalletTransactionStatus.PENDING) {
+            return pendingDepositsByWallet[walletId] ?? [];
+          }
+          return [];
+        }),
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+
+    const result = await service.refundExchangePaymentTimeoutOnCancel(tx, {
+      orderId: 'ord-1',
+      listingId: 'lst-1',
+      buyerId: 'buyer-1',
+      sellerId: 'seller-1',
+      refundBuyer: true,
+      refundSeller: false,
+    });
+
+    expect(result.buyerRefund).toBe(500_000);
+    expect(result.sellerRefund).toBe(0);
+
+    expect(tx.wallet.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: 'seller-1' },
+        data: { balanceBlocked: { decrement: 200_000 } },
+      }),
+    );
+
+    const creates = tx.walletTransaction.create.mock.calls.map(
+      (c: any) => c[0].data,
+    );
+    expect(creates).toHaveLength(2);
+    expect(creates[0].type).toBe(WalletTransactionType.REFUND);
+    expect(creates[0].amount).toBe(500_000);
+    expect(creates[1].type).toBe(WalletTransactionType.PENALTY);
+    expect(creates[1].amount).toBe(200_000);
+    expect(creates[1].status).toBe(WalletTransactionStatus.SUCCESS);
+    expect(creates[1].meta).toMatchObject({
+      phase: 'peer_blocked_unwind',
+      pendingDepositId: 'dep-seller-blocked',
+    });
+
+    expect(tx.walletTransaction.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: { in: ['dep-seller-blocked'] } },
+        data: { status: WalletTransactionStatus.FAILED },
+      }),
+    );
   });
 });
 
