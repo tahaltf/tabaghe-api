@@ -35,11 +35,14 @@ RUN apk add --no-cache \
     ca-certificates \
     ttf-freefont
 
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+# 🟢 اصلاح و یکپارچه‌سازی متغیرها در استیج دوم (برای متوقف کردن دانلود در npm ci)
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 ENV NODE_ENV=production
 
 COPY package*.json ./
+# 🟢 حالا این دستور بدون تلاش برای دانلود کروم و بدون خطا اجرا می‌شود
 RUN npm ci --only=production --legacy-peer-deps
 
 # کپی کردن خروجی‌های اصلی از استیج بیلد
