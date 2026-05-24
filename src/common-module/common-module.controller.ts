@@ -118,4 +118,9 @@ export class CommonController {
   ) {
     return this.commonService.submitContactMessage(body);
   }
+
+  @Post('customer-club')
+  async subscribeCustomerClub(@Body() body: { contact: string }) {
+    return this.commonService.subscribeCustomerClub(body.contact);
+  }
 }

@@ -15,7 +15,11 @@ export class OrdersQueryService {
 
   getMyRequests(
     userId: string,
-    options: { page?: number; pageSize?: number } = {},
+    options: {
+      exchangePage?: number;
+      auctionPage?: number;
+      pageSize?: number;
+    } = {},
   ) {
     return this.ordersService.getMyRequests(userId, options);
   }

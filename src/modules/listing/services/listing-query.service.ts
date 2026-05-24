@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import {
+  ExchangeOfferStatus,
   ListingStatus,
   ListingType,
   OrderStatus,
@@ -237,7 +238,7 @@ export class ListingQueryService {
     const skip = (page - 1) * pageSize;
 
     const where: Prisma.ListingWhereInput = { authorId: userId };
-    const [items, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       this.prisma.listing.findMany({
         where,
         include: LIST_ITEM_INCLUDE,
@@ -247,6 +248,28 @@ export class ListingQueryService {
       }),
       this.prisma.listing.count({ where }),
     ]);
+
+    const items = await Promise.all(
+      rows.map(async (item) => {
+        const allowsExchange =
+          item.type === ListingType.EXCHANGE ||
+          Boolean(item.direct?.allowExchange);
+        if (!allowsExchange) {
+          return { ...item, pendingExchangeOffersCount: 0 };
+        }
+        const pendingExchangeOffersCount =
+          await this.prisma.exchangeOffer.count({
+            where: {
+              listingId: item.id,
+              status: ExchangeOfferStatus.PENDING,
+              ...(item.exchangeOffersSince
+                ? { createdAt: { gte: item.exchangeOffersSince } }
+                : {}),
+            },
+          });
+        return { ...item, pendingExchangeOffersCount };
+      }),
+    );
 
     return { items, pagination: buildPaginationMeta(page, pageSize, total) };
   }

@@ -220,11 +220,17 @@ export class OrdersService {
   // =================================================================
   async getMyRequests(
     userId: string,
-    options: { page?: number; pageSize?: number } = {},
+    options: {
+      exchangePage?: number;
+      auctionPage?: number;
+      pageSize?: number;
+    } = {},
   ) {
-    const page = Math.max(1, options.page ?? 1);
+    const exchangePage = Math.max(1, options.exchangePage ?? 1);
+    const auctionPage = Math.max(1, options.auctionPage ?? 1);
     const pageSize = Math.min(50, Math.max(1, options.pageSize ?? 20));
-    const skip = (page - 1) * pageSize;
+    const exchangeSkip = (exchangePage - 1) * pageSize;
+    const auctionSkip = (auctionPage - 1) * pageSize;
 
     const [exchangeOffersRaw, rawBids] = await Promise.all([
       this.prisma.exchangeOffer.findMany({
@@ -266,7 +272,7 @@ export class OrdersService {
       this.prisma.auctionBid.findMany({
         where: { bidderId: userId },
         distinct: ['listingId'],
-        skip,
+        skip: auctionSkip,
         take: pageSize,
         select: {
           id: true,
@@ -295,17 +301,18 @@ export class OrdersService {
       }),
     ]);
 
-    const exchangeOffers = exchangeOffersRaw
-      .filter((o) => {
-        // پیشنهاددهنده همیشه تاریخچهٔ درخواست‌های خود را می‌بیند (حتی پس از لغو معامله)
-        if (o.offererId === userId) return true;
-        // صاحب آگهی فقط پیشنهادهای دورهٔ فعلی آگهی را می‌بیند
-        return (
-          !o.listing.exchangeOffersSince ||
-          o.createdAt >= o.listing.exchangeOffersSince
-        );
-      })
-      .slice(skip, skip + pageSize);
+    const exchangeOffersFiltered = exchangeOffersRaw.filter((o) => {
+      if (o.offererId === userId) return true;
+      return (
+        !o.listing.exchangeOffersSince ||
+        o.createdAt >= o.listing.exchangeOffersSince
+      );
+    });
+    const exchangeTotal = exchangeOffersFiltered.length;
+    const exchangeOffers = exchangeOffersFiltered.slice(
+      exchangeSkip,
+      exchangeSkip + pageSize,
+    );
 
     const offerIds = exchangeOffers.map((o) => o.id);
     const linkedOrders = offerIds.length
@@ -358,7 +365,31 @@ export class OrdersService {
       }),
     );
 
-    return { exchangeOffers: exchangeOffersWithPaymentState, auctionBids };
+    const auctionListingIds = await this.prisma.auctionBid.findMany({
+      where: { bidderId: userId },
+      distinct: ['listingId'],
+      select: { listingId: true },
+    });
+    const auctionTotal = auctionListingIds.length;
+
+    return {
+      exchangeOffers: exchangeOffersWithPaymentState,
+      auctionBids,
+      pagination: {
+        exchange: {
+          page: exchangePage,
+          pageSize,
+          total: exchangeTotal,
+          totalPages: Math.max(1, Math.ceil(exchangeTotal / pageSize)),
+        },
+        auction: {
+          page: auctionPage,
+          pageSize,
+          total: auctionTotal,
+          totalPages: Math.max(1, Math.ceil(auctionTotal / pageSize)),
+        },
+      },
+    };
   }
 
   // =================================================================

@@ -75,11 +75,13 @@ export class OrdersController {
   @Get('requests')
   getMyRequests(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('page') page?: string,
+    @Query('exchangePage') exchangePage?: string,
+    @Query('auctionPage') auctionPage?: string,
     @Query('pageSize') pageSize?: string,
   ) {
     return this.queryService.getMyRequests(user.id, {
-      page: page ? Number(page) : undefined,
+      exchangePage: exchangePage ? Number(exchangePage) : undefined,
+      auctionPage: auctionPage ? Number(auctionPage) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     });
   }

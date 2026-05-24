@@ -34,6 +34,20 @@ export class WalletController {
     return this.walletService.getWalletByUserId(req.user.id);
   }
 
+  @Get('transactions')
+  async getMyWalletTransactions(
+    @Req() req: any,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('filter') filter?: 'ALL' | 'INCOME' | 'EXPENSE' | 'BLOCKED' | 'PENDING',
+  ) {
+    return this.walletService.getUserWalletTransactions(req.user.id, {
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+      filter: filter ?? 'ALL',
+    });
+  }
+
   /**
    * Instant online charge (payment-gateway callback). Kept for backward
    * compatibility – no admin approval.
