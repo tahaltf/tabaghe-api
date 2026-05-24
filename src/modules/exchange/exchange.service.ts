@@ -493,13 +493,10 @@ export class ExchangeService {
       }
     }
 
-    let effectiveStatus = offer.status;
-    if (
-      linkedOrder?.status === OrderStatus.CANCELLED &&
-      offer.status === ExchangeOfferStatus.ACCEPTED
-    ) {
-      effectiveStatus = ExchangeOfferStatus.CANCELLED;
-    }
+    let effectiveStatus =
+      linkedOrder?.status === OrderStatus.CANCELLED
+        ? ExchangeOfferStatus.CANCELLED
+        : offer.status;
 
     const paymentDeadlineMinutes = await this.getExchangePaymentDeadlineMinutes();
     const paymentDeadlineAt =

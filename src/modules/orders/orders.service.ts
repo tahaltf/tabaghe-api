@@ -337,8 +337,7 @@ export class OrdersService {
         ? Boolean(linked?.shippingAddress)
         : Boolean(linked?.sellerShippingAddress);
       const status =
-        linked?.status === OrderStatus.CANCELLED &&
-        offer.status === ExchangeOfferStatus.ACCEPTED
+        linked?.status === OrderStatus.CANCELLED
           ? ExchangeOfferStatus.CANCELLED
           : offer.status;
       return {
@@ -564,6 +563,19 @@ export class OrdersService {
         }
 
         if (!existingExchangeOrder) {
+          const orderOnListing = await tx.order.findUnique({
+            where: { listingId },
+          });
+          if (
+            orderOnListing?.type === OrderType.EXCHANGE &&
+            orderOnListing.exchangeOfferId === finalExchangeId &&
+            orderOnListing.status !== OrderStatus.CANCELLED
+          ) {
+            existingExchangeOrder = orderOnListing;
+          }
+        }
+
+        if (!existingExchangeOrder) {
           const blockingListingOrder = await tx.order.findUnique({
             where: { listingId },
             select: {
@@ -571,24 +583,36 @@ export class OrdersService {
               status: true,
               exchangeOfferId: true,
               totalAmount: true,
+              type: true,
             },
           });
           if (blockingListingOrder) {
-            const unpaidAwaiting =
-              blockingListingOrder.status === OrderStatus.AWAITING_PAYMENT &&
-              Number(blockingListingOrder.totalAmount ?? 0) === 0;
-            const removable =
-              blockingListingOrder.status === OrderStatus.CANCELLED ||
-              blockingListingOrder.status === OrderStatus.PENDING ||
-              unpaidAwaiting;
-            if (removable) {
-              await tx.order.delete({
+            const isSameExchangeOrder =
+              blockingListingOrder.type === OrderType.EXCHANGE &&
+              blockingListingOrder.exchangeOfferId === finalExchangeId &&
+              blockingListingOrder.status !== OrderStatus.CANCELLED;
+
+            if (isSameExchangeOrder) {
+              existingExchangeOrder = (await tx.order.findUnique({
                 where: { id: blockingListingOrder.id },
-              });
+              }))!;
             } else {
-              throw new BadRequestException(
-                'این کالا در حال حاضر در جریان معامله است.',
-              );
+              const unpaidAwaiting =
+                blockingListingOrder.status === OrderStatus.AWAITING_PAYMENT &&
+                Number(blockingListingOrder.totalAmount ?? 0) === 0;
+              const removable =
+                blockingListingOrder.status === OrderStatus.CANCELLED ||
+                blockingListingOrder.status === OrderStatus.PENDING ||
+                unpaidAwaiting;
+              if (removable) {
+                await tx.order.delete({
+                  where: { id: blockingListingOrder.id },
+                });
+              } else {
+                throw new BadRequestException(
+                  'این کالا در حال حاضر در جریان معامله است.',
+                );
+              }
             }
           }
         }
