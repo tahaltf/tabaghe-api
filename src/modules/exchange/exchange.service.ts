@@ -18,6 +18,7 @@ import { CreateExchangeOfferDto } from './create-exchange-offer.dto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ExchangeEvents } from './exchange.events';
 import { prepareListingSlotForExchangeCheckout } from '../orders/exchange-listing-order.util';
+import { resolveExchangeOfferListDisplay } from '../orders/exchange-offer-display.util';
 
 @Injectable()
 export class ExchangeService {
@@ -481,7 +482,12 @@ export class ExchangeService {
 
     const linkedOrder = await this.prisma.order.findFirst({
       where: { exchangeOfferId: offer.id },
-      select: { id: true, status: true },
+      select: {
+        id: true,
+        status: true,
+        exchangeHubInspection: true,
+        cancelReason: true,
+      },
     });
 
     let mySharePaid = false;
@@ -520,10 +526,8 @@ export class ExchangeService {
       }
     }
 
-    let effectiveStatus =
-      linkedOrder?.status === OrderStatus.CANCELLED
-        ? ExchangeOfferStatus.CANCELLED
-        : offer.status;
+    const display = resolveExchangeOfferListDisplay(offer.status, linkedOrder);
+    const effectiveStatus = display.status;
 
     const paymentDeadlineMinutes = await this.getExchangePaymentDeadlineMinutes();
     const paymentDeadlineAt =
@@ -534,9 +538,20 @@ export class ExchangeService {
           ).toISOString()
         : null;
 
-    const orderCancelled = linkedOrder?.status === OrderStatus.CANCELLED;
+    const orderCancelled =
+      linkedOrder?.status === OrderStatus.CANCELLED ||
+      display.exchangeCancelKind === 'NO_SHIPMENT_TIMEOUT' ||
+      display.exchangeCancelKind === 'BOTH_NO_SHIPMENT';
     let checkoutBlockedReason: string | null = null;
-    if (mySharePaid) {
+    if (display.exchangeCancelKind === 'NO_SHIPMENT_TIMEOUT') {
+      checkoutBlockedReason =
+        'معامله به‌دلیل عدم ارسال در مهلت مقرر لغو شده است.';
+    } else if (display.exchangeCancelKind === 'BOTH_NO_SHIPMENT') {
+      checkoutBlockedReason =
+        'معامله به‌دلیل عدم ارسال هر دو طرف در مهلت مقرر لغو شده است.';
+    } else if (display.exchangeCancelKind === 'HUB_REJECT') {
+      checkoutBlockedReason = 'این معامله در کارشناسی هاب رد شده است.';
+    } else if (mySharePaid) {
       checkoutBlockedReason =
         'سهم شما برای این معاوضه قبلاً پرداخت شده است.';
     } else if (orderCancelled) {
@@ -558,6 +573,7 @@ export class ExchangeService {
     return {
       ...offer,
       status: effectiveStatus,
+      exchangeCancelKind: display.exchangeCancelKind,
       exchangeOrderId: linkedOrder?.id ?? null,
       exchangeOrderStatus: linkedOrder?.status ?? null,
       mySharePaid,

@@ -45,6 +45,8 @@ import {
   formatTicketMessageBody,
 } from '../../common/ticket-message.util';
 import { prepareListingSlotForExchangeCheckout } from './exchange-listing-order.util';
+import { resolveExchangeOfferListDisplay } from './exchange-offer-display.util';
+import { formatMinutesDurationFa } from '../../common/duration-format.util';
 
 @Injectable()
 export class OrdersService {
@@ -325,6 +327,8 @@ export class OrdersService {
             shippingAddress: true,
             sellerShippingAddress: true,
             status: true,
+            exchangeHubInspection: true,
+            cancelReason: true,
           },
         })
       : [];
@@ -337,13 +341,11 @@ export class OrdersService {
       const mySharePaid = isOfferer
         ? Boolean(linked?.shippingAddress)
         : Boolean(linked?.sellerShippingAddress);
-      const status =
-        linked?.status === OrderStatus.CANCELLED
-          ? ExchangeOfferStatus.CANCELLED
-          : offer.status;
+      const display = resolveExchangeOfferListDisplay(offer.status, linked);
       return {
         ...offer,
-        status,
+        status: display.status,
+        exchangeCancelKind: display.exchangeCancelKind,
         isOfferer,
         exchangeOrderId: linked?.id ?? null,
         exchangeOrderStatus: linked?.status ?? null,
@@ -1272,7 +1274,7 @@ export class OrdersService {
       );
     }
 
-    // در معاوضه: بعد از ثبت اولین ارسال، طرف مقابل ۴۸ ساعت فرصت دارد ارسال خودش را ثبت کند.
+    // در معاوضه: بعد از ثبت اولین ارسال، مهلت ارسال طرف مقابل از تنظیمات ادمین تمدید می‌شود.
     if (order.type === OrderType.EXCHANGE) {
       const sellerTrackingAfter = isSeller ? trackingCode : order.trackingCode;
       const buyerTrackingAfter = isBuyer
@@ -3220,12 +3222,16 @@ export class OrdersService {
   }
 
   private async resolveEffectiveShippingDeadline(order: {
+    type?: OrderType;
     shippingDeadline: Date | null;
     updatedAt: Date;
     createdAt: Date;
   }): Promise<Date | null> {
     if (order.shippingDeadline) return order.shippingDeadline;
-    const minutes = await this.getSellerShipDeadlineMinutes();
+    const minutes =
+      order.type === OrderType.EXCHANGE
+        ? await this.getExchangeShipmentDeadlineMinutes()
+        : await this.getSellerShipDeadlineMinutes();
     const base = order.updatedAt ?? order.createdAt;
     if (!base) return null;
     return new Date(base.getTime() + minutes * 60 * 1000);
@@ -3555,6 +3561,12 @@ export class OrdersService {
       order.type === OrderType.EXCHANGE && Boolean(order.sellerTrackingCode);
     const exchangeOnlyOneSent =
       order.type === OrderType.EXCHANGE && sellerSent !== buyerSentForExchange;
+    const exchangeShipDeadlineLabel =
+      order.type === OrderType.EXCHANGE
+        ? formatMinutesDurationFa(
+            await this.getExchangeShipmentDeadlineMinutes(),
+          )
+        : null;
 
     let oneSideRefundSummary: {
       senderRefund: number;
@@ -3651,9 +3663,9 @@ export class OrdersService {
         status: targetStatus,
         cancelReason:
           order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
-            ? 'عدم ارسال یکی از طرفین در مهلت ۴۸ ساعته پس از ارسال طرف مقابل؛ مرجوعی کالای ارسال‌شده الزامی است'
+            ? `عدم ارسال یکی از طرفین در مهلت ${exchangeShipDeadlineLabel ?? 'مقرر'} پس از ارسال طرف مقابل؛ مرجوعی کالای ارسال‌شده الزامی است`
             : exchangeBothNoShipment
-              ? 'عدم ارسال هر دو طرف در مهلت مقرر؛ معامله معاوضه لغو شد'
+              ? `عدم ارسال هر دو طرف در مهلت ${exchangeShipDeadlineLabel ?? 'مقرر'}؛ معامله معاوضه لغو شد`
               : 'عدم ارسال فروشنده در مهلت مقرر؛ معامله لغو شد',
         ...(order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
           ? {
