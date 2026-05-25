@@ -17,7 +17,7 @@ import {
 import { CreateExchangeOfferDto } from './create-exchange-offer.dto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ExchangeEvents } from './exchange.events';
-import { removeStaleListingOrderForAcceptedExchange } from '../orders/exchange-listing-order.util';
+import { prepareListingSlotForExchangeCheckout } from '../orders/exchange-listing-order.util';
 
 @Injectable()
 export class ExchangeService {
@@ -279,11 +279,17 @@ export class ExchangeService {
       });
 
       // سایر درخواست‌ها را رد قطعی نمی‌کنیم؛ در صف انتظار می‌مانند تا قفل شدن معامله یا انصراف خریدار اول
+      // پیشنهادهای PENDING و ACCEPTED قبلی به صف می‌روند تا فقط یک معامله فعال باشد
       await tx.exchangeOffer.updateMany({
         where: {
           listingId: offer.listingId,
           id: { not: offerId },
-          status: ExchangeOfferStatus.PENDING,
+          status: {
+            in: [
+              ExchangeOfferStatus.PENDING,
+              ExchangeOfferStatus.ACCEPTED,
+            ],
+          },
           ...(offer.listing.exchangeOffersSince
             ? { createdAt: { gte: offer.listing.exchangeOffersSince } }
             : {}),
@@ -292,7 +298,7 @@ export class ExchangeService {
       });
 
       // سفارش نیمه‌کار از پیشنهاد قبلی (WAITLISTED) نباید پرداخت این معامله را مسدود کند
-      await removeStaleListingOrderForAcceptedExchange(
+      await prepareListingSlotForExchangeCheckout(
         tx,
         offer.listingId,
         offerId,
@@ -462,6 +468,17 @@ export class ExchangeService {
         'شما اجازه مشاهده یا پرداخت این معامله را ندارید',
       );
     }
+
+    if (offer.status === ExchangeOfferStatus.ACCEPTED) {
+      await this.prisma.$transaction(async (tx) => {
+        await prepareListingSlotForExchangeCheckout(
+          tx,
+          offer.listingId,
+          offer.id,
+        );
+      });
+    }
+
     const linkedOrder = await this.prisma.order.findFirst({
       where: { exchangeOfferId: offer.id },
       select: { id: true, status: true },

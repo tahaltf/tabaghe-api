@@ -271,13 +271,16 @@ describe('OrdersService', () => {
       },
       order: {
         findFirst: jest.fn().mockResolvedValue(null),
-        findUnique: jest.fn().mockResolvedValue({
-          id: 'old-order',
-          type: OrderType.EXCHANGE,
-          status: OrderStatus.AWAITING_PAYMENT,
-          exchangeOfferId: oldOfferId,
-          totalAmount: 250000,
-        }),
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({
+            id: 'old-order',
+            type: OrderType.EXCHANGE,
+            status: OrderStatus.AWAITING_PAYMENT,
+            exchangeOfferId: oldOfferId,
+            totalAmount: 250000,
+          })
+          .mockResolvedValue(null),
         delete: jest.fn().mockResolvedValue({}),
         create: jest.fn().mockResolvedValue({
           id: 'ord-new',

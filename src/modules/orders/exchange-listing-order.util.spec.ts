@@ -1,55 +1,76 @@
 import {
-  ExchangeOfferStatus,
   OrderStatus,
   OrderType,
 } from '@prisma/client';
-import { shouldRemoveStaleExchangeListingOrder } from './exchange-listing-order.util';
+import {
+  prepareListingSlotForExchangeCheckout,
+  shouldRemoveStaleExchangeListingOrder,
+} from './exchange-listing-order.util';
 
-describe('shouldRemoveStaleExchangeListingOrder', () => {
-  const tx = {
-    exchangeOffer: {
-      findUnique: jest.fn(),
+describe('exchange listing slot cleanup', () => {
+  const makeTx = (slot: unknown, byOffer: unknown = null) => ({
+    order: {
+      findUnique: jest
+        .fn()
+        .mockResolvedValueOnce(slot)
+        .mockResolvedValue(slot),
+      findFirst: jest.fn().mockResolvedValue(byOffer),
+      delete: jest.fn().mockResolvedValue({}),
     },
-  };
-
-  beforeEach(() => {
-    jest.clearAllMocks();
   });
 
-  it('removes AWAITING_PAYMENT order tied to WAITLISTED offer', async () => {
-    tx.exchangeOffer.findUnique.mockResolvedValue({
-      status: ExchangeOfferStatus.WAITLISTED,
-    });
+  it('removes stale DIRECT order blocking exchange checkout', async () => {
+    const slot = {
+      id: 'ord-direct',
+      type: OrderType.DIRECT,
+      status: OrderStatus.PAID,
+      exchangeOfferId: null,
+      totalAmount: 1000,
+    };
+    const tx = makeTx(slot, null);
 
-    const result = await shouldRemoveStaleExchangeListingOrder(
+    const result = await prepareListingSlotForExchangeCheckout(
       tx as never,
-      {
-        id: 'ord-1',
-        type: OrderType.EXCHANGE,
-        status: OrderStatus.AWAITING_PAYMENT,
-        exchangeOfferId: 'offer-old',
-        totalAmount: 250000,
-      },
+      'lst-1',
       'offer-new',
     );
 
+    expect(tx.order.delete).toHaveBeenCalledWith({ where: { id: 'ord-direct' } });
+    expect(result).toBeNull();
+  });
+
+  it('keeps resumable EXCHANGE order for the active offer', async () => {
+    const slot = {
+      id: 'ord-ex',
+      type: OrderType.EXCHANGE,
+      status: OrderStatus.AWAITING_PAYMENT,
+      exchangeOfferId: 'offer-new',
+      totalAmount: 0,
+    };
+    const tx = makeTx(slot, slot);
+
+    const result = await prepareListingSlotForExchangeCheckout(
+      tx as never,
+      'lst-1',
+      'offer-new',
+    );
+
+    expect(tx.order.delete).not.toHaveBeenCalled();
+    expect(result?.id).toBe('ord-ex');
+  });
+
+  it('shouldRemoveStale returns true for non-exchange blocking order', async () => {
+    const result = await shouldRemoveStaleExchangeListingOrder(
+      { exchangeOffer: { findUnique: jest.fn() } } as never,
+      {
+        id: 'x',
+        type: OrderType.DIRECT,
+        status: OrderStatus.PAID,
+        exchangeOfferId: null,
+        totalAmount: 1,
+      },
+      'offer-new',
+    );
     expect(result).toBe(true);
-  });
-
-  it('keeps order for the active ACCEPTED offer', async () => {
-    const result = await shouldRemoveStaleExchangeListingOrder(
-      tx as never,
-      {
-        id: 'ord-1',
-        type: OrderType.EXCHANGE,
-        status: OrderStatus.AWAITING_PAYMENT,
-        exchangeOfferId: 'offer-new',
-        totalAmount: 250000,
-      },
-      'offer-new',
-    );
-
-    expect(result).toBe(false);
-    expect(tx.exchangeOffer.findUnique).not.toHaveBeenCalled();
   });
 });

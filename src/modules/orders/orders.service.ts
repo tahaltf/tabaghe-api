@@ -44,7 +44,7 @@ import {
   buildOrderTicketSubject,
   formatTicketMessageBody,
 } from '../../common/ticket-message.util';
-import { shouldRemoveStaleExchangeListingOrder } from './exchange-listing-order.util';
+import { prepareListingSlotForExchangeCheckout } from './exchange-listing-order.util';
 
 @Injectable()
 export class OrdersService {
@@ -470,15 +470,14 @@ export class OrdersService {
               : 'این معاوضه هنوز تایید نشده است',
           );
 
-        const cancelledLinkedOrder = await tx.order.findFirst({
-          where: { exchangeOfferId: finalExchangeId },
-          select: { status: true },
-        });
-        if (cancelledLinkedOrder?.status === OrderStatus.CANCELLED) {
-          throw new BadRequestException('سفارش این معاوضه لغو شده است');
-        }
-
         listingId = offer.listingId;
+
+        // سفارش لغوشدهٔ قبلی همان پیشنهاد مانع checkout تازه نباشد
+        await prepareListingSlotForExchangeCheckout(
+          tx,
+          listingId,
+          finalExchangeId,
+        );
         categoryId = offer.listing.categoryId;
 
         // تشخیص اینکه چه کسی الان در حال پرداخت است
@@ -553,68 +552,12 @@ export class OrdersService {
           }
         }
 
-        // 🔍 بررسی اینکه آیا طرف مقابل قبلاً سفارش را ایجاد کرده است یا نه؟
-        let existingExchangeOrder = await tx.order.findFirst({
-          where: { exchangeOfferId: finalExchangeId },
-        });
-
-        if (existingExchangeOrder?.status === OrderStatus.CANCELLED) {
-          await tx.order.delete({ where: { id: existingExchangeOrder.id } });
-          existingExchangeOrder = null;
-        }
-
-        if (!existingExchangeOrder) {
-          const orderOnListing = await tx.order.findUnique({
-            where: { listingId },
-          });
-          if (
-            orderOnListing?.type === OrderType.EXCHANGE &&
-            orderOnListing.exchangeOfferId === finalExchangeId &&
-            orderOnListing.status !== OrderStatus.CANCELLED
-          ) {
-            existingExchangeOrder = orderOnListing;
-          }
-        }
-
-        if (!existingExchangeOrder) {
-          const blockingListingOrder = await tx.order.findUnique({
-            where: { listingId },
-            select: {
-              id: true,
-              status: true,
-              exchangeOfferId: true,
-              totalAmount: true,
-              type: true,
-            },
-          });
-          if (blockingListingOrder) {
-            const isSameExchangeOrder =
-              blockingListingOrder.type === OrderType.EXCHANGE &&
-              blockingListingOrder.exchangeOfferId === finalExchangeId &&
-              blockingListingOrder.status !== OrderStatus.CANCELLED;
-
-            if (isSameExchangeOrder) {
-              existingExchangeOrder = (await tx.order.findUnique({
-                where: { id: blockingListingOrder.id },
-              }))!;
-            } else {
-              const removable = await shouldRemoveStaleExchangeListingOrder(
-                tx,
-                blockingListingOrder,
-                finalExchangeId,
-              );
-              if (removable) {
-                await tx.order.delete({
-                  where: { id: blockingListingOrder.id },
-                });
-              } else {
-                throw new BadRequestException(
-                  'این کالا در حال حاضر در جریان معامله است.',
-                );
-              }
-            }
-          }
-        }
+        // 🔍 سفارش فعال این پیشنهاد (پاکسازی سفارش‌های قدیمی روی همان آگهی)
+        let existingExchangeOrder = await prepareListingSlotForExchangeCheckout(
+          tx,
+          listingId,
+          finalExchangeId,
+        );
 
         if (existingExchangeOrder) {
           const updateData: any = {};

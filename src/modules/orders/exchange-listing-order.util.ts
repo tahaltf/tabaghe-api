@@ -1,5 +1,5 @@
 import {
-  ExchangeOfferStatus,
+  Order,
   OrderStatus,
   OrderType,
   Prisma,
@@ -13,63 +13,44 @@ type BlockingListingOrder = {
   type: OrderType;
 };
 
+const RESUMABLE_EXCHANGE_CHECKOUT_STATUSES: OrderStatus[] = [
+  OrderStatus.AWAITING_PAYMENT,
+  OrderStatus.PENDING,
+  OrderStatus.AWAITING_SHIPMENT_TO_HUB,
+];
+
+function isResumableExchangeCheckout(
+  order: BlockingListingOrder,
+  activeExchangeOfferId: string,
+): boolean {
+  return (
+    order.type === OrderType.EXCHANGE &&
+    order.exchangeOfferId === activeExchangeOfferId &&
+    RESUMABLE_EXCHANGE_CHECKOUT_STATUSES.includes(order.status)
+  );
+}
+
 /**
- * سفارش قدیمی روی listingId (معمولاً از پیشنهاد WAITLISTED/لغوشده) نباید
- * پرداخت پیشنهاد ACCEPTED جدید را مسدود کند.
+ * @deprecated از prepareListingSlotForExchangeCheckout استفاده کنید
  */
 export async function shouldRemoveStaleExchangeListingOrder(
   tx: Prisma.TransactionClient,
   blocking: BlockingListingOrder,
   activeExchangeOfferId: string,
 ): Promise<boolean> {
-  if (blocking.type !== OrderType.EXCHANGE) {
-    return (
-      blocking.status === OrderStatus.CANCELLED ||
-      blocking.status === OrderStatus.PENDING ||
-      (blocking.status === OrderStatus.AWAITING_PAYMENT &&
-        Number(blocking.totalAmount ?? 0) === 0)
-    );
-  }
-
-  if (
-    blocking.exchangeOfferId === activeExchangeOfferId &&
-    blocking.status !== OrderStatus.CANCELLED
-  ) {
+  if (isResumableExchangeCheckout(blocking, activeExchangeOfferId)) {
     return false;
   }
-
+  if (blocking.type !== OrderType.EXCHANGE) {
+    return true;
+  }
   if (blocking.status === OrderStatus.CANCELLED) {
     return true;
   }
-
-  if (
-    blocking.status === OrderStatus.PENDING ||
-    (blocking.status === OrderStatus.AWAITING_PAYMENT &&
-      Number(blocking.totalAmount ?? 0) === 0)
-  ) {
-    if (!blocking.exchangeOfferId) {
-      return true;
-    }
-    const linked = await tx.exchangeOffer.findUnique({
-      where: { id: blocking.exchangeOfferId },
-      select: { status: true },
-    });
-    return linked?.status !== ExchangeOfferStatus.ACCEPTED;
+  if (blocking.exchangeOfferId !== activeExchangeOfferId) {
+    return true;
   }
-
-  if (
-    blocking.status === OrderStatus.AWAITING_PAYMENT &&
-    blocking.exchangeOfferId &&
-    blocking.exchangeOfferId !== activeExchangeOfferId
-  ) {
-    const linked = await tx.exchangeOffer.findUnique({
-      where: { id: blocking.exchangeOfferId },
-      select: { status: true },
-    });
-    return linked?.status !== ExchangeOfferStatus.ACCEPTED;
-  }
-
-  return false;
+  return true;
 }
 
 export async function removeStaleListingOrderForAcceptedExchange(
@@ -77,22 +58,67 @@ export async function removeStaleListingOrderForAcceptedExchange(
   listingId: string,
   acceptedOfferId: string,
 ): Promise<void> {
-  const order = await tx.order.findUnique({
+  await prepareListingSlotForExchangeCheckout(
+    tx,
+    listingId,
+    acceptedOfferId,
+  );
+}
+
+/**
+ * قبل از پرداخت معاوضه ACCEPTED: هر سفارش غیرقابل‌ادامه روی آگهی حذف می‌شود
+ * (شامل سفارش DIRECT قدیمی، معاوضه لغوشده، پیشنهاد دیگر، REJECTED_AT_HUB و …).
+ * فقط سفارش همان پیشنهاد در وضعیت AWAITING_PAYMENT / PENDING / AWAITING_SHIPMENT_TO_HUB می‌ماند.
+ */
+export async function prepareListingSlotForExchangeCheckout(
+  tx: Prisma.TransactionClient,
+  listingId: string,
+  activeExchangeOfferId: string,
+): Promise<Order | null> {
+  const slot = await tx.order.findUnique({
     where: { listingId },
-    select: {
-      id: true,
-      status: true,
-      exchangeOfferId: true,
-      totalAmount: true,
-      type: true,
-    },
   });
-  if (!order || order.exchangeOfferId === acceptedOfferId) {
-    return;
+
+  if (slot && !isResumableExchangeCheckout(slot, activeExchangeOfferId)) {
+    await tx.order.delete({ where: { id: slot.id } });
   }
-  if (
-    await shouldRemoveStaleExchangeListingOrder(tx, order, acceptedOfferId)
-  ) {
+
+  let order = await tx.order.findFirst({
+    where: { exchangeOfferId: activeExchangeOfferId },
+  });
+
+  if (order?.status === OrderStatus.CANCELLED) {
     await tx.order.delete({ where: { id: order.id } });
+    order = null;
   }
+
+  if (order && !isResumableExchangeCheckout(order, activeExchangeOfferId)) {
+    await tx.order.delete({ where: { id: order.id } });
+    order = null;
+  }
+
+  if (!order) {
+    const slotAfter = await tx.order.findUnique({ where: { listingId } });
+    if (
+      slotAfter &&
+      isResumableExchangeCheckout(slotAfter, activeExchangeOfferId)
+    ) {
+      order = slotAfter;
+    }
+  }
+
+  return order;
+}
+
+/** @deprecated نام قبلی — همان prepareListingSlotForExchangeCheckout */
+export async function resolveExchangeCheckoutOrder(
+  tx: Prisma.TransactionClient,
+  listingId: string,
+  activeExchangeOfferId: string,
+): Promise<Order | null> {
+  return prepareListingSlotForExchangeCheckout(
+    tx,
+    listingId,
+    activeExchangeOfferId,
+  );
 }
