@@ -17,6 +17,7 @@ import {
 import { CreateExchangeOfferDto } from './create-exchange-offer.dto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ExchangeEvents } from './exchange.events';
+import { removeStaleListingOrderForAcceptedExchange } from '../orders/exchange-listing-order.util';
 
 @Injectable()
 export class ExchangeService {
@@ -271,22 +272,31 @@ export class ExchangeService {
 
     // در همه‌ی معاوضه‌ها (حتی سر‌به‌سر)، هر دو طرف باید سهم خود از کارشناسی را پرداخت کنند.
     // بنابراین پس از پذیرش، سفارش نباید مستقیم نهایی شود و فقط به وضعیت ACCEPTED می‌رود.
-    await this.prisma.exchangeOffer.update({
-      where: { id: offerId },
-      data: { status: ExchangeOfferStatus.ACCEPTED },
-    });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.exchangeOffer.update({
+        where: { id: offerId },
+        data: { status: ExchangeOfferStatus.ACCEPTED },
+      });
 
-    // سایر درخواست‌ها را رد قطعی نمی‌کنیم؛ در صف انتظار می‌مانند تا قفل شدن معامله یا انصراف خریدار اول
-    await this.prisma.exchangeOffer.updateMany({
-      where: {
-        listingId: offer.listingId,
-        id: { not: offerId },
-        status: ExchangeOfferStatus.PENDING,
-        ...(offer.listing.exchangeOffersSince
-          ? { createdAt: { gte: offer.listing.exchangeOffersSince } }
-          : {}),
-      },
-      data: { status: ExchangeOfferStatus.WAITLISTED },
+      // سایر درخواست‌ها را رد قطعی نمی‌کنیم؛ در صف انتظار می‌مانند تا قفل شدن معامله یا انصراف خریدار اول
+      await tx.exchangeOffer.updateMany({
+        where: {
+          listingId: offer.listingId,
+          id: { not: offerId },
+          status: ExchangeOfferStatus.PENDING,
+          ...(offer.listing.exchangeOffersSince
+            ? { createdAt: { gte: offer.listing.exchangeOffersSince } }
+            : {}),
+        },
+        data: { status: ExchangeOfferStatus.WAITLISTED },
+      });
+
+      // سفارش نیمه‌کار از پیشنهاد قبلی (WAITLISTED) نباید پرداخت این معامله را مسدود کند
+      await removeStaleListingOrderForAcceptedExchange(
+        tx,
+        offer.listingId,
+        offerId,
+      );
     });
 
     this.eventEmitter.emit(ExchangeEvents.OFFER_ACCEPTED, {

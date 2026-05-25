@@ -44,6 +44,7 @@ import {
   buildOrderTicketSubject,
   formatTicketMessageBody,
 } from '../../common/ticket-message.util';
+import { shouldRemoveStaleExchangeListingOrder } from './exchange-listing-order.util';
 
 @Injectable()
 export class OrdersService {
@@ -597,13 +598,11 @@ export class OrdersService {
                 where: { id: blockingListingOrder.id },
               }))!;
             } else {
-              const unpaidAwaiting =
-                blockingListingOrder.status === OrderStatus.AWAITING_PAYMENT &&
-                Number(blockingListingOrder.totalAmount ?? 0) === 0;
-              const removable =
-                blockingListingOrder.status === OrderStatus.CANCELLED ||
-                blockingListingOrder.status === OrderStatus.PENDING ||
-                unpaidAwaiting;
+              const removable = await shouldRemoveStaleExchangeListingOrder(
+                tx,
+                blockingListingOrder,
+                finalExchangeId,
+              );
               if (removable) {
                 await tx.order.delete({
                   where: { id: blockingListingOrder.id },
