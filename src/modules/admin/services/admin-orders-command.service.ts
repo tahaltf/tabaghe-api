@@ -1254,8 +1254,6 @@ export class AdminOrdersCommandService {
       resolution,
       finalizedAt: new Date().toISOString(),
     };
-    const prevInspection =
-      (existing.exchangeHubInspection as Record<string, unknown> | null) ?? {};
     const mergeInspectionPayload = (extra: Record<string, unknown>) => ({
       ...prevInspection,
       ...inspectionBase,
