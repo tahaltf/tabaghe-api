@@ -3162,8 +3162,12 @@ export class OrdersService {
       'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.',
     ]);
 
-    const oneSideShipSubject = buildOrderTicketSubject(
-      'عدم ارسال طرف مقابل — لغو معاوضه',
+    const senderSubject = buildOrderTicketSubject(
+      'لغو معاوضه — بازگشت وجه و مرجوع کالا',
+      params.orderId,
+    );
+    const offenderSubject = buildOrderTicketSubject(
+      'عدم ارسال شما در مهلت — لغو معاوضه',
       params.orderId,
     );
 
@@ -3171,7 +3175,7 @@ export class OrdersService {
     const buyerTicket = await tx.ticket.create({
       data: {
         userId: params.buyerId,
-        subject: oneSideShipSubject,
+        subject: buyerIsSender ? senderSubject : offenderSubject,
         status: 'OPEN',
         messages: {
           create: {
@@ -3186,7 +3190,7 @@ export class OrdersService {
     const sellerTicket = await tx.ticket.create({
       data: {
         userId: params.sellerId,
-        subject: oneSideShipSubject,
+        subject: buyerIsSender ? offenderSubject : senderSubject,
         status: 'OPEN',
         messages: {
           create: {
