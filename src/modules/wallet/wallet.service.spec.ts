@@ -257,6 +257,79 @@ describe('WalletService - refundExchangeBothNoShipmentOnCancel', () => {
     );
   });
 
+  it('with zero penalty percent refunds full paid amount per party (both no-shipment)', async () => {
+    const service = new WalletService(prismaMock, notificationMock);
+
+    const settlementsByWallet: Record<
+      string,
+      { amount: number; meta: object }[]
+    > = {
+      'buyer-1-wallet-id': [
+        {
+          amount: 300_000,
+          meta: {
+            phase: 'exchange_participant_paid',
+            payerUserId: 'buyer-1',
+            orderId: 'ord-1',
+          },
+        },
+      ],
+      'seller-1-wallet-id': [
+        {
+          amount: 100_000,
+          meta: {
+            phase: 'exchange_participant_paid',
+            payerUserId: 'seller-1',
+            orderId: 'ord-1',
+          },
+        },
+      ],
+    };
+
+    const tx: any = {
+      listing: {
+        findUnique: jest.fn().mockResolvedValue({ title: 'لپ‌تاپ' }),
+      },
+      wallet: {
+        upsert: jest.fn().mockResolvedValue({}),
+        findUnique: jest.fn(async ({ where }: any) => ({
+          id: `${where.userId}-wallet-id`,
+        })),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      walletTransaction: {
+        findMany: jest.fn(async ({ where }: any) => {
+          const walletId = where.walletId as string;
+          if (where.type === WalletTransactionType.SETTLEMENT) {
+            return settlementsByWallet[walletId] ?? [];
+          }
+          return [];
+        }),
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+    };
+
+    const summary = await service.refundExchangeBothNoShipmentOnCancel(tx, {
+      orderId: 'ord-1',
+      listingId: 'lst-1',
+      buyerId: 'buyer-1',
+      sellerId: 'seller-1',
+      verificationFee: 100_000,
+      inspectionPenaltyPercent: 0,
+    });
+
+    expect(summary).toEqual({
+      buyerPaid: 300_000,
+      sellerPaid: 100_000,
+      buyerRefund: 300_000,
+      sellerRefund: 100_000,
+      penaltyPerParty: 0,
+      penaltyPercent: 0,
+    });
+  });
+
   it('does not refund a participant who has no settlement record', async () => {
     const service = new WalletService(prismaMock, notificationMock);
 

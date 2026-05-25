@@ -625,10 +625,10 @@ describe('OrdersService', () => {
     walletMock.refundExchangeBothNoShipmentOnCancel.mockResolvedValue({
       buyerPaid: 400_000,
       sellerPaid: 100_000,
-      buyerRefund: 380_000,
-      sellerRefund: 80_000,
-      penaltyPerParty: 20_000,
-      penaltyPercent: 20,
+      buyerRefund: 400_000,
+      sellerRefund: 100_000,
+      penaltyPerParty: 0,
+      penaltyPercent: 0,
     });
 
     await service.autoCancelExpiredOrders();
@@ -643,7 +643,7 @@ describe('OrdersService', () => {
         sellerId,
         listingId,
         verificationFee: 100_000,
-        inspectionPenaltyPercent: expect.any(Number),
+        inspectionPenaltyPercent: 0,
       }),
     );
     expect(walletMock.refundDirectOrderEscrowOnCancel).not.toHaveBeenCalled();
@@ -675,8 +675,8 @@ describe('OrdersService', () => {
     expect(tx.ticket.create).toHaveBeenCalledTimes(2);
     const buyerTicketMessage =
       tx.ticket.create.mock.calls[0][0].data.messages.create.message;
-    expect(buyerTicketMessage).toContain('جریمه کارشناسی');
-    expect(buyerTicketMessage).toContain('۳۸۰٬۰۰۰');
+    expect(buyerTicketMessage).not.toContain('جریمه کارشناسی');
+    expect(buyerTicketMessage).toContain('۴۰۰٬۰۰۰');
     expect(buyerTicketMessage).not.toContain('۴۰۰٬۰۰۰ تومان، شامل هزینه کارشناسی) به کیف پولتان برگشت');
     expect(tx.notification.createMany).toHaveBeenCalled();
   });

@@ -207,6 +207,7 @@ enum TicketStatus {
 enum OtpPurpose {
   LOGIN
   REGISTER
+  ADMIN_LOGIN
 }
 
 enum LocationType {

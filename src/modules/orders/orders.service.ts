@@ -45,7 +45,10 @@ import {
   formatTicketMessageBody,
 } from '../../common/ticket-message.util';
 import { prepareListingSlotForExchangeCheckout } from './exchange-listing-order.util';
-import { resolveExchangeOfferListDisplay } from './exchange-offer-display.util';
+import {
+  resolveExchangeOfferListDisplay,
+  resolveExchangeOrderListDisplay,
+} from './exchange-offer-display.util';
 import { formatMinutesDurationFa } from '../../common/duration-format.util';
 
 @Injectable()
@@ -133,6 +136,7 @@ export class OrdersService {
           requiresVerification: true,
           trackingCode: true,
           sellerTrackingCode: true,
+          exchangeHubInspection: true,
           listing: {
             select: {
               id: true,
@@ -182,6 +186,14 @@ export class OrdersService {
     const exchangeOfferById = new Map(exchangeOffers.map((o) => [o.id, o]));
 
     const itemsWithExchangeMyShare = items.map((item) => {
+      if (item.type === OrderType.EXCHANGE) {
+        const display = resolveExchangeOrderListDisplay({
+          status: item.status,
+          exchangeHubInspection: item.exchangeHubInspection,
+        });
+        (item as { exchangeCancelKind?: string | null }).exchangeCancelKind =
+          display.exchangeCancelKind;
+      }
       if (item.type !== OrderType.EXCHANGE || !item.exchangeOfferId) {
         return item;
       }
@@ -3598,6 +3610,7 @@ export class OrdersService {
           inspectionPenaltyPercent: exchangeNoShipmentCompensationPercent,
         });
     } else if (order.type === OrderType.EXCHANGE) {
+      // هر دو طرف پرداخت کرده‌اند ولی هیچ‌کدام ارسال نکرده — جریمهٔ درصدی کارشناسی اعمال نمی‌شود
       bothNoShipmentRefundSummary =
         await this.walletService.refundExchangeBothNoShipmentOnCancel(tx, {
           orderId: order.id,
@@ -3605,7 +3618,7 @@ export class OrdersService {
           buyerId: order.buyerId,
           sellerId: order.sellerId,
           verificationFee: Number(order.verificationFee || 0),
-          inspectionPenaltyPercent: exchangeNoShipmentCompensationPercent,
+          inspectionPenaltyPercent: 0,
         });
     } else {
       const cancelReason = 'عدم ارسال فروشنده در مهلت مقرر؛ معامله لغو شد';

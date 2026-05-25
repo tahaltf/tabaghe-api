@@ -2,6 +2,7 @@ import { ExchangeOfferStatus, OrderStatus } from '@prisma/client';
 import {
   isExchangeSingleSideNoShipmentOrder,
   resolveExchangeOfferListDisplay,
+  resolveExchangeOrderListDisplay,
 } from './exchange-offer-display.util';
 
 describe('resolveExchangeOfferListDisplay', () => {
@@ -20,6 +21,16 @@ describe('resolveExchangeOfferListDisplay', () => {
       exchangeHubInspection: { resolution: 'FAIL' },
     });
     expect(result.exchangeCancelKind).toBe('HUB_REJECT');
+  });
+});
+
+describe('resolveExchangeOrderListDisplay', () => {
+  it('maps single-side no-shipment REJECTED_AT_HUB to NO_SHIPMENT_TIMEOUT', () => {
+    const result = resolveExchangeOrderListDisplay({
+      status: OrderStatus.REJECTED_AT_HUB,
+      exchangeHubInspection: { singleSideNoShipmentTimeout: true },
+    });
+    expect(result.exchangeCancelKind).toBe('NO_SHIPMENT_TIMEOUT');
   });
 });
 

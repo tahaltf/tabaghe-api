@@ -5,6 +5,7 @@ import { JwtPayload, TokenPair } from '../../../shared/contracts/auth';
 
 const ACCESS_TOKEN_TTL = '7d';
 const REFRESH_TOKEN_TTL = '30d';
+const ADMIN_LOGIN_CHALLENGE_TTL = '10m';
 
 @Injectable()
 export class TokenService {
@@ -33,6 +34,34 @@ export class TokenService {
       });
     } catch {
       throw new UnauthorizedException('توکن نامعتبر یا منقضی شده است.');
+    }
+  }
+
+  signAdminLoginChallenge(userId: string): string {
+    return this.jwtService.sign(
+      { sub: userId, typ: 'admin_login_challenge' },
+      {
+        secret: this.accessSecret(),
+        expiresIn: ADMIN_LOGIN_CHALLENGE_TTL,
+      },
+    );
+  }
+
+  verifyAdminLoginChallenge(token: string): string {
+    try {
+      const payload = this.jwtService.verify<{ sub?: string; typ?: string }>(
+        token,
+        { secret: this.accessSecret() },
+      );
+      if (payload.typ !== 'admin_login_challenge' || !payload.sub) {
+        throw new UnauthorizedException('نشست ورود نامعتبر است.');
+      }
+      return payload.sub;
+    } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
+      throw new UnauthorizedException(
+        'نشست ورود منقضی شده است. لطفاً دوباره رمز عبور را وارد کنید.',
+      );
     }
   }
 

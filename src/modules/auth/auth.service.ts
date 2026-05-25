@@ -1,5 +1,10 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
-import { User, UserRole, UserStatus, NotificationType } from '@prisma/client';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { User, UserRole, UserStatus, NotificationType, OtpPurpose } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AuthSessionResponse, JwtPayload } from '../../shared/contracts/auth';
@@ -9,6 +14,13 @@ import { SmsService } from '../sms/sms.service';
 import { NotificationService } from '../notification/notification.service';
 
 const ADMIN_DEFAULT_PASSWORD = '@Ab123456789@';
+
+export interface AdminPasswordLoginChallengeResponse {
+  challengeToken: string;
+  maskedPhone: string;
+  otpSent: boolean;
+  warning?: string;
+}
 
 @Injectable()
 export class AuthService {
@@ -53,10 +65,61 @@ export class AuthService {
     return session;
   }
 
-  async loginWithPassword(
+  /** مرحله ۱ ورود ادمین: اعتبارسنجی رمز و ارسال OTP پیامکی */
+  async requestAdminPasswordLogin(
     username: string,
     password: string,
+  ): Promise<AdminPasswordLoginChallengeResponse> {
+    const user = await this.validateAdminPassword(username, password);
+    const otpResult = await this.otpService.issue(
+      user.phone,
+      OtpPurpose.ADMIN_LOGIN,
+    );
+    return {
+      challengeToken: this.tokenService.signAdminLoginChallenge(user.id),
+      maskedPhone: this.maskPhone(user.phone),
+      otpSent: otpResult.sent,
+      warning: otpResult.warning,
+    };
+  }
+
+  /** مرحله ۲ ورود ادمین: تایید OTP و صدور توکن */
+  async verifyAdminLoginOtp(
+    challengeToken: string,
+    code: string,
   ): Promise<AuthSessionResponse> {
+    const userId = this.tokenService.verifyAdminLoginChallenge(challengeToken);
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException('حساب ادمین یافت نشد.');
+    }
+    if (!user.isActive) {
+      throw new UnauthorizedException('حساب کاربری غیرفعال است.');
+    }
+    if (user.role !== UserRole.ADMIN && user.role !== UserRole.GODADMIN) {
+      throw new UnauthorizedException('دسترسی ادمین مجاز نیست.');
+    }
+
+    const normalizedCode = code.trim();
+    if (!/^\d{4,6}$/.test(normalizedCode)) {
+      throw new BadRequestException('کد تایید نامعتبر است.');
+    }
+
+    await this.otpService.consume(
+      user.phone,
+      normalizedCode,
+      OtpPurpose.ADMIN_LOGIN,
+    );
+
+    const session = this.buildSession(user);
+    this.notifyAdminAboutLogin(user.phone);
+    return session;
+  }
+
+  private async validateAdminPassword(
+    username: string,
+    password: string,
+  ): Promise<User> {
     const login = username.trim();
     const user = await this.prisma.user.findFirst({
       where: {
@@ -97,9 +160,13 @@ export class AuthService {
       throw new UnauthorizedException('نام کاربری یا رمز عبور اشتباه است.');
     }
 
-    const session = this.buildSession(user);
-    this.notifyAdminAboutLogin(user.phone);
-    return session;
+    return user;
+  }
+
+  private maskPhone(phone: string): string {
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length < 8) return '***';
+    return `${digits.slice(0, 4)}***${digits.slice(-3)}`;
   }
 
   async refresh(refreshToken: string): Promise<AuthSessionResponse> {

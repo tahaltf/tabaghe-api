@@ -29,13 +29,13 @@ export class OtpService {
     phone: string,
     purpose: OtpPurpose = OtpPurpose.LOGIN,
   ): Promise<OtpIssueResult> {
-    await this.enforceCooldown(phone);
+    await this.enforceCooldown(phone, purpose);
 
     const code = this.generateCode(phone);
     const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
 
     await this.prisma.$transaction([
-      this.prisma.otpCode.deleteMany({ where: { phone } }),
+      this.prisma.otpCode.deleteMany({ where: { phone, purpose } }),
       this.prisma.otpCode.create({
         data: { phone, code, expiresAt, purpose },
       }),
@@ -66,9 +66,19 @@ export class OtpService {
     }
   }
 
-  async consume(phone: string, code: string): Promise<void> {
+  async consume(
+    phone: string,
+    code: string,
+    purpose?: OtpPurpose,
+  ): Promise<void> {
     const record = await this.prisma.otpCode.findFirst({
-      where: { phone, code, expiresAt: { gt: new Date() }, usedAt: null },
+      where: {
+        phone,
+        code,
+        expiresAt: { gt: new Date() },
+        usedAt: null,
+        ...(purpose ? { purpose } : {}),
+      },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -82,9 +92,12 @@ export class OtpService {
     });
   }
 
-  private async enforceCooldown(phone: string): Promise<void> {
+  private async enforceCooldown(
+    phone: string,
+    purpose: OtpPurpose = OtpPurpose.LOGIN,
+  ): Promise<void> {
     const recent = await this.prisma.otpCode.findFirst({
-      where: { phone },
+      where: { phone, purpose },
       orderBy: { createdAt: 'desc' },
     });
     if (!recent) return;

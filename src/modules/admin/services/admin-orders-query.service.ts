@@ -76,18 +76,27 @@ export class AdminOrdersQueryService {
     const offers = exchangeOfferIds.length
       ? await this.prisma.exchangeOffer.findMany({
           where: { id: { in: exchangeOfferIds } },
-          select: { id: true, title: true },
+          select: { id: true, title: true, images: true },
         })
       : [];
-    const offerTitleById = new Map(offers.map((o) => [o.id, o.title]));
+    const offerMetaById = new Map(
+      offers.map((o) => [
+        o.id,
+        { title: o.title, thumbnail: o.images?.[0] ?? null },
+      ]),
+    );
 
-    const items = itemsRaw.map((o) => ({
-      ...o,
-      exchangeOfferTitle:
+    const items = itemsRaw.map((o) => {
+      const offerMeta =
         o.type === OrderType.EXCHANGE && o.exchangeOfferId
-          ? (offerTitleById.get(o.exchangeOfferId) ?? null)
-          : null,
-    }));
+          ? offerMetaById.get(o.exchangeOfferId)
+          : undefined;
+      return {
+        ...o,
+        exchangeOfferTitle: offerMeta?.title ?? null,
+        exchangeOfferThumbnail: offerMeta?.thumbnail ?? null,
+      };
+    });
 
     return {
       items: items as AdminOrderItem[],
@@ -142,11 +151,15 @@ export class AdminOrdersQueryService {
       extraPayment: number;
       isPayerMe: boolean;
     } | null = null;
-    let exchangeOffer: { title?: string | null } | null = null;
+    let exchangeOffer: {
+      title?: string | null;
+      images?: string[];
+      thumbnail?: string | null;
+    } | null = null;
     if (order.type === OrderType.EXCHANGE && order.exchangeOfferId) {
       const offer = await this.prisma.exchangeOffer.findUnique({
         where: { id: order.exchangeOfferId },
-        select: { extraPayment: true, isPayerMe: true, title: true },
+        select: { extraPayment: true, isPayerMe: true, title: true, images: true },
       });
       if (offer) {
         exchangeOfferDetails = {
@@ -155,6 +168,8 @@ export class AdminOrdersQueryService {
         };
         exchangeOffer = {
           title: offer.title,
+          images: offer.images ?? [],
+          thumbnail: offer.images?.[0] ?? null,
         };
       }
     }

@@ -55,3 +55,25 @@ export function resolveExchangeOfferListDisplay(
 
   return { status: offerStatus, exchangeCancelKind: null };
 }
+
+/** برچسب لیست «خریدهای من» / «فروش‌های من» برای سفارش معاوضه */
+export function resolveExchangeOrderListDisplay(order: {
+  status: OrderStatus;
+  exchangeHubInspection?: unknown;
+}): { exchangeCancelKind: ExchangeCancelKind } {
+  if (order.status === OrderStatus.CANCELLED) {
+    const ex = (order.exchangeHubInspection ?? {}) as Record<string, unknown>;
+    return {
+      exchangeCancelKind: ex['singleSideNoShipmentTimeout']
+        ? 'NO_SHIPMENT_TIMEOUT'
+        : 'BOTH_NO_SHIPMENT',
+    };
+  }
+  if (isExchangeSingleSideNoShipmentOrder(order)) {
+    return { exchangeCancelKind: 'NO_SHIPMENT_TIMEOUT' };
+  }
+  if (order.status === OrderStatus.REJECTED_AT_HUB) {
+    return { exchangeCancelKind: 'HUB_REJECT' };
+  }
+  return { exchangeCancelKind: null };
+}

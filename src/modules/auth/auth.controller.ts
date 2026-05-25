@@ -3,6 +3,7 @@ import { AuthService } from './auth.service'; // تغییر نام از Auth ب�
 import { RequestOtpDto, VerifyOtpDto } from './dto/otp.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { PasswordLoginDto } from './dto/password-login.dto';
+import { AdminVerifyOtpDto } from './dto/admin-verify-otp.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -25,10 +26,24 @@ export class AuthController {
     return this.authService.verifyOtp(dto.phone, dto.code);
   }
 
+  /** مرحله ۱ ورود ادمین — پس از تایید رمز، OTP به موبایل ادمین ارسال می‌شود */
   @Post('login-password')
   @HttpCode(HttpStatus.OK)
   async loginWithPassword(@Body() dto: PasswordLoginDto) {
-    return this.authService.loginWithPassword(dto.username, dto.password);
+    return this.authService.requestAdminPasswordLogin(
+      dto.username,
+      dto.password,
+    );
+  }
+
+  /** مرحله ۲ ورود ادمین — تایید کد پیامکی */
+  @Post('admin/verify-otp')
+  @HttpCode(HttpStatus.OK)
+  async verifyAdminLoginOtp(@Body() dto: AdminVerifyOtpDto) {
+    return this.authService.verifyAdminLoginOtp(
+      dto.challengeToken,
+      dto.code,
+    );
   }
 
   @Post('refresh')

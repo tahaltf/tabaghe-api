@@ -990,6 +990,8 @@ export class AdminOrdersCommandService {
         id: true,
         type: true,
         status: true,
+        trackingCode: true,
+        sellerTrackingCode: true,
         exchangeHubInspection: true,
       },
     });
@@ -1007,6 +1009,18 @@ export class AdminOrdersCommandService {
       throw new BadRequestException(
         'سفارش در وضعیت مناسب برای ثبت دریافت مرسوله در هاب نیست',
       );
+    }
+    if (dto.received) {
+      if (dto.side === 'LISTING' && !existing.trackingCode?.trim()) {
+        throw new BadRequestException(
+          'تا ثبت کد رهگیری ارسال فروشنده، امکان ثبت دریافت کالای آگهی در هاب نیست',
+        );
+      }
+      if (dto.side === 'OFFER' && !existing.sellerTrackingCode?.trim()) {
+        throw new BadRequestException(
+          'تا ثبت کد رهگیری ارسال خریدار، امکان ثبت دریافت کالای پیشنهادی در هاب نیست',
+        );
+      }
     }
 
     const prev =
@@ -1143,6 +1157,26 @@ export class AdminOrdersCommandService {
     if (existing.status !== OrderStatus.CHECKING_AT_HUB) {
       throw new BadRequestException(
         'سفارش باید در وضعیت «در حال بررسی در هاب» باشد',
+      );
+    }
+
+    const prevInspection =
+      (existing.exchangeHubInspection as Record<string, unknown> | null) ??
+      {};
+    if (
+      prevInspection['skipInspection'] ||
+      prevInspection['singleSideNoShipmentTimeout']
+    ) {
+      throw new BadRequestException(
+        'این معامله بدون کارشناسی (به‌دلیل عدم ارسال در مهلت) بسته شده است',
+      );
+    }
+    if (
+      !existing.trackingCode?.trim() ||
+      !existing.sellerTrackingCode?.trim()
+    ) {
+      throw new BadRequestException(
+        'تا زمانی که هر دو طرف مرسوله را به هاب ارسال نکرده‌اند، ثبت نتیجه کارشناسی مجاز نیست',
       );
     }
 
