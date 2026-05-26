@@ -1061,13 +1061,10 @@ export class AdminOrdersCommandService {
     role: 'seller' | 'buyer';
     orderId: string;
     listingTitle: string;
-    listingUrl: string;
-    ownTrackingCode: string | null;
-    packagingVideoUrl: string | null;
     listingFailed: boolean;
     offerFailed: boolean;
     ownNote: string | null;
-    otherNote: string | null;
+    refundAmount: number;
   }): string {
     const shortId = params.orderId.slice(-6);
     const penalty = TRADE_REPUTATION_PENALTY_DELTA;
@@ -1075,46 +1072,51 @@ export class AdminOrdersCommandService {
     const ownFailed = isSeller ? params.listingFailed : params.offerFailed;
     const otherFailed = isSeller ? params.offerFailed : params.listingFailed;
     const bothFailed = params.listingFailed && params.offerFailed;
+    const refundFa =
+      params.refundAmount > 0
+        ? params.refundAmount.toLocaleString('fa-IR')
+        : null;
 
     const lines: string[] = [];
 
     if (bothFailed) {
       lines.push(
-        `نتیجه کارشناسی معاوضه #${shortId} برای «${params.listingTitle}»: هر دو کالا رد شدند و معامله لغو گردید.`,
-        `امتیاز معاملاتی هر دو طرف ${penalty} واحد کاهش یافت.`,
+        `اطلاع‌رسانی کارشناسی معاوضه #${shortId}: هر دو کالا رد شد و معامله لغو گردید.`,
+        'کالای شما از هاب به آدرس شما مرجوع می‌شود؛ پس از ثبت کد رهگیری مرجوعی در سامانه، در جزئیات سفارش قابل مشاهده است.',
+        `امتیاز معاملاتی شما ${penalty} واحد کاهش یافت.`,
       );
     } else if (ownFailed) {
       lines.push(
-        `نتیجه کارشناسی معاوضه #${shortId} برای «${params.listingTitle}»: کالای ارسالی شما رد شد و معامله لغو گردید.`,
-        `طبق قوانین طبقه، ${penalty} واحد از امتیاز معاملاتی شما کسر شد.`,
-        params.ownNote
-          ? `توضیح کارشناسی: ${params.ownNote}`
-          : 'توضیح کارشناسی: مطابق گزارش هاب.',
+        `اطلاع‌رسانی کارشناسی معاوضه #${shortId}: کالای ارسالی شما رد شد و معامله لغو گردید.`,
+        'کالای شما از هاب مرجوع می‌شود.',
+        `امتیاز معاملاتی شما ${penalty} واحد کاهش یافت.`,
       );
     } else if (otherFailed) {
       lines.push(
-        `متأسفیم؛ معامله معاوضه #${shortId} برای «${params.listingTitle}» به‌دلیل رد کالای طرف مقابل لغو شد.`,
-        'کالای شما از نظر کارشناسی تایید شد؛ از بابت این تجربه ناخوشایند صمیمانه پوزش می‌خواهیم.',
-        params.otherNote
-          ? `توضیح رد کالای طرف مقابل: ${params.otherNote}`
-          : null,
+        `اطلاع‌رسانی کارشناسی معاوضه #${shortId}: به‌دلیل رد کالای طرف مقابل، معامله لغو شد.`,
+        'کالای شما از نظر کارشناسی تایید شد؛ کالای شما از هاب مرجوع می‌شود.',
       );
     } else {
       lines.push(
-        `نتیجه کارشناسی معاوضه #${shortId}: معامله لغو و مرجوع هر دو کالا در دست اقدام است.`,
+        `اطلاع‌رسانی کارشناسی معاوضه #${shortId}: معامله لغو شد و مرجوع کالا در دست اقدام است.`,
       );
     }
 
-    lines.push(
-      'هزینه کارشناسی مسترد نمی‌شود.',
-      'در صورت پرداخت مابه‌التفاوت، پس از ثبت هر دو کد رهگیری مرجوعی از هاب در صف «ارسال از طبقه»، همان مبلغ (بدون کارشناسی) به کیف پول شما بازمی‌گردد.',
-      `لینک آگهی: ${params.listingUrl}`,
-      `کد رهگیری ارسال شما به هاب: ${params.ownTrackingCode ?? 'ثبت نشده'}`,
-      params.packagingVideoUrl
-        ? `ویدیوی بسته‌بندی شما: ${params.packagingVideoUrl}`
-        : null,
-      'در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.',
-    );
+    if (params.ownNote?.trim()) {
+      lines.push(`علت رد کالای شما: ${params.ownNote.trim()}`);
+    }
+
+    lines.push('هزینه کارشناسی مسترد نمی‌شود.');
+    if (refundFa) {
+      lines.push(
+        `مبلغ ${refundFa} تومان (سهم پرداختی شما بدون کارشناسی) به کیف پول شما بازگردانده شد.`,
+      );
+    } else {
+      lines.push(
+        'در صورت پرداخت مابه‌التفاوت، پس از ثبت کد رهگیری مرجوعی از هاب، سهم پرداختی (بدون کارشناسی) به کیف پول شما بازمی‌گردد.',
+      );
+    }
+    lines.push('در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.');
 
     return formatTicketMessageBody(lines.filter((line): line is string => Boolean(line)));
   }
@@ -1754,16 +1756,17 @@ export class AdminOrdersCommandService {
       await this.readExchangeNoShipmentCompensationPercent();
 
     return this.prisma.$transaction(async (tx) => {
-      await this.walletService.applyExchangeHubInspectionOutcomeRefunds(tx, {
-        orderId: id,
-        listingId: existing.listing.id,
-        buyerId: existing.buyerId,
-        sellerId: existing.sellerId,
-        verificationFee: Number(existing.verificationFee || 0),
-        inspectionPenaltyPercent: compensationPercent,
-        listingFailed,
-        offerFailed,
-      });
+      const refundSummary =
+        await this.walletService.applyExchangeHubInspectionOutcomeRefunds(tx, {
+          orderId: id,
+          listingId: existing.listing.id,
+          buyerId: existing.buyerId,
+          sellerId: existing.sellerId,
+          verificationFee: Number(existing.verificationFee || 0),
+          inspectionPenaltyPercent: compensationPercent,
+          listingFailed,
+          offerFailed,
+        });
 
       const inspectionPayload = mergeInspectionPayload({
         awaitingFinanceSettlement: false,
@@ -1773,13 +1776,16 @@ export class AdminOrdersCommandService {
         buyerReturnReceived: false,
         sellerReturnReceived: false,
         refundsReleasedAt: new Date().toISOString(),
+        buyerRefundAmount: refundSummary.buyerRefundAmount,
+        sellerRefundAmount: refundSummary.sellerRefundAmount,
       });
 
       const updatedOrder = await tx.order.update({
         where: { id },
         data: {
           status: OrderStatus.REJECTED_AT_HUB,
-          cancelReason: summaryText,
+          cancelReason:
+            'رد کارشناسی معاوضه؛ کالاها از هاب به فرستندگان مرجوع می‌شوند.',
           exchangeHubInspection: inspectionPayload as Prisma.InputJsonValue,
         },
       });
@@ -1823,13 +1829,10 @@ export class AdminOrdersCommandService {
           role: 'seller',
           orderId: id,
           listingTitle: existing.listing.title,
-          listingUrl,
-          ownTrackingCode: existing.trackingCode,
-          packagingVideoUrl,
           listingFailed,
           offerFailed,
           ownNote: dto.listingNote?.trim() || null,
-          otherNote: dto.offerNote?.trim() || null,
+          refundAmount: refundSummary.sellerRefundAmount,
         });
 
       const sellerTicket = await tx.ticket.create({
@@ -1865,13 +1868,10 @@ export class AdminOrdersCommandService {
           role: 'buyer',
           orderId: id,
           listingTitle: existing.listing.title,
-          listingUrl,
-          ownTrackingCode: existing.sellerTrackingCode,
-          packagingVideoUrl: buyerPackagingVideoUrl,
           listingFailed,
           offerFailed,
           ownNote: dto.offerNote?.trim() || null,
-          otherNote: dto.listingNote?.trim() || null,
+          refundAmount: refundSummary.buyerRefundAmount,
         });
 
       const buyerTicket = await tx.ticket.create({
@@ -1904,7 +1904,7 @@ export class AdminOrdersCommandService {
         existing.sellerId,
         id,
         OrderStatus.REJECTED_AT_HUB,
-        summaryText,
+        'کارشناسی معاوضه رد شد؛ کالای شما از هاب مرجوع می‌شود. جزئیات در تیکت پشتیبانی.',
       );
 
       return updatedOrder;

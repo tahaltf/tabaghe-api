@@ -1985,7 +1985,8 @@ export class WalletService {
       listingFailed: boolean;
       offerFailed: boolean;
     },
-  ): Promise<void> {
+  ): Promise<{ buyerRefundAmount: number; sellerRefundAmount: number }> {
+    const summary = { buyerRefundAmount: 0, sellerRefundAmount: 0 };
     const listingTitle = await this.listingTitleForWalletTx(
       tx,
       params.listingId,
@@ -2017,6 +2018,11 @@ export class WalletService {
           listingId: params.listingId,
         });
         const refundAmount = Math.max(0, paid - penaltyPerParty);
+        if (party.role === 'buyer') {
+          summary.buyerRefundAmount = refundAmount;
+        } else {
+          summary.sellerRefundAmount = refundAmount;
+        }
         if (refundAmount <= 0) continue;
         await this.creditExchangeFixedRefund(tx, {
           orderId: params.orderId,
@@ -2094,6 +2100,7 @@ export class WalletService {
       cancelReason: 'لغو معامله پس از کارشناسی',
       debitReason: 'exchange-inspection-outcome',
     });
+    return summary;
   }
 
   // =================================================================

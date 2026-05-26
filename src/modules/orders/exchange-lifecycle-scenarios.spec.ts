@@ -321,9 +321,10 @@ describe('Exchange lifecycle — hub inspection (scenarios 7–12)', () => {
       repairMissingDirectCancelRefund: jest
         .fn()
         .mockResolvedValue({ repaired: false }),
-      applyExchangeHubInspectionOutcomeRefunds: jest
-        .fn()
-        .mockResolvedValue(undefined),
+      applyExchangeHubInspectionOutcomeRefunds: jest.fn().mockResolvedValue({
+        buyerRefundAmount: 100_000,
+        sellerRefundAmount: 100_000,
+      }),
     };
 
     const orderReputation = {

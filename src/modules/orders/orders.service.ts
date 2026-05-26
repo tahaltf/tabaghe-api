@@ -114,8 +114,6 @@ export class OrdersService {
         ? { buyerId: userId }
         : {
             sellerId: userId,
-            // معاوضه برای صاحب آگهی فقط از مسیر «درخواست‌های جاری» پیگیری می‌شود
-            type: { not: OrderType.EXCHANGE },
             NOT: {
               AND: [
                 { type: { in: [OrderType.DIRECT, OrderType.AUCTION] } },
@@ -2460,39 +2458,55 @@ export class OrdersService {
       (order as any).supportTicketId = relatedTicket?.id ?? null;
     }
 
+    const isSellerView = order.sellerId === userId;
+    const isBuyerView = order.buyerId === userId;
+
     // توضیح اختیاری «ارسال از هاب» — کوئری Json در برخی دیتابیس‌ها/داده‌های قدیمی ممکن است خطا بدهد؛ در آن صورت جزئیات سفارش را همچنان برمی‌گردانیم.
     let hubShipmentNote: string | null = null;
     let hubShipmentNotedAt: Date | null = null;
+    const skipHubShipmentNoteForExchangeReject =
+      order.type === OrderType.EXCHANGE &&
+      order.status === OrderStatus.REJECTED_AT_HUB;
     try {
-      const noteCandidates = await this.prisma.notification.findMany({
-        where: {
-          userId,
-          type: NotificationType.ORDER_STATUS_CHANGED,
-          meta: {
-            path: ['orderId'],
-            equals: orderId,
+      if (!skipHubShipmentNoteForExchangeReject) {
+        const noteCandidates = await this.prisma.notification.findMany({
+          where: {
+            userId,
+            type: NotificationType.ORDER_STATUS_CHANGED,
+            meta: {
+              path: ['orderId'],
+              equals: orderId,
+            },
           },
-        },
-        orderBy: { createdAt: 'desc' },
-        take: 10,
-        select: { meta: true, createdAt: true },
-      });
+          orderBy: { createdAt: 'desc' },
+          take: 15,
+          select: { meta: true, createdAt: true },
+        });
 
-      const hubShipmentNotification =
-        noteCandidates.find((n) => {
-          const note = (n.meta as Record<string, unknown> | null)?.['note'];
-          return typeof note === 'string' && note.trim().length > 0;
-        }) ?? null;
+        const hubShipmentNotification =
+          noteCandidates.find((n) => {
+            const meta = (n.meta as Record<string, unknown> | null) ?? {};
+            const note = meta['note'];
+            const audience = meta['audience'];
+            if (typeof note !== 'string' || !note.trim()) return false;
+            if (audience === 'BUYER' && !isBuyerView) return false;
+            if (audience === 'SELLER' && !isSellerView) return false;
+            if (note.includes('نتیجه کارشناسی معاوضه — مرجوع هر دو')) {
+              return false;
+            }
+            return true;
+          }) ?? null;
 
-      const hubShipmentNoteRaw = (
-        hubShipmentNotification?.meta as Record<string, unknown> | null
-      )?.['note'];
-      hubShipmentNote =
-        typeof hubShipmentNoteRaw === 'string' &&
-        hubShipmentNoteRaw.trim().length > 0
-          ? hubShipmentNoteRaw.trim()
-          : null;
-      hubShipmentNotedAt = hubShipmentNotification?.createdAt ?? null;
+        const hubShipmentNoteRaw = (
+          hubShipmentNotification?.meta as Record<string, unknown> | null
+        )?.['note'];
+        hubShipmentNote =
+          typeof hubShipmentNoteRaw === 'string' &&
+          hubShipmentNoteRaw.trim().length > 0
+            ? hubShipmentNoteRaw.trim()
+            : null;
+        hubShipmentNotedAt = hubShipmentNotification?.createdAt ?? null;
+      }
     } catch {
       hubShipmentNote = null;
       hubShipmentNotedAt = null;
@@ -2503,8 +2517,6 @@ export class OrdersService {
     }
 
     const needsHub = order.requiresVerification || order.type === 'EXCHANGE';
-    const isSellerView = order.sellerId === userId;
-    const isBuyerView = order.buyerId === userId;
 
     // شماره تلفن طرف مقابل فقط بعد از SHIPPED/DELIVERED (یعنی نیاز واقعی
     // ارتباط هست) قابل مشاهده‌ست. قبل از اون، شماره حذف میشه.
