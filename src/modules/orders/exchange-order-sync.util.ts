@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import {
   ExchangeOfferStatus,
   OrderStatus,
@@ -107,6 +108,62 @@ export function exchangeTerminalUserMessage(order: {
 /**
  * اگر سفارش هنوز جاری است ولی پیشنهاد اشتباهاً CANCELLED شده (باگ کرون قدیمی)، پیشنهاد را بازمی‌گرداند.
  */
+export function isResumableExchangeCheckoutOrder(
+  order: {
+    type?: string;
+    status: OrderStatus;
+    exchangeOfferId?: string | null;
+  },
+  activeExchangeOfferId: string,
+): boolean {
+  return (
+    (order.type == null || order.type === 'EXCHANGE') &&
+    order.exchangeOfferId === activeExchangeOfferId &&
+    (isExchangeOrderPaymentPending(order.status) ||
+      isExchangeOrderActivelyProgressing(order.status))
+  );
+}
+
+/** سفارش معاوضه قابل ادامه در چک‌اوت است (نه لغو / پایانی) */
+export function assertExchangeOrderOpenForCheckout(
+  order: {
+    status: OrderStatus;
+    cancelReason?: string | null;
+    exchangeHubInspection?: unknown;
+    exchangeOfferId?: string | null;
+    type?: string;
+  },
+  activeExchangeOfferId: string,
+): void {
+  if (order.type && order.type !== 'EXCHANGE') {
+    throw new BadRequestException('این سفارش مربوط به معاوضه نیست.');
+  }
+  if (
+    order.exchangeOfferId &&
+    order.exchangeOfferId !== activeExchangeOfferId
+  ) {
+    throw new BadRequestException(
+      'سفارش ثبت‌شده با این پیشنهاد معاوضه هم‌خوانی ندارد.',
+    );
+  }
+  if (isExchangeOrderTerminalForUserActions(order)) {
+    throw new BadRequestException(exchangeTerminalUserMessage(order));
+  }
+  if (!isResumableExchangeCheckoutOrder(order, activeExchangeOfferId)) {
+    if (
+      isExchangeOrderActivelyProgressing(order.status) ||
+      order.status === OrderStatus.AWAITING_SHIPMENT_TO_HUB
+    ) {
+      throw new BadRequestException(
+        'پرداخت شما برای این معاوضه قبلاً ثبت شده است. جزئیات را از بخش سفارش‌ها ببینید.',
+      );
+    }
+    throw new BadRequestException(
+      'این معامله در وضعیت قابل پرداخت نیست.',
+    );
+  }
+}
+
 export async function reconcileExchangeOfferStatusWithOrder(
   tx: Prisma.TransactionClient,
   exchangeOfferId: string,

@@ -44,18 +44,23 @@ import {
   buildOrderTicketSubject,
   formatTicketMessageBody,
 } from '../../common/ticket-message.util';
-import { prepareListingSlotForExchangeCheckout } from './exchange-listing-order.util';
+import {
+  isPaymentTimeoutCancelledOrder,
+  prepareListingSlotForExchangeCheckout,
+} from './exchange-listing-order.util';
 import {
   resolveExchangeOfferListDisplay,
   resolveExchangeOrderListDisplay,
 } from './exchange-offer-display.util';
 import {
+  assertExchangeOrderOpenForCheckout,
   EXCHANGE_ACTIVE_FULFILLMENT_ORDER_STATUSES,
   EXCHANGE_PAYMENT_PENDING_ORDER_STATUSES,
   exchangeTerminalUserMessage,
   isExchangeOrderPaymentPending,
   isExchangeOrderTerminalForUserActions,
   isExchangePaymentTimeoutCancelReason,
+  isResumableExchangeCheckoutOrder,
   reconcileExchangeOfferStatusWithOrder,
 } from './exchange-order-sync.util';
 import { formatMinutesDurationFa } from '../../common/duration-format.util';
@@ -434,6 +439,11 @@ export class OrdersService {
     let listingId = dto.listingId;
     let paymentUrl = null;
 
+    const exchangeShipDeadlineMinutesPreload =
+      orderType === 'EXCHANGE'
+        ? await this.getExchangeShipmentDeadlineMinutes()
+        : 0;
+
     let order;
     try {
       order = await this.prisma.$transaction(async (tx) => {
@@ -481,13 +491,16 @@ export class OrdersService {
       // -----------------------------------------------------
       if (orderType === 'EXCHANGE') {
         const exchangeShipDeadlineMinutes =
-          await this.getExchangeShipmentDeadlineMinutes();
+          exchangeShipDeadlineMinutesPreload;
         const offer = await tx.exchangeOffer.findUnique({
           where: { id: finalExchangeId },
           include: { listing: { include: { direct: true } } },
         });
 
         if (!offer) throw new NotFoundException('درخواست معاوضه یافت نشد');
+        if (!offer.listing) {
+          throw new NotFoundException('آگهی این پیشنهاد معاوضه یافت نشد');
+        }
 
         const linkedForTerminal = await tx.order.findFirst({
           where: { exchangeOfferId: finalExchangeId },
@@ -526,13 +539,6 @@ export class OrdersService {
           );
 
         listingId = offer.listingId;
-
-        // سفارش لغوشدهٔ قبلی همان پیشنهاد مانع checkout تازه نباشد
-        await prepareListingSlotForExchangeCheckout(
-          tx,
-          listingId,
-          finalExchangeId,
-        );
         categoryId = offer.listing.categoryId;
 
         // تشخیص اینکه چه کسی الان در حال پرداخت است
@@ -615,6 +621,11 @@ export class OrdersService {
         );
 
         if (existingExchangeOrder) {
+          assertExchangeOrderOpenForCheckout(
+            existingExchangeOrder,
+            finalExchangeId,
+          );
+
           const updateData: any = {};
           const verificationFeePerSide = Number(
             existingExchangeOrder.verificationFee || 0,
@@ -679,7 +690,13 @@ export class OrdersService {
           const bothSidesProvidedAddress =
             !!updatedOrder.shippingAddress &&
             !!updatedOrder.sellerShippingAddress;
-          if (bothSidesProvidedAddress && paymentMethod === 'WALLET') {
+          const paidTotalAfterUpdate = Number(updatedOrder.totalAmount ?? 0);
+          const bothSidesPaid = paidTotalAfterUpdate >= expectedTotal;
+          if (
+            bothSidesProvidedAddress &&
+            bothSidesPaid &&
+            paymentMethod === 'WALLET'
+          ) {
             const deadline = new Date(
               Date.now() + exchangeShipDeadlineMinutes * 60 * 1000,
             );
@@ -703,6 +720,40 @@ export class OrdersService {
 
           return updatedOrder;
         } else {
+          let slotBlock = await tx.order.findUnique({
+            where: { listingId },
+          });
+          if (slotBlock?.status === OrderStatus.CANCELLED) {
+            if (isPaymentTimeoutCancelledOrder(slotBlock)) {
+              throw new BadRequestException(
+                'مهلت پرداخت این معاوضه به پایان رسیده و امکان ثبت مجدد وجود ندارد.',
+              );
+            }
+            await tx.order.delete({ where: { id: slotBlock.id } });
+            slotBlock = null;
+          }
+          if (slotBlock) {
+            if (
+              slotBlock.exchangeOfferId === finalExchangeId &&
+              isExchangeOrderTerminalForUserActions(slotBlock)
+            ) {
+              throw new BadRequestException(
+                exchangeTerminalUserMessage(slotBlock),
+              );
+            }
+            if (
+              slotBlock.exchangeOfferId === finalExchangeId &&
+              isResumableExchangeCheckoutOrder(slotBlock, finalExchangeId)
+            ) {
+              throw new BadRequestException(
+                'سفارش این معاوضه از قبل وجود دارد. صفحه را تازه کنید و دوباره تلاش کنید.',
+              );
+            }
+            throw new BadRequestException(
+              'این کالا در حال حاضر در جریان معامله دیگری است.',
+            );
+          }
+
           // ✨ نفر اولی است که چک‌اوت می‌کند، پس سفارش را می‌سازیم
 
           // 🎯 حل مشکل کارمزد: همیشه کل مبلغ سرک (مابه‌التفاوت) را ملاک محاسبه قرار می‌دهیم
@@ -1184,11 +1235,31 @@ export class OrdersService {
     });
     } catch (err) {
       if (
+        err instanceof BadRequestException ||
+        err instanceof NotFoundException ||
+        err instanceof ForbiddenException
+      ) {
+        throw err;
+      }
+      if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
         err.code === 'P2002'
       ) {
         throw new BadRequestException(
           'این کالا در حال حاضر در جریان معامله است. لطفاً چند لحظه بعد دوباره تلاش کنید.',
+        );
+      }
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2025'
+      ) {
+        throw new BadRequestException(
+          'اطلاعات معامله ناقص یا منقضی شده است. صفحه را تازه کنید.',
+        );
+      }
+      if (err instanceof Prisma.PrismaClientValidationError) {
+        throw new BadRequestException(
+          'اطلاعات سفارش نامعتبر است. لطفاً صفحه را تازه کنید و دوباره تلاش کنید.',
         );
       }
       throw err;

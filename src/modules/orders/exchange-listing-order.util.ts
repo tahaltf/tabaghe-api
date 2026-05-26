@@ -21,7 +21,7 @@ const RESUMABLE_EXCHANGE_CHECKOUT_STATUSES: OrderStatus[] = [
   OrderStatus.AWAITING_SHIPMENT_TO_HUB,
 ];
 
-function isPaymentTimeoutCancelledOrder(order: {
+export function isPaymentTimeoutCancelledOrder(order: {
   status: OrderStatus;
   cancelReason?: string | null;
   exchangeHubInspection?: unknown;
