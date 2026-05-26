@@ -63,7 +63,31 @@ describe('exchange listing slot cleanup', () => {
     expect(result?.id).toBe('ord-ex');
   });
 
-  it('keeps payment-timeout CANCELLED exchange order (no silent re-checkout)', async () => {
+  it('removes payment-timeout CANCELLED order from a previous offer on same listing', async () => {
+    const cancelledOldOffer = {
+      id: 'ord-old-timeout',
+      type: OrderType.EXCHANGE,
+      status: OrderStatus.CANCELLED,
+      exchangeOfferId: 'offer-old',
+      totalAmount: 250000,
+      cancelReason: 'اتمام مهلت پرداخت',
+      exchangeHubInspection: { paymentTimeout: true },
+    };
+    const tx = makeTx(cancelledOldOffer, null);
+
+    const result = await prepareListingSlotForExchangeCheckout(
+      tx as never,
+      'lst-1',
+      'offer-new',
+    );
+
+    expect(tx.order.delete).toHaveBeenCalledWith({
+      where: { id: 'ord-old-timeout' },
+    });
+    expect(result).toBeNull();
+  });
+
+  it('keeps payment-timeout CANCELLED exchange order for the same offer (no re-checkout)', async () => {
     const cancelled = {
       id: 'ord-pay-timeout',
       type: OrderType.EXCHANGE,
@@ -73,7 +97,7 @@ describe('exchange listing slot cleanup', () => {
       cancelReason: 'اتمام مهلت پرداخت',
       exchangeHubInspection: { paymentTimeout: true },
     };
-    const tx = makeTx(null, cancelled);
+    const tx = makeTx(cancelled, cancelled);
 
     const result = await prepareListingSlotForExchangeCheckout(
       tx as never,

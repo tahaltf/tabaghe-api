@@ -45,6 +45,7 @@ import {
   formatTicketMessageBody,
 } from '../../common/ticket-message.util';
 import {
+  isPaymentTimeoutCancelledForActiveOffer,
   isPaymentTimeoutCancelledOrder,
   prepareListingSlotForExchangeCheckout,
 } from './exchange-listing-order.util';
@@ -724,7 +725,12 @@ export class OrdersService {
             where: { listingId },
           });
           if (slotBlock?.status === OrderStatus.CANCELLED) {
-            if (isPaymentTimeoutCancelledOrder(slotBlock)) {
+            if (
+              isPaymentTimeoutCancelledForActiveOffer(
+                slotBlock,
+                finalExchangeId,
+              )
+            ) {
               throw new BadRequestException(
                 'مهلت پرداخت این معاوضه به پایان رسیده و امکان ثبت مجدد وجود ندارد.',
               );

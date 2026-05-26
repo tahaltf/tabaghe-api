@@ -34,6 +34,22 @@ export function isPaymentTimeoutCancelledOrder(order: {
   );
 }
 
+/** لغو مهلت پرداخت فقط برای همان پیشنهاد فعال مانع چک‌اوت می‌ماند (نه دورهٔ قبلی آگهی). */
+export function isPaymentTimeoutCancelledForActiveOffer(
+  order: {
+    status: OrderStatus;
+    exchangeOfferId?: string | null;
+    cancelReason?: string | null;
+    exchangeHubInspection?: unknown;
+  },
+  activeExchangeOfferId: string,
+): boolean {
+  return (
+    isPaymentTimeoutCancelledOrder(order) &&
+    order.exchangeOfferId === activeExchangeOfferId
+  );
+}
+
 function isResumableExchangeCheckout(
   order: BlockingListingOrder,
   activeExchangeOfferId: string,
@@ -99,7 +115,7 @@ export async function prepareListingSlotForExchangeCheckout(
   if (
     slot &&
     !isResumableExchangeCheckout(slot, activeExchangeOfferId) &&
-    !isPaymentTimeoutCancelledOrder(slot)
+    !isPaymentTimeoutCancelledForActiveOffer(slot, activeExchangeOfferId)
   ) {
     await tx.order.delete({ where: { id: slot.id } });
   }
@@ -109,7 +125,9 @@ export async function prepareListingSlotForExchangeCheckout(
   });
 
   if (order && !isResumableExchangeCheckout(order, activeExchangeOfferId)) {
-    if (!isPaymentTimeoutCancelledOrder(order)) {
+    if (
+      !isPaymentTimeoutCancelledForActiveOffer(order, activeExchangeOfferId)
+    ) {
       await tx.order.delete({ where: { id: order.id } });
       order = null;
     }
