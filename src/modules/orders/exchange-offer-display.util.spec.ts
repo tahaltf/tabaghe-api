@@ -6,6 +6,15 @@ import {
 } from './exchange-offer-display.util';
 
 describe('resolveExchangeOfferListDisplay', () => {
+  it('prefers active order over stale CANCELLED offer row', () => {
+    const result = resolveExchangeOfferListDisplay(
+      ExchangeOfferStatus.CANCELLED,
+      { status: OrderStatus.AWAITING_PAYMENT },
+    );
+    expect(result.status).toBe(ExchangeOfferStatus.ACCEPTED);
+    expect(result.exchangeCancelKind).toBeNull();
+  });
+
   it('maps REJECTED_AT_HUB + singleSideNoShipment to cancelled no-shipment', () => {
     const result = resolveExchangeOfferListDisplay(ExchangeOfferStatus.ACCEPTED, {
       status: OrderStatus.REJECTED_AT_HUB,
@@ -13,6 +22,16 @@ describe('resolveExchangeOfferListDisplay', () => {
     });
     expect(result.status).toBe(ExchangeOfferStatus.CANCELLED);
     expect(result.exchangeCancelKind).toBe('NO_SHIPMENT_TIMEOUT');
+  });
+
+  it('maps CANCELLED payment timeout to PAYMENT_TIMEOUT kind', () => {
+    const result = resolveExchangeOfferListDisplay(ExchangeOfferStatus.ACCEPTED, {
+      status: OrderStatus.CANCELLED,
+      cancelReason: 'اتمام مهلت پرداخت؛ پیشنهاددهنده سهم خود را پرداخت نکرد',
+      exchangeHubInspection: { paymentTimeout: true },
+    });
+    expect(result.status).toBe(ExchangeOfferStatus.CANCELLED);
+    expect(result.exchangeCancelKind).toBe('PAYMENT_TIMEOUT');
   });
 
   it('maps REJECTED_AT_HUB without singleSide flag to hub reject', () => {

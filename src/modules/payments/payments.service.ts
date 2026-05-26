@@ -68,6 +68,11 @@ export class PaymentsService {
         'فقط طرفین معاوضه می‌توانند پرداخت را آغاز کنند',
       );
     }
+    if (order.status === OrderStatus.CANCELLED) {
+      throw new BadRequestException(
+        'مهلت پرداخت این معامله به پایان رسیده است؛ امکان پرداخت وجود ندارد',
+      );
+    }
     if (
       order.status !== OrderStatus.AWAITING_PAYMENT &&
       order.status !== OrderStatus.PENDING
@@ -355,6 +360,17 @@ export class PaymentsService {
     });
     if (!order) throw new NotFoundException('سفارش مرتبط با پرداخت پیدا نشد');
 
+    if (order.status === OrderStatus.CANCELLED) {
+      return {
+        result: 'INVALID_STATE',
+        ok: false,
+        kind: 'ORDER',
+        orderId: order.id,
+        authority,
+        message:
+          'مهلت پرداخت این معامله به پایان رسیده است. در صورت کسر وجه، با پشتیبانی تماس بگیرید.',
+      };
+    }
     if (
       order.status !== OrderStatus.AWAITING_PAYMENT &&
       order.status !== OrderStatus.PENDING

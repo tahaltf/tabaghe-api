@@ -17,6 +17,10 @@ describe('exchange listing slot cleanup', () => {
       findFirst: jest.fn().mockResolvedValue(byOffer),
       delete: jest.fn().mockResolvedValue({}),
     },
+    exchangeOffer: {
+      findUnique: jest.fn().mockResolvedValue({ status: 'ACCEPTED' }),
+      update: jest.fn().mockResolvedValue({}),
+    },
   });
 
   it('removes stale DIRECT order blocking exchange checkout', async () => {
@@ -57,6 +61,28 @@ describe('exchange listing slot cleanup', () => {
 
     expect(tx.order.delete).not.toHaveBeenCalled();
     expect(result?.id).toBe('ord-ex');
+  });
+
+  it('keeps payment-timeout CANCELLED exchange order (no silent re-checkout)', async () => {
+    const cancelled = {
+      id: 'ord-pay-timeout',
+      type: OrderType.EXCHANGE,
+      status: OrderStatus.CANCELLED,
+      exchangeOfferId: 'offer-new',
+      totalAmount: 250000,
+      cancelReason: 'اتمام مهلت پرداخت',
+      exchangeHubInspection: { paymentTimeout: true },
+    };
+    const tx = makeTx(null, cancelled);
+
+    const result = await prepareListingSlotForExchangeCheckout(
+      tx as never,
+      'lst-1',
+      'offer-new',
+    );
+
+    expect(tx.order.delete).not.toHaveBeenCalled();
+    expect(result?.id).toBe('ord-pay-timeout');
   });
 
   it('shouldRemoveStale returns true for non-exchange blocking order', async () => {

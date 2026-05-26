@@ -49,6 +49,15 @@ import {
   resolveExchangeOfferListDisplay,
   resolveExchangeOrderListDisplay,
 } from './exchange-offer-display.util';
+import {
+  EXCHANGE_ACTIVE_FULFILLMENT_ORDER_STATUSES,
+  EXCHANGE_PAYMENT_PENDING_ORDER_STATUSES,
+  exchangeTerminalUserMessage,
+  isExchangeOrderPaymentPending,
+  isExchangeOrderTerminalForUserActions,
+  isExchangePaymentTimeoutCancelReason,
+  reconcileExchangeOfferStatusWithOrder,
+} from './exchange-order-sync.util';
 import { formatMinutesDurationFa } from '../../common/duration-format.util';
 
 @Injectable()
@@ -137,6 +146,7 @@ export class OrdersService {
           trackingCode: true,
           sellerTrackingCode: true,
           exchangeHubInspection: true,
+          cancelReason: true,
           listing: {
             select: {
               id: true,
@@ -190,6 +200,7 @@ export class OrdersService {
         const display = resolveExchangeOrderListDisplay({
           status: item.status,
           exchangeHubInspection: item.exchangeHubInspection,
+          cancelReason: item.cancelReason,
         });
         (item as { exchangeCancelKind?: string | null }).exchangeCancelKind =
           display.exchangeCancelKind;
@@ -477,9 +488,39 @@ export class OrdersService {
         });
 
         if (!offer) throw new NotFoundException('درخواست معاوضه یافت نشد');
-        if (offer.status !== 'ACCEPTED')
+
+        const linkedForTerminal = await tx.order.findFirst({
+          where: { exchangeOfferId: finalExchangeId },
+          select: {
+            status: true,
+            cancelReason: true,
+            exchangeHubInspection: true,
+          },
+        });
+        if (
+          linkedForTerminal &&
+          isExchangeOrderTerminalForUserActions(linkedForTerminal)
+        ) {
           throw new BadRequestException(
-            offer.status === 'CANCELLED'
+            exchangeTerminalUserMessage(linkedForTerminal),
+          );
+        }
+
+        await reconcileExchangeOfferStatusWithOrder(tx, finalExchangeId);
+        let effectiveOfferStatus = offer.status;
+        if (effectiveOfferStatus !== ExchangeOfferStatus.ACCEPTED) {
+          const refreshedOffer = await tx.exchangeOffer.findUnique({
+            where: { id: finalExchangeId },
+            select: { status: true },
+          });
+          if (refreshedOffer?.status) {
+            effectiveOfferStatus = refreshedOffer.status;
+          }
+        }
+
+        if (effectiveOfferStatus !== ExchangeOfferStatus.ACCEPTED)
+          throw new BadRequestException(
+            effectiveOfferStatus === ExchangeOfferStatus.CANCELLED
               ? 'مهلت پرداخت این معاوضه تمام شده و معامله لغو شده است'
               : 'این معاوضه هنوز تایید نشده است',
           );
@@ -2214,6 +2255,10 @@ export class OrdersService {
     }
 
     if (order.type === 'EXCHANGE' && order.exchangeOfferId) {
+      await this.prisma.$transaction((tx) =>
+        reconcileExchangeOfferStatusWithOrder(tx, order.exchangeOfferId!),
+      );
+
       const exchangeOffer = await this.prisma.exchangeOffer.findUnique({
         where: { id: order.exchangeOfferId },
         select: {
@@ -3832,6 +3877,39 @@ export class OrdersService {
     }
   }
 
+  /** پیشنهاد CANCELLED با سفارش فعال (دادهٔ قدیمی) را با وضعیت سفارش هم‌راستا می‌کند */
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async autoReconcileStaleExchangeOfferStatus() {
+    const activeOrders = await this.prisma.order.findMany({
+      where: {
+        type: OrderType.EXCHANGE,
+        exchangeOfferId: { not: null },
+        status: {
+          in: [
+            ...EXCHANGE_ACTIVE_FULFILLMENT_ORDER_STATUSES,
+            ...EXCHANGE_PAYMENT_PENDING_ORDER_STATUSES,
+          ],
+        },
+      },
+      select: { exchangeOfferId: true },
+      take: 100,
+    });
+
+    for (const row of activeOrders) {
+      if (!row.exchangeOfferId) continue;
+      try {
+        await this.prisma.$transaction((tx) =>
+          reconcileExchangeOfferStatusWithOrder(tx, row.exchangeOfferId!),
+        );
+      } catch (error) {
+        console.error(
+          `Error reconciling exchange offer ${row.exchangeOfferId}:`,
+          error,
+        );
+      }
+    }
+  }
+
   @Cron(CronExpression.EVERY_MINUTE)
   async autoCancelTimedOutExchangeCompletions() {
     const paymentDeadlineMinutes =
@@ -3889,14 +3967,15 @@ export class OrdersService {
         totalAmount: true,
         shippingAddress: true,
         sellerShippingAddress: true,
+        exchangeHubInspection: true,
       },
     });
 
-    if (
-      linkedOrder &&
-      linkedOrder.status !== OrderStatus.AWAITING_PAYMENT &&
-      linkedOrder.status !== OrderStatus.PENDING
-    ) {
+    if (linkedOrder && !isExchangeOrderPaymentPending(linkedOrder.status)) {
+      if (linkedOrder.status !== OrderStatus.CANCELLED) {
+        await reconcileExchangeOfferStatusWithOrder(tx, offer.id);
+        return;
+      }
       const acceptedStillOpen = await tx.exchangeOffer.findUnique({
         where: { id: offer.id },
         select: { status: true },
@@ -3915,7 +3994,7 @@ export class OrdersService {
         );
         if (
           !linkedOrder.tradeReputationAt &&
-          this.isExchangePaymentTimeoutCancelReason(linkedOrder.cancelReason)
+          isExchangePaymentTimeoutCancelReason(linkedOrder.cancelReason)
         ) {
           await this.orderReputation.recordTerminalOutcome(
             tx,
@@ -4059,9 +4138,19 @@ export class OrdersService {
               ? 'اتمام مهلت پرداخت؛ پیشنهاددهنده سهم خود را پرداخت نکرد'
               : 'اتمام مهلت پرداخت؛ معامله به‌طور کامل تسویه نشد';
 
+      const prevHub =
+        (linkedOrder.exchangeHubInspection as Record<string, unknown> | null) ??
+        {};
       await tx.order.update({
         where: { id: linkedOrder.id },
-        data: { status: OrderStatus.CANCELLED, cancelReason },
+        data: {
+          status: OrderStatus.CANCELLED,
+          cancelReason,
+          exchangeHubInspection: {
+            ...(typeof prevHub === 'object' && prevHub !== null ? prevHub : {}),
+            paymentTimeout: true,
+          } as Prisma.InputJsonValue,
+        },
       });
       await this.orderReputation.recordTerminalOutcome(
         tx,

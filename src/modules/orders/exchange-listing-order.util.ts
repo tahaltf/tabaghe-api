@@ -4,6 +4,8 @@ import {
   OrderType,
   Prisma,
 } from '@prisma/client';
+import { isExchangePaymentTimeoutCancelReason } from './exchange-offer-display.util';
+import { reconcileExchangeOfferStatusWithOrder } from './exchange-order-sync.util';
 
 type BlockingListingOrder = {
   id: string;
@@ -18,6 +20,19 @@ const RESUMABLE_EXCHANGE_CHECKOUT_STATUSES: OrderStatus[] = [
   OrderStatus.PENDING,
   OrderStatus.AWAITING_SHIPMENT_TO_HUB,
 ];
+
+function isPaymentTimeoutCancelledOrder(order: {
+  status: OrderStatus;
+  cancelReason?: string | null;
+  exchangeHubInspection?: unknown;
+}): boolean {
+  if (order.status !== OrderStatus.CANCELLED) return false;
+  const hub = (order.exchangeHubInspection ?? {}) as Record<string, unknown>;
+  return (
+    Boolean(hub['paymentTimeout']) ||
+    isExchangePaymentTimeoutCancelReason(order.cancelReason)
+  );
+}
 
 function isResumableExchangeCheckout(
   order: BlockingListingOrder,
@@ -75,11 +90,17 @@ export async function prepareListingSlotForExchangeCheckout(
   listingId: string,
   activeExchangeOfferId: string,
 ): Promise<Order | null> {
+  await reconcileExchangeOfferStatusWithOrder(tx, activeExchangeOfferId);
+
   const slot = await tx.order.findUnique({
     where: { listingId },
   });
 
-  if (slot && !isResumableExchangeCheckout(slot, activeExchangeOfferId)) {
+  if (
+    slot &&
+    !isResumableExchangeCheckout(slot, activeExchangeOfferId) &&
+    !isPaymentTimeoutCancelledOrder(slot)
+  ) {
     await tx.order.delete({ where: { id: slot.id } });
   }
 
@@ -87,14 +108,11 @@ export async function prepareListingSlotForExchangeCheckout(
     where: { exchangeOfferId: activeExchangeOfferId },
   });
 
-  if (order?.status === OrderStatus.CANCELLED) {
-    await tx.order.delete({ where: { id: order.id } });
-    order = null;
-  }
-
   if (order && !isResumableExchangeCheckout(order, activeExchangeOfferId)) {
-    await tx.order.delete({ where: { id: order.id } });
-    order = null;
+    if (!isPaymentTimeoutCancelledOrder(order)) {
+      await tx.order.delete({ where: { id: order.id } });
+      order = null;
+    }
   }
 
   if (!order) {

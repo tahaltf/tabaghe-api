@@ -18,6 +18,7 @@ import { CreateExchangeOfferDto } from './create-exchange-offer.dto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ExchangeEvents } from './exchange.events';
 import { prepareListingSlotForExchangeCheckout } from '../orders/exchange-listing-order.util';
+import { reconcileExchangeOfferStatusWithOrder } from '../orders/exchange-order-sync.util';
 import { resolveExchangeOfferListDisplay } from '../orders/exchange-offer-display.util';
 
 @Injectable()
@@ -470,8 +471,12 @@ export class ExchangeService {
       );
     }
 
-    if (offer.status === ExchangeOfferStatus.ACCEPTED) {
+    if (
+      offer.status === ExchangeOfferStatus.ACCEPTED ||
+      offer.status === ExchangeOfferStatus.CANCELLED
+    ) {
       await this.prisma.$transaction(async (tx) => {
+        await reconcileExchangeOfferStatusWithOrder(tx, offer.id);
         await prepareListingSlotForExchangeCheckout(
           tx,
           offer.listingId,
@@ -479,6 +484,11 @@ export class ExchangeService {
         );
       });
     }
+
+    const offerAfterSync = await this.prisma.exchangeOffer.findUnique({
+      where: { id: offerId },
+      select: { status: true, updatedAt: true },
+    });
 
     const linkedOrder = await this.prisma.order.findFirst({
       where: { exchangeOfferId: offer.id },
@@ -526,24 +536,35 @@ export class ExchangeService {
       }
     }
 
-    const display = resolveExchangeOfferListDisplay(offer.status, linkedOrder);
+    const effectiveOfferStatus =
+      offerAfterSync?.status ?? offer.status;
+    const display = resolveExchangeOfferListDisplay(
+      effectiveOfferStatus,
+      linkedOrder,
+    );
     const effectiveStatus = display.status;
 
     const paymentDeadlineMinutes = await this.getExchangePaymentDeadlineMinutes();
+    const paymentDeadlineBase =
+      offerAfterSync?.updatedAt ?? offer.updatedAt;
     const paymentDeadlineAt =
       effectiveStatus === ExchangeOfferStatus.ACCEPTED
         ? new Date(
-            new Date(offer.updatedAt).getTime() +
+            new Date(paymentDeadlineBase).getTime() +
               paymentDeadlineMinutes * 60 * 1000,
           ).toISOString()
         : null;
 
     const orderCancelled =
       linkedOrder?.status === OrderStatus.CANCELLED ||
+      display.exchangeCancelKind === 'PAYMENT_TIMEOUT' ||
       display.exchangeCancelKind === 'NO_SHIPMENT_TIMEOUT' ||
       display.exchangeCancelKind === 'BOTH_NO_SHIPMENT';
     let checkoutBlockedReason: string | null = null;
-    if (display.exchangeCancelKind === 'NO_SHIPMENT_TIMEOUT') {
+    if (display.exchangeCancelKind === 'PAYMENT_TIMEOUT') {
+      checkoutBlockedReason =
+        'مهلت پرداخت این معاوضه به پایان رسیده و معامله لغو شده است.';
+    } else if (display.exchangeCancelKind === 'NO_SHIPMENT_TIMEOUT') {
       checkoutBlockedReason =
         'معامله به‌دلیل عدم ارسال در مهلت مقرر لغو شده است.';
     } else if (display.exchangeCancelKind === 'BOTH_NO_SHIPMENT') {
