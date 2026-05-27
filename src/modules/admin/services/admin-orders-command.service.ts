@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  ExchangeOfferStatus,
   ListingStatus,
   ListingType,
   NotificationType,
@@ -17,6 +18,7 @@ import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import {
   AdminEscrowAction,
   FinalizeExchangeHubInspectionDto,
+  RejectExchangeFakeShipmentDto,
   ResolveOrderEscrowDto,
   SetExchangeHubReceiptDto,
   SetHubShippingCodesDto,
@@ -3166,6 +3168,289 @@ export class AdminOrdersCommandService {
       return 20;
     }
     return Math.min(100, Math.floor(parsed));
+  }
+
+  /**
+   * معاوضه: ادمین تأیید می‌کند طرفی کد رهگیری زده ولی مرسوله به هاب نرسیده — لغو معامله و بازپرداخت.
+   */
+  async rejectExchangeFakeShipment(
+    id: string,
+    dto: RejectExchangeFakeShipmentDto,
+  ) {
+    const note = dto.note?.trim();
+    if (!note) {
+      throw new BadRequestException('ثبت توضیح برای رد دریافت الزامی است');
+    }
+
+    const order = await this.prisma.order.findUnique({
+      where: { id },
+      include: { listing: { select: { id: true, title: true } } },
+    });
+    if (!order) throw new NotFoundException('سفارش یافت نشد');
+    if (order.type !== 'EXCHANGE') {
+      throw new BadRequestException('این عملیات فقط برای معاوضه مجاز است');
+    }
+    if (
+      order.status !== OrderStatus.SHIPPED_TO_HUB &&
+      order.status !== OrderStatus.RECEIVED_AT_HUB &&
+      order.status !== OrderStatus.CHECKING_AT_HUB
+    ) {
+      throw new BadRequestException(
+        'سفارش در وضعیت مناسب برای رد دریافت مرسوله نیست',
+      );
+    }
+
+    const prevInspection =
+      (order.exchangeHubInspection as Record<string, unknown> | null) ?? {};
+    if (prevInspection['finalizedAt']) {
+      throw new BadRequestException('کارشناسی این معامله قبلاً نهایی شده است');
+    }
+
+    const listingShipped = Boolean(order.trackingCode?.trim());
+    const offerShipped = Boolean(order.sellerTrackingCode?.trim());
+    const offenderSideShipped =
+      dto.side === 'LISTING' ? listingShipped : offerShipped;
+    if (!offenderSideShipped) {
+      throw new BadRequestException(
+        'این طرف هنوز کد رهگیری ثبت نکرده؛ از مسیر عدم ارسال معمولی استفاده کنید',
+      );
+    }
+
+    const otherSideShipped =
+      dto.side === 'LISTING' ? offerShipped : listingShipped;
+    const offenderId =
+      dto.side === 'LISTING' ? order.sellerId : order.buyerId;
+    const senderId =
+      dto.side === 'LISTING' ? order.buyerId : order.sellerId;
+    const compensationPercent =
+      await this.readExchangeNoShipmentCompensationPercent();
+    const listingTitle = order.listing?.title?.trim() || 'کالا';
+    const shortId = id.slice(-6);
+
+    return this.prisma.$transaction(async (tx) => {
+      const prevStatus = order.status;
+
+      if (otherSideShipped) {
+        const refundSummary =
+          await this.walletService.refundExchangeOneSideNoShipmentOnCancel(tx, {
+            orderId: id,
+            listingId: order.listingId,
+            buyerId: order.buyerId,
+            sellerId: order.sellerId,
+            senderId,
+            offenderId,
+            verificationFee: Number(order.verificationFee || 0),
+            inspectionPenaltyPercent: compensationPercent,
+          });
+
+        await tx.user.update({
+          where: { id: offenderId },
+          data: { trustScore: { decrement: 15 } },
+        });
+
+        await tx.order.update({
+          where: { id },
+          data: {
+            status: OrderStatus.REJECTED_AT_HUB,
+            cancelReason: `رد دریافت توسط ادمین — ارسال واقعی نشده (${dto.side === 'LISTING' ? 'کالای آگهی' : 'کالای پیشنهادی'}): ${note}`,
+            exchangeHubInspection: {
+              ...prevInspection,
+              resolution: 'RETURN_BOTH_TO_SENDERS',
+              singleSideNoShipmentTimeout: true,
+              adminFakeShipment: true,
+              adminFakeShipmentSide: dto.side,
+              adminFakeShipmentNote: note,
+              skipInspection: true,
+              returnOnlyLeg: dto.side === 'LISTING' ? 'SELLER' : 'BUYER',
+              returnSenderUserId: senderId,
+              awaitingReturnConfirmations: false,
+              refundsReleasedAt: new Date().toISOString(),
+            } as Prisma.InputJsonValue,
+          },
+        });
+
+        await this.orderReputation.recordTerminalOutcome(
+          tx,
+          {
+            id,
+            buyerId: order.buyerId,
+            sellerId: order.sellerId,
+            tradeReputationAt: order.tradeReputationAt,
+          },
+          prevStatus,
+          'FAILURE',
+          { failurePenalizeUserIds: [offenderId] },
+        );
+
+        if (offenderId === order.sellerId) {
+          await this.listingCommand.rejectAfterTradeFailure(tx, {
+            listingId: order.listingId,
+            sellerId: order.sellerId,
+            listingTitle,
+            rejectionReason:
+              'معامله به‌دلیل عدم ارسال واقعی مرسوله (ثبت کد جعلی) لغو شد.',
+            orderId: id,
+            source: 'hub-inspection',
+          });
+        } else {
+          await tx.listing.update({
+            where: { id: order.listingId },
+            data: { status: ListingStatus.APPROVED },
+          });
+          if (order.exchangeOfferId) {
+            await tx.exchangeOffer.updateMany({
+              where: {
+                listingId: order.listingId,
+                status: ExchangeOfferStatus.WAITLISTED,
+              },
+              data: { status: ExchangeOfferStatus.PENDING },
+            });
+          }
+        }
+
+        const senderTicketBody = formatTicketMessageBody([
+          `معامله معاوضه #${shortId} برای «${listingTitle}» توسط تیم طبقه لغو شد.`,
+          'دلیل: طرف مقابل کد رهگیری ثبت کرده بود اما مرسوله به هاب نرسید؛ شما به‌موقع ارسال کرده بودید.',
+          `مبلغ ${Math.max(0, refundSummary.senderRefund).toLocaleString('fa-IR')} تومان به کیف پول شما برگشت.`,
+          refundSummary.compensation > 0
+            ? `همچنین ${refundSummary.compensation.toLocaleString('fa-IR')} تومان بابت جبران از سهم کارشناسی طرف مقابل واریز شد.`
+            : '',
+          'کالای شما در صف مرجوع از هاب قرار می‌گیرد.',
+        ].filter((line): line is string => Boolean(line)));
+
+        const offenderTicketBody = formatTicketMessageBody([
+          `معامله معاوضه #${shortId} لغو شد.`,
+          'دلیل: ادمین تأیید کرد مرسوله شما با وجود کد رهگیری به هاب نرسیده است.',
+          `توضیح: ${note}`,
+          `${compensationPercent}٪ از هزینه کارشناسی به‌عنوان جریمه کسر شد.`,
+          '۱۵ واحد از امتیاز اعتماد شما کسر شد.',
+        ]);
+
+        await tx.ticket.create({
+          data: {
+            userId: senderId,
+            subject: buildOrderTicketSubject('لغو معاوضه — بازگشت وجه', id),
+            status: 'OPEN',
+            messages: {
+              create: {
+                senderRole: UserRole.ADMIN,
+                message: senderTicketBody,
+              },
+            },
+          },
+        });
+        await tx.ticket.create({
+          data: {
+            userId: offenderId,
+            subject: buildOrderTicketSubject('عدم ارسال واقعی — لغو معاوضه', id),
+            status: 'OPEN',
+            messages: {
+              create: {
+                senderRole: UserRole.ADMIN,
+                message: offenderTicketBody,
+              },
+            },
+          },
+        });
+
+        return { status: OrderStatus.REJECTED_AT_HUB, offenderId, senderId };
+      }
+
+      const bothRefund =
+        await this.walletService.refundExchangeBothNoShipmentOnCancel(tx, {
+          orderId: id,
+          listingId: order.listingId,
+          buyerId: order.buyerId,
+          sellerId: order.sellerId,
+          verificationFee: Number(order.verificationFee || 0),
+          inspectionPenaltyPercent: 0,
+        });
+
+      await tx.user.update({
+        where: { id: order.buyerId },
+        data: { trustScore: { decrement: 15 } },
+      });
+      await tx.user.update({
+        where: { id: order.sellerId },
+        data: { trustScore: { decrement: 15 } },
+      });
+
+      const targetStatus =
+        order.status === OrderStatus.SHIPPED_TO_HUB
+          ? OrderStatus.CANCELLED
+          : OrderStatus.REJECTED_AT_HUB;
+
+      await tx.order.update({
+        where: { id },
+        data: {
+          status: targetStatus,
+          cancelReason: `لغو توسط ادمین — ارسال واقعی طرف ${dto.side === 'LISTING' ? 'آگهی' : 'پیشنهاد'} انجام نشده: ${note}`,
+          exchangeHubInspection: {
+            ...prevInspection,
+            adminFakeShipment: true,
+            adminFakeShipmentSide: dto.side,
+            adminFakeShipmentNote: note,
+            skipInspection: true,
+            singleSideNoShipmentTimeout: targetStatus === OrderStatus.REJECTED_AT_HUB,
+          } as Prisma.InputJsonValue,
+        },
+      });
+
+      await this.orderReputation.recordTerminalOutcome(
+        tx,
+        {
+          id,
+          buyerId: order.buyerId,
+          sellerId: order.sellerId,
+          tradeReputationAt: order.tradeReputationAt,
+        },
+        prevStatus,
+        'FAILURE',
+        { failurePenalizeUserIds: [offenderId] },
+      );
+
+      await this.listingCommand.rejectAfterTradeFailure(tx, {
+        listingId: order.listingId,
+        sellerId: order.sellerId,
+        listingTitle,
+        rejectionReason:
+          'معامله معاوضه به‌دلیل عدم ارسال واقعی لغو شد.',
+        orderId: id,
+        source: 'hub-inspection',
+      });
+
+      const cancelBody = formatTicketMessageBody([
+        `معامله معاوضه #${shortId} برای «${listingTitle}» لغو شد.`,
+        `دلیل: ${note}`,
+        'هیچ‌یک از طرفین ارسال معتبر به هاب نداشتند یا ارسال ثبت‌شده تأیید نشد.',
+      ]);
+      await tx.ticket.create({
+        data: {
+          userId: order.buyerId,
+          subject: buildOrderTicketSubject('لغو معاوضه', id),
+          status: 'OPEN',
+          messages: {
+            create: { senderRole: UserRole.ADMIN, message: cancelBody },
+          },
+        },
+      });
+      await tx.ticket.create({
+        data: {
+          userId: order.sellerId,
+          subject: buildOrderTicketSubject('لغو معاوضه', id),
+          status: 'OPEN',
+          messages: {
+            create: { senderRole: UserRole.ADMIN, message: cancelBody },
+          },
+        },
+      });
+
+      return {
+        status: targetStatus,
+        bothRefund,
+        offenderId,
+      };
+    });
   }
 }
 

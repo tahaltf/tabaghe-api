@@ -18,6 +18,7 @@ import { AdminOrderListQueryDto } from '../dto/admin-query.dto';
 import {
   FinalizeExchangeHubInspectionDto,
   ResolveOrderEscrowDto,
+  RejectExchangeFakeShipmentDto,
   SetExchangeHubReceiptDto,
   SetParticipantShippingDto,
   SetHubShippingCodesDto,
@@ -87,6 +88,14 @@ export class AdminOrdersQueryController {
     @Body() dto: SetExchangeHubReceiptDto,
   ) {
     return this.command.setExchangeHubReceipt(id, dto);
+  }
+
+  @Patch(':id/exchange-reject-fake-shipment')
+  rejectExchangeFakeShipment(
+    @Param('id') id: string,
+    @Body() dto: RejectExchangeFakeShipmentDto,
+  ) {
+    return this.command.rejectExchangeFakeShipment(id, dto);
   }
 
   @Patch(':id/hub-shipping')

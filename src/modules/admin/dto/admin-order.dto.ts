@@ -209,3 +209,14 @@ export class SetExchangeHubReceiptDto {
   @IsBoolean()
   received!: boolean;
 }
+
+/** ادمین: طرف کد رهگیری زده ولی مرسوله واقعاً به هاب نرسیده */
+export class RejectExchangeFakeShipmentDto {
+  @IsString()
+  @IsIn(['LISTING', 'OFFER'])
+  side!: 'LISTING' | 'OFFER';
+
+  @IsString()
+  @MaxLength(500)
+  note!: string;
+}
