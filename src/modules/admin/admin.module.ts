@@ -24,6 +24,7 @@ import { AdminSmsController } from './controllers/admin-sms.controller';
 import { AdminLogsController } from './controllers/admin-logs.controller';
 import { AdminPlatformWalletController } from './controllers/admin-platform-wallet.controller';
 import { AdminContactMessagesController } from './controllers/admin-contact-messages.controller';
+import { AdminCustomerClubController } from './controllers/admin-customer-club.controller';
 import { AdminBlogController } from './controllers/admin-blog.controller';
 import { AdminBadgesController } from './controllers/admin-badges.controller';
 import { AdminVaultController } from './controllers/admin-vault.controller';
@@ -91,6 +92,7 @@ import { ListingModule } from '../listing/listing.module';
     AdminLogsController,
     AdminPlatformWalletController,
     AdminContactMessagesController,
+    AdminCustomerClubController,
     AdminBlogController,
     AdminBadgesController,
     AdminVaultController,

@@ -630,3 +630,106 @@ describe('WalletService - refundExchangeOneSideNoShipmentOnCancel', () => {
     expect(tx.walletTransaction.create).toHaveBeenCalledTimes(3);
   });
 });
+
+describe('WalletService - applyExchangeHubInspectionOutcomeRefunds', () => {
+  const prismaMock = {} as any;
+  const notificationMock = {} as any;
+
+  function makeTx(settlementsByWallet: Record<string, { amount: number; meta: object }[]>) {
+    return {
+      listing: {
+        findUnique: jest.fn().mockResolvedValue({ title: 'لپ‌تاپ' }),
+      },
+      wallet: {
+        upsert: jest.fn().mockResolvedValue({}),
+        findUnique: jest.fn(async ({ where }: any) => ({
+          id: `${where.userId}-wallet-id`,
+        })),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      walletTransaction: {
+        findMany: jest.fn(async ({ where }: any) => {
+          if (where.type === WalletTransactionType.SETTLEMENT) {
+            return settlementsByWallet[where.walletId as string] ?? [];
+          }
+          if (where.status === WalletTransactionStatus.PENDING) {
+            return [];
+          }
+          return [];
+        }),
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+    } as any;
+  }
+
+  it('both failed: does not refund inspection fee to either side', async () => {
+    const service = new WalletService(prismaMock, notificationMock);
+    const tx = makeTx({
+      'buyer-1-wallet-id': [
+        {
+          amount: 300_000,
+          meta: { phase: 'exchange_participant_paid', payerUserId: 'buyer-1', orderId: 'ord-1' },
+        },
+      ],
+      'seller-1-wallet-id': [
+        {
+          amount: 100_000,
+          meta: { phase: 'exchange_participant_paid', payerUserId: 'seller-1', orderId: 'ord-1' },
+        },
+      ],
+    });
+
+    const summary = await service.applyExchangeHubInspectionOutcomeRefunds(tx, {
+      orderId: 'ord-1',
+      listingId: 'lst-1',
+      buyerId: 'buyer-1',
+      sellerId: 'seller-1',
+      verificationFee: 100_000,
+      inspectionPenaltyPercent: 30,
+      listingFailed: true,
+      offerFailed: true,
+    });
+
+    expect(summary).toEqual({
+      buyerRefundAmount: 200_000,
+      sellerRefundAmount: 0,
+    });
+  });
+
+  it('mixed outcome: healthy side gets full refund plus compensation, failed side loses inspection fee', async () => {
+    const service = new WalletService(prismaMock, notificationMock);
+    const tx = makeTx({
+      'buyer-1-wallet-id': [
+        {
+          amount: 300_000,
+          meta: { phase: 'exchange_participant_paid', payerUserId: 'buyer-1', orderId: 'ord-1' },
+        },
+      ],
+      'seller-1-wallet-id': [
+        {
+          amount: 100_000,
+          meta: { phase: 'exchange_participant_paid', payerUserId: 'seller-1', orderId: 'ord-1' },
+        },
+      ],
+    });
+
+    const summary = await service.applyExchangeHubInspectionOutcomeRefunds(tx, {
+      orderId: 'ord-1',
+      listingId: 'lst-1',
+      buyerId: 'buyer-1',
+      sellerId: 'seller-1',
+      verificationFee: 100_000,
+      inspectionPenaltyPercent: 30,
+      listingFailed: true,
+      offerFailed: false,
+    });
+
+    // listingFailed=true => seller failed, buyer healthy
+    expect(summary).toEqual({
+      buyerRefundAmount: 330_000,
+      sellerRefundAmount: 0,
+    });
+  });
+});

@@ -1970,8 +1970,9 @@ export class WalletService {
 
   /**
    * معاوضه: پس از کارشناسی با «مرجوع هر دو کالا» — تسویه مالی طرفین.
-   * - هر دو رد: جریمهٔ درصدی از کارشناسی هر طرف، عودت مابقی.
-   * - یکی رد / یکی تایید: عودت کامل به سالم + جریمه و دلجویی از کارشناسی طرف مقصر.
+   * - هر دو رد: هزینه کارشناسی هیچ‌کدام عودت نمی‌شود (فقط سهم غیرکارشناسی برمی‌گردد).
+   * - یکی رد / یکی تایید: تاییدشده عودت کامل می‌گیرد؛ ردشده هزینه کارشناسی‌اش را از دست می‌دهد
+   *   و درصد دلجویی از همان سهم کارشناسی ردشده به تاییدشده واریز می‌شود.
    */
   async applyExchangeHubInspectionOutcomeRefunds(
     tx: Prisma.TransactionClient,
@@ -1997,7 +1998,7 @@ export class WalletService {
       100,
       Math.max(0, Number(params.inspectionPenaltyPercent) || 0),
     );
-    const penaltyPerParty = Math.max(
+    const compensationAmount = Math.max(
       0,
       Math.floor((verificationFee * penaltyPercent) / 100),
     );
@@ -2017,7 +2018,7 @@ export class WalletService {
           orderId: params.orderId,
           listingId: params.listingId,
         });
-        const refundAmount = Math.max(0, paid - penaltyPerParty);
+        const refundAmount = Math.max(0, paid - verificationFee);
         if (party.role === 'buyer') {
           summary.buyerRefundAmount = refundAmount;
         } else {
@@ -2032,7 +2033,10 @@ export class WalletService {
           participantRole: party.role,
           refundKind: 'exchange-inspection-both-fail-refund',
           refundReason,
-          description: `بازگشت سهم پرداختی پس از رد کارشناسی هر دو کالا (${penaltyPercent}٪ جریمه کارشناسی) — ${titleQuoted}.`,
+          description:
+            verificationFee > 0
+              ? `بازگشت سهم پرداختی غیرکارشناسی پس از رد کارشناسی هر دو کالا (هزینه کارشناسی مسترد نشد) — ${titleQuoted}.`
+              : `بازگشت سهم پرداختی پس از رد کارشناسی هر دو کالا — ${titleQuoted}.`,
           listingTitle: listingTitle ?? undefined,
         });
       }
@@ -2048,7 +2052,7 @@ export class WalletService {
       const offenderRole =
         offenderId === params.buyerId ? ('buyer' as const) : ('seller' as const);
 
-      await this.creditExchangeParticipantRefund(tx, {
+      const healthyRefundAmount = await this.creditExchangeParticipantRefund(tx, {
         orderId: params.orderId,
         listingId: params.listingId,
         userId: healthyId,
@@ -2057,15 +2061,20 @@ export class WalletService {
         refundReason,
         description: `بازگشت کامل سهم پرداختی شما پس از تایید کارشناسی کالایتان — ${titleQuoted}.`,
       });
+      if (healthyRole === 'buyer') {
+        summary.buyerRefundAmount += healthyRefundAmount;
+      } else {
+        summary.sellerRefundAmount += healthyRefundAmount;
+      }
 
       const offenderPaid = await this.getExchangeParticipantPaidAmount(tx, {
         participantUserId: offenderId,
         orderId: params.orderId,
         listingId: params.listingId,
       });
-      const offenderRefundAmount = Math.max(0, offenderPaid - penaltyPerParty);
+      const offenderRefundAmount = Math.max(0, offenderPaid - verificationFee);
       if (offenderRefundAmount > 0) {
-        await this.creditExchangeFixedRefund(tx, {
+        const creditedOffender = await this.creditExchangeFixedRefund(tx, {
           orderId: params.orderId,
           listingId: params.listingId,
           userId: offenderId,
@@ -2073,23 +2082,36 @@ export class WalletService {
           participantRole: offenderRole,
           refundKind: 'exchange-inspection-mixed-offender-refund',
           refundReason,
-          description: `بازگشت باقی‌مانده سهم پرداختی شما پس از کسر جریمه کارشناسی (رد کالا) — ${titleQuoted}.`,
+          description:
+            verificationFee > 0
+              ? `بازگشت سهم پرداختی غیرکارشناسی شما؛ هزینه کارشناسی به‌دلیل رد کالا مسترد نشد — ${titleQuoted}.`
+              : `بازگشت باقی‌مانده سهم پرداختی شما پس از رد کالا — ${titleQuoted}.`,
           listingTitle: listingTitle ?? undefined,
         });
+        if (offenderRole === 'buyer') {
+          summary.buyerRefundAmount += creditedOffender;
+        } else {
+          summary.sellerRefundAmount += creditedOffender;
+        }
       }
 
-      if (penaltyPerParty > 0) {
-        await this.creditExchangeFixedRefund(tx, {
+      if (compensationAmount > 0) {
+        const compensation = await this.creditExchangeFixedRefund(tx, {
           orderId: params.orderId,
           listingId: params.listingId,
           userId: healthyId,
-          amount: penaltyPerParty,
+          amount: compensationAmount,
           participantRole: healthyRole,
           refundKind: 'exchange-inspection-mixed-compensation',
           refundReason: 'exchange-inspection-mixed-compensation',
           description: `جبران ${penaltyPercent}٪ از هزینه کارشناسی طرف مقابل (کالای رد‌شده) — ${titleQuoted}.`,
           listingTitle: listingTitle ?? undefined,
         });
+        if (healthyRole === 'buyer') {
+          summary.buyerRefundAmount += compensation;
+        } else {
+          summary.sellerRefundAmount += compensation;
+        }
       }
     }
 

@@ -37,6 +37,12 @@ import {
   formatTicketMessageBody,
 } from '../../../common/ticket-message.util';
 
+const EXCHANGE_INSPECTION_TICKET_TEMPLATE_KEYS = {
+  BOTH_FAILED: 'EXCHANGE_INSPECTION_TICKET_TEMPLATE_BOTH_FAILED',
+  OWN_FAILED: 'EXCHANGE_INSPECTION_TICKET_TEMPLATE_OWN_FAILED',
+  OTHER_FAILED: 'EXCHANGE_INSPECTION_TICKET_TEMPLATE_OTHER_FAILED',
+} as const;
+
 @Injectable()
 export class AdminOrdersCommandService {
   constructor(
@@ -1065,6 +1071,7 @@ export class AdminOrdersCommandService {
     offerFailed: boolean;
     ownNote: string | null;
     refundAmount: number;
+    templates?: Partial<Record<(typeof EXCHANGE_INSPECTION_TICKET_TEMPLATE_KEYS)[keyof typeof EXCHANGE_INSPECTION_TICKET_TEMPLATE_KEYS], string>>;
   }): string {
     const shortId = params.orderId.slice(-6);
     const penalty = TRADE_REPUTATION_PENALTY_DELTA;
@@ -1077,48 +1084,131 @@ export class AdminOrdersCommandService {
         ? params.refundAmount.toLocaleString('fa-IR')
         : null;
 
-    const lines: string[] = [];
+    const fallbackLines: string[] = [
+      `نتیجه کارشناسی معاوضه #${shortId} برای آگهی «${params.listingTitle}»`,
+      '',
+      '۱) وضعیت معامله',
+    ];
 
     if (bothFailed) {
-      lines.push(
-        `اطلاع‌رسانی کارشناسی معاوضه #${shortId}: هر دو کالا رد شد و معامله لغو گردید.`,
-        'کالای شما از هاب به آدرس شما مرجوع می‌شود؛ پس از ثبت کد رهگیری مرجوعی در سامانه، در جزئیات سفارش قابل مشاهده است.',
-        `امتیاز معاملاتی شما ${penalty} واحد کاهش یافت.`,
+      fallbackLines.push(
+        '- هر دو کالا در کارشناسی رد شدند و معامله لغو شد.',
+        '- کالای شما از هاب به آدرس ثبت‌شده مرجوع می‌شود.',
       );
     } else if (ownFailed) {
-      lines.push(
-        `اطلاع‌رسانی کارشناسی معاوضه #${shortId}: کالای ارسالی شما رد شد و معامله لغو گردید.`,
-        'کالای شما از هاب مرجوع می‌شود.',
-        `امتیاز معاملاتی شما ${penalty} واحد کاهش یافت.`,
+      fallbackLines.push(
+        '- کالای ارسالی شما رد شد و معامله لغو شد.',
+        '- کالای شما از هاب به آدرس ثبت‌شده مرجوع می‌شود.',
       );
     } else if (otherFailed) {
-      lines.push(
-        `اطلاع‌رسانی کارشناسی معاوضه #${shortId}: به‌دلیل رد کالای طرف مقابل، معامله لغو شد.`,
-        'کالای شما از نظر کارشناسی تایید شد؛ کالای شما از هاب مرجوع می‌شود.',
+      fallbackLines.push(
+        '- کالای طرف مقابل رد شد و معامله لغو شد.',
+        '- کالای شما در کارشناسی تایید شد و از هاب مرجوع می‌شود.',
       );
     } else {
-      lines.push(
-        `اطلاع‌رسانی کارشناسی معاوضه #${shortId}: معامله لغو شد و مرجوع کالا در دست اقدام است.`,
+      fallbackLines.push('- معامله لغو شد و مرجوع کالا در حال انجام است.');
+    }
+
+    fallbackLines.push('', '۲) نتیجه مالی');
+
+    if (bothFailed) {
+      fallbackLines.push(
+        '- طبق سیاست مالی، هزینه کارشناسی در حالت رد دوطرفه مسترد نمی‌شود.',
+      );
+    } else if (ownFailed) {
+      fallbackLines.push(
+        '- هزینه کارشناسی شما به‌دلیل رد کالا مسترد نمی‌شود.',
+      );
+    } else if (otherFailed) {
+      fallbackLines.push(
+        '- به‌دلیل تایید کالای شما و لغو معامله، سهم پرداختی شما به‌طور کامل بازگردانده شد.',
+        '- مبلغ دلجویی از سهم هزینه کارشناسی طرف ردشده نیز به کیف پول شما اضافه شد.',
       );
     }
 
-    if (params.ownNote?.trim()) {
-      lines.push(`علت رد کالای شما: ${params.ownNote.trim()}`);
-    }
-
-    lines.push('هزینه کارشناسی مسترد نمی‌شود.');
     if (refundFa) {
-      lines.push(
-        `مبلغ ${refundFa} تومان (سهم پرداختی شما بدون کارشناسی) به کیف پول شما بازگردانده شد.`,
-      );
+      fallbackLines.push(`- مبلغ واریزی به کیف پول شما: ${refundFa} تومان.`);
     } else {
-      lines.push(
-        'در صورت پرداخت مابه‌التفاوت، پس از ثبت کد رهگیری مرجوعی از هاب، سهم پرداختی (بدون کارشناسی) به کیف پول شما بازمی‌گردد.',
+      fallbackLines.push(
+        '- در حال حاضر مبلغی به کیف پول شما واریز نشد (در صورتی که پرداختی ثبت نشده باشد).',
       );
     }
-    lines.push('در صورت نیاز می‌توانید از همین تیکت با پشتیبانی در ارتباط باشید.');
 
-    return formatTicketMessageBody(lines.filter((line): line is string => Boolean(line)));
+    fallbackLines.push('', '۳) امتیاز و اقدام بعدی');
+    if (ownFailed || bothFailed) {
+      fallbackLines.push(`- امتیاز معاملاتی شما ${penalty} واحد کاهش یافت.`);
+    } else {
+      fallbackLines.push('- برای شما کسر امتیاز اعمال نشده است.');
+    }
+    if (params.ownNote?.trim()) {
+      fallbackLines.push(`- توضیح کارشناسی کالای شما: ${params.ownNote.trim()}`);
+    }
+    fallbackLines.push(
+      '- پس از ثبت کد رهگیری مرجوعی توسط هاب، جزئیات در سفارش نمایش داده می‌شود.',
+      '- در صورت نیاز، پاسخ همین تیکت را ارسال کنید تا پشتیبانی پیگیری کند.',
+    );
+
+    const selectedTemplate = bothFailed
+      ? params.templates?.[EXCHANGE_INSPECTION_TICKET_TEMPLATE_KEYS.BOTH_FAILED]
+      : ownFailed
+        ? params.templates?.[EXCHANGE_INSPECTION_TICKET_TEMPLATE_KEYS.OWN_FAILED]
+        : otherFailed
+          ? params.templates?.[EXCHANGE_INSPECTION_TICKET_TEMPLATE_KEYS.OTHER_FAILED]
+          : '';
+    const template = String(selectedTemplate ?? '').trim();
+    if (template) {
+      return this.renderTemplateString(template, {
+        orderShortId: shortId,
+        listingTitle: params.listingTitle,
+        refundAmount: refundFa ?? '0',
+        penaltyDelta: String(penalty),
+        ownNote: params.ownNote?.trim() || '-',
+      });
+    }
+
+    return formatTicketMessageBody(
+      fallbackLines.filter((line): line is string => Boolean(line)),
+    );
+  }
+
+  private renderTemplateString(
+    template: string,
+    values: Record<string, string>,
+  ): string {
+    return template.replace(/\{\{(\w+)\}\}/g, (full, key: string) => {
+      const normalized = String(key || '').trim();
+      if (!normalized) return full;
+      return values[normalized] ?? full;
+    });
+  }
+
+  private async readExchangeInspectionTicketTemplates(): Promise<
+    Partial<
+      Record<
+        (typeof EXCHANGE_INSPECTION_TICKET_TEMPLATE_KEYS)[keyof typeof EXCHANGE_INSPECTION_TICKET_TEMPLATE_KEYS],
+        string
+      >
+    >
+  > {
+    const keys = Object.values(EXCHANGE_INSPECTION_TICKET_TEMPLATE_KEYS);
+    const rows = await this.prisma.systemSetting.findMany({
+      where: { key: { in: keys } },
+      select: { key: true, value: true },
+    });
+    return rows.reduce(
+      (acc, row) => {
+        const key =
+          row.key as (typeof EXCHANGE_INSPECTION_TICKET_TEMPLATE_KEYS)[keyof typeof EXCHANGE_INSPECTION_TICKET_TEMPLATE_KEYS];
+        acc[key] = row.value;
+        return acc;
+      },
+      {} as Partial<
+        Record<
+          (typeof EXCHANGE_INSPECTION_TICKET_TEMPLATE_KEYS)[keyof typeof EXCHANGE_INSPECTION_TICKET_TEMPLATE_KEYS],
+          string
+        >
+      >,
+    );
   }
 
   /**
@@ -1754,6 +1844,8 @@ export class AdminOrdersCommandService {
     const summaryText = summaryLines.join('\n');
     const compensationPercent =
       await this.readExchangeNoShipmentCompensationPercent();
+    const exchangeInspectionTemplates =
+      await this.readExchangeInspectionTicketTemplates();
 
     return this.prisma.$transaction(async (tx) => {
       const refundSummary =
@@ -1833,6 +1925,7 @@ export class AdminOrdersCommandService {
           offerFailed,
           ownNote: dto.listingNote?.trim() || null,
           refundAmount: refundSummary.sellerRefundAmount,
+          templates: exchangeInspectionTemplates,
         });
 
       const sellerTicket = await tx.ticket.create({
@@ -1872,6 +1965,7 @@ export class AdminOrdersCommandService {
           offerFailed,
           ownNote: dto.offerNote?.trim() || null,
           refundAmount: refundSummary.buyerRefundAmount,
+          templates: exchangeInspectionTemplates,
         });
 
       const buyerTicket = await tx.ticket.create({

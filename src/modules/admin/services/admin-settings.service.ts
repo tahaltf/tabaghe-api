@@ -82,6 +82,12 @@ export const SETTING_KEYS = {
   INSPECTION_CERTIFICATE_FOOTER: 'INSPECTION_CERTIFICATE_FOOTER',
   INSPECTION_CERTIFICATE_LOGO: 'INSPECTION_CERTIFICATE_LOGO',
   INSPECTION_CERTIFICATE_STAMP: 'INSPECTION_CERTIFICATE_STAMP',
+  EXCHANGE_INSPECTION_TICKET_TEMPLATE_BOTH_FAILED:
+    'EXCHANGE_INSPECTION_TICKET_TEMPLATE_BOTH_FAILED',
+  EXCHANGE_INSPECTION_TICKET_TEMPLATE_OWN_FAILED:
+    'EXCHANGE_INSPECTION_TICKET_TEMPLATE_OWN_FAILED',
+  EXCHANGE_INSPECTION_TICKET_TEMPLATE_OTHER_FAILED:
+    'EXCHANGE_INSPECTION_TICKET_TEMPLATE_OTHER_FAILED',
   ACTION_DEADLINE_REMINDER_DEFAULT_MINUTES:
     'ACTION_DEADLINE_REMINDER_DEFAULT_MINUTES',
   ACTION_DEADLINE_REMINDER_EXCHANGE_PAYMENT_MINUTES:
@@ -195,6 +201,12 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
     'پاورقی گواهی کارشناسی (نام مرکز، آدرس، تلفن پشتیبانی)',
   INSPECTION_CERTIFICATE_LOGO: 'فایل لوگوی بالای گواهی کارشناسی PDF',
   INSPECTION_CERTIFICATE_STAMP: 'فایل تصویر مهر/امضای پایین گواهی کارشناسی PDF',
+  EXCHANGE_INSPECTION_TICKET_TEMPLATE_BOTH_FAILED:
+    'قالب تیکت معاوضه (رد دوطرفه). متغیرها: {{orderShortId}}, {{listingTitle}}, {{refundAmount}}, {{penaltyDelta}}, {{ownNote}}',
+  EXCHANGE_INSPECTION_TICKET_TEMPLATE_OWN_FAILED:
+    'قالب تیکت معاوضه (رد کالای خود کاربر). متغیرها: {{orderShortId}}, {{listingTitle}}, {{refundAmount}}, {{penaltyDelta}}, {{ownNote}}',
+  EXCHANGE_INSPECTION_TICKET_TEMPLATE_OTHER_FAILED:
+    'قالب تیکت معاوضه (رد کالای طرف مقابل). متغیرها: {{orderShortId}}, {{listingTitle}}, {{refundAmount}}, {{penaltyDelta}}, {{ownNote}}',
 };
 
 @Injectable()
