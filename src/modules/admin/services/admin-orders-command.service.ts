@@ -1830,6 +1830,81 @@ export class AdminOrdersCommandService {
         return awaitingOrder;
       }
 
+      const settlementTicketLines = [
+        'نتیجه کارشناسی معاوضه با اصلاح مالی ثبت شد.',
+        `کالای آگهی: ${itemLabel(dto.listingItem)}`,
+        `کالای پیشنهاد: ${itemLabel(dto.offerItem)}`,
+        listingSettlementAmount > 0
+          ? `کسر سمت کالای آگهی: ${listingSettlementAmount.toLocaleString('fa-IR')} تومان`
+          : null,
+        offerSettlementAmount > 0
+          ? `کسر سمت کالای پیشنهاد: ${offerSettlementAmount.toLocaleString('fa-IR')} تومان`
+          : null,
+        'سفارش وارد مرحله ارسال از هاب شد.',
+      ].filter(Boolean) as string[];
+      const settlementTicketBody = formatTicketMessageBody(settlementTicketLines);
+      const [buyerSettlementTicket, sellerSettlementTicket] = await Promise.all([
+        this.prisma.ticket.create({
+          data: {
+            userId: existing.buyerId,
+            subject: buildOrderTicketSubject(
+              'نتیجه کارشناسی معاوضه — اصلاح مالی',
+              id,
+            ),
+            status: 'OPEN',
+            messages: {
+              create: {
+                senderRole: UserRole.ADMIN,
+                message: settlementTicketBody,
+              },
+            },
+          },
+          select: { id: true },
+        }),
+        this.prisma.ticket.create({
+          data: {
+            userId: existing.sellerId,
+            subject: buildOrderTicketSubject(
+              'نتیجه کارشناسی معاوضه — اصلاح مالی',
+              id,
+            ),
+            status: 'OPEN',
+            messages: {
+              create: {
+                senderRole: UserRole.ADMIN,
+                message: settlementTicketBody,
+              },
+            },
+          },
+          select: { id: true },
+        }),
+      ]);
+
+      await this.prisma.notification.createMany({
+        data: [
+          {
+            userId: existing.buyerId,
+            type: NotificationType.TICKET_REPLY,
+            title: 'تیکت اصلاح مالی معاوضه',
+            message: `برای سفارش #${id.slice(-6)} نتیجه کارشناسی و اصلاح مالی ثبت شد.`,
+            meta: {
+              orderId: id,
+              ticketId: buyerSettlementTicket.id,
+            } as Prisma.InputJsonValue,
+          },
+          {
+            userId: existing.sellerId,
+            type: NotificationType.TICKET_REPLY,
+            title: 'تیکت اصلاح مالی معاوضه',
+            message: `برای سفارش #${id.slice(-6)} نتیجه کارشناسی و اصلاح مالی ثبت شد.`,
+            meta: {
+              orderId: id,
+              ticketId: sellerSettlementTicket.id,
+            } as Prisma.InputJsonValue,
+          },
+        ],
+      });
+
       await this.notifyParties(
         existing.buyerId,
         existing.sellerId,

@@ -156,7 +156,7 @@ export function buildInspectionCertificateHtml(
     min-height: 268mm;
     margin: 0 auto;
     padding-inline: 3mm;
-    padding-bottom: 22mm;
+    padding-bottom: 46mm;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
@@ -344,9 +344,15 @@ export function buildInspectionCertificateHtml(
     line-height: 1.7;
   }
   .cert-signature-zone {
-    margin-top: auto;
-    padding-top: 10mm;
-    min-height: 34mm;
+    display: none;
+  }
+  .cert-signature-fixed {
+    position: fixed;
+    left: 13mm;
+    right: 13mm;
+    bottom: 18mm;
+    z-index: 10;
+    pointer-events: none;
   }
   .cert-bottom {
     display: flex;
@@ -425,17 +431,16 @@ export function buildInspectionCertificateHtml(
 
     <div class="cert-result"><strong class="title">نتیجه کارشناسی</strong><div class="result-text">${resultHtml}</div></div>
 
-    <div class="cert-signature-zone">
-      <div class="cert-bottom">
-        <div class="cert-stamp-wrap">
-          ${stampBlock}
-          <div class="cert-stamp-label">مهر مرکز پردازش طبقه</div>
-        </div>
-        <div class="cert-sign">امضای کارشناس مسئول</div>
-      </div>
-    </div>
-
     <footer class="cert-footer">${footerHtml}</footer>
+  </div>
+  <div class="cert-signature-fixed" aria-hidden="true">
+    <div class="cert-bottom">
+      <div class="cert-stamp-wrap">
+        ${stampBlock}
+        <div class="cert-stamp-label">مهر مرکز پردازش طبقه</div>
+      </div>
+      <div class="cert-sign">امضای کارشناس مسئول</div>
+    </div>
   </div>
 </body>
 </html>`;
