@@ -1819,6 +1819,83 @@ export class OrdersService {
       await this.tryAutoConfirmSellerReturnReceipt(row.id);
     }
   }
+  /**
+   * پس از رد کالای پیشنهاد و تایید کالای آگهی: فروشنده انتخاب می‌کند آگهی دوباره منتشر شود یا خیر.
+   */
+  async setExchangeSellerRelistChoice(
+    userId: string,
+    orderId: string,
+    publish: boolean,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: { listing: { select: { id: true, title: true } } },
+      });
+      if (!order) throw new NotFoundException('سفارش یافت نشد');
+      if (order.type !== OrderType.EXCHANGE) {
+        throw new BadRequestException('این عملیات فقط برای معاوضه مجاز است');
+      }
+      if (order.sellerId !== userId) {
+        throw new ForbiddenException('فقط صاحب آگهی می‌تواند این انتخاب را ثبت کند');
+      }
+      if (order.status !== OrderStatus.REJECTED_AT_HUB) {
+        throw new BadRequestException('سفارش در وضعیت مناسب برای این انتخاب نیست');
+      }
+      const prev =
+        (order.exchangeHubInspection as Record<string, unknown> | null) ?? {};
+      if (!prev['awaitingSellerRelistChoice']) {
+        throw new BadRequestException(
+          'برای این سفارش انتخاب انتشار مجدد آگهی در دسترس نیست',
+        );
+      }
+      if (prev['sellerRelistChoice']) {
+        throw new BadRequestException('انتخاب شما قبلاً ثبت شده است');
+      }
+
+      const listingTitle = order.listing?.title?.trim() || 'کالا';
+      const nextInspection = {
+        ...prev,
+        awaitingSellerRelistChoice: false,
+        sellerRelistChoice: publish ? 'PUBLISH' : 'HIDE',
+        sellerRelistDecidedAt: new Date().toISOString(),
+      };
+
+      if (publish) {
+        await tx.listing.update({
+          where: { id: order.listingId },
+          data: { status: ListingStatus.APPROVED },
+        });
+        if (order.exchangeOfferId) {
+          await tx.exchangeOffer.updateMany({
+            where: {
+              listingId: order.listingId,
+              status: ExchangeOfferStatus.WAITLISTED,
+            },
+            data: { status: ExchangeOfferStatus.PENDING },
+          });
+        }
+      } else {
+        await this.listingCommand.rejectAfterTradeFailure(tx, {
+          listingId: order.listingId,
+          sellerId: order.sellerId,
+          listingTitle,
+          rejectionReason:
+            'به درخواست شما پس از لغو معاوضه (تایید کالای شما در کارشناسی)، آگهی از انتشار خارج شد.',
+          source: 'hub-inspection',
+          orderId,
+        });
+      }
+
+      return tx.order.update({
+        where: { id: orderId },
+        data: {
+          exchangeHubInspection: nextInspection as Prisma.InputJsonValue,
+        },
+      });
+    });
+  }
+
   // =================================================================
   // 5. تایید نهایی سفارش
   // =================================================================

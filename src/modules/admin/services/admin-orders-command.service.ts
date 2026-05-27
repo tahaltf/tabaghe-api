@@ -1145,6 +1145,12 @@ export class AdminOrdersCommandService {
     if (params.ownNote?.trim()) {
       fallbackLines.push(`- توضیح کارشناسی کالای شما: ${params.ownNote.trim()}`);
     }
+    if (isSeller && otherFailed && !ownFailed) {
+      fallbackLines.push(
+        '- کالای شما تایید شده است؛ آگهی به‌صورت خودکار رد نشده.',
+        '- در صفحه جزئیات همین سفارش می‌توانید انتخاب کنید آگهی دوباره روی سایت نمایش داده شود یا خیر.',
+      );
+    }
     fallbackLines.push(
       '- پس از ثبت کد رهگیری مرجوعی توسط هاب، جزئیات در سفارش نمایش داده می‌شود.',
       '- در صورت نیاز، پاسخ همین تیکت را ارسال کنید تا پشتیبانی پیگیری کند.',
@@ -1872,6 +1878,12 @@ export class AdminOrdersCommandService {
         refundsReleasedAt: new Date().toISOString(),
         buyerRefundAmount: refundSummary.buyerRefundAmount,
         sellerRefundAmount: refundSummary.sellerRefundAmount,
+        ...(offerFailed && !listingFailed
+          ? {
+              awaitingSellerRelistChoice: true,
+              sellerRelistChoice: null,
+            }
+          : {}),
       });
 
       const updatedOrder = await tx.order.update({
@@ -1901,13 +1913,11 @@ export class AdminOrdersCommandService {
         { failurePenalizeUserIds },
       );
 
-      if (hasAnyFail) {
+      if (listingFailed) {
         const bothFailed = listingFailed && offerFailed;
         const rejectionReason = bothFailed
           ? 'رد کارشناسی هر دو کالا در معاوضه؛ آگهی از انتشار خارج شد.'
-          : listingFailed
-            ? `رد کارشناسی کالای آگهی (معاوضه): ${dto.listingNote?.trim() || 'مطابق گزارش کارشناسی'}`
-            : `رد کارشناسی کالای پیشنهاد (معاوضه): ${dto.offerNote?.trim() || 'مطابق گزارش کارشناسی'}`;
+          : `رد کارشناسی کالای آگهی (معاوضه): ${dto.listingNote?.trim() || 'مطابق گزارش کارشناسی'}`;
         await this.listingCommand.rejectAfterTradeFailure(tx, {
           listingId: existing.listing.id,
           sellerId: existing.sellerId,

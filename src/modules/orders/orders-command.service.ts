@@ -54,4 +54,16 @@ export class OrdersCommandService {
   ) {
     return this.ordersService.disputeOrder(userId, orderId, reason, videoPath);
   }
+
+  setExchangeSellerRelistChoice(
+    userId: string,
+    orderId: string,
+    publish: boolean,
+  ) {
+    return this.ordersService.setExchangeSellerRelistChoice(
+      userId,
+      orderId,
+      publish,
+    );
+  }
 }

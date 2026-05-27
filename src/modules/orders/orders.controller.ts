@@ -150,6 +150,22 @@ export class OrdersController {
     return this.commandService.confirmOrder(user.id, id);
   }
 
+  @Patch(':id/exchange-seller-relist-choice')
+  setExchangeSellerRelistChoice(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() body: { publish: boolean },
+  ) {
+    if (typeof body?.publish !== 'boolean') {
+      throw new BadRequestException('فیلد publish باید true یا false باشد');
+    }
+    return this.commandService.setExchangeSellerRelistChoice(
+      user.id,
+      id,
+      body.publish,
+    );
+  }
+
   @Patch(':id/dispute')
   @UseInterceptors(FileInterceptor('video', orderShippingVideoMulterOptions))
   disputeOrderDelivery(
