@@ -2,11 +2,8 @@ import {
   Controller,
   Get,
   Header,
-  NotFoundException,
   VERSION_NEUTRAL,
 } from '@nestjs/common';
-import { createReadStream } from 'fs';
-import { StreamableFile } from '@nestjs/common';
 import { RawResponse } from '../common/decorators/raw-response.decorator';
 import { CommonService } from './common-module.service';
 
