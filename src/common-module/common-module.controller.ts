@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Param, Post, Req, StreamableFile } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Post,
+  Req,
+  StreamableFile,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import { createReadStream } from 'fs';
 import { CommonService } from './common-module.service';
