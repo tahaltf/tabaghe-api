@@ -1095,7 +1095,12 @@ export class OrdersService {
                 type: WalletTransactionType.DEPOSIT,
                 status: WalletTransactionStatus.PENDING,
                 referenceId: listingId,
-                meta: { description: 'هزینه ارسال مزایده (بلوکه)' },
+                meta: {
+                  kind: 'auction-escrow',
+                  phase: 'shipping_blocked',
+                  listingId,
+                  description: 'هزینه ارسال مزایده (بلوکه)',
+                },
               },
             });
           }
@@ -1218,6 +1223,18 @@ export class OrdersService {
       }
 
       const createdOrder = await tx.order.create({ data: orderPayload });
+
+      if (
+        paymentMethod === 'WALLET' &&
+        (orderStatus === OrderStatus.PAID ||
+          orderStatus === ('AWAITING_SHIPMENT_TO_HUB' as OrderStatus))
+      ) {
+        await this.walletService.linkEscrowDepositsToOrder(tx, {
+          orderId: createdOrder.id,
+          listingId,
+          userIds: [buyerId, sellerId],
+        });
+      }
 
       if (
         orderStatus !== OrderStatus.PENDING &&
@@ -1588,29 +1605,20 @@ export class OrdersService {
       );
 
       if (sellerRevenue > 0) {
-        await tx.wallet.upsert({
-          where: { userId: order.sellerId },
-          create: {
-            userId: order.sellerId,
-            balanceAvailable: 0,
-            balanceBlocked: 0,
-          },
-          update: { balanceBlocked: { decrement: sellerRevenue } },
-        });
-        await tx.walletTransaction.create({
-          data: {
-            wallet: { connect: { userId: order.sellerId } },
-            amount: sellerRevenue,
-            type: WalletTransactionType.PENALTY,
-            status: WalletTransactionStatus.SUCCESS,
-            referenceId: order.id,
-            meta: {
-              kind: 'order-escrow',
-              phase: 'seller_blocked_debit',
-              debitReason: 'seller-confirmed-return',
-              description:
-                'کسر از موجودی بلوکه فروشنده پس از تایید دریافت مرجوعی',
-            },
+        await this.walletService.debitOrderScopedBlocked(tx, {
+          userId: order.sellerId,
+          orderId: order.id,
+          listingId: order.listingId,
+          requestedAmount: sellerRevenue,
+          referenceId: order.id,
+          penaltyMeta: {
+            kind: 'order-escrow',
+            phase: 'seller_blocked_debit',
+            debitReason: 'seller-confirmed-return',
+            orderId: order.id,
+            listingId: order.listingId,
+            description:
+              'کسر از موجودی بلوکه فروشنده پس از تایید دریافت مرجوعی',
           },
         });
       }
@@ -2102,26 +2110,18 @@ export class OrdersService {
 
         // در معاوضه، برای جلوگیری از دوبار واریز، فقط همان مبالغی را آزاد می‌کنیم
         // که واقعاً هنوز در کیف پول کاربران در حالت بلوکه مانده‌اند.
-        const [sellerWallet, buyerWallet] = await Promise.all([
-          tx.wallet.findUnique({
-            where: { userId: order.sellerId },
-            select: { balanceBlocked: true },
+        const [sellerRelease, buyerRelease] = await Promise.all([
+          this.walletService.getOrderScopedBlockedAmount(tx, {
+            userId: order.sellerId,
+            orderId: order.id,
+            listingId: order.listingId,
           }),
-          tx.wallet.findUnique({
-            where: { userId: order.buyerId },
-            select: { balanceBlocked: true },
+          this.walletService.getOrderScopedBlockedAmount(tx, {
+            userId: order.buyerId,
+            orderId: order.id,
+            listingId: order.listingId,
           }),
         ]);
-        const sellerBlocked = Math.max(
-          0,
-          Number(sellerWallet?.balanceBlocked || 0),
-        );
-        const buyerBlocked = Math.max(
-          0,
-          Number(buyerWallet?.balanceBlocked || 0),
-        );
-        const sellerRelease = sellerBlocked;
-        const buyerRelease = buyerBlocked;
 
         if (sellerRelease > 0) {
           await this.walletService.releaseEscrow(
@@ -2175,14 +2175,16 @@ export class OrdersService {
         'confirm-order',
       );
 
-      // 🎯 حل مشکل کیف پول: واریز درآمد خالص (بدون کارمزد پلتفرم) به فروشنده
-      const amountToRelease = Number(order.sellerRevenue);
-
-      // فقط در صورتی که پولی برای آزاد کردن وجود داشته باشه (مثلاً تو معاوضه‌های بدون سرک صفر هست)
-      if (amountToRelease > 0) {
+      const sellerRelease = await this.walletService.resolveOrderScopedCap(tx, {
+        userId: order.sellerId,
+        orderId: order.id,
+        listingId: order.listingId,
+        requestedAmount: Number(order.sellerRevenue),
+      });
+      if (sellerRelease > 0) {
         await this.walletService.releaseEscrow(
           order.sellerId,
-          amountToRelease, // 👈 اینجا مبلغ خالص پاس داده شد
+          sellerRelease,
           order.listingId,
           tx,
           { orderId: order.id },
@@ -4470,37 +4472,31 @@ export class OrdersService {
           return;
         }
 
-        const [sellerWallet, buyerWallet] = await Promise.all([
-          tx.wallet.findUnique({
-            where: { userId: locked.sellerId },
-            select: { balanceBlocked: true },
+        const [sellerRelease, buyerRelease] = await Promise.all([
+          this.walletService.getOrderScopedBlockedAmount(tx, {
+            userId: locked.sellerId,
+            orderId: locked.id,
+            listingId: locked.listingId,
           }),
-          tx.wallet.findUnique({
-            where: { userId: locked.buyerId },
-            select: { balanceBlocked: true },
+          this.walletService.getOrderScopedBlockedAmount(tx, {
+            userId: locked.buyerId,
+            orderId: locked.id,
+            listingId: locked.listingId,
           }),
         ]);
-        const sellerBlocked = Math.max(
-          0,
-          Number(sellerWallet?.balanceBlocked || 0),
-        );
-        const buyerBlocked = Math.max(
-          0,
-          Number(buyerWallet?.balanceBlocked || 0),
-        );
-        if (sellerBlocked > 0) {
+        if (sellerRelease > 0) {
           await this.walletService.releaseEscrow(
             locked.sellerId,
-            sellerBlocked,
+            sellerRelease,
             locked.listingId,
             tx,
             { orderId: locked.id },
           );
         }
-        if (buyerBlocked > 0) {
+        if (buyerRelease > 0) {
           await this.walletService.releaseEscrow(
             locked.buyerId,
-            buyerBlocked,
+            buyerRelease,
             locked.listingId,
             tx,
             { orderId: locked.id },

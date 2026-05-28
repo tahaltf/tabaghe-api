@@ -25,6 +25,7 @@ import {
 import { OrderReputationService } from '../../orders/order-reputation.service';
 import { enrichOrderUpdateForCompletion } from '../../orders/order-lifecycle.util';
 import { ListingCommandService } from '../../listing/services/listing-command.service';
+import { WalletService } from '../../wallet/wallet.service';
 
 const DISPUTE_INCLUDE = {
   listing: {
@@ -72,6 +73,7 @@ export class AdminDisputesService {
     private readonly notification: NotificationService,
     private readonly orderReputation: OrderReputationService,
     private readonly listingCommand: ListingCommandService,
+    private readonly walletService: WalletService,
   ) {}
 
   async list(
@@ -220,35 +222,21 @@ export class AdminDisputesService {
         }
         case DisputeOutcome.RELEASE_SELLER: {
           if (sellerRevenue > 0) {
-            const sellerWallet = await tx.wallet.upsert({
-              where: { userId: order.sellerId },
-              create: {
-                userId: order.sellerId,
-                balanceAvailable: sellerRevenue,
-                balanceBlocked: 0,
-              },
-              update: {
-                balanceBlocked: { decrement: sellerRevenue },
-                balanceAvailable: { increment: sellerRevenue },
-              },
+            const toRelease = await this.walletService.resolveOrderScopedCap(tx, {
+              userId: order.sellerId,
+              orderId: order.id,
+              listingId: order.listingId,
+              requestedAmount: sellerRevenue,
             });
-            await tx.walletTransaction.create({
-              data: {
-                walletId: sellerWallet.id,
-                amount: sellerRevenue,
-                type: WalletTransactionType.UNBLOCK,
-                status: WalletTransactionStatus.SUCCESS,
-                referenceId: order.listingId,
-                meta: {
-                  kind: 'order-escrow',
-                  phase: 'seller_released',
-                  orderId: order.id,
-                  listingId: order.listingId,
-                  description:
-                    'آزادسازی وجه بلوکه‌شده فروشنده پس از رسیدگی به شکایت',
-                },
-              },
-            });
+            if (toRelease > 0) {
+              await this.walletService.releaseEscrow(
+                order.sellerId,
+                toRelease,
+                order.listingId,
+                tx,
+                { orderId: order.id },
+              );
+            }
           }
           await tx.user.update({
             where: { id: order.buyerId },
@@ -305,66 +293,39 @@ export class AdminDisputesService {
                 },
               },
             });
-            await tx.wallet.upsert({
-              where: { userId: order.sellerId },
-              create: {
-                userId: order.sellerId,
-                balanceAvailable: 0,
-                balanceBlocked: 0,
-              },
-              update: {
-                balanceBlocked: { decrement: refund },
-              },
-            });
-            await tx.walletTransaction.create({
-              data: {
-                wallet: { connect: { userId: order.sellerId } },
-                amount: refund,
-                type: WalletTransactionType.PENALTY,
-                status: WalletTransactionStatus.SUCCESS,
-                referenceId: order.listingId,
-                meta: {
-                  kind: 'order-dispute',
-                  phase: 'seller_blocked_debit',
-                  orderId: order.id,
-                  listingId: order.listingId,
-                  description:
-                    'کسر از سهم بلوکه‌شده فروشنده بابت مصالحه جزئی شکایت',
-                },
+            await this.walletService.debitOrderScopedBlocked(tx, {
+              userId: order.sellerId,
+              orderId: order.id,
+              listingId: order.listingId,
+              requestedAmount: refund,
+              referenceId: order.listingId,
+              penaltyMeta: {
+                kind: 'order-dispute',
+                phase: 'seller_blocked_debit',
+                orderId: order.id,
+                listingId: order.listingId,
+                description:
+                  'کسر از سهم بلوکه‌شده فروشنده بابت مصالحه جزئی شکایت',
               },
             });
           }
           const remainForSeller = Math.max(0, sellerRevenue - refund);
           if (remainForSeller > 0) {
-            const sellerWallet = await tx.wallet.upsert({
-              where: { userId: order.sellerId },
-              create: {
-                userId: order.sellerId,
-                balanceAvailable: remainForSeller,
-                balanceBlocked: 0,
-              },
-              update: {
-                balanceBlocked: { decrement: remainForSeller },
-                balanceAvailable: { increment: remainForSeller },
-              },
+            const toRelease = await this.walletService.resolveOrderScopedCap(tx, {
+              userId: order.sellerId,
+              orderId: order.id,
+              listingId: order.listingId,
+              requestedAmount: remainForSeller,
             });
-            await tx.walletTransaction.create({
-              data: {
-                walletId: sellerWallet.id,
-                amount: remainForSeller,
-                type: WalletTransactionType.UNBLOCK,
-                status: WalletTransactionStatus.SUCCESS,
-                referenceId: order.listingId,
-                meta: {
-                  kind: 'order-escrow',
-                  phase: 'seller_released',
-                  orderId: order.id,
-                  listingId: order.listingId,
-                  description:
-                    'آزادسازی باقیمانده سهم فروشنده پس از کسر بازپرداخت خریدار',
-                },
-              },
-            });
+            if (toRelease > 0) {
+              await this.walletService.releaseEscrow(
+                order.sellerId,
+                toRelease,
+                order.listingId,
+                tx,
+                { orderId: order.id },
+              );
+            }
           }
           await tx.order.update({
             where: { id },

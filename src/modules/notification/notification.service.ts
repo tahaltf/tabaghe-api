@@ -60,12 +60,7 @@ export class NotificationService {
     this.processSms(userId, type, meta).catch((err) => {
       this.logger.error('Failed to process SMS notification', err);
     });
-    this.processPush(
-      userId,
-      resolvedTitle,
-      resolvedMessage,
-      '/dashboard/notifications',
-    ).catch((err) => {
+    this.processPush(userId, resolvedTitle, resolvedMessage, meta).catch((err) => {
       this.logger.error('Failed to process push notification', err);
     });
 
@@ -113,12 +108,9 @@ export class NotificationService {
     });
     await Promise.all(
       admins.map((a) =>
-        this.processPush(
-          a.id,
-          resolvedTitle ?? '',
-          resolvedMessage ?? '',
-          '/admin/notifications',
-        ).catch((e) => {
+        this.processPush(a.id, resolvedTitle ?? '', resolvedMessage ?? '', {
+          url: '/admin/notifications',
+        }).catch((e) => {
           this.logger.warn(
             `Push admin notification failed for ${a.id}: ${String((e as Error)?.message ?? e)}`,
           );
@@ -398,12 +390,9 @@ export class NotificationService {
     }
     await Promise.all(
       recipients.map((u) =>
-        this.processPush(
-          u.id,
-          title,
-          message,
-          '/dashboard/notifications',
-        ).catch((err) => {
+        this.processPush(u.id, title, message, {
+          url: '/dashboard/notifications',
+        }).catch((err) => {
           this.logger.warn(
             `Push broadcast failed for user ${u.id}: ${String(err?.message ?? err)}`,
           );
@@ -474,12 +463,32 @@ export class NotificationService {
     return { ok: true };
   }
 
+  private resolvePushUrl(meta?: Record<string, unknown>): string {
+    if (meta && typeof meta['url'] === 'string') {
+      const url = meta['url'].trim();
+      if (url.startsWith('/')) return url;
+    }
+    if (meta && typeof meta['orderId'] === 'string') {
+      return `/orders/${meta['orderId']}`;
+    }
+    if (meta && typeof meta['listingId'] === 'string') {
+      return `/listing/${meta['listingId']}`;
+    }
+    return '/dashboard/notifications';
+  }
+
   private async processPush(
     userId: string,
     title: string,
     message: string,
-    url: string,
+    meta?: Record<string, unknown>,
   ) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { notifyPush: true },
+    });
+    if (!user?.notifyPush) return;
+
     const setting = await this.prisma.systemSetting.findUnique({
       where: { key: `PUSH_SUB_${userId}` },
       select: { value: true },
@@ -498,8 +507,14 @@ export class NotificationService {
     ).replace(/\\n/g, '\n');
     const vapidSubject =
       process.env.WEB_PUSH_VAPID_SUBJECT || 'mailto:support@tabagheh.com';
-    if (!vapidPublicKey || !vapidPrivateKey) return;
+    if (!vapidPublicKey || !vapidPrivateKey) {
+      this.logger.warn('WebPush skipped: WEB_PUSH_VAPID_* env vars are not set');
+      return;
+    }
+
+    const url = this.resolvePushUrl(meta);
     await this.sendWebPush(
+      userId,
       subscription,
       { title, message, url },
       {
@@ -511,10 +526,24 @@ export class NotificationService {
   }
 
   private async sendWebPush(
+    userId: string,
     subscription: PushSubscriptionPayload,
     payload: { title: string; message: string; url: string },
     vapid: { publicKey: string; privateKey: string; subject: string },
   ) {
+    const pushBody = JSON.stringify({
+      title: payload.title,
+      message: payload.message,
+      url: payload.url,
+      notification: {
+        title: payload.title,
+        body: payload.message,
+        icon: '/icon-192.svg',
+        badge: '/icon-192.svg',
+        data: { url: payload.url },
+      },
+    });
+
     try {
       webpush.setVapidDetails(vapid.subject, vapid.publicKey, vapid.privateKey);
       await webpush.sendNotification(
@@ -522,12 +551,16 @@ export class NotificationService {
           endpoint: subscription.endpoint,
           keys: subscription.keys,
         },
-        JSON.stringify(payload),
-        { TTL: 60, urgency: 'normal' as any },
+        pushBody,
+        { TTL: 86_400, urgency: 'high' as any },
       );
     } catch (err: any) {
+      const status = Number(err?.statusCode ?? 0);
+      if (status === 404 || status === 410) {
+        await this.removePushSubscription(userId);
+      }
       this.logger.warn(
-        `WebPush request failed: ${String(err?.message ?? err)}`,
+        `WebPush request failed (${status || 'n/a'}): ${String(err?.message ?? err)}`,
       );
     }
   }

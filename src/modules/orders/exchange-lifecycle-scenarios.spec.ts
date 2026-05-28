@@ -310,7 +310,9 @@ describe('Exchange lifecycle — hub inspection (scenarios 7–12)', () => {
       },
       systemSetting: {
         findFirst: jest.fn().mockResolvedValue({ value: '10' }),
+        findMany: jest.fn().mockResolvedValue([]),
       },
+      ticket: { create: jest.fn().mockResolvedValue({ id: 'ticket-1' }) },
       notification: { createMany: jest.fn().mockResolvedValue({ count: 2 }) },
       $transaction: jest.fn(async (cb: (trx: typeof tx) => Promise<unknown>) =>
         cb(tx),

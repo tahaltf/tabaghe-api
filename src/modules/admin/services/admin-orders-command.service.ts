@@ -210,7 +210,7 @@ export class AdminOrdersCommandService {
         );
 
         await this.listingCommand.rejectAfterTradeFailure(tx, {
-          listingId: existing.listingId,
+          listingId: existing.listing.id,
           sellerId: existing.sellerId,
           listingTitle: existing.listing.title,
           rejectionReason: `رد کارشناسی در طبقه: ${normalizedNote}`,
@@ -240,30 +240,21 @@ export class AdminOrdersCommandService {
         const sellerRevenue = Number(existing.sellerRevenue || 0);
 
         if (sellerRevenue > 0) {
-          await tx.wallet.upsert({
-            where: { userId: existing.sellerId },
-            create: {
-              userId: existing.sellerId,
-              balanceAvailable: 0,
-              balanceBlocked: 0,
-            },
-            update: { balanceBlocked: { decrement: sellerRevenue } },
-          });
-          await tx.walletTransaction.create({
-            data: {
-              wallet: { connect: { userId: existing.sellerId } },
-              amount: sellerRevenue,
-              type: WalletTransactionType.PENALTY,
-              status: WalletTransactionStatus.SUCCESS,
-              referenceId: existing.id,
-              meta: {
-                kind: 'order-escrow',
-                phase: 'seller_blocked_debit',
-                debitReason: 'admin-status-cancelled',
-                adminNote: normalizedNote ?? null,
-                description:
-                  'کسر از موجودی بلوکه فروشنده به‌دلیل لغو سفارش و بازگشت وجه خریدار',
-              },
+          await this.walletService.debitOrderScopedBlocked(tx, {
+            userId: existing.sellerId,
+            orderId: existing.id,
+            listingId: existing.listing.id,
+            requestedAmount: sellerRevenue,
+            referenceId: existing.id,
+            penaltyMeta: {
+              kind: 'order-escrow',
+              phase: 'seller_blocked_debit',
+              debitReason: 'admin-status-cancelled',
+              orderId: existing.id,
+              listingId: existing.listing.id,
+              adminNote: normalizedNote ?? null,
+              description:
+                'کسر از موجودی بلوکه فروشنده به‌دلیل لغو سفارش و بازگشت وجه خریدار',
             },
           });
         }
@@ -687,110 +678,26 @@ export class AdminOrdersCommandService {
         const sellerRefundable = Math.max(0, sellerShare - verificationFee);
 
         if (offer?.isPayerMe && buyerRefundable > 0) {
-          // پرداخت‌کننده خریدار بوده؛ پول در بلوکه فروشنده است.
-          await tx.wallet.upsert({
-            where: { userId: locked.sellerId },
-            create: {
-              userId: locked.sellerId,
-              balanceAvailable: 0,
-              balanceBlocked: 0,
-            },
-            update: { balanceBlocked: { decrement: buyerRefundable } },
-          });
-          await tx.walletTransaction.create({
-            data: {
-              wallet: { connect: { userId: locked.sellerId } },
-              amount: buyerRefundable,
-              type: WalletTransactionType.PENALTY,
-              status: WalletTransactionStatus.SUCCESS,
-              referenceId: locked.id,
-              meta: {
-                kind: 'exchange-return-refund',
-                orderId: locked.id,
-                listingId: locked.listingId,
-                description:
-                  'مرجوعی معاوضه: برداشت از بلوکه طرف مقابل برای بازگشت سرک',
-              },
-            },
-          });
-          await tx.wallet.upsert({
-            where: { userId: locked.buyerId },
-            create: {
-              userId: locked.buyerId,
-              balanceAvailable: buyerRefundable,
-              balanceBlocked: 0,
-            },
-            update: { balanceAvailable: { increment: buyerRefundable } },
-          });
-          await tx.walletTransaction.create({
-            data: {
-              wallet: { connect: { userId: locked.buyerId } },
-              amount: buyerRefundable,
-              type: WalletTransactionType.REFUND,
-              status: WalletTransactionStatus.SUCCESS,
-              referenceId: locked.id,
-              meta: {
-                kind: 'exchange-return-refund',
-                orderId: locked.id,
-                listingId: locked.listingId,
-                description:
-                  'مرجوعی معاوضه: بازگشت سرک پرداختی به پرداخت‌کننده (بدون کارشناسی)',
-              },
-            },
+          await this.walletService.refundExchangeExtraOnCancel(tx, {
+            buyerId: locked.buyerId,
+            sellerId: locked.sellerId,
+            listingId: locked.listingId,
+            orderId: locked.id,
+            isPayerMe: true,
+            buyerRefundable,
+            sellerRefundable: 0,
           });
         }
 
         if (!offer?.isPayerMe && sellerRefundable > 0) {
-          // پرداخت‌کننده فروشنده بوده؛ پول در بلوکه خریدار است.
-          await tx.wallet.upsert({
-            where: { userId: locked.buyerId },
-            create: {
-              userId: locked.buyerId,
-              balanceAvailable: 0,
-              balanceBlocked: 0,
-            },
-            update: { balanceBlocked: { decrement: sellerRefundable } },
-          });
-          await tx.walletTransaction.create({
-            data: {
-              wallet: { connect: { userId: locked.buyerId } },
-              amount: sellerRefundable,
-              type: WalletTransactionType.PENALTY,
-              status: WalletTransactionStatus.SUCCESS,
-              referenceId: locked.id,
-              meta: {
-                kind: 'exchange-return-refund',
-                orderId: locked.id,
-                listingId: locked.listingId,
-                description:
-                  'مرجوعی معاوضه: برداشت از بلوکه طرف مقابل برای بازگشت سرک',
-              },
-            },
-          });
-          await tx.wallet.upsert({
-            where: { userId: locked.sellerId },
-            create: {
-              userId: locked.sellerId,
-              balanceAvailable: sellerRefundable,
-              balanceBlocked: 0,
-            },
-            update: { balanceAvailable: { increment: sellerRefundable } },
-          });
-          await tx.walletTransaction.create({
-            data: {
-              wallet: { connect: { userId: locked.sellerId } },
-              amount: sellerRefundable,
-              type: WalletTransactionType.REFUND,
-              status: WalletTransactionStatus.SUCCESS,
-              referenceId: locked.id,
-              meta: {
-                kind: 'exchange-return-refund',
-                orderId: locked.id,
-                listingId: locked.listingId,
-                description:
-                  'مرجوعی معاوضه: بازگشت سرک پرداختی به پرداخت‌کننده (بدون کارشناسی)',
-              },
-            },
+          await this.walletService.refundExchangeExtraOnCancel(tx, {
+            buyerId: locked.buyerId,
+            sellerId: locked.sellerId,
+            listingId: locked.listingId,
+            orderId: locked.id,
+            isPayerMe: false,
+            buyerRefundable: 0,
+            sellerRefundable,
           });
         }
 
@@ -1609,36 +1516,39 @@ export class AdminOrdersCommandService {
                 meta: {
                   kind: 'order-escrow',
                   phase: 'buyer_settlement_blocked',
+                  orderId: existing.id,
+                  listingId: existing.listing.id,
                   settlementKind: 'exchange-financial-settlement',
                   description: `اصلاح مالی معاوضه: ${listingSettlementAmount.toLocaleString('fa-IR')} تومان به مبلغ بلوکه خریدار اضافه شد.`,
                 },
               },
             });
           } else {
-            // حالت ۲: کسر از دریافت‌کننده سرک -> از blocked و بازگشت مستقیم به available پرداخت‌کننده سرک
-            const sellerBlockedNow = Number(sellerWallet.balanceBlocked || 0);
-            if (listingSettlementAmount > sellerBlockedNow) {
+            // حالت ۲: کسر از دریافت‌کننده سرک -> از blocked همان سفارش
+            const sellerScopedBlocked =
+              await this.walletService.getOrderScopedBlockedAmount(tx, {
+                userId: existing.sellerId,
+                orderId: existing.id,
+                listingId: existing.listing.id,
+              });
+            if (listingSettlementAmount > sellerScopedBlocked) {
               throw new BadRequestException(
-                'برای اعمال اصلاح مالی کالای فروشنده، مبلغ بلوکه‌شده فروشنده کافی نیست',
+                'برای اعمال اصلاح مالی کالای فروشنده، مبلغ بلوکه‌شده این معامله کافی نیست',
               );
             }
-            await tx.wallet.update({
-              where: { userId: existing.sellerId },
-              data: { balanceBlocked: { decrement: listingSettlementAmount } },
-            });
-            await tx.walletTransaction.create({
-              data: {
-                walletId: sellerWallet.id,
-                amount: listingSettlementAmount,
-                type: WalletTransactionType.PENALTY,
-                status: WalletTransactionStatus.SUCCESS,
-                referenceId: existing.id,
-                meta: {
-                  kind: 'order-escrow',
-                  phase: 'seller_settlement_debit_blocked',
-                  settlementKind: 'exchange-financial-settlement',
-                  description: `اصلاح مالی معاوضه: ${listingSettlementAmount.toLocaleString('fa-IR')} تومان از مبلغ بلوکه‌شده فروشنده کسر شد.`,
-                },
+            await this.walletService.debitOrderScopedBlocked(tx, {
+              userId: existing.sellerId,
+              orderId: existing.id,
+              listingId: existing.listing.id,
+              requestedAmount: listingSettlementAmount,
+              referenceId: existing.id,
+              penaltyMeta: {
+                kind: 'order-escrow',
+                phase: 'seller_settlement_debit_blocked',
+                settlementKind: 'exchange-financial-settlement',
+                orderId: existing.id,
+                listingId: existing.listing.id,
+                description: `اصلاح مالی معاوضه: ${listingSettlementAmount.toLocaleString('fa-IR')} تومان از مبلغ بلوکه‌شده فروشنده کسر شد.`,
               },
             });
             await tx.wallet.update({
@@ -1702,6 +1612,8 @@ export class AdminOrdersCommandService {
                 meta: {
                   kind: 'order-escrow',
                   phase: 'seller_settlement_blocked',
+                  orderId: existing.id,
+                  listingId: existing.listing.id,
                   settlementKind: 'exchange-financial-settlement',
                   description: `اصلاح مالی معاوضه: ${offerSettlementAmount.toLocaleString('fa-IR')} تومان به مبلغ بلوکه فروشنده اضافه شد.`,
                 },
@@ -1709,29 +1621,30 @@ export class AdminOrdersCommandService {
             });
           } else {
             // حالت ۲: کسر از دریافت‌کننده سرک -> از blocked و بازگشت مستقیم به available پرداخت‌کننده سرک
-            const buyerBlockedNow = Number(buyerWallet.balanceBlocked || 0);
-            if (offerSettlementAmount > buyerBlockedNow) {
+            const buyerBlockedForOrder =
+              await this.walletService.getOrderScopedBlockedAmount(tx, {
+                userId: existing.buyerId,
+                orderId: existing.id,
+                listingId: existing.listing.id,
+              });
+            if (offerSettlementAmount > buyerBlockedForOrder) {
               throw new BadRequestException(
-                'برای اعمال اصلاح مالی کالای خریدار، مبلغ بلوکه‌شده خریدار کافی نیست',
+                'برای اعمال اصلاح مالی کالای خریدار، مبلغ بلوکه‌شده این معامله کافی نیست',
               );
             }
-            await tx.wallet.update({
-              where: { userId: existing.buyerId },
-              data: { balanceBlocked: { decrement: offerSettlementAmount } },
-            });
-            await tx.walletTransaction.create({
-              data: {
-                walletId: buyerWallet.id,
-                amount: offerSettlementAmount,
-                type: WalletTransactionType.PENALTY,
-                status: WalletTransactionStatus.SUCCESS,
-                referenceId: existing.id,
-                meta: {
-                  kind: 'order-escrow',
-                  phase: 'buyer_settlement_debit_blocked',
-                  settlementKind: 'exchange-financial-settlement',
-                  description: `اصلاح مالی معاوضه: ${offerSettlementAmount.toLocaleString('fa-IR')} تومان از مبلغ بلوکه‌شده خریدار کسر شد.`,
-                },
+            await this.walletService.debitOrderScopedBlocked(tx, {
+              userId: existing.buyerId,
+              orderId: existing.id,
+              listingId: existing.listing.id,
+              requestedAmount: offerSettlementAmount,
+              referenceId: existing.id,
+              penaltyMeta: {
+                kind: 'order-escrow',
+                phase: 'buyer_settlement_debit_blocked',
+                settlementKind: 'exchange-financial-settlement',
+                orderId: existing.id,
+                listingId: existing.listing.id,
+                description: `اصلاح مالی معاوضه: ${offerSettlementAmount.toLocaleString('fa-IR')} تومان از مبلغ بلوکه‌شده خریدار کسر شد.`,
               },
             });
             await tx.wallet.update({
@@ -1830,6 +1743,15 @@ export class AdminOrdersCommandService {
         return awaitingOrder;
       }
 
+      const settlementFlowLines = [
+        listingSettlementAmount > 0
+          ? `پرداخت‌کننده: فروشنده (کالای آگهی) → دریافت‌کننده: خریدار | مبلغ: ${listingSettlementAmount.toLocaleString('fa-IR')} تومان`
+          : null,
+        offerSettlementAmount > 0
+          ? `پرداخت‌کننده: خریدار (کالای پیشنهادی) → دریافت‌کننده: فروشنده | مبلغ: ${offerSettlementAmount.toLocaleString('fa-IR')} تومان`
+          : null,
+      ].filter(Boolean) as string[];
+
       const settlementTicketLines = [
         'نتیجه کارشناسی معاوضه با اصلاح مالی ثبت شد.',
         `کالای آگهی: ${itemLabel(dto.listingItem)}`,
@@ -1840,6 +1762,8 @@ export class AdminOrdersCommandService {
         offerSettlementAmount > 0
           ? `کسر سمت کالای پیشنهاد: ${offerSettlementAmount.toLocaleString('fa-IR')} تومان`
           : null,
+        settlementFlowLines.length ? 'جریان دقیق اصلاح مالی:' : null,
+        ...settlementFlowLines,
         'سفارش وارد مرحله ارسال از هاب شد.',
       ].filter(Boolean) as string[];
       const settlementTicketBody = formatTicketMessageBody(settlementTicketLines);
@@ -2201,85 +2125,29 @@ export class AdminOrdersCommandService {
         }
 
         if (order.type === 'EXCHANGE') {
-          if (exchangeOffer?.isPayerMe && exchangeBuyerRefundable > 0) {
-            await tx.wallet.upsert({
-              where: { userId: order.sellerId },
-              create: {
-                userId: order.sellerId,
-                balanceAvailable: 0,
-                balanceBlocked: 0,
-              },
-              update: {
-                balanceBlocked: { decrement: exchangeBuyerRefundable },
-              },
-            });
-            await tx.walletTransaction.create({
-              data: {
-                wallet: { connect: { userId: order.sellerId } },
-                amount: exchangeBuyerRefundable,
-                type: WalletTransactionType.PENALTY,
-                status: WalletTransactionStatus.SUCCESS,
-                referenceId: order.id,
-                meta: {
-                  kind: 'exchange-cancel-both-rejected',
-                  description:
-                    'لغو معاوضه: برداشت از بلوکه طرف مقابل برای بازگشت مابه‌التفاوت',
-                  adminNote: note ?? null,
-                },
-              },
-            });
-          }
-          if (!exchangeOffer?.isPayerMe && exchangeSellerRefundable > 0) {
-            await tx.wallet.upsert({
-              where: { userId: order.buyerId },
-              create: {
-                userId: order.buyerId,
-                balanceAvailable: 0,
-                balanceBlocked: 0,
-              },
-              update: {
-                balanceBlocked: { decrement: exchangeSellerRefundable },
-              },
-            });
-            await tx.walletTransaction.create({
-              data: {
-                wallet: { connect: { userId: order.buyerId } },
-                amount: exchangeSellerRefundable,
-                type: WalletTransactionType.PENALTY,
-                status: WalletTransactionStatus.SUCCESS,
-                referenceId: order.id,
-                meta: {
-                  kind: 'exchange-cancel-both-rejected',
-                  description:
-                    'لغو معاوضه: برداشت از بلوکه طرف مقابل برای بازگشت مابه‌التفاوت',
-                  adminNote: note ?? null,
-                },
-              },
-            });
-          }
-        } else if (sellerRevenue > 0) {
-          await tx.wallet.upsert({
-            where: { userId: order.sellerId },
-            create: {
-              userId: order.sellerId,
-              balanceAvailable: 0,
-              balanceBlocked: 0,
-            },
-            update: { balanceBlocked: { decrement: sellerRevenue } },
+          await this.walletService.refundExchangeExtraOnCancel(tx, {
+            buyerId: order.buyerId,
+            sellerId: order.sellerId,
+            listingId: order.listingId,
+            orderId: order.id,
+            isPayerMe: Boolean(exchangeOffer?.isPayerMe),
+            buyerRefundable: exchangeBuyerRefundable,
+            sellerRefundable: exchangeSellerRefundable,
           });
-          await tx.walletTransaction.create({
-            data: {
-              wallet: { connect: { userId: order.sellerId } },
-              amount: sellerRevenue,
-              type: WalletTransactionType.PENALTY,
-              status: WalletTransactionStatus.SUCCESS,
-              referenceId: order.id,
-              meta: {
-                kind: 'exchange-cancel-both-rejected',
-                description:
-                  'لغو معاوضه پس از رد هر دو کالا؛ کسر سهم بلوکه فروشنده',
-                adminNote: note ?? null,
-              },
+        } else if (sellerRevenue > 0) {
+          await this.walletService.debitOrderScopedBlocked(tx, {
+            userId: order.sellerId,
+            orderId: order.id,
+            listingId: order.listingId,
+            requestedAmount: sellerRevenue,
+            referenceId: order.id,
+            penaltyMeta: {
+              kind: 'exchange-cancel-both-rejected',
+              orderId: order.id,
+              listingId: order.listingId,
+              description:
+                'لغو معاوضه پس از رد هر دو کالا؛ کسر سهم بلوکه فروشنده',
+              adminNote: note ?? null,
             },
           });
         }
@@ -2459,11 +2327,16 @@ export class AdminOrdersCommandService {
 
         const sellerWallet = await tx.wallet.findUnique({
           where: { userId: order.sellerId },
-          select: { balanceBlocked: true, balanceAvailable: true },
+          select: { balanceAvailable: true },
         });
-        const sellerBlockedNow = Number(sellerWallet?.balanceBlocked ?? 0);
+        const orderScopedBlocked =
+          await this.walletService.getOrderScopedBlockedAmount(tx, {
+            userId: order.sellerId,
+            orderId: order.id,
+            listingId: order.listingId,
+          });
         const sellerAvailableNow = Number(sellerWallet?.balanceAvailable ?? 0);
-        const fromSellerBlocked = Math.min(refundAmount, sellerBlockedNow);
+        const fromSellerBlocked = Math.min(refundAmount, orderScopedBlocked);
         const fromSellerAvailable = refundAmount - fromSellerBlocked;
         if (fromSellerAvailable > sellerAvailableNow) {
           throw new BadRequestException(
@@ -2788,30 +2661,21 @@ export class AdminOrdersCommandService {
         );
 
         if (sellerRevenue > 0) {
-          await tx.wallet.upsert({
-            where: { userId: order.sellerId },
-            create: {
-              userId: order.sellerId,
-              balanceAvailable: 0,
-              balanceBlocked: 0,
-            },
-            update: { balanceBlocked: { decrement: sellerRevenue } },
-          });
-          await tx.walletTransaction.create({
-            data: {
-              wallet: { connect: { userId: order.sellerId } },
-              amount: sellerRevenue,
-              type: WalletTransactionType.PENALTY,
-              status: WalletTransactionStatus.SUCCESS,
-              referenceId: order.id,
-              meta: {
-                kind: 'order-escrow',
-                phase: 'seller_blocked_debit',
-                debitReason: 'confirm-return-and-refund',
-                adminNote: note ?? null,
-                description:
-                  'کسر از موجودی بلوکه فروشنده پس از تایید مرجوعی و بازپرداخت کامل',
-              },
+          await this.walletService.debitOrderScopedBlocked(tx, {
+            userId: order.sellerId,
+            orderId: order.id,
+            listingId: order.listingId,
+            requestedAmount: sellerRevenue,
+            referenceId: order.id,
+            penaltyMeta: {
+              kind: 'order-escrow',
+              phase: 'seller_blocked_debit',
+              debitReason: 'confirm-return-and-refund',
+              orderId: order.id,
+              listingId: order.listingId,
+              adminNote: note ?? null,
+              description:
+                'کسر از موجودی بلوکه فروشنده پس از تایید مرجوعی و بازپرداخت کامل',
             },
           });
         }
@@ -2862,34 +2726,21 @@ export class AdminOrdersCommandService {
             ? Math.max(0, sellerRevenue)
             : sellerRevenue;
         if (refundableToSeller > 0) {
-          await tx.wallet.upsert({
-            where: { userId: order.sellerId },
-            create: {
-              userId: order.sellerId,
-              balanceAvailable: refundableToSeller,
-              balanceBlocked: 0,
-            },
-            update: {
-              balanceBlocked: { decrement: refundableToSeller },
-              balanceAvailable: { increment: refundableToSeller },
-            },
+          const toRelease = await this.walletService.resolveOrderScopedCap(tx, {
+            userId: order.sellerId,
+            orderId: order.id,
+            listingId: order.listingId,
+            requestedAmount: refundableToSeller,
           });
-          await tx.walletTransaction.create({
-            data: {
-              wallet: { connect: { userId: order.sellerId } },
-              amount: refundableToSeller,
-              type: WalletTransactionType.UNBLOCK,
-              status: WalletTransactionStatus.SUCCESS,
-              referenceId: order.id,
-              meta: {
-                description:
-                  order.type === 'EXCHANGE'
-                    ? 'برگشت وجه به فروشنده (بدون عودت کارشناسی) توسط ادمین'
-                    : 'آزادسازی دستی وجه بلوکه سفارش توسط ادمین',
-                adminNote: note ?? null,
-              },
-            },
-          });
+          if (toRelease > 0) {
+            await this.walletService.releaseEscrow(
+              order.sellerId,
+              toRelease,
+              order.listingId,
+              tx,
+              { orderId: order.id },
+            );
+          }
         }
 
         const prevReleaseSeller = order.status;
@@ -2931,30 +2782,21 @@ export class AdminOrdersCommandService {
       }
 
       if (sellerRevenue > 0) {
-        await tx.wallet.upsert({
-          where: { userId: order.sellerId },
-          create: {
-            userId: order.sellerId,
-            balanceAvailable: 0,
-            balanceBlocked: 0,
-          },
-          update: { balanceBlocked: { decrement: sellerRevenue } },
-        });
-        await tx.walletTransaction.create({
-          data: {
-            wallet: { connect: { userId: order.sellerId } },
-            amount: sellerRevenue,
-            type: WalletTransactionType.PENALTY,
-            status: WalletTransactionStatus.SUCCESS,
-            referenceId: order.id,
-            meta: {
-              kind: 'order-escrow',
-              phase: 'seller_blocked_debit',
-              debitReason: 'admin-manual-refund',
-              adminNote: note ?? null,
-              description:
-                'کسر از موجودی بلوکه فروشنده به‌دلیل بازپرداخت کامل به خریدار',
-            },
+        await this.walletService.debitOrderScopedBlocked(tx, {
+          userId: order.sellerId,
+          orderId: order.id,
+          listingId: order.listingId,
+          requestedAmount: sellerRevenue,
+          referenceId: order.id,
+          penaltyMeta: {
+            kind: 'order-escrow',
+            phase: 'seller_blocked_debit',
+            debitReason: 'admin-manual-refund',
+            orderId: order.id,
+            listingId: order.listingId,
+            adminNote: note ?? null,
+            description:
+              'کسر از موجودی بلوکه فروشنده به‌دلیل بازپرداخت کامل به خریدار',
           },
         });
       }

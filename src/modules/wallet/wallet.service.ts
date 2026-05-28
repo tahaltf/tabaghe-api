@@ -517,9 +517,56 @@ export class WalletService {
         type: WalletTransactionType.BLOCK,
         status: WalletTransactionStatus.SUCCESS,
         referenceId: listingId,
-        meta: { description: 'مسدودسازی ودیعه شرکت در مزایده' },
+        meta: {
+          kind: 'auction-bid-deposit',
+          listingId,
+          description: 'مسدودسازی ودیعه شرکت در مزایده',
+        },
       },
     });
+  }
+
+  /**
+   * ودیعهٔ بلوکه‌شدهٔ شرکت در یک مزایده (بر اساس لاگ BLOCK/UNBLOCK همان listingId).
+   */
+  async getAuctionBidDepositScopedBlocked(
+    tx: Prisma.TransactionClient,
+    params: { userId: string; listingId: string },
+  ): Promise<number> {
+    const wallet = await tx.wallet.findUnique({
+      where: { userId: params.userId },
+      select: { id: true },
+    });
+    if (!wallet) return 0;
+
+    const rows = await tx.walletTransaction.findMany({
+      where: {
+        walletId: wallet.id,
+        referenceId: params.listingId,
+        status: WalletTransactionStatus.SUCCESS,
+        type: {
+          in: [
+            WalletTransactionType.BLOCK,
+            WalletTransactionType.UNBLOCK,
+            WalletTransactionType.PENALTY,
+          ],
+        },
+      },
+      select: { amount: true, type: true, meta: true },
+    });
+
+    let net = 0;
+    for (const row of rows) {
+      const meta = (row.meta ?? {}) as Record<string, unknown>;
+      const kind = String(meta['kind'] ?? '').trim();
+      if (kind && kind !== 'auction-bid-deposit') continue;
+      const metaListingId = String(meta['listingId'] ?? params.listingId).trim();
+      if (metaListingId !== params.listingId) continue;
+      const amt = Math.max(0, Number(row.amount) || 0);
+      if (row.type === WalletTransactionType.BLOCK) net += amt;
+      else net -= amt;
+    }
+    return Math.max(0, net);
   }
 
   async unblockAmount(
@@ -529,7 +576,14 @@ export class WalletService {
     tx?: Prisma.TransactionClient,
   ) {
     const prisma = tx || this.prisma;
-    const amountDec = new Decimal(amount);
+    const requested = new Decimal(amount);
+    const scoped = await this.getAuctionBidDepositScopedBlocked(prisma, {
+      userId,
+      listingId,
+    });
+    const amountDec = Decimal.min(requested, new Decimal(scoped));
+    if (amountDec.lte(0)) return;
+
     const wallet = await this.getWalletByUserId(userId);
 
     await prisma.wallet.update({
@@ -547,7 +601,11 @@ export class WalletService {
         type: WalletTransactionType.UNBLOCK,
         status: WalletTransactionStatus.SUCCESS,
         referenceId: listingId,
-        meta: { description: 'آزادسازی مبلغ مسدود شده مزایده' },
+        meta: {
+          kind: 'auction-bid-deposit',
+          listingId,
+          description: 'آزادسازی مبلغ مسدود شده مزایده',
+        },
       },
     });
   }
@@ -559,7 +617,14 @@ export class WalletService {
     tx?: Prisma.TransactionClient,
   ) {
     const prisma = tx || this.prisma;
-    const amountDec = new Decimal(amount);
+    const requested = new Decimal(amount);
+    const scoped = await this.getAuctionBidDepositScopedBlocked(prisma, {
+      userId,
+      listingId,
+    });
+    const amountDec = Decimal.min(requested, new Decimal(scoped));
+    if (amountDec.lte(0)) return;
+
     const wallet = await this.getWalletByUserId(userId);
 
     await prisma.wallet.update({
@@ -574,7 +639,11 @@ export class WalletService {
         type: WalletTransactionType.PENALTY,
         status: WalletTransactionStatus.SUCCESS,
         referenceId: listingId,
-        meta: { description: 'جریمه عدم پرداخت مزایده (ضبط ودیعه)' },
+        meta: {
+          kind: 'auction-bid-deposit',
+          listingId,
+          description: 'جریمه عدم پرداخت مزایده (ضبط ودیعه)',
+        },
       },
     });
   }
@@ -588,6 +657,7 @@ export class WalletService {
     platformFee: number | string | Decimal, // 👈 کارمزد اضافه شد
     refId: string,
     tx?: Prisma.TransactionClient,
+    opts?: { orderId?: string },
   ) {
     const prisma = tx || this.prisma;
     const totalDec = new Decimal(totalAmount);
@@ -611,10 +681,38 @@ export class WalletService {
     }
 
     if (depositDec.gt(0)) {
-      await prisma.wallet.update({
-        where: { userId: buyerId },
-        data: { balanceBlocked: { decrement: depositDec.toString() } },
+      const bidScoped = await this.getAuctionBidDepositScopedBlocked(prisma, {
+        userId: buyerId,
+        listingId: refId,
       });
+      const depositToRelease = Decimal.min(depositDec, new Decimal(bidScoped));
+      if (depositToRelease.gt(0)) {
+        await prisma.wallet.update({
+          where: { userId: buyerId },
+          data: { balanceBlocked: { decrement: depositToRelease.toString() } },
+        });
+        const buyerWallet = await prisma.wallet.findUnique({
+          where: { userId: buyerId },
+        });
+        if (buyerWallet) {
+          await prisma.walletTransaction.create({
+            data: {
+              walletId: buyerWallet.id,
+              amount: depositToRelease.toNumber(),
+              type: WalletTransactionType.UNBLOCK,
+              status: WalletTransactionStatus.SUCCESS,
+              referenceId: refId,
+              meta: {
+                kind: 'auction-bid-deposit',
+                listingId: refId,
+                phase: 'deposit_applied_to_final_payment',
+                description:
+                  'ودیعهٔ بلوکه‌شدهٔ مزایده برای پرداخت نهایی آزاد شد',
+              },
+            },
+          });
+        }
+      }
     }
 
     const auctionListingTitle = await this.listingTitleForWalletTx(
@@ -676,6 +774,7 @@ export class WalletService {
           kind: 'auction-escrow',
           phase: 'seller_blocked',
           listingId: refId,
+          ...(opts?.orderId ? { orderId: opts.orderId } : {}),
           ...(auctionListingTitle ? { listingTitle: auctionListingTitle } : {}),
           description: auctionListingTitle
             ? `درآمد فروش مزایده بلوکه است تا خریدار دریافت کالا را تأیید کند — «${auctionListingTitle}». پس از تأیید، به موجودی قابل برداشت منتقل می‌شود.`
@@ -698,6 +797,7 @@ export class WalletService {
       sellerRevenue: number;
       blockedDeposit: number;
       listingTitle?: string;
+      orderId?: string;
     },
     tx?: Prisma.TransactionClient,
   ) {
@@ -710,6 +810,7 @@ export class WalletService {
       sellerRevenue,
       blockedDeposit,
       listingTitle,
+      orderId,
     } = params;
 
     const depositDec = new Decimal(blockedDeposit);
@@ -723,12 +824,39 @@ export class WalletService {
       if (!buyerWallet) {
         throw new BadRequestException('کیف پول خریدار یافت نشد');
       }
-      if (new Decimal(buyerWallet.balanceBlocked).lt(depositDec)) {
-        throw new BadRequestException('ودیعه بلوکه‌شده کافی نیست');
+      const bidScoped = await this.getAuctionBidDepositScopedBlocked(prisma, {
+        userId: buyerId,
+        listingId,
+      });
+      const depositToRelease = Math.min(
+        depositDec.toNumber(),
+        bidScoped,
+      );
+      if (depositToRelease <= 0) {
+        throw new BadRequestException(
+          'ودیعه بلوکه‌شدهٔ این مزایده برای تسویه کافی نیست',
+        );
       }
       await prisma.wallet.update({
         where: { userId: buyerId },
-        data: { balanceBlocked: { decrement: depositDec.toString() } },
+        data: { balanceBlocked: { decrement: depositToRelease } },
+      });
+      await prisma.walletTransaction.create({
+        data: {
+          walletId: buyerWallet.id,
+          amount: depositToRelease,
+          type: WalletTransactionType.UNBLOCK,
+          status: WalletTransactionStatus.SUCCESS,
+          referenceId: listingId,
+          meta: {
+            kind: 'auction-bid-deposit',
+            listingId,
+            phase: 'deposit_applied_to_gateway_payment',
+            ...(orderId ? { orderId } : {}),
+            description:
+              'ودیعهٔ بلوکه‌شدهٔ مزایده برای پرداخت درگاهی آزاد شد',
+          },
+        },
       });
     }
 
@@ -759,6 +887,7 @@ export class WalletService {
             phase: 'seller_blocked',
             paymentSource: 'GATEWAY',
             listingId,
+            ...(orderId ? { orderId } : {}),
             ...(listingTitle ? { listingTitle } : {}),
             description: `درآمد فروش مزایده برای ${titleQuoted} از درگاه و ودیعه بلوکه شد.`,
           },
@@ -926,6 +1055,7 @@ export class WalletService {
     opts?: {
       isExchangeEscrow?: boolean;
       blockedAmount?: number | string | Decimal;
+      orderId?: string;
     },
   ) {
     const prisma = tx || this.prisma;
@@ -983,6 +1113,7 @@ export class WalletService {
             kind: 'order-escrow',
             phase: 'seller_blocked',
             listingId: refId,
+            ...(opts?.orderId ? { orderId: opts.orderId } : {}),
             ...(listingTitle ? { listingTitle } : {}),
             paymentSource: 'GATEWAY',
             description: isExchangeEscrow
@@ -994,6 +1125,74 @@ export class WalletService {
     }
   }
 
+  /**
+   * حداکثر مبلغی که برای یک سفارش می‌توان از بلوکه آزاد یا کسر کرد (بر اساس DEPOSITهای PENDING همان سفارش).
+   */
+  async resolveOrderScopedCap(
+    tx: Prisma.TransactionClient,
+    params: {
+      userId: string;
+      orderId: string;
+      listingId: string;
+      requestedAmount: number | string | Decimal;
+    },
+  ): Promise<number> {
+    const requested = Math.max(0, Number(new Decimal(params.requestedAmount)) || 0);
+    if (requested <= 0) return 0;
+    const scoped = await this.getOrderScopedBlockedAmount(tx, {
+      userId: params.userId,
+      orderId: params.orderId,
+      listingId: params.listingId,
+    });
+    return Math.min(requested, scoped);
+  }
+
+  /**
+   * کسر از balanceBlocked فقط تا سقف بلوکهٔ همان سفارش (جلوگیری از دست زدن به معاملات دیگر).
+   */
+  async debitOrderScopedBlocked(
+    tx: Prisma.TransactionClient,
+    params: {
+      userId: string;
+      orderId: string;
+      listingId: string;
+      requestedAmount: number | string | Decimal;
+      penaltyMeta: Prisma.InputJsonValue;
+      referenceId?: string;
+    },
+  ): Promise<number> {
+    const amount = await this.resolveOrderScopedCap(tx, {
+      userId: params.userId,
+      orderId: params.orderId,
+      listingId: params.listingId,
+      requestedAmount: params.requestedAmount,
+    });
+    if (amount <= 0) return 0;
+
+    const sellerWallet = await tx.wallet.upsert({
+      where: { userId: params.userId },
+      create: {
+        userId: params.userId,
+        balanceAvailable: 0,
+        balanceBlocked: 0,
+      },
+      update: { balanceBlocked: { decrement: amount } },
+      select: { id: true },
+    });
+
+    await tx.walletTransaction.create({
+      data: {
+        walletId: sellerWallet.id,
+        amount,
+        type: WalletTransactionType.PENALTY,
+        status: WalletTransactionStatus.SUCCESS,
+        referenceId: params.referenceId ?? params.orderId,
+        meta: params.penaltyMeta,
+      },
+    });
+    return amount;
+  }
+
   async releaseEscrow(
     sellerId: string,
     amount: number | string | Decimal,
@@ -1002,7 +1201,18 @@ export class WalletService {
     opts?: { orderId?: string },
   ) {
     const prisma = tx || this.prisma;
-    const amountDec = new Decimal(amount);
+    let amountDec = new Decimal(amount);
+    if (opts?.orderId) {
+      const capped = await this.resolveOrderScopedCap(prisma, {
+        userId: sellerId,
+        orderId: opts.orderId,
+        listingId,
+        requestedAmount: amountDec,
+      });
+      amountDec = new Decimal(capped);
+    }
+    if (amountDec.lte(0)) return;
+
     const wallet = await this.getWalletByUserId(sellerId);
     const listingTitle = await this.listingTitleForWalletTx(prisma, listingId);
     const titleQuoted = listingTitle ? `«${listingTitle}»` : 'این آگهی';
@@ -1032,6 +1242,124 @@ export class WalletService {
         },
       },
     });
+  }
+
+  private escrowDepositBelongsToOrder(
+    meta: Record<string, unknown>,
+    params: { orderId: string; listingId: string },
+  ): boolean {
+    const metaOrderId = String(meta['orderId'] ?? '').trim();
+    const metaListingId = String(meta['listingId'] ?? '').trim();
+    if (metaOrderId) return metaOrderId === params.orderId;
+    if (metaListingId) return metaListingId === params.listingId;
+    return true;
+  }
+
+  /**
+   * پس از ایجاد سفارش، DEPOSITهای امانی همان listing که هنوز orderId ندارند را به سفارش وصل می‌کند.
+   */
+  async linkEscrowDepositsToOrder(
+    tx: Prisma.TransactionClient,
+    params: {
+      orderId: string;
+      listingId: string;
+      userIds: string[];
+    },
+  ): Promise<void> {
+    const escrowKinds = new Set(['order-escrow', 'auction-escrow']);
+    for (const userId of params.userIds) {
+      const wallet = await tx.wallet.findUnique({
+        where: { userId },
+        select: { id: true },
+      });
+      if (!wallet) continue;
+
+      const pending = await tx.walletTransaction.findMany({
+        where: {
+          walletId: wallet.id,
+          type: WalletTransactionType.DEPOSIT,
+          status: WalletTransactionStatus.PENDING,
+          referenceId: { in: [params.orderId, params.listingId] },
+        },
+        select: { id: true, meta: true },
+      });
+
+      for (const row of pending) {
+        const meta = { ...((row.meta ?? {}) as Record<string, unknown>) };
+        const kind = String(meta['kind'] ?? '').trim();
+        if (!escrowKinds.has(kind)) continue;
+        if (String(meta['orderId'] ?? '').trim()) continue;
+        if (
+          String(meta['listingId'] ?? params.listingId).trim() !==
+          params.listingId
+        ) {
+          continue;
+        }
+        meta['orderId'] = params.orderId;
+        meta['listingId'] = params.listingId;
+        await tx.walletTransaction.update({
+          where: { id: row.id },
+          data: { meta: meta as Prisma.InputJsonValue },
+        });
+      }
+    }
+  }
+
+  /**
+   * مجموع مبلغ بلوکه‌شدهٔ مربوط به یک سفارش مشخص برای یک کاربر.
+   * فقط DEPOSITهای PENDING همان سفارش/آگهی شمرده می‌شوند تا عملیات یک سفارش
+   * روی بلوکهٔ سفارش دیگر اثر نگذارد.
+   */
+  async getOrderScopedBlockedAmount(
+    tx: Prisma.TransactionClient,
+    params: { userId: string; orderId: string; listingId: string },
+  ): Promise<number> {
+    const wallet = await tx.wallet.findUnique({
+      where: { userId: params.userId },
+      select: { id: true },
+    });
+    if (!wallet) return 0;
+
+    const pendingDeposits = await tx.walletTransaction.findMany({
+      where: {
+        walletId: wallet.id,
+        type: WalletTransactionType.DEPOSIT,
+        status: WalletTransactionStatus.PENDING,
+        OR: [
+          { referenceId: params.orderId },
+          { referenceId: params.listingId },
+        ],
+      },
+      select: { amount: true, meta: true, referenceId: true },
+    });
+
+    const orderEscrowPhases = new Set([
+      'seller_blocked',
+      'buyer_settlement_blocked',
+      'seller_settlement_blocked',
+      'shipping_blocked',
+    ]);
+    const auctionEscrowPhases = new Set(['seller_blocked', 'shipping_blocked']);
+
+    let scopedBlocked = 0;
+    for (const row of pendingDeposits) {
+      const meta = (row.meta ?? {}) as Record<string, unknown>;
+      const kind = String(meta['kind'] ?? 'order-escrow').trim();
+      const phase = String(meta['phase'] ?? '').trim();
+
+      if (kind === 'order-escrow') {
+        if (!orderEscrowPhases.has(phase)) continue;
+      } else if (kind === 'auction-escrow') {
+        if (!auctionEscrowPhases.has(phase)) continue;
+      } else {
+        continue;
+      }
+
+      if (!this.escrowDepositBelongsToOrder(meta, params)) continue;
+
+      scopedBlocked += Math.max(0, Number(row.amount) || 0);
+    }
+    return scopedBlocked;
   }
 
   /** مبلغ قابل بازگشت به خریدار از روی سفارش یا تراکنش پرداخت ثبت‌شده */
@@ -1281,39 +1609,52 @@ export class WalletService {
         select: { id: true },
       });
       if (!existingSellerDebit) {
-        await tx.wallet.update({
-          where: { userId: params.sellerId },
-          data: { balanceBlocked: { decrement: sellerRevenue } },
-        });
-
-        await tx.walletTransaction.updateMany({
-          where: {
-            walletId: sellerWallet.id,
-            referenceId: params.listingId,
-            type: WalletTransactionType.DEPOSIT,
-            status: WalletTransactionStatus.PENDING,
+        const debited = await this.debitOrderScopedBlocked(tx, {
+          userId: params.sellerId,
+          orderId: params.orderId,
+          listingId: params.listingId,
+          requestedAmount: sellerRevenue,
+          referenceId: params.orderId,
+          penaltyMeta: {
+            kind: 'order-escrow',
+            phase: 'seller_blocked_debit',
+            debitReason: refundReason,
+            orderId: params.orderId,
+            listingId: params.listingId,
+            ...(listingTitle ? { listingTitle } : {}),
+            description: `لغو معامله برای ${titleQuoted}: مبلغ بلوکه‌شده از کیف پول شما برداشته شد چون سفارش لغو شد (${params.cancelReason}).`,
           },
-          data: { status: WalletTransactionStatus.FAILED },
         });
-
-        await tx.walletTransaction.create({
-          data: {
-            walletId: sellerWallet.id,
-            amount: sellerRevenue,
-            type: WalletTransactionType.PENALTY,
-            status: WalletTransactionStatus.SUCCESS,
-            referenceId: params.orderId,
-            meta: {
-              kind: 'order-escrow',
-              phase: 'seller_blocked_debit',
-              debitReason: refundReason,
-              orderId: params.orderId,
-              listingId: params.listingId,
-              ...(listingTitle ? { listingTitle } : {}),
-              description: `لغو معامله برای ${titleQuoted}: مبلغ بلوکه‌شده از کیف پول شما برداشته شد چون سفارش لغو شد (${params.cancelReason}).`,
+        if (debited > 0) {
+          const pendingForOrder = await tx.walletTransaction.findMany({
+            where: {
+              walletId: sellerWallet.id,
+              type: WalletTransactionType.DEPOSIT,
+              status: WalletTransactionStatus.PENDING,
+              OR: [
+                { referenceId: params.orderId },
+                { referenceId: params.listingId },
+              ],
             },
-          },
-        });
+            select: { id: true, meta: true },
+          });
+          const idsToFail = pendingForOrder
+            .filter((row) => {
+              const meta = (row.meta ?? {}) as Record<string, unknown>;
+              if (meta['kind'] !== 'order-escrow') return false;
+              return this.escrowDepositBelongsToOrder(meta, {
+                orderId: params.orderId,
+                listingId: params.listingId,
+              });
+            })
+            .map((row) => row.id);
+          if (idsToFail.length) {
+            await tx.walletTransaction.updateMany({
+              where: { id: { in: idsToFail } },
+              data: { status: WalletTransactionStatus.FAILED },
+            });
+          }
+        }
       }
     }
 
@@ -1458,116 +1799,94 @@ export class WalletService {
     const sr = Math.max(0, Number(params.sellerRefundable) || 0);
 
     if (isPayerMe && br > 0) {
-      await tx.wallet.upsert({
-        where: { userId: sellerId },
-        create: { userId: sellerId, balanceAvailable: 0, balanceBlocked: 0 },
-        update: { balanceBlocked: { decrement: br } },
+      const peerDebit = await this.debitOrderScopedBlocked(tx, {
+        userId: sellerId,
+        orderId,
+        listingId,
+        requestedAmount: br,
+        referenceId: orderId,
+        penaltyMeta: {
+          kind: 'exchange-return-refund',
+          orderId,
+          listingId,
+          description:
+            'لغو معاوضه: برداشت از بلوکه طرف مقابل برای بازگشت مابه‌التفاوت به پرداخت‌کننده',
+        } as Prisma.InputJsonValue,
       });
-      const sellerWallet = await tx.wallet.findUnique({
-        where: { userId: sellerId },
-        select: { id: true },
-      });
-      if (sellerWallet) {
-        await tx.walletTransaction.create({
-          data: {
-            walletId: sellerWallet.id,
-            amount: br,
-            type: WalletTransactionType.PENALTY,
-            status: WalletTransactionStatus.SUCCESS,
-            referenceId: orderId,
-            meta: {
-              kind: 'exchange-return-refund',
-              orderId,
-              listingId,
-              description:
-                'لغو معاوضه: برداشت از بلوکه طرف مقابل برای بازگشت مابه‌التفاوت به پرداخت‌کننده',
-            } as Prisma.InputJsonValue,
-          },
+      if (peerDebit > 0) {
+        await tx.wallet.upsert({
+          where: { userId: buyerId },
+          create: { userId: buyerId, balanceAvailable: peerDebit, balanceBlocked: 0 },
+          update: { balanceAvailable: { increment: peerDebit } },
         });
-      }
-      await tx.wallet.upsert({
-        where: { userId: buyerId },
-        create: { userId: buyerId, balanceAvailable: br, balanceBlocked: 0 },
-        update: { balanceAvailable: { increment: br } },
-      });
-      const buyerWallet = await tx.wallet.findUnique({
-        where: { userId: buyerId },
-        select: { id: true },
-      });
-      if (buyerWallet) {
-        await tx.walletTransaction.create({
-          data: {
-            walletId: buyerWallet.id,
-            amount: br,
-            type: WalletTransactionType.REFUND,
-            status: WalletTransactionStatus.SUCCESS,
-            referenceId: orderId,
-            meta: {
-              kind: 'exchange-return-refund',
-              orderId,
-              listingId,
-              description:
-                'بازگشت مابه‌التفاوت معاوضه به پرداخت‌کننده (بدون هزینه کارشناسی)',
-            } as Prisma.InputJsonValue,
-          },
+        const buyerWallet = await tx.wallet.findUnique({
+          where: { userId: buyerId },
+          select: { id: true },
         });
+        if (buyerWallet) {
+          await tx.walletTransaction.create({
+            data: {
+              walletId: buyerWallet.id,
+              amount: peerDebit,
+              type: WalletTransactionType.REFUND,
+              status: WalletTransactionStatus.SUCCESS,
+              referenceId: orderId,
+              meta: {
+                kind: 'exchange-return-refund',
+                orderId,
+                listingId,
+                description:
+                  'بازگشت مابه‌التفاوت معاوضه به پرداخت‌کننده (بدون هزینه کارشناسی)',
+              } as Prisma.InputJsonValue,
+            },
+          });
+        }
       }
     }
 
     if (!isPayerMe && sr > 0) {
-      await tx.wallet.upsert({
-        where: { userId: buyerId },
-        create: { userId: buyerId, balanceAvailable: 0, balanceBlocked: 0 },
-        update: { balanceBlocked: { decrement: sr } },
+      const peerDebit = await this.debitOrderScopedBlocked(tx, {
+        userId: buyerId,
+        orderId,
+        listingId,
+        requestedAmount: sr,
+        referenceId: orderId,
+        penaltyMeta: {
+          kind: 'exchange-return-refund',
+          orderId,
+          listingId,
+          description:
+            'لغو معاوضه: برداشت از بلوکه طرف مقابل برای بازگشت مابه‌التفاوت به پرداخت‌کننده',
+        } as Prisma.InputJsonValue,
       });
-      const buyerWallet = await tx.wallet.findUnique({
-        where: { userId: buyerId },
-        select: { id: true },
-      });
-      if (buyerWallet) {
-        await tx.walletTransaction.create({
-          data: {
-            walletId: buyerWallet.id,
-            amount: sr,
-            type: WalletTransactionType.PENALTY,
-            status: WalletTransactionStatus.SUCCESS,
-            referenceId: orderId,
-            meta: {
-              kind: 'exchange-return-refund',
-              orderId,
-              listingId,
-              description:
-                'لغو معاوضه: برداشت از بلوکه طرف مقابل برای بازگشت مابه‌التفاوت به پرداخت‌کننده',
-            } as Prisma.InputJsonValue,
-          },
+      if (peerDebit > 0) {
+        await tx.wallet.upsert({
+          where: { userId: sellerId },
+          create: { userId: sellerId, balanceAvailable: peerDebit, balanceBlocked: 0 },
+          update: { balanceAvailable: { increment: peerDebit } },
         });
-      }
-      await tx.wallet.upsert({
-        where: { userId: sellerId },
-        create: { userId: sellerId, balanceAvailable: sr, balanceBlocked: 0 },
-        update: { balanceAvailable: { increment: sr } },
-      });
-      const sellerWallet = await tx.wallet.findUnique({
-        where: { userId: sellerId },
-        select: { id: true },
-      });
-      if (sellerWallet) {
-        await tx.walletTransaction.create({
-          data: {
-            walletId: sellerWallet.id,
-            amount: sr,
-            type: WalletTransactionType.REFUND,
-            status: WalletTransactionStatus.SUCCESS,
-            referenceId: orderId,
-            meta: {
-              kind: 'exchange-return-refund',
-              orderId,
-              listingId,
-              description:
-                'بازگشت مابه‌التفاوت معاوضه به پرداخت‌کننده (بدون هزینه کارشناسی)',
-            } as Prisma.InputJsonValue,
-          },
+        const sellerWallet = await tx.wallet.findUnique({
+          where: { userId: sellerId },
+          select: { id: true },
         });
+        if (sellerWallet) {
+          await tx.walletTransaction.create({
+            data: {
+              walletId: sellerWallet.id,
+              amount: peerDebit,
+              type: WalletTransactionType.REFUND,
+              status: WalletTransactionStatus.SUCCESS,
+              referenceId: orderId,
+              meta: {
+                kind: 'exchange-return-refund',
+                orderId,
+                listingId,
+                description:
+                  'بازگشت مابه‌التفاوت معاوضه به پرداخت‌کننده (بدون هزینه کارشناسی)',
+              } as Prisma.InputJsonValue,
+            },
+          });
+        }
       }
     }
   }

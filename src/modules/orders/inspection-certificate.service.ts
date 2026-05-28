@@ -646,9 +646,9 @@ export class InspectionCertificateService implements OnModuleDestroy {
       });
       const buffer = await page.pdf({
         format: 'A4',
-        printBackground: false,
+        printBackground: true,
         preferCSSPageSize: true,
-        margin: { top: '12mm', bottom: '12mm', left: '12mm', right: '12mm' },
+        margin: { top: '10mm', bottom: '52mm', left: '10mm', right: '10mm' },
       });
       return Buffer.from(buffer);
     } finally {

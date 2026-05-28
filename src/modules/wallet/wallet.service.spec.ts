@@ -8,14 +8,31 @@ describe('WalletService - refundExchangeExtraOnCancel', () => {
   it('isPayerMe=true: برگرداندن مابه‌التفاوت به خریدار (برداشت از بلوکه فروشنده + واریز به کیف پول خریدار)', async () => {
     const service = new WalletService(prismaMock, notificationMock);
 
+    const scopedDeposits: Record<string, { amount: number; meta: object }[]> = {
+      'seller-1-wallet-id': [
+        {
+          amount: 200,
+          meta: {
+            kind: 'order-escrow',
+            phase: 'seller_blocked',
+            orderId: 'ord-1',
+            listingId: 'lst-1',
+          },
+        },
+      ],
+    };
+
     const tx: any = {
       wallet: {
-        upsert: jest.fn().mockResolvedValue({}),
+        upsert: jest.fn().mockResolvedValue({ id: 'seller-1-wallet-id' }),
         findUnique: jest.fn(async ({ where }: any) => ({
           id: `${where.userId}-wallet-id`,
         })),
       },
       walletTransaction: {
+        findMany: jest.fn(async ({ where }: any) => {
+          return scopedDeposits[where.walletId as string] ?? [];
+        }),
         create: jest.fn().mockResolvedValue({}),
       },
     };
@@ -71,14 +88,31 @@ describe('WalletService - refundExchangeExtraOnCancel', () => {
   it('isPayerMe=false: برگرداندن مابه‌التفاوت به فروشنده (برداشت از بلوکه خریدار + واریز به کیف پول فروشنده)', async () => {
     const service = new WalletService(prismaMock, notificationMock);
 
+    const scopedDeposits: Record<string, { amount: number; meta: object }[]> = {
+      'buyer-1-wallet-id': [
+        {
+          amount: 123,
+          meta: {
+            kind: 'order-escrow',
+            phase: 'seller_blocked',
+            orderId: 'ord-1',
+            listingId: 'lst-1',
+          },
+        },
+      ],
+    };
+
     const tx: any = {
       wallet: {
-        upsert: jest.fn().mockResolvedValue({}),
+        upsert: jest.fn().mockResolvedValue({ id: 'buyer-1-wallet-id' }),
         findUnique: jest.fn(async ({ where }: any) => ({
           id: `${where.userId}-wallet-id`,
         })),
       },
       walletTransaction: {
+        findMany: jest.fn(async ({ where }: any) => {
+          return scopedDeposits[where.walletId as string] ?? [];
+        }),
         create: jest.fn().mockResolvedValue({}),
       },
     };
@@ -731,5 +765,100 @@ describe('WalletService - applyExchangeHubInspectionOutcomeRefunds', () => {
       buyerRefundAmount: 330_000,
       sellerRefundAmount: 0,
     });
+  });
+});
+
+describe('WalletService - order-scoped blocked isolation', () => {
+  const prismaMock = {} as any;
+  const notificationMock = {} as any;
+
+  it('getOrderScopedBlockedAmount: فقط بلوکهٔ همان سفارش را برمی‌گرداند', async () => {
+    const service = new WalletService(prismaMock, notificationMock);
+    const deposits = [
+      {
+        amount: 500_000,
+        referenceId: 'ord-1',
+        meta: {
+          kind: 'order-escrow',
+          phase: 'seller_blocked',
+          orderId: 'ord-1',
+          listingId: 'lst-1',
+        },
+      },
+      {
+        amount: 300_000,
+        referenceId: 'ord-2',
+        meta: {
+          kind: 'order-escrow',
+          phase: 'seller_blocked',
+          orderId: 'ord-2',
+          listingId: 'lst-2',
+        },
+      },
+    ];
+    const tx: any = {
+      wallet: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'seller-wallet' }),
+      },
+      walletTransaction: {
+        findMany: jest.fn().mockResolvedValue(deposits),
+      },
+    };
+
+    const scoped = await service.getOrderScopedBlockedAmount(tx, {
+      userId: 'seller-1',
+      orderId: 'ord-1',
+      listingId: 'lst-1',
+    });
+
+    expect(scoped).toBe(500_000);
+  });
+
+  it('releaseEscrow با orderId بیش از بلوکهٔ همان سفارش آزاد نمی‌کند', async () => {
+    const service = new WalletService(prismaMock, notificationMock);
+    const getWalletByUserId = jest
+      .spyOn(service as any, 'getWalletByUserId')
+      .mockResolvedValue({ id: 'seller-wallet' });
+    const listingTitleForWalletTx = jest
+      .spyOn(service as any, 'listingTitleForWalletTx')
+      .mockResolvedValue('کالا');
+
+    const tx: any = {
+      wallet: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'seller-wallet' }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      walletTransaction: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            amount: 200_000,
+            referenceId: 'ord-1',
+            meta: {
+              kind: 'order-escrow',
+              phase: 'seller_blocked',
+              orderId: 'ord-1',
+              listingId: 'lst-1',
+            },
+          },
+        ]),
+        create: jest.fn().mockResolvedValue({}),
+      },
+    };
+
+    await service.releaseEscrow('seller-1', 500_000, 'lst-1', tx, {
+      orderId: 'ord-1',
+    });
+
+    expect(tx.wallet.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: {
+          balanceBlocked: { decrement: '200000' },
+          balanceAvailable: { increment: '200000' },
+        },
+      }),
+    );
+
+    getWalletByUserId.mockRestore();
+    listingTitleForWalletTx.mockRestore();
   });
 });

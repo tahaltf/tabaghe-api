@@ -498,6 +498,7 @@ export class PaymentsService {
             buyerId: locked.buyerId,
             sellerId: locked.sellerId,
             listingId: locked.listingId,
+            orderId: locked.id,
             gatewayPaidAmount: paidAmount,
             sellerRevenue: Number(locked.sellerRevenue),
             blockedDeposit,
@@ -505,6 +506,11 @@ export class PaymentsService {
           },
           tx,
         );
+        await this.walletService.linkEscrowDepositsToOrder(tx, {
+          orderId: locked.id,
+          listingId: locked.listingId,
+          userIds: [locked.buyerId, locked.sellerId],
+        });
 
         const otherActiveBids = await tx.auctionBid.findMany({
           where: {
@@ -545,8 +551,17 @@ export class PaymentsService {
           platformCut,
           locked.listingId,
           tx,
-          { isExchangeEscrow: isExchangeOrder, blockedAmount },
+          {
+            isExchangeEscrow: isExchangeOrder,
+            blockedAmount,
+            orderId: locked.id,
+          },
         );
+        await this.walletService.linkEscrowDepositsToOrder(tx, {
+          orderId: locked.id,
+          listingId: locked.listingId,
+          userIds: [locked.buyerId, locked.sellerId],
+        });
 
         const payerUserId =
           locked.type === 'EXCHANGE' && payerId ? payerId : locked.buyerId;

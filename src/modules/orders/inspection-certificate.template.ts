@@ -137,7 +137,7 @@ export function buildInspectionCertificateHtml(
 <title>${escapeHtml(title)}</title>
 <style>
   ${fontFaceCss}
-  @page { size: A4 portrait; margin: 10mm; }
+  @page { size: A4 portrait; margin: 10mm 10mm 52mm 10mm; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
     direction: rtl;
@@ -153,16 +153,19 @@ export function buildInspectionCertificateHtml(
   .cert-page {
     width: 100%;
     max-width: 186mm;
-    min-height: 268mm;
     margin: 0 auto;
     padding-inline: 3mm;
-    padding-bottom: 46mm;
+    padding-bottom: 8mm;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
     gap: 16px;
+  }
+  .cert-page > section,
+  .cert-page > .cert-body-wrap,
+  .cert-page > .cert-result {
+    break-inside: avoid;
     page-break-inside: avoid;
-    page-break-after: avoid;
   }
   .cert-top {
     display: flex;
@@ -343,23 +346,30 @@ export function buildInspectionCertificateHtml(
     font-size: 10pt;
     line-height: 1.7;
   }
-  .cert-signature-zone {
-    display: none;
-  }
   .cert-signature-fixed {
     position: fixed;
-    left: 13mm;
-    right: 13mm;
-    bottom: 18mm;
+    left: 10mm;
+    right: 10mm;
+    bottom: 0;
     z-index: 10;
     pointer-events: none;
+    background: #fff;
+    padding: 3mm 2mm 6mm;
+    border-top: 1px dashed ${p.primaryLight};
+  }
+  .cert-footer-fixed {
+    padding: 0 6px 3mm;
+    font-size: 8.5pt;
+    line-height: 1.55;
+    color: ${p.primaryLight};
+    text-align: center;
   }
   .cert-bottom {
     display: flex;
     align-items: flex-end;
     justify-content: space-between;
     gap: 16px;
-    padding-top: 4mm;
+    padding-top: 2mm;
   }
   .cert-stamp-wrap {
     text-align: center;
@@ -384,14 +394,6 @@ export function buildInspectionCertificateHtml(
     font-size: 8.5pt;
     color: ${p.primaryLight};
     font-weight: 500;
-  }
-  .cert-footer {
-    padding: 10px 8px 0;
-    border-top: 1px dashed ${p.primaryLight};
-    font-size: 8.5pt;
-    line-height: 1.55;
-    color: ${p.primaryLight};
-    text-align: center;
   }
 </style>
 </head>
@@ -430,10 +432,9 @@ export function buildInspectionCertificateHtml(
     </section>
 
     <div class="cert-result"><strong class="title">نتیجه کارشناسی</strong><div class="result-text">${resultHtml}</div></div>
-
-    <footer class="cert-footer">${footerHtml}</footer>
   </div>
   <div class="cert-signature-fixed" aria-hidden="true">
+    <footer class="cert-footer-fixed">${footerHtml}</footer>
     <div class="cert-bottom">
       <div class="cert-stamp-wrap">
         ${stampBlock}
