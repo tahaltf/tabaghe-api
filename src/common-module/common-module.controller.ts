@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, StreamableFile } from '@nestjs/common';
 import type { Request } from 'express';
+import { createReadStream } from 'fs';
 import { CommonService } from './common-module.service';
 import { buildClientNetworkHint } from './client-network-hint.util';
 
@@ -73,6 +74,19 @@ export class CommonController {
   @Get('site-settings')
   async siteSettings() {
     return this.commonService.getPublicSiteSettings();
+  }
+
+  /** آیکن PWA / apple-touch-icon — لوگوی تم روشن ادمین */
+  @Get('pwa-icon')
+  async pwaIcon(): Promise<StreamableFile> {
+    const asset = await this.commonService.resolvePwaIconAsset();
+    if (!asset) {
+      throw new NotFoundException('آیکن PWA یافت نشد');
+    }
+    return new StreamableFile(createReadStream(asset.path), {
+      type: asset.mime,
+      disposition: 'inline',
+    });
   }
 
   @Get('terms')

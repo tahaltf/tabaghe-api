@@ -238,6 +238,7 @@ async function bootstrap() {
     exclude: [
       { path: 'sitemap.xml', method: RequestMethod.GET },
       { path: 'robots.txt', method: RequestMethod.GET },
+      { path: 'manifest.webmanifest', method: RequestMethod.GET },
     ],
   });
   app.enableVersioning({

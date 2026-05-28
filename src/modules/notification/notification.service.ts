@@ -4,6 +4,12 @@ import { NotificationType, Prisma, UserRole } from '@prisma/client';
 import { SmsService } from '../sms/sms.service';
 import { applySmsTemplatePlaceholders } from '../../common/sms/sms-placeholders.util';
 import webpush from 'web-push';
+import {
+  getPwaIconPublicUrl,
+  getUserAppLogoLightFilename,
+  isRasterImageFilename,
+  resolveBrandLogoAbsolutePath,
+} from '../../common/pwa-brand-icon.util';
 
 type SmsRule = {
   siteNotificationEnabled?: boolean;
@@ -566,10 +572,11 @@ export class NotificationService {
     }
 
     const url = this.resolvePushUrl(meta);
+    const iconMeta = await this.resolvePushIconMeta();
     await this.sendWebPush(
       userId,
       subscription,
-      { title, message, url },
+      { title, message, url, icon: iconMeta.icon, iconRaster: iconMeta.iconRaster },
       {
         publicKey: vapidPublicKey,
         privateKey: vapidPrivateKey,
@@ -578,16 +585,34 @@ export class NotificationService {
     );
   }
 
+  private async resolvePushIconMeta(): Promise<{
+    icon?: string;
+    iconRaster: boolean;
+  }> {
+    const filename = await getUserAppLogoLightFilename(this.prisma);
+    const path = filename ? resolveBrandLogoAbsolutePath(filename) : null;
+    const raster = !!filename && isRasterImageFilename(filename) && !!path;
+    return raster ? { icon: getPwaIconPublicUrl(), iconRaster: true } : { iconRaster: false };
+  }
+
   private async sendWebPush(
     userId: string,
     subscription: PushSubscriptionPayload,
-    payload: { title: string; message: string; url: string },
+    payload: {
+      title: string;
+      message: string;
+      url: string;
+      icon?: string;
+      iconRaster: boolean;
+    },
     vapid: { publicKey: string; privateKey: string; subject: string },
   ) {
     const pushBody = JSON.stringify({
       title: payload.title,
       message: payload.message,
       url: payload.url,
+      icon: payload.icon,
+      iconRaster: payload.iconRaster,
     });
 
     try {

@@ -9,6 +9,14 @@ import { NotificationService } from '../modules/notification/notification.servic
 import { findLocationBySlug } from './location-slug.util';
 import { parseListingTypesEnabledFromMap } from '../common/system-settings/listing-type-enabled';
 import { filterCategoriesVisibleOnSite, isCategoryVisibleOnSite } from '../common/category-visibility.util';
+import {
+  buildPwaManifestDocument,
+  getPwaIconPublicUrl,
+  getUserAppLogoLightFilename,
+  isRasterImageFilename,
+  mimeForBrandFilename,
+  resolveBrandLogoAbsolutePath,
+} from '../common/pwa-brand-icon.util';
 
 @Injectable()
 export class CommonService {
@@ -852,5 +860,27 @@ export class CommonService {
       })
       .catch(() => undefined);
     return { ok: true };
+  }
+
+  async buildPwaManifest(): Promise<Record<string, unknown>> {
+    const icon = await this.resolvePwaIconAsset();
+    return buildPwaManifestDocument(!!icon);
+  }
+
+  async resolvePwaIconAsset(): Promise<{ path: string; mime: string } | null> {
+    const filename = await getUserAppLogoLightFilename(this.prisma);
+    if (!filename) return null;
+    const path = resolveBrandLogoAbsolutePath(filename);
+    if (!path) return null;
+    return { path, mime: mimeForBrandFilename(filename) };
+  }
+
+  async getPushIconMeta(): Promise<{ url: string; raster: boolean }> {
+    const filename = await getUserAppLogoLightFilename(this.prisma);
+    const icon = await this.resolvePwaIconAsset();
+    return {
+      url: getPwaIconPublicUrl(),
+      raster: !!filename && isRasterImageFilename(filename) && !!icon,
+    };
   }
 }
