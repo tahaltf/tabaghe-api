@@ -442,18 +442,70 @@ export class NotificationService {
     userId: string,
     subscription: PushSubscriptionPayload,
   ) {
+    const normalized = this.normalizePushSubscription(subscription);
     return this.prisma.systemSetting.upsert({
       where: { key: `PUSH_SUB_${userId}` },
       update: {
-        value: JSON.stringify(subscription),
+        value: JSON.stringify(normalized),
         description: 'Web push subscription',
       },
       create: {
         key: `PUSH_SUB_${userId}`,
-        value: JSON.stringify(subscription),
+        value: JSON.stringify(normalized),
         description: 'Web push subscription',
       },
     });
+  }
+
+  /** ارسال یک push تست برای کاربر جاری (تنظیمات / دیباگ). */
+  async sendPushTest(userId: string): Promise<{ sent: boolean; reason?: string }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { notifyPush: true },
+    });
+    if (!user?.notifyPush) {
+      return { sent: false, reason: 'notify_push_disabled' };
+    }
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { key: `PUSH_SUB_${userId}` },
+      select: { value: true },
+    });
+    if (!setting?.value) {
+      return { sent: false, reason: 'no_subscription' };
+    }
+    await this.processPush(
+      userId,
+      'تست اعلان طبقه',
+      'اگر این پیام را روی صفحهٔ قفل یا نوار اعلان می‌بینید، push درست کار می‌کند.',
+      { url: '/dashboard/notifications' },
+    );
+    return { sent: true };
+  }
+
+  private normalizePushSubscription(
+    subscription: PushSubscriptionPayload,
+  ): PushSubscriptionPayload {
+    return {
+      endpoint: subscription.endpoint,
+      keys: {
+        p256dh: this.toUrlBase64(subscription.keys?.p256dh ?? ''),
+        auth: this.toUrlBase64(subscription.keys?.auth ?? ''),
+      },
+    };
+  }
+
+  /** تبدیل base64 استاندارد (btoa) به base64url که کتابخانه web-push می‌خواهد. */
+  private toUrlBase64(value: string): string {
+    const trimmed = String(value ?? '').trim();
+    if (!trimmed) return trimmed;
+    if (!/[+/=]/.test(trimmed)) return trimmed.replace(/=+$/, '');
+    const padded =
+      trimmed + '='.repeat((4 - (trimmed.length % 4)) % 4);
+    return Buffer.from(padded, 'base64')
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
   }
 
   async removePushSubscription(userId: string) {
@@ -501,6 +553,7 @@ export class NotificationService {
       subscription = null;
     }
     if (!subscription?.endpoint) return;
+    subscription = this.normalizePushSubscription(subscription);
     const vapidPublicKey = process.env.WEB_PUSH_VAPID_PUBLIC_KEY || '';
     const vapidPrivateKey = (
       process.env.WEB_PUSH_VAPID_PRIVATE_KEY || ''
@@ -535,13 +588,6 @@ export class NotificationService {
       title: payload.title,
       message: payload.message,
       url: payload.url,
-      notification: {
-        title: payload.title,
-        body: payload.message,
-        icon: '/icon-192.svg',
-        badge: '/icon-192.svg',
-        data: { url: payload.url },
-      },
     });
 
     try {
@@ -554,6 +600,7 @@ export class NotificationService {
         pushBody,
         { TTL: 86_400, urgency: 'high' as any },
       );
+      this.logger.log(`WebPush sent to user ${userId}`);
     } catch (err: any) {
       const status = Number(err?.statusCode ?? 0);
       if (status === 404 || status === 410) {
