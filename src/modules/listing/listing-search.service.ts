@@ -26,6 +26,7 @@ const SEARCH_SELECT = {
   cityId: true,
   shippingPayer: true,
   sellerRequiresVerification: true,
+  testPeriodDays: true,
   isFeatured: true,
   featuredAt: true,
   direct: {

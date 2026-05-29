@@ -76,12 +76,20 @@ export class SmsService {
     templateId: number,
     parameters: Array<{ name: string; value: string }>,
   ) {
+    const mobile = this.normalizeIranMobile(phone);
+    if (!mobile) {
+      this.logger.warn(
+        `SMS skipped: invalid mobile "${String(phone ?? '').trim()}"`,
+      );
+      throw new InternalServerErrorException('شماره موبایل نامعتبر است');
+    }
+
     const apiKey = this.appSettings.getSmsApiKey();
     const url = 'https://api.sms.ir/v1/send/verify';
 
     try {
       const payload = {
-        mobile: phone,
+        mobile,
         templateId,
         parameters,
       };
@@ -99,11 +107,11 @@ export class SmsService {
         const message =
           response.data?.message || 'SMS.IR returned non-success status';
         this.logger.warn(
-          `SMS.IR rejected template ${templateId} for ${phone}: ${message}`,
+          `SMS.IR rejected template ${templateId} for ${mobile}: ${message}`,
         );
         throw new InternalServerErrorException(message);
       }
-      this.logger.log(`SMS.IR accepted template ${templateId} for ${phone}.`);
+      this.logger.log(`SMS.IR accepted template ${templateId} for ${mobile}.`);
       return response.data;
     } catch (error: unknown) {
       if (error instanceof InternalServerErrorException) {

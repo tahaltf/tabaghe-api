@@ -1,16 +1,13 @@
 /**
- * قالب‌بندی یکپارچه پیام‌های تیکت پشتیبانی (سلام؛ + پاراگراف‌های جدا).
+ * قالب‌بندی پیام‌های تیکت پشتیبانی (پاراگراف‌های جدا با خط خالی).
  */
 
-/** بدنهٔ تیکت با سلام فارسی و پاراگراف‌های جدا */
+/** چند پاراگراف را با خط خالی به هم می‌چسباند (بدون پیشوند ثابت). */
 export function formatTicketMessageBody(paragraphs: string[]): string {
-  const body = paragraphs
+  return paragraphs
     .map((p) => String(p ?? '').trim())
-    .filter((p) => p.length > 0);
-  if (!body.length) {
-    return 'سلام؛';
-  }
-  return ['سلام؛', ...body].join('\n\n');
+    .filter((p) => p.length > 0)
+    .join('\n\n');
 }
 
 /** موضوع کوتاه و یکسان برای تیکت‌های مرتبط با سفارش */
@@ -23,17 +20,7 @@ export function buildOrderTicketSubject(
   return `${title} · #${short} [ORDER:${orderId}]`;
 }
 
-/** پیام کاربر یا ادمین: اگر سلام ندارد اضافه می‌شود؛ «سلام،» قدیمی به «سلام؛» تبدیل می‌شود */
+/** متن پیام کاربر/ادمین: فقط trim؛ بدون افزودن سلام خودکار */
 export function normalizeTicketMessage(raw: string): string {
-  const text = String(raw ?? '').trim();
-  if (!text) {
-    return 'سلام؛';
-  }
-  const withoutGreeting = text.replace(/^سلام\s*[؛،,:]\s*/u, '').trim();
-  if (/^سلام\s*[؛،,:]/u.test(text)) {
-    return formatTicketMessageBody(
-      withoutGreeting ? [withoutGreeting] : [],
-    );
-  }
-  return formatTicketMessageBody([text]);
+  return String(raw ?? '').trim();
 }

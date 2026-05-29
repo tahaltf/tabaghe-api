@@ -143,11 +143,26 @@ export class DeadlineReminderService {
     });
   }
 
+  private reminderSentKey(
+    userId: string,
+    action: ReminderAction,
+    entityId: string,
+  ): string {
+    return `DEADLINE_REMINDER_SENT:${userId}:${action}:${entityId}`;
+  }
+
   private async hasReminderBeenSent(
     userId: string,
     action: ReminderAction,
     entityId: string,
   ): Promise<boolean> {
+    const sentKey = this.reminderSentKey(userId, action, entityId);
+    const marked = await this.prisma.systemSetting.findUnique({
+      where: { key: sentKey },
+      select: { key: true },
+    });
+    if (marked) return true;
+
     const existing = await this.prisma.notification.findFirst({
       where: {
         userId,
@@ -166,6 +181,23 @@ export class DeadlineReminderService {
       select: { id: true },
     });
     return Boolean(existing);
+  }
+
+  private async markReminderSent(
+    userId: string,
+    action: ReminderAction,
+    entityId: string,
+  ): Promise<void> {
+    const key = this.reminderSentKey(userId, action, entityId);
+    await this.prisma.systemSetting.upsert({
+      where: { key },
+      create: {
+        key,
+        value: new Date().toISOString(),
+        description: 'Deadline reminder dispatched (in-app and/or SMS)',
+      },
+      update: { value: new Date().toISOString() },
+    });
   }
 
   private remainingUntilDeadline(
@@ -202,7 +234,7 @@ export class DeadlineReminderService {
       return;
     }
 
-    await this.notificationService.create({
+    const { dispatched } = await this.notificationService.create({
       userId: params.userId,
       type: NotificationType.ACTION_DEADLINE_REMINDER,
       title: params.title,
@@ -218,6 +250,14 @@ export class DeadlineReminderService {
         deadlineFa: this.formatDeadlineFa(params.deadlineAt),
       },
     });
+
+    if (dispatched) {
+      await this.markReminderSent(
+        params.userId,
+        params.action,
+        params.entityId,
+      );
+    }
   }
 
   private async processExchangePaymentReminders(

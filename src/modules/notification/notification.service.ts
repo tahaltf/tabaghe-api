@@ -43,34 +43,46 @@ export class NotificationService {
   }) {
     const { userId, type, title, message, meta } = params;
     const rule = await this.getRuleForType(type);
-    if (rule && rule.siteNotificationEnabled === false) {
-      return null;
+    const siteEnabled = !(rule && rule.siteNotificationEnabled === false);
+    const smsEnabled = this.isSmsRuleActive(rule);
+
+    if (!siteEnabled && !smsEnabled) {
+      return { notification: null, dispatched: false };
     }
+
     const resolvedTitle = title?.trim();
     const resolvedMessage = rule?.siteNotificationText?.trim() || message;
     const metaValue =
       meta === undefined ? undefined : (meta as Prisma.InputJsonValue);
 
-    // ۱. ثبت نوتیفیکیشن در دیتابیس (برای نمایش در پنل کاربری)
-    const notification = await this.prisma.notification.create({
-      data: {
-        userId,
-        type,
-        title: resolvedTitle,
-        message: resolvedMessage,
-        meta: metaValue,
-      },
-    });
+    let notification: Awaited<
+      ReturnType<typeof this.prisma.notification.create>
+    > | null = null;
 
-    // ۲. ارسال پیامک به صورت پس‌زمینه (آسنکرون)
-    this.processSms(userId, type, meta).catch((err) => {
-      this.logger.error('Failed to process SMS notification', err);
-    });
-    this.processPush(userId, resolvedTitle, resolvedMessage, meta).catch((err) => {
-      this.logger.error('Failed to process push notification', err);
-    });
+    if (siteEnabled) {
+      notification = await this.prisma.notification.create({
+        data: {
+          userId,
+          type,
+          title: resolvedTitle,
+          message: resolvedMessage,
+          meta: metaValue,
+        },
+      });
+      this.processPush(userId, resolvedTitle, resolvedMessage, meta).catch(
+        (err) => {
+          this.logger.error('Failed to process push notification', err);
+        },
+      );
+    }
 
-    return notification;
+    if (smsEnabled) {
+      this.processSms(userId, type, meta, rule).catch((err) => {
+        this.logger.error('Failed to process SMS notification', err);
+      });
+    }
+
+    return { notification, dispatched: true };
   }
 
   /**
@@ -85,9 +97,13 @@ export class NotificationService {
   }): Promise<void> {
     const { type, title, message, meta } = params;
     const rule = await this.getRuleForType(type);
-    if (rule && rule.siteNotificationEnabled === false) {
+    const siteEnabled = !(rule && rule.siteNotificationEnabled === false);
+    const smsEnabled = this.isSmsRuleActive(rule);
+
+    if (!siteEnabled && !smsEnabled) {
       return;
     }
+
     const resolvedTitle = title?.trim();
     const resolvedMessage = rule?.siteNotificationText?.trim() || message;
     const metaValue =
@@ -99,30 +115,51 @@ export class NotificationService {
     });
     if (admins.length === 0) return;
 
-    await this.prisma.notification.createMany({
-      data: admins.map((a) => ({
-        userId: a.id,
-        type,
-        title: resolvedTitle,
-        message: resolvedMessage,
-        meta: metaValue,
-      })),
-    });
+    if (siteEnabled) {
+      await this.prisma.notification.createMany({
+        data: admins.map((a) => ({
+          userId: a.id,
+          type,
+          title: resolvedTitle,
+          message: resolvedMessage,
+          meta: metaValue,
+        })),
+      });
+      await Promise.all(
+        admins.map((a) =>
+          this.processPush(a.id, resolvedTitle ?? '', resolvedMessage ?? '', {
+            url: '/admin/notifications',
+          }).catch((e) => {
+            this.logger.warn(
+              `Push admin notification failed for ${a.id}: ${String((e as Error)?.message ?? e)}`,
+            );
+          }),
+        ),
+      );
+    }
 
-    this.processSmsForGodadmins(type, meta).catch((err) => {
-      this.logger.error('Failed to process admin SMS notification', err);
-    });
-    await Promise.all(
-      admins.map((a) =>
-        this.processPush(a.id, resolvedTitle ?? '', resolvedMessage ?? '', {
-          url: '/admin/notifications',
-        }).catch((e) => {
-          this.logger.warn(
-            `Push admin notification failed for ${a.id}: ${String((e as Error)?.message ?? e)}`,
-          );
-        }),
-      ),
-    );
+    if (smsEnabled) {
+      this.processSmsForGodadmins(type, meta).catch((err) => {
+        this.logger.error('Failed to process admin SMS notification', err);
+      });
+    }
+  }
+
+  private isSmsRuleActive(rule: SmsRule | null): boolean {
+    if (!rule || rule.smsEnabled !== true) return false;
+    const templateId = Number(rule.smsTemplateConfig?.templateId);
+    return Number.isFinite(templateId) && templateId > 0;
+  }
+
+  /** اعلان عمومی ادمین فقط با opt-in کاربر؛ رویدادهای عملیاتی مستقل از notifySms. */
+  private userAllowsTransactionalSms(
+    type: NotificationType,
+    notifySms: boolean | null | undefined,
+  ): boolean {
+    if (type === NotificationType.ADMIN_ANNOUNCEMENT) {
+      return notifySms === true;
+    }
+    return true;
   }
 
   private async processSmsForGodadmins(
@@ -130,7 +167,7 @@ export class NotificationService {
     meta?: Record<string, unknown>,
   ) {
     const rule = await this.getRuleForType(type);
-    if (rule && rule.smsEnabled === false) return;
+    if (!this.isSmsRuleActive(rule)) return;
 
     const godadmins = await this.prisma.user.findMany({
       where: { role: UserRole.GODADMIN },
@@ -173,14 +210,12 @@ export class NotificationService {
 
     const templateFirstName = String(subjectFirstName ?? 'کاربر');
 
-    if (rule?.smsTemplateConfig?.templateId) {
-      const templateId = Number(rule.smsTemplateConfig.templateId);
-      const configured = Array.isArray(rule.smsTemplateConfig.parameters)
-        ? rule.smsTemplateConfig.parameters
-        : [];
-      if (!templateId || !Number.isFinite(templateId)) return;
+    const templateId = Number(rule!.smsTemplateConfig!.templateId);
+    const configured = Array.isArray(rule!.smsTemplateConfig!.parameters)
+      ? rule!.smsTemplateConfig!.parameters
+      : [];
 
-      for (const ga of godadmins) {
+    for (const ga of godadmins) {
         if (!ga.phone) continue;
         const paramsWithRecipient = configured
           .map((p) => ({
@@ -211,24 +246,35 @@ export class NotificationService {
           );
         }
       }
-    }
   }
 
   private async processSms(
     userId: string,
     type: NotificationType,
     meta?: Record<string, unknown>,
+    rulePrefetched?: SmsRule | null,
   ) {
-    const rule = await this.getRuleForType(type);
-    if (rule && rule.smsEnabled === false) return;
+    const rule = rulePrefetched ?? (await this.getRuleForType(type));
+    if (!this.isSmsRuleActive(rule)) {
+      this.logger.debug(`SMS skipped for ${type}: rule disabled or no template`);
+      return;
+    }
 
-    // دریافت شماره موبایل کاربر
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { phone: true, firstName: true, lastName: true, notifySms: true },
     });
 
-    if (!user || !user.phone || user.notifySms === false) return;
+    if (!user?.phone) {
+      this.logger.debug(`SMS skipped for ${type}: user ${userId} has no phone`);
+      return;
+    }
+    if (!this.userAllowsTransactionalSms(type, user.notifySms)) {
+      this.logger.debug(
+        `SMS skipped for ${type}: user ${userId} opted out (notifySms)`,
+      );
+      return;
+    }
 
     // دریافت عنوان آگهی برای شخصی‌سازی پیامک
     let listingTitle = 'یک آگهی';
@@ -242,45 +288,23 @@ export class NotificationService {
       if (listing) listingTitle = listing.title;
     }
 
-    let templateId: number | undefined;
-    let parameters: { name: string; value: string }[] = [];
+    const templateId = Number(rule!.smsTemplateConfig!.templateId);
+    const configured = Array.isArray(rule!.smsTemplateConfig!.parameters)
+      ? rule!.smsTemplateConfig!.parameters
+      : [];
+    const parameters = configured
+      .map((p) => ({
+        name: String(p?.name ?? '').trim(),
+        value: applySmsTemplatePlaceholders(String(p?.value ?? ''), {
+          firstName: user.firstName,
+          lastName: user.lastName,
+          listingTitle,
+          meta: meta as Record<string, unknown> | undefined,
+        }),
+      }))
+      .filter((p) => p.name && p.value);
 
-    if (rule?.smsTemplateConfig?.templateId) {
-      templateId = Number(rule.smsTemplateConfig.templateId);
-      const configured = Array.isArray(rule.smsTemplateConfig.parameters)
-        ? rule.smsTemplateConfig.parameters
-        : [];
-      parameters = configured
-        .map((p) => ({
-          name: String(p?.name ?? '').trim(),
-          value: applySmsTemplatePlaceholders(String(p?.value ?? ''), {
-            firstName: user.firstName,
-            lastName: user.lastName,
-            listingTitle,
-            meta: meta as Record<string, unknown> | undefined,
-          }),
-        }))
-        .filter((p) => p.name && p.value);
-    } else {
-      switch (type) {
-        case NotificationType.AUCTION_WON:
-          templateId = 100001; // عدد واقعی قالب را از sms.ir اینجا بگذار
-          parameters = [{ name: 'ITEM', value: listingTitle }];
-          break;
-        case NotificationType.AUCTION_LOST:
-          templateId = 100002;
-          parameters = [{ name: 'ITEM', value: listingTitle }];
-          break;
-        case NotificationType.AUCTION_PENALIZED:
-          templateId = 100003;
-          parameters = [{ name: 'ITEM', value: listingTitle }];
-          break;
-        default:
-          return; // برای تایپ‌های دیگر پیامک نمی‌دهیم
-      }
-    }
-
-    if (!templateId || !Number.isFinite(templateId)) return;
+    if (!Number.isFinite(templateId) || templateId <= 0) return;
     try {
       await this.smsService.sendByTemplate(user.phone, templateId, parameters);
       this.logger.log(`پیامک ${type} برای شماره ${user.phone} ارسال شد.`);

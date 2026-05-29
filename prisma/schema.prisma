@@ -401,6 +401,8 @@ model Listing {
   featuredAt      DateTime?
 
   sellerRequiresVerification Boolean @default(false)
+  /** مهلت تست / گارانتی فروشنده به روز؛ null = بدون گارانتی */
+  testPeriodDays  Int?
   direct          ListingDirect?
   exchange        ListingExchange?
   auction         ListingAuction?

@@ -5,9 +5,9 @@ import {
 } from './ticket-message.util';
 
 describe('ticket-message.util', () => {
-  it('formatTicketMessageBody prefixes سلام؛ and separates paragraphs', () => {
+  it('formatTicketMessageBody joins paragraphs without greeting prefix', () => {
     const body = formatTicketMessageBody(['پاراگراف اول.', 'پاراگراف دوم.']);
-    expect(body).toBe('سلام؛\n\nپاراگراف اول.\n\nپاراگراف دوم.');
+    expect(body).toBe('پاراگراف اول.\n\nپاراگراف دوم.');
   });
 
   it('buildOrderTicketSubject includes headline and order tag', () => {
@@ -17,10 +17,8 @@ describe('ticket-message.util', () => {
     expect(subject).toContain('[ORDER:abc123def456]');
   });
 
-  it('normalizeTicketMessage upgrades legacy greeting', () => {
-    const body = normalizeTicketMessage('سلام،\nمتن پیام.');
-    expect(body.startsWith('سلام؛')).toBe(true);
-    expect(body).toContain('متن پیام.');
-    expect(body).not.toContain('سلام،');
+  it('normalizeTicketMessage preserves user text as typed', () => {
+    expect(normalizeTicketMessage('سلام،\nمتن پیام.')).toBe('سلام،\nمتن پیام.');
+    expect(normalizeTicketMessage('  متن  ')).toBe('متن');
   });
 });

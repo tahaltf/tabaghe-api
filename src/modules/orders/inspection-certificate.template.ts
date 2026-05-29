@@ -123,6 +123,11 @@ export function buildInspectionCertificateHtml(
     ? `<img class="cert-stamp" src="${stampDataUri}" alt="مهر"/>`
     : '';
 
+  const validityNoticeClass = stampDataUri
+    ? 'cert-validity-notice'
+    : 'cert-validity-notice cert-validity-notice--missing-stamp';
+  const validityNoticeHtml = `<p class="${validityNoticeClass}">توجه: گواهی کارشناسی بدون مهر و امضای معتبر مرکز پردازش طبقه فاقد اعتبار است.</p>`;
+
   const bodyHtml = certificateRichTextToHtml(body, context);
   const resultHtml = certificateRichTextToHtml(context.inspectionResult, context);
   const footerHtml = escapeHtml(footer)
@@ -395,6 +400,23 @@ export function buildInspectionCertificateHtml(
     color: ${p.primaryLight};
     font-weight: 500;
   }
+  .cert-validity-notice {
+    margin-top: 10px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1.5px solid ${p.accent};
+    background: ${p.surfaceLight};
+    font-size: 8.5pt;
+    font-weight: 700;
+    line-height: 1.65;
+    color: ${p.accent};
+    text-align: center;
+  }
+  .cert-validity-notice--missing-stamp {
+    border-color: #b45309;
+    background: #fffbeb;
+    color: #92400e;
+  }
 </style>
 </head>
 <body>
@@ -432,6 +454,8 @@ export function buildInspectionCertificateHtml(
     </section>
 
     <div class="cert-result"><strong class="title">نتیجه کارشناسی</strong><div class="result-text">${resultHtml}</div></div>
+
+    ${validityNoticeHtml}
   </div>
   <div class="cert-signature-fixed" aria-hidden="true">
     <footer class="cert-footer-fixed">${footerHtml}</footer>

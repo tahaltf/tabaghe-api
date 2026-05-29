@@ -7,7 +7,9 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Max,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import {
@@ -203,6 +205,20 @@ export class CreateListingDto {
   @Transform(toBoolean)
   @IsBoolean()
   sellerRequiresVerification?: boolean;
+
+  /** تعداد روز مهلت تست/گارانتی؛ خالی یا ۰ = بدون گارانتی */
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === null || value === undefined || value === '') return null;
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return Math.min(365, Math.floor(n));
+  })
+  @ValidateIf((o) => o.testPeriodDays != null)
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  testPeriodDays?: number | null;
 
   @IsOptional()
   @IsString()

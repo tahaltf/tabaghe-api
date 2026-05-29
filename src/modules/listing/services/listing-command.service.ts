@@ -69,6 +69,10 @@ export class ListingCommandService {
           exchangePayer: dto.exchangePayer ?? ExchangePayer.NONE,
           // فقط مقدار صریح true؛ هر چیز دیگر (undefined، "false"، 0، …) = false
           sellerRequiresVerification: dto.sellerRequiresVerification === true,
+          testPeriodDays:
+            dto.testPeriodDays != null && dto.testPeriodDays > 0
+              ? dto.testPeriodDays
+              : null,
           thumbnail: dto.thumbnail,
           gallery: dto.gallery ?? [],
           author: { connect: { id: userId } },
@@ -179,6 +183,12 @@ export class ListingCommandService {
           dto.sellerRequiresVerification === undefined
             ? listing.sellerRequiresVerification
             : dto.sellerRequiresVerification === true,
+        testPeriodDays:
+          dto.testPeriodDays !== undefined
+            ? dto.testPeriodDays != null && dto.testPeriodDays > 0
+              ? dto.testPeriodDays
+              : null
+            : listing.testPeriodDays,
         thumbnail: dto.thumbnail,
         gallery: dto.gallery,
         type: currentType,
