@@ -102,6 +102,20 @@ export class NotificationService {
     return { notification, dispatched: true };
   }
 
+  /** چند گیرنده — هر کدام از مسیر create (سایت + SMS + push) */
+  async notifyMany(
+    items: Array<{
+      userId: string;
+      type: NotificationType;
+      title: string;
+      message: string;
+      meta?: Record<string, unknown>;
+    }>,
+  ): Promise<void> {
+    if (!items.length) return;
+    await Promise.all(items.map((item) => this.create(item)));
+  }
+
   /**
    * نوتیفیکیشن داخل سایت برای همهٔ ادمین‌ها + ارسال پیامک فقط به کاربران GODADMIN
    * (طبق قالب و فعال‌سازی همان نوع در SMS_NOTIFICATION_RULES).
@@ -531,7 +545,12 @@ export class NotificationService {
     subscription: PushSubscriptionPayload,
   ) {
     const normalized = this.normalizePushSubscription(subscription);
-    return this.prisma.systemSetting.upsert({
+    if (!normalized.endpoint || !normalized.keys.p256dh || !normalized.keys.auth) {
+      this.logger.warn(`Invalid push subscription payload for user ${userId}`);
+      return { ok: false as const, reason: 'invalid_subscription' };
+    }
+    this.logger.log(`Push subscription saved for user ${userId}`);
+    await this.prisma.systemSetting.upsert({
       where: { key: `PUSH_SUB_${userId}` },
       update: {
         value: JSON.stringify(normalized),
@@ -543,6 +562,7 @@ export class NotificationService {
         description: 'Web push subscription',
       },
     });
+    return { ok: true as const };
   }
 
   /** ارسال یک push تست برای کاربر جاری (تنظیمات / دیباگ). */
@@ -649,7 +669,9 @@ export class NotificationService {
     const vapidSubject =
       process.env.WEB_PUSH_VAPID_SUBJECT || 'mailto:support@tabagheh.com';
     if (!vapidPublicKey || !vapidPrivateKey) {
-      this.logger.warn('WebPush skipped: WEB_PUSH_VAPID_* env vars are not set');
+      this.logger.error(
+        `WebPush skipped for user ${userId}: WEB_PUSH_VAPID_PUBLIC_KEY / WEB_PUSH_VAPID_PRIVATE_KEY not set on API`,
+      );
       return;
     }
 
