@@ -11,7 +11,7 @@ import { parseListingTypesEnabledFromMap } from '../common/system-settings/listi
 import { filterCategoriesVisibleOnSite, isCategoryVisibleOnSite } from '../common/category-visibility.util';
 import {
   buildPwaManifestDocument,
-  getPwaIconPublicUrl,
+  getFrontendAppOrigin,
   getUserAppLogoLightFilename,
   getUserAppLogoDarkFilename,
   isRasterImageFilename,
@@ -884,11 +884,10 @@ export class CommonService {
   }
 
   async getPushIconMeta(): Promise<{ url: string; raster: boolean }> {
-    const filename = await getUserAppLogoLightFilename(this.prisma);
-    const icon = await this.resolvePwaIconAsset();
+    const origin = getFrontendAppOrigin();
     return {
-      url: getPwaIconPublicUrl(),
-      raster: !!filename && isRasterImageFilename(filename) && !!icon,
+      url: `${origin}/pwa/icon-512.png`,
+      raster: true,
     };
   }
 }

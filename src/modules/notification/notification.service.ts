@@ -4,12 +4,7 @@ import { NotificationType, Prisma, UserRole } from '@prisma/client';
 import { SmsService } from '../sms/sms.service';
 import { applySmsTemplatePlaceholders } from '../../common/sms/sms-placeholders.util';
 import webpush from 'web-push';
-import {
-  getPwaIconPublicUrl,
-  getUserAppLogoLightFilename,
-  isRasterImageFilename,
-  resolveBrandLogoAbsolutePath,
-} from '../../common/pwa-brand-icon.util';
+import { getFrontendAppOrigin } from '../../common/pwa-brand-icon.util';
 
 type SmsRule = {
   siteNotificationEnabled?: boolean;
@@ -40,20 +35,31 @@ export class NotificationService {
     title: string;
     message: string;
     meta?: Record<string, unknown>;
+    /** فقط برای broadcast یک‌باره؛ در غیر این صورت از SMS_NOTIFICATION_RULES استفاده می‌شود */
+    smsOverride?: {
+      templateId: number;
+      parameters?: Array<{ name: string; value: string }>;
+    };
   }) {
-    const { userId, type, title, message, meta } = params;
+    const { userId, type, title, message, meta, smsOverride } = params;
     const rule = await this.getRuleForType(type);
     const siteEnabled = !(rule && rule.siteNotificationEnabled === false);
-    const smsEnabled = this.isSmsRuleActive(rule);
+    const smsFromRule = this.isSmsRuleActive(rule);
+    const smsFromOverride =
+      !!smsOverride?.templateId && Number(smsOverride.templateId) > 0;
 
-    if (!siteEnabled && !smsEnabled) {
+    if (!siteEnabled && !smsFromRule && !smsFromOverride) {
       return { notification: null, dispatched: false };
     }
 
     const resolvedTitle = title?.trim();
     const resolvedMessage = rule?.siteNotificationText?.trim() || message;
-    const metaValue =
-      meta === undefined ? undefined : (meta as Prisma.InputJsonValue);
+    const enrichedMeta: Record<string, unknown> = {
+      ...(meta ?? {}),
+      title: resolvedTitle,
+      message: resolvedMessage,
+    };
+    const metaValue = meta === undefined ? undefined : (enrichedMeta as Prisma.InputJsonValue);
 
     let notification: Awaited<
       ReturnType<typeof this.prisma.notification.create>
@@ -69,15 +75,25 @@ export class NotificationService {
           meta: metaValue,
         },
       });
-      this.processPush(userId, resolvedTitle, resolvedMessage, meta).catch(
-        (err) => {
-          this.logger.error('Failed to process push notification', err);
-        },
-      );
     }
 
-    if (smsEnabled) {
-      this.processSms(userId, type, meta, rule).catch((err) => {
+    this.processPush(
+      userId,
+      resolvedTitle ?? '',
+      resolvedMessage ?? '',
+      enrichedMeta,
+    ).catch((err) => {
+      this.logger.error('Failed to process push notification', err);
+    });
+
+    if (smsFromOverride && !smsFromRule) {
+      this.processSmsOverride(userId, smsOverride!, enrichedMeta).catch(
+        (err) => {
+          this.logger.error('Failed to process SMS override', err);
+        },
+      );
+    } else if (smsFromRule) {
+      this.processSms(userId, type, enrichedMeta, rule).catch((err) => {
         this.logger.error('Failed to process SMS notification', err);
       });
     }
@@ -125,11 +141,20 @@ export class NotificationService {
           meta: metaValue,
         })),
       });
+      const adminMeta = {
+        ...(meta ?? {}),
+        title: resolvedTitle,
+        message: resolvedMessage,
+        url: '/admin/notifications',
+      };
       await Promise.all(
         admins.map((a) =>
-          this.processPush(a.id, resolvedTitle ?? '', resolvedMessage ?? '', {
-            url: '/admin/notifications',
-          }).catch((e) => {
+          this.processPush(
+            a.id,
+            resolvedTitle ?? '',
+            resolvedMessage ?? '',
+            adminMeta,
+          ).catch((e) => {
             this.logger.warn(
               `Push admin notification failed for ${a.id}: ${String((e as Error)?.message ?? e)}`,
             );
@@ -149,17 +174,6 @@ export class NotificationService {
     if (!rule || rule.smsEnabled !== true) return false;
     const templateId = Number(rule.smsTemplateConfig?.templateId);
     return Number.isFinite(templateId) && templateId > 0;
-  }
-
-  /** اعلان عمومی ادمین فقط با opt-in کاربر؛ رویدادهای عملیاتی مستقل از notifySms. */
-  private userAllowsTransactionalSms(
-    type: NotificationType,
-    notifySms: boolean | null | undefined,
-  ): boolean {
-    if (type === NotificationType.ADMIN_ANNOUNCEMENT) {
-      return notifySms === true;
-    }
-    return true;
   }
 
   private async processSmsForGodadmins(
@@ -269,12 +283,6 @@ export class NotificationService {
       this.logger.debug(`SMS skipped for ${type}: user ${userId} has no phone`);
       return;
     }
-    if (!this.userAllowsTransactionalSms(type, user.notifySms)) {
-      this.logger.debug(
-        `SMS skipped for ${type}: user ${userId} opted out (notifySms)`,
-      );
-      return;
-    }
 
     // دریافت عنوان آگهی برای شخصی‌سازی پیامک
     let listingTitle = 'یک آگهی';
@@ -299,12 +307,24 @@ export class NotificationService {
           firstName: user.firstName,
           lastName: user.lastName,
           listingTitle,
+          title:
+            meta && typeof meta['title'] === 'string' ? meta['title'] : undefined,
+          message:
+            meta && typeof meta['message'] === 'string'
+              ? meta['message']
+              : undefined,
           meta: meta as Record<string, unknown> | undefined,
         }),
       }))
       .filter((p) => p.name && p.value);
 
     if (!Number.isFinite(templateId) || templateId <= 0) return;
+    if (parameters.length === 0) {
+      this.logger.warn(
+        `SMS skipped for ${type}: no template parameters after placeholder resolution`,
+      );
+      return;
+    }
     try {
       await this.smsService.sendByTemplate(user.phone, templateId, parameters);
       this.logger.log(`پیامک ${type} برای شماره ${user.phone} ارسال شد.`);
@@ -312,6 +332,54 @@ export class NotificationService {
       const err = error as { response?: { data?: unknown }; message?: string };
       this.logger.error(
         `خطا در ارسال پیامک به ${user.phone}:`,
+        err?.response?.data || err?.message,
+      );
+    }
+  }
+
+  private async processSmsOverride(
+    userId: string,
+    config: {
+      templateId: number;
+      parameters?: Array<{ name: string; value: string }>;
+    },
+    meta?: Record<string, unknown>,
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { phone: true, firstName: true, lastName: true },
+    });
+    if (!user?.phone) return;
+
+    const templateId = Number(config.templateId);
+    if (!Number.isFinite(templateId) || templateId <= 0) return;
+
+    const parameters = (config.parameters ?? [])
+      .map((p) => ({
+        name: String(p?.name ?? '').trim(),
+        value: applySmsTemplatePlaceholders(String(p?.value ?? ''), {
+          firstName: user.firstName,
+          lastName: user.lastName,
+          title:
+            meta && typeof meta['title'] === 'string' ? meta['title'] : undefined,
+          message:
+            meta && typeof meta['message'] === 'string'
+              ? meta['message']
+              : undefined,
+          meta,
+        }),
+      }))
+      .filter((p) => p.name && p.value);
+
+    if (parameters.length === 0) return;
+
+    try {
+      await this.smsService.sendByTemplate(user.phone, templateId, parameters);
+      this.logger.log(`پیامک سفارشی برای شماره ${user.phone} ارسال شد.`);
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: unknown }; message?: string };
+      this.logger.error(
+        `خطا در ارسال پیامک سفارشی به ${user.phone}:`,
         err?.response?.data || err?.message,
       );
     }
@@ -381,55 +449,44 @@ export class NotificationService {
       recipients = await this.prisma.user.findMany({ select: { id: true } });
     }
     if (recipients.length === 0) return { created: 0 };
-    await this.prisma.notification.createMany({
-      data: recipients.map((u) => ({
-        userId: u.id,
-        type: NotificationType.ADMIN_ANNOUNCEMENT,
-        title,
-        message,
-      })),
-    });
-    if (alsoSendSms && smsTemplateConfig?.templateId) {
-      const users = await this.prisma.user.findMany({
-        where: { id: { in: recipients.map((r) => r.id) } },
-        select: { phone: true, firstName: true, lastName: true },
-      });
+
+    const rule = await this.getRuleForType(NotificationType.ADMIN_ANNOUNCEMENT);
+    const smsFromRules = this.isSmsRuleActive(rule);
+    const smsOverride =
+      alsoSendSms &&
+      smsTemplateConfig?.templateId &&
+      !smsFromRules
+        ? smsTemplateConfig
+        : undefined;
+
+    const meta = {
+      title: title.trim(),
+      message: message.trim(),
+      url: '/dashboard/notifications',
+    };
+
+    const chunkSize = 40;
+    for (let i = 0; i < recipients.length; i += chunkSize) {
+      const chunk = recipients.slice(i, i + chunkSize);
       await Promise.all(
-        users.map((u) =>
-          this.smsService
-            .sendByTemplate(
-              u.phone,
-              Number(smsTemplateConfig.templateId),
-              (smsTemplateConfig.parameters ?? []).map((p) => ({
-                name: String(p?.name ?? ''),
-                value: applySmsTemplatePlaceholders(String(p?.value ?? ''), {
-                  firstName: u.firstName,
-                  lastName: u.lastName,
-                  title,
-                  message,
-                }),
-              })),
-            )
-            .catch((err) => {
-              this.logger.warn(
-                `SMS broadcast failed for ${u.phone}: ${String(err?.message ?? err)}`,
-              );
-            }),
+        chunk.map((r) =>
+          this.create({
+            userId: r.id,
+            type: NotificationType.ADMIN_ANNOUNCEMENT,
+            title,
+            message,
+            meta,
+            smsOverride,
+          }),
         ),
       );
     }
-    await Promise.all(
-      recipients.map((u) =>
-        this.processPush(u.id, title, message, {
-          url: '/dashboard/notifications',
-        }).catch((err) => {
-          this.logger.warn(
-            `Push broadcast failed for user ${u.id}: ${String(err?.message ?? err)}`,
-          );
-        }),
-      ),
-    );
-    return { created: recipients.length };
+
+    return {
+      created: recipients.length,
+      smsViaNotificationRules: smsFromRules,
+      smsViaBroadcastOverride: !!smsOverride,
+    };
   }
 
   private async getRuleForType(
@@ -596,7 +653,7 @@ export class NotificationService {
     }
 
     const url = this.resolvePushUrl(meta);
-    const iconMeta = await this.resolvePushIconMeta();
+    const iconMeta = this.resolvePushIconMeta();
     await this.sendWebPush(
       userId,
       subscription,
@@ -609,14 +666,12 @@ export class NotificationService {
     );
   }
 
-  private async resolvePushIconMeta(): Promise<{
-    icon?: string;
-    iconRaster: boolean;
-  }> {
-    const filename = await getUserAppLogoLightFilename(this.prisma);
-    const path = filename ? resolveBrandLogoAbsolutePath(filename) : null;
-    const raster = !!filename && isRasterImageFilename(filename) && !!path;
-    return raster ? { icon: getPwaIconPublicUrl(), iconRaster: true } : { iconRaster: false };
+  private resolvePushIconMeta(): { icon: string; iconRaster: boolean } {
+    const origin = getFrontendAppOrigin();
+    return {
+      icon: `${origin}/pwa/icon-512.png`,
+      iconRaster: true,
+    };
   }
 
   private async sendWebPush(
