@@ -29,6 +29,7 @@ import { OrdersStateMachineService } from './orders-state-machine.service';
 import { AppSettingsService } from '../../shared/settings/app-settings.service';
 import { PaymentsService } from '../payments/payments.service';
 import { NotificationService } from '../notification/notification.service';
+import { ExchangeOrderNotifyService } from '../notification/exchange-order-notify.service';
 import { OrderReputationService } from './order-reputation.service';
 import { ExchangeService } from '../exchange/exchange.service';
 import { QuotaService } from '../quota/quota.service';
@@ -91,6 +92,7 @@ export class OrdersService {
     private readonly stateMachine: OrdersStateMachineService,
     private readonly paymentsService: PaymentsService,
     private readonly notificationService: NotificationService,
+    private readonly exchangeOrderNotify: ExchangeOrderNotifyService,
     private readonly orderReputation: OrderReputationService,
     private readonly exchangeService: ExchangeService,
     private readonly quotaService: QuotaService,
@@ -699,7 +701,7 @@ export class OrdersService {
             const deadline = new Date(
               Date.now() + exchangeShipDeadlineMinutes * 60 * 1000,
             );
-            await tx.order.update({
+            const readyOrder = await tx.order.update({
               where: { id: updatedOrder.id },
               data: {
                 status: OrderStatus.AWAITING_SHIPMENT_TO_HUB,
@@ -715,6 +717,7 @@ export class OrdersService {
               listingId,
               finalExchangeId,
             );
+            return readyOrder;
           }
 
           return updatedOrder;
@@ -1310,6 +1313,8 @@ export class OrdersService {
       order.status !== OrderStatus.AWAITING_PAYMENT;
     if (shouldNotifyPurchase) {
       await this.notifyOrderPurchasedAndSold(order);
+    } else if (order.type === OrderType.EXCHANGE) {
+      await this.notifyExchangeCheckoutProgress(order.id, userId, paymentMethod);
     }
 
     return {
@@ -1436,10 +1441,16 @@ export class OrdersService {
       }
     }
 
-    return this.prisma.order.update({
+    const updated = await this.prisma.order.update({
       where: { id: orderId },
       data: updateData,
     });
+
+    if (order.type === OrderType.EXCHANGE) {
+      await this.exchangeOrderNotify.afterShipmentUpdated(updated, userId);
+    }
+
+    return updated;
   }
 
   async submitReturnTrackingCode(
@@ -4922,6 +4933,37 @@ export class OrdersService {
 
       await tx.order.delete({ where: { id: locked.id } });
     });
+  }
+
+  private async notifyExchangeCheckoutProgress(
+    orderId: string,
+    payerUserId: string,
+    paymentMethod: string,
+  ): Promise<void> {
+    const fresh = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        buyerId: true,
+        sellerId: true,
+        listingId: true,
+        status: true,
+        type: true,
+      },
+    });
+    if (!fresh || fresh.type !== OrderType.EXCHANGE) return;
+
+    if (fresh.status === OrderStatus.AWAITING_SHIPMENT_TO_HUB) {
+      await this.exchangeOrderNotify.notifyReadyToShip(fresh);
+      return;
+    }
+
+    if (
+      fresh.status === OrderStatus.AWAITING_PAYMENT &&
+      paymentMethod === 'WALLET'
+    ) {
+      await this.exchangeOrderNotify.notifyParticipantPaid(fresh, payerUserId);
+    }
   }
 
   private async notifyOrderPurchasedAndSold(order: {

@@ -22,6 +22,7 @@ import { AppSettingsService } from '../../shared/settings/app-settings.service';
 import { PaymentGateway } from './gateways/payment-gateway.interface';
 import { ZibalGateway } from './gateways/zibal.gateway';
 import { NotificationService } from '../notification/notification.service';
+import { ExchangeOrderNotifyService } from '../notification/exchange-order-notify.service';
 import { ExchangeService } from '../exchange/exchange.service';
 
 @Injectable()
@@ -34,6 +35,7 @@ export class PaymentsService {
     private readonly appSettings: AppSettingsService,
     private readonly zibalGateway: ZibalGateway,
     private readonly notificationService: NotificationService,
+    private readonly exchangeOrderNotify: ExchangeOrderNotifyService,
     private readonly exchangeService: ExchangeService,
   ) {}
 
@@ -669,12 +671,33 @@ export class PaymentsService {
       }
     });
 
-    await this.notifyOrderPurchasedAndSold({
-      id: order.id,
-      buyerId: order.buyerId,
-      sellerId: order.sellerId,
-      listingId: order.listingId,
+    const freshOrder = await this.prisma.order.findUnique({
+      where: { id: order.id },
+      select: {
+        id: true,
+        buyerId: true,
+        sellerId: true,
+        listingId: true,
+        status: true,
+        type: true,
+      },
     });
+
+    if (freshOrder?.type === OrderType.EXCHANGE) {
+      if (freshOrder.status === OrderStatus.AWAITING_SHIPMENT_TO_HUB) {
+        await this.exchangeOrderNotify.notifyReadyToShip(freshOrder);
+      } else if (
+        freshOrder.status === OrderStatus.AWAITING_PAYMENT &&
+        payerId
+      ) {
+        await this.exchangeOrderNotify.notifyParticipantPaid(
+          freshOrder,
+          String(payerId).trim(),
+        );
+      }
+    } else if (freshOrder) {
+      await this.notifyOrderPurchasedAndSold(freshOrder);
+    }
 
     return {
       result: 'PAID',

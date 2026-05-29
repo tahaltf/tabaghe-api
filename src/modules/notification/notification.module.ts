@@ -6,6 +6,7 @@ import { NotificationListener } from './notification.listener';
 import { NotificationController } from './notification.controller'; // 👈 اضافه شد
 import { ConfigModule } from '@nestjs/config'; // 👈 اضافه شد برای کلید پیامک
 import { SmsService } from '../sms/sms.service';
+import { ExchangeOrderNotifyService } from './exchange-order-notify.service';
 
 @Module({
   imports: [ConfigModule],
@@ -16,7 +17,8 @@ import { SmsService } from '../sms/sms.service';
     NotificationService,
     DeadlineReminderService,
     NotificationListener,
+    ExchangeOrderNotifyService,
   ],
-  exports: [NotificationService],
+  exports: [NotificationService, ExchangeOrderNotifyService],
 })
 export class NotificationModule {}
