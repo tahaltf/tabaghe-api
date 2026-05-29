@@ -5,6 +5,7 @@ import { SmsService } from '../sms/sms.service';
 import { applySmsTemplatePlaceholders } from '../../common/sms/sms-placeholders.util';
 import webpush from 'web-push';
 import { getFrontendAppOrigin } from '../../common/pwa-brand-icon.util';
+import { isVapidConfigured, resolveVapidKeys } from '../../common/push/vapid-keys.util';
 
 type SmsRule = {
   siteNotificationEnabled?: boolean;
@@ -565,6 +566,32 @@ export class NotificationService {
     return { ok: true as const };
   }
 
+  /** وضعیت push برای UI (تنظیمات / صفحه اطلاعیه‌ها). */
+  async getPushStatus(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { notifyPush: true },
+    });
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { key: `PUSH_SUB_${userId}` },
+      select: { value: true },
+    });
+    let hasSubscription = false;
+    if (setting?.value) {
+      try {
+        const sub = JSON.parse(setting.value) as PushSubscriptionPayload;
+        hasSubscription = !!sub?.endpoint && !!sub?.keys?.p256dh;
+      } catch {
+        hasSubscription = false;
+      }
+    }
+    return {
+      notifyPush: user?.notifyPush ?? true,
+      hasSubscription,
+      vapidConfigured: isVapidConfigured(),
+    };
+  }
+
   /** ارسال یک push تست برای کاربر جاری (تنظیمات / دیباگ). */
   async sendPushTest(userId: string): Promise<{ sent: boolean; reason?: string }> {
     const user = await this.prisma.user.findUnique({
@@ -574,6 +601,9 @@ export class NotificationService {
     if (!user?.notifyPush) {
       return { sent: false, reason: 'notify_push_disabled' };
     }
+    if (!isVapidConfigured()) {
+      return { sent: false, reason: 'vapid_not_configured' };
+    }
     const setting = await this.prisma.systemSetting.findUnique({
       where: { key: `PUSH_SUB_${userId}` },
       select: { value: true },
@@ -581,12 +611,15 @@ export class NotificationService {
     if (!setting?.value) {
       return { sent: false, reason: 'no_subscription' };
     }
-    await this.processPush(
+    const result = await this.processPush(
       userId,
       'تست اعلان طبقه',
       'اگر این پیام را روی صفحهٔ قفل یا نوار اعلان می‌بینید، push درست کار می‌کند.',
       { url: '/dashboard/notifications' },
     );
+    if (!result.ok) {
+      return { sent: false, reason: result.reason ?? 'send_failed' };
+    }
     return { sent: true };
   }
 
@@ -642,50 +675,42 @@ export class NotificationService {
     title: string,
     message: string,
     meta?: Record<string, unknown>,
-  ) {
+  ): Promise<{ ok: boolean; reason?: string }> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { notifyPush: true },
     });
-    if (!user?.notifyPush) return;
+    if (!user?.notifyPush) return { ok: false, reason: 'notify_push_disabled' };
 
     const setting = await this.prisma.systemSetting.findUnique({
       where: { key: `PUSH_SUB_${userId}` },
       select: { value: true },
     });
-    if (!setting?.value) return;
+    if (!setting?.value) return { ok: false, reason: 'no_subscription' };
     let subscription: PushSubscriptionPayload | null = null;
     try {
       subscription = JSON.parse(setting.value) as PushSubscriptionPayload;
     } catch {
       subscription = null;
     }
-    if (!subscription?.endpoint) return;
+    if (!subscription?.endpoint) return { ok: false, reason: 'no_subscription' };
     subscription = this.normalizePushSubscription(subscription);
-    const vapidPublicKey = process.env.WEB_PUSH_VAPID_PUBLIC_KEY || '';
-    const vapidPrivateKey = (
-      process.env.WEB_PUSH_VAPID_PRIVATE_KEY || ''
-    ).replace(/\\n/g, '\n');
-    const vapidSubject =
-      process.env.WEB_PUSH_VAPID_SUBJECT || 'mailto:support@tabagheh.com';
-    if (!vapidPublicKey || !vapidPrivateKey) {
+
+    const vapid = resolveVapidKeys();
+    if (!vapid) {
       this.logger.error(
-        `WebPush skipped for user ${userId}: WEB_PUSH_VAPID_PUBLIC_KEY / WEB_PUSH_VAPID_PRIVATE_KEY not set on API`,
+        `WebPush skipped for user ${userId}: invalid or missing WEB_PUSH_VAPID_* on API`,
       );
-      return;
+      return { ok: false, reason: 'vapid_not_configured' };
     }
 
     const url = this.resolvePushUrl(meta);
     const iconMeta = this.resolvePushIconMeta();
-    await this.sendWebPush(
+    return this.sendWebPush(
       userId,
       subscription,
       { title, message, url, icon: iconMeta.icon, iconRaster: iconMeta.iconRaster },
-      {
-        publicKey: vapidPublicKey,
-        privateKey: vapidPrivateKey,
-        subject: vapidSubject,
-      },
+      vapid,
     );
   }
 
@@ -708,7 +733,7 @@ export class NotificationService {
       iconRaster: boolean;
     },
     vapid: { publicKey: string; privateKey: string; subject: string },
-  ) {
+  ): Promise<{ ok: boolean; reason?: string }> {
     const pushBody = JSON.stringify({
       title: payload.title,
       message: payload.message,
@@ -728,14 +753,17 @@ export class NotificationService {
         { TTL: 86_400, urgency: 'high' as any },
       );
       this.logger.log(`WebPush sent to user ${userId}`);
+      return { ok: true };
     } catch (err: any) {
       const status = Number(err?.statusCode ?? 0);
       if (status === 404 || status === 410) {
         await this.removePushSubscription(userId);
       }
+      const reason = status ? `push_http_${status}` : 'push_send_failed';
       this.logger.warn(
-        `WebPush request failed (${status || 'n/a'}): ${String(err?.message ?? err)}`,
+        `WebPush request failed (${status || 'n/a'}) user=${userId}: ${String(err?.message ?? err)}`,
       );
+      return { ok: false, reason };
     }
   }
 }
