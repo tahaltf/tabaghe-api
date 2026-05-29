@@ -13,6 +13,7 @@ import {
   buildPwaManifestDocument,
   getPwaIconPublicUrl,
   getUserAppLogoLightFilename,
+  getUserAppLogoDarkFilename,
   isRasterImageFilename,
   mimeForBrandFilename,
   resolveBrandLogoAbsolutePath,
@@ -863,12 +864,19 @@ export class CommonService {
   }
 
   async buildPwaManifest(): Promise<Record<string, unknown>> {
-    const icon = await this.resolvePwaIconAsset();
-    return buildPwaManifestDocument(!!icon);
+    return buildPwaManifestDocument(true);
   }
 
   async resolvePwaIconAsset(): Promise<{ path: string; mime: string } | null> {
     const filename = await getUserAppLogoLightFilename(this.prisma);
+    if (!filename) return null;
+    const path = resolveBrandLogoAbsolutePath(filename);
+    if (!path) return null;
+    return { path, mime: mimeForBrandFilename(filename) };
+  }
+
+  async resolveFaviconAsset(): Promise<{ path: string; mime: string } | null> {
+    const filename = await getUserAppLogoDarkFilename(this.prisma);
     if (!filename) return null;
     const path = resolveBrandLogoAbsolutePath(filename);
     if (!path) return null;

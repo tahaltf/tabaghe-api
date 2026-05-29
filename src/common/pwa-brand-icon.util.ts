@@ -38,6 +38,25 @@ export async function getUserAppLogoLightFilename(
   return name || null;
 }
 
+/** لوگوی تم تاریک (معمولاً سفید / بدون پس‌زمینه) — برای favicon تب مرورگر */
+export async function getUserAppLogoDarkFilename(
+  prisma: PrismaService,
+): Promise<string | null> {
+  const rows = await prisma.systemSetting.findMany({
+    where: {
+      key: { in: ['USER_APP_LOGO_DARK', 'USER_APP_LOGO_LIGHT', 'USER_APP_LOGO'] },
+    },
+    select: { key: true, value: true },
+  });
+  const map = Object.fromEntries(rows.map((r) => [r.key, r.value?.trim() ?? '']));
+  const name =
+    map['USER_APP_LOGO_DARK'] ||
+    map['USER_APP_LOGO_LIGHT'] ||
+    map['USER_APP_LOGO'] ||
+    '';
+  return name || null;
+}
+
 export function resolveBrandLogoAbsolutePath(filename: string): string | null {
   const safe = filename.split(/[\\/]/).pop();
   if (!safe) return null;
@@ -46,44 +65,34 @@ export function resolveBrandLogoAbsolutePath(filename: string): string | null {
   return fullPath;
 }
 
-export function buildPwaManifestDocument(iconAvailable: boolean) {
+export function buildPwaManifestDocument(_iconAvailable = true) {
   const origin = getFrontendAppOrigin();
-  const iconUrl = `${origin}/pwa/icon`;
-  const icons = iconAvailable
-    ? [
-        {
-          src: iconUrl,
-          sizes: '512x512',
-          type: 'image/png',
-          purpose: 'any',
-        },
-        {
-          src: iconUrl,
-          sizes: '192x192',
-          type: 'image/png',
-          purpose: 'any',
-        },
-        {
-          src: iconUrl,
-          sizes: '512x512',
-          type: 'image/png',
-          purpose: 'maskable',
-        },
-      ]
-    : [
-        {
-          src: `${origin}/icon-192.svg`,
-          sizes: '192x192',
-          type: 'image/svg+xml',
-          purpose: 'any',
-        },
-        {
-          src: `${origin}/icon-512.svg`,
-          sizes: '512x512',
-          type: 'image/svg+xml',
-          purpose: 'any',
-        },
-      ];
+  const icons = [
+    {
+      src: `${origin}/pwa/apple-touch-icon.png`,
+      sizes: '180x180',
+      type: 'image/png',
+      purpose: 'any',
+    },
+    {
+      src: `${origin}/pwa/icon-192.png`,
+      sizes: '192x192',
+      type: 'image/png',
+      purpose: 'any',
+    },
+    {
+      src: `${origin}/pwa/icon-512.png`,
+      sizes: '512x512',
+      type: 'image/png',
+      purpose: 'any',
+    },
+    {
+      src: `${origin}/pwa/icon-512.png`,
+      sizes: '512x512',
+      type: 'image/png',
+      purpose: 'maskable',
+    },
+  ];
 
   return {
     name: 'Tabagheh',

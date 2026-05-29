@@ -239,6 +239,12 @@ async function bootstrap() {
       { path: 'sitemap.xml', method: RequestMethod.GET },
       { path: 'robots.txt', method: RequestMethod.GET },
       { path: 'manifest.webmanifest', method: RequestMethod.GET },
+      { path: 'pwa/apple-touch-icon.png', method: RequestMethod.GET },
+      { path: 'pwa/icon-192.png', method: RequestMethod.GET },
+      { path: 'pwa/icon-512.png', method: RequestMethod.GET },
+      { path: 'pwa/icon', method: RequestMethod.GET },
+      { path: 'pwa/favicon.png', method: RequestMethod.GET },
+      { path: 'favicon.ico', method: RequestMethod.GET },
     ],
   });
   app.enableVersioning({

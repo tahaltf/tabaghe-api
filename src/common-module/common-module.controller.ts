@@ -6,16 +6,19 @@ import {
   Param,
   Post,
   Req,
-  StreamableFile,
+  Res,
 } from '@nestjs/common';
-import type { Request } from 'express';
-import { createReadStream } from 'fs';
+import type { Request, Response } from 'express';
 import { CommonService } from './common-module.service';
+import { PwaIconService } from './pwa-icon.service';
 import { buildClientNetworkHint } from './client-network-hint.util';
 
 @Controller('common')
 export class CommonController {
-  constructor(private readonly commonService: CommonService) {}
+  constructor(
+    private readonly commonService: CommonService,
+    private readonly pwaIconService: PwaIconService,
+  ) {}
 
   /**
    * کشور اتصال از هدرهای لبه (مثل Cloudflare) — بدون سرویس Geo خارجی.
@@ -85,17 +88,13 @@ export class CommonController {
     return this.commonService.getPublicSiteSettings();
   }
 
-  /** آیکن PWA / apple-touch-icon — لوگوی تم روشن ادمین */
+  /** آیکن PWA — PNG رستری از لوگوی تم روشن (مناسب iOS) */
   @Get('pwa-icon')
-  async pwaIcon(): Promise<StreamableFile> {
-    const asset = await this.commonService.resolvePwaIconAsset();
-    if (!asset) {
-      throw new NotFoundException('آیکن PWA یافت نشد');
-    }
-    return new StreamableFile(createReadStream(asset.path), {
-      type: asset.mime,
-      disposition: 'inline',
-    });
+  async pwaIcon(@Res() res: Response): Promise<void> {
+    const buf = await this.pwaIconService.getPngBuffer(512);
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(buf);
   }
 
   @Get('terms')
