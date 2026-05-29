@@ -48,10 +48,6 @@ export class NotificationService {
     const smsFromOverride =
       !!smsOverride?.templateId && Number(smsOverride.templateId) > 0;
 
-    if (!siteEnabled && !smsFromRule && !smsFromOverride) {
-      return { notification: null, dispatched: false };
-    }
-
     const resolvedTitle = title?.trim();
     const resolvedMessage = rule?.siteNotificationText?.trim() || message;
     const enrichedMeta: Record<string, unknown> = {
@@ -60,6 +56,20 @@ export class NotificationService {
       message: resolvedMessage,
     };
     const metaValue = meta === undefined ? undefined : (enrichedMeta as Prisma.InputJsonValue);
+
+    // Push مستقل از فعال بودن نوتیف سایت/SMS است (فقط notifyPush کاربر + اشتراک مرورگر)
+    this.processPush(
+      userId,
+      resolvedTitle ?? '',
+      resolvedMessage ?? '',
+      enrichedMeta,
+    ).catch((err) => {
+      this.logger.error('Failed to process push notification', err);
+    });
+
+    if (!siteEnabled && !smsFromRule && !smsFromOverride) {
+      return { notification: null, dispatched: true };
+    }
 
     let notification: Awaited<
       ReturnType<typeof this.prisma.notification.create>
@@ -76,15 +86,6 @@ export class NotificationService {
         },
       });
     }
-
-    this.processPush(
-      userId,
-      resolvedTitle ?? '',
-      resolvedMessage ?? '',
-      enrichedMeta,
-    ).catch((err) => {
-      this.logger.error('Failed to process push notification', err);
-    });
 
     if (smsFromOverride && !smsFromRule) {
       this.processSmsOverride(userId, smsOverride!, enrichedMeta).catch(

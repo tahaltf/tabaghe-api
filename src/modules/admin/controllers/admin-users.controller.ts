@@ -60,6 +60,15 @@ export class AdminUsersQueryController {
     return this.service.activities(actor, id, limit);
   }
 
+  @Get(':id/rating-history')
+  ratingHistory(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Param('id') id: string,
+    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit: number,
+  ) {
+    return this.service.ratingHistory(actor, id, limit);
+  }
+
   @Patch(':id/toggle-role')
   toggleRole(@CurrentUser() actor: AuthenticatedUser, @Param('id') id: string) {
     return this.service.toggleRole(actor, id);

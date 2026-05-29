@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { OrderStatus, Prisma } from '@prisma/client';
+import { UserRatingHistoryService } from '../users/user-rating-history.service';
 
 /** موفقیت معامله: به هر طرف */
 export const TRADE_REPUTATION_SUCCESS_DELTA = 0.5;
@@ -16,6 +17,10 @@ export type OrderReputationSnapshot = {
 
 @Injectable()
 export class OrderReputationService {
+  constructor(
+    private readonly userRatingHistory: UserRatingHistoryService,
+  ) {}
+
   /**
    * بعد از اینکه وضعیت سفارش در DB به COMPLETED یا CANCELLED تغییر کرد، فراخوانی شود.
    * `order` اسنپ‌شات قبل از آن تراکنش (tradeReputationAt هنوز null است مگر اینکه قبلاً ثبت شده باشد).
@@ -35,6 +40,11 @@ export class OrderReputationService {
         [order.buyerId, order.sellerId],
         TRADE_REPUTATION_SUCCESS_DELTA,
         'cap',
+        {
+          orderId: order.id,
+          reason: 'تکمیل موفق معامله',
+          source: 'order_success',
+        },
       );
     } else {
       if (
@@ -52,6 +62,11 @@ export class OrderReputationService {
           targets,
           -TRADE_REPUTATION_PENALTY_DELTA,
           'floor',
+          {
+            orderId: order.id,
+            reason: 'شکست یا لغو معامله',
+            source: 'order_failure',
+          },
         );
       }
     }
@@ -73,9 +88,10 @@ export class OrderReputationService {
     tx: Prisma.TransactionClient,
     userIds: string[],
     delta = -TRADE_REPUTATION_PENALTY_DELTA,
+    context?: { orderId?: string; reason?: string; source?: string },
   ): Promise<void> {
     if (!userIds.length) return;
-    await this.bumpUsers(tx, userIds, delta, 'floor');
+    await this.bumpUsers(tx, userIds, delta, 'floor', context);
   }
 
   private async bumpUsers(
@@ -83,6 +99,7 @@ export class OrderReputationService {
     userIds: string[],
     delta: number,
     mode: 'cap' | 'floor',
+    context?: { orderId?: string; listingId?: string; reason?: string; source?: string },
   ): Promise<void> {
     const unique = [...new Set(userIds)];
     for (const userId of unique) {
@@ -101,6 +118,19 @@ export class OrderReputationService {
       await tx.user.update({
         where: { id: userId },
         data: { rating: next },
+      });
+      await this.userRatingHistory.record(tx, {
+        userId,
+        previous: current,
+        next,
+        reason:
+          context?.reason ??
+          (delta > 0
+            ? 'افزایش امتیاز اعتماد پس از تکمیل موفق معامله'
+            : 'کاهش امتیاز اعتماد پس از شکست یا لغو معامله'),
+        source: context?.source ?? 'order_reputation',
+        orderId: context?.orderId,
+        listingId: context?.listingId,
       });
     }
   }

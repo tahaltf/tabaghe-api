@@ -61,6 +61,7 @@ import { AdminSystemJobsService } from './services/admin-system-jobs.service';
 import { OrdersModule } from '../orders/orders.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { ListingModule } from '../listing/listing.module';
+import { UserRatingHistoryService } from '../users/user-rating-history.service';
 
 @Module({
   imports: [
@@ -126,6 +127,7 @@ import { ListingModule } from '../listing/listing.module';
     AdminBackupScheduler,
     AdminSystemJobsService,
     SmsService,
+    UserRatingHistoryService,
   ],
 })
 export class AdminModule {}

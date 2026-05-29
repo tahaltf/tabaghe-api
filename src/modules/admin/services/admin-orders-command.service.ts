@@ -1925,6 +1925,12 @@ export class AdminOrdersCommandService {
           source: 'hub-inspection',
           orderId: id,
         });
+      } else if (offerFailed && !listingFailed) {
+        // کالای آگهی تایید شده؛ آگهی نباید «فروخته‌شده» بماند تا فروشنده بتواند دوباره منتشر کند.
+        await tx.listing.update({
+          where: { id: existing.listing.id },
+          data: { status: ListingStatus.APPROVED },
+        });
       }
 
       const sellerTicketMessage =

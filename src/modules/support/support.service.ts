@@ -105,7 +105,7 @@ export class SupportService {
     });
     await this.prisma.ticket.update({
       where: { id: ticketId },
-      data: { status: 'OPEN' },
+      data: { status: 'OPEN', lastMessageAt: new Date() },
     });
 
     void this.notification

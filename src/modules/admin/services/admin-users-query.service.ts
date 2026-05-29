@@ -14,6 +14,7 @@ import {
 } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { UserRatingHistoryService } from '../../users/user-rating-history.service';
 import {
   buildPaginationMeta,
   PaginatedResult,
@@ -96,7 +97,10 @@ const ADMIN_DEFAULT_PASSWORD = '@Ab123456789@';
 
 @Injectable()
 export class AdminUsersQueryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly userRatingHistory: UserRatingHistoryService,
+  ) {}
 
   async list(
     actor: AuthenticatedUser,
@@ -525,11 +529,42 @@ export class AdminUsersQueryService {
     if (!user) throw new NotFoundException('کاربر یافت نشد');
     this.assertCanManageTarget(actor, user.role);
 
-    return this.prisma.user.update({
+    const current = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { rating: true },
+    });
+    if (!current) throw new NotFoundException('کاربر یافت نشد');
+
+    const updated = await this.prisma.user.update({
       where: { id: userId },
       data: { rating },
       select: { id: true, rating: true },
     });
+
+    await this.userRatingHistory.record(this.prisma, {
+      userId,
+      previous: Number(current.rating ?? 5),
+      next: rating,
+      reason: 'تغییر دستی امتیاز توسط ادمین',
+      source: 'admin_manual',
+      actorId: actor.id,
+    });
+
+    return updated;
+  }
+
+  async ratingHistory(
+    actor: AuthenticatedUser,
+    userId: string,
+    limit = 50,
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true },
+    });
+    if (!user) throw new NotFoundException('کاربر یافت نشد');
+    this.assertCanManageTarget(actor, user.role);
+    return this.userRatingHistory.listForUser(userId, limit);
   }
 
   async createUser(

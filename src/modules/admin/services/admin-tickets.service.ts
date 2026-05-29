@@ -68,11 +68,15 @@ export class AdminTicketsService {
       ];
     }
 
+    const sortField =
+      query.sortBy === 'createdAt' ? 'createdAt' : 'lastMessageAt';
+    const sortDir = query.sortDir === 'asc' ? 'asc' : 'desc';
+
     const [items, total] = await Promise.all([
       this.prisma.ticket.findMany({
         where,
         include: TICKET_INCLUDE,
-        orderBy: { createdAt: 'desc' },
+        orderBy: { [sortField]: sortDir },
         skip,
         take: pageSize,
       }),
@@ -140,6 +144,7 @@ export class AdminTicketsService {
     if (ticket.status === TicketStatus.CLOSED) {
       throw new BadRequestException('این تیکت بسته شده است');
     }
+    const now = new Date();
     await this.prisma.$transaction([
       this.prisma.ticketMessage.create({
         data: {
@@ -150,7 +155,7 @@ export class AdminTicketsService {
       }),
       this.prisma.ticket.update({
         where: { id },
-        data: { status: TicketStatus.ANSWERED },
+        data: { status: TicketStatus.ANSWERED, lastMessageAt: now },
       }),
     ]);
 

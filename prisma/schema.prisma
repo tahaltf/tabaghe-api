@@ -286,9 +286,27 @@ model User {
 
   repairRequests      RepairRequest[]
   tickets             Ticket[]
+  ratingHistory       UserRatingHistory[]
 
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
+}
+
+model UserRatingHistory {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  previous  Float
+  next      Float
+  delta     Float
+  reason    String
+  source    String
+  orderId   String?
+  listingId String?
+  actorId   String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
 }
 
 model Address {
@@ -689,9 +707,11 @@ model Ticket {
   status          TicketStatus    @default(OPEN)
   messages        TicketMessage[]
   createdAt       DateTime        @default(now())
+  lastMessageAt   DateTime        @default(now())
 
   @@index([userId])
   @@index([repairRequestId])
+  @@index([lastMessageAt])
 }
 
 model TicketMessage {

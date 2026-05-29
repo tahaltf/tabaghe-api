@@ -6,6 +6,7 @@ import { NotificationModule } from '../notification/notification.module';
 import { ExchangeModule } from '../exchange/exchange.module';
 import { QuotaModule } from '../quota/quota.module';
 import { ListingModule } from '../listing/listing.module';
+import { UserRatingHistoryService } from '../users/user-rating-history.service';
 
 import { OrdersAdminController } from './orders-admin.controller';
 import { OrdersController } from './orders.controller';
@@ -36,6 +37,7 @@ import { InspectionCertificateService } from './inspection-certificate.service';
     OrdersAdminService,
     OrderReputationService,
     InspectionCertificateService,
+    UserRatingHistoryService,
   ],
   exports: [OrderReputationService, OrdersService],
 })

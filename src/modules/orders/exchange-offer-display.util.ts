@@ -31,6 +31,15 @@ function resolveCancelledExchangeCancelKind(
 ): ExchangeCancelKind {
   if (paymentTimeoutFromInspection(ex, cancelReason)) return 'PAYMENT_TIMEOUT';
   if (ex['singleSideNoShipmentTimeout']) return 'NO_SHIPMENT_TIMEOUT';
+  if (ex['resolution'] === 'RETURN_BOTH_TO_SENDERS') return 'HUB_REJECT';
+  const reason = String(cancelReason ?? '').trim();
+  if (
+    reason.includes('کارشناسی') ||
+    reason.includes('رد کارشناسی') ||
+    reason.includes('مرجوع')
+  ) {
+    return 'HUB_REJECT';
+  }
   return 'BOTH_NO_SHIPMENT';
 }
 
