@@ -612,7 +612,11 @@ export class NotificationService {
   }
 
   /** ارسال یک push تست برای کاربر جاری (تنظیمات / دیباگ). */
-  async sendPushTest(userId: string): Promise<{ sent: boolean; reason?: string }> {
+  async sendPushTest(userId: string): Promise<{
+    sent: boolean;
+    reason?: string;
+    detail?: string;
+  }> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { notifyPush: true },
