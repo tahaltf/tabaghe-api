@@ -61,6 +61,7 @@ export const SETTING_KEYS = {
   MANUAL_CARD_TRANSFER_MAX: 'MANUAL_CARD_TRANSFER_MAX',
   TERMS_CONDITIONS: 'TERMS_CONDITIONS',
   ABOUT_US: 'ABOUT_US',
+  FOOTER_TAGLINE: 'FOOTER_TAGLINE',
   REPAIR_ALLOWED_CATEGORY_IDS: 'REPAIR_ALLOWED_CATEGORY_IDS',
   PLATFORM_LATITUDE: 'PLATFORM_LATITUDE',
   PLATFORM_LONGITUDE: 'PLATFORM_LONGITUDE',
@@ -171,6 +172,7 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   MANUAL_CARD_TRANSFER_MAX: 'حداکثر مبلغ مجاز کارت‌به‌کارت (تومان)',
   TERMS_CONDITIONS: 'متن قوانین و مقررات (نمایش به کاربران)',
   ABOUT_US: 'متن صفحه درباره ما',
+  FOOTER_TAGLINE: 'معرفی کوتاه فوتر سایت (۱–۲ جمله)',
   REPAIR_ALLOWED_CATEGORY_IDS:
     'لیست دسته‌بندی‌های مجاز برای ثبت تعمیرات (JSON)',
   PLATFORM_LATITUDE: 'مختصات جغرافیایی عرض (Latitude) مرکز طبقه',

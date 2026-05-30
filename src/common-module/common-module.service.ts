@@ -25,6 +25,7 @@ import {
 import {
   DEFAULT_ABOUT_US_FA,
   DEFAULT_FAQ_ITEMS,
+  DEFAULT_FOOTER_TAGLINE_FA,
   DEFAULT_SYSTEM_INTRO_FA,
   DEFAULT_TERMS_CONDITIONS_FA,
 } from '../common/content';
@@ -543,6 +544,7 @@ export class CommonService {
       'PWA_APP_SHORT_NAME',
       'PWA_APP_ICON',
       'PWA_APP_FAVICON',
+      'FOOTER_TAGLINE',
     ];
 
     const rows = await this.prisma.systemSetting.findMany({
@@ -694,6 +696,8 @@ export class CommonService {
         : 10000000,
       buyerConfirmDeadlineMinutes,
       footerSocialLinks,
+      footerTagline:
+        map.FOOTER_TAGLINE?.trim() || DEFAULT_FOOTER_TAGLINE_FA,
       listingTypesEnabled: parseListingTypesEnabledFromMap(map),
     };
   }
