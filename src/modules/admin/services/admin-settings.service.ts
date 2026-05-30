@@ -14,6 +14,7 @@ import { BANNER_UPLOAD_PATH } from '../../../common/upload/banner-upload.config'
 import { BRAND_LOGO_UPLOAD_PATH } from '../../../common/upload/brand-logo-upload.config';
 import { INSPECTION_CERTIFICATE_ASSET_UPLOAD_PATH } from '../../../common/upload/inspection-certificate-asset-upload.config';
 import { LISTING_TYPE_ENABLED_SETTING_KEYS } from '../../../common/system-settings/listing-type-enabled';
+import { PwaIconService } from '../../../common-module/pwa-icon.service';
 
 export const SETTING_KEYS = {
   HOMEPAGE_BANNER: 'HOMEPAGE_BANNER',
@@ -209,9 +210,18 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
     'قالب تیکت معاوضه (رد کالای طرف مقابل). متغیرها: {{orderShortId}}, {{listingTitle}}, {{refundAmount}}, {{penaltyDelta}}, {{ownNote}}',
 };
 
+const USER_PWA_LOGO_KEYS = new Set<string>([
+  SETTING_KEYS.USER_APP_LOGO,
+  SETTING_KEYS.USER_APP_LOGO_LIGHT,
+  SETTING_KEYS.USER_APP_LOGO_DARK,
+]);
+
 @Injectable()
 export class AdminSettingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly pwaIconService: PwaIconService,
+  ) {}
 
   list() {
     return this.prisma.systemSetting.findMany({ orderBy: { key: 'asc' } });
@@ -519,11 +529,13 @@ export class AdminSettingsService {
       this.deleteBrandLogoFile(previous.value);
     }
 
-    return this.upsert({
+    const result = await this.upsert({
       key,
       value: filename,
       description: KNOWN_DESCRIPTIONS[key],
     });
+    this.invalidatePwaIconsIfUserLogo(key);
+    return result;
   }
 
   private async clearBrandLogoByKey(key: string) {
@@ -541,7 +553,13 @@ export class AdminSettingsService {
         description: KNOWN_DESCRIPTIONS[key] ?? null,
       },
     });
+    this.invalidatePwaIconsIfUserLogo(key);
     return { ok: true };
+  }
+
+  private invalidatePwaIconsIfUserLogo(key: string): void {
+    if (!USER_PWA_LOGO_KEYS.has(key)) return;
+    this.pwaIconService.clearCache();
   }
 
   private deleteInspectionCertAssetFile(filename: string) {

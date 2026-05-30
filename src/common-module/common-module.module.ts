@@ -9,5 +9,6 @@ import { PwaIconService } from './pwa-icon.service';
   imports: [NotificationModule],
   controllers: [CommonController, PwaAssetsController],
   providers: [CommonService, PwaIconService],
+  exports: [PwaIconService],
 })
 export class CommonModuleModule {}

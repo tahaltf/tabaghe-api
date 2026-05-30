@@ -62,11 +62,13 @@ import { OrdersModule } from '../orders/orders.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { ListingModule } from '../listing/listing.module';
 import { UserRatingHistoryService } from '../users/user-rating-history.service';
+import { CommonModuleModule } from '../../common-module/common-module.module';
 
 @Module({
   imports: [
     PrismaModule,
     AuthModule,
+    CommonModuleModule,
     NotificationModule,
     FeesModule,
     OrdersModule,

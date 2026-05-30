@@ -734,12 +734,25 @@ export class NotificationService {
     },
     vapid: { publicKey: string; privateKey: string; subject: string },
   ): Promise<{ ok: boolean; reason?: string }> {
+    const icon = payload.icon?.trim() || undefined;
     const pushBody = JSON.stringify({
       title: payload.title,
       message: payload.message,
       url: payload.url,
-      icon: payload.icon,
+      icon,
       iconRaster: payload.iconRaster,
+      tag: 'tabaghe-notification',
+      notification: {
+        title: payload.title,
+        body: payload.message,
+        icon,
+        badge: icon,
+        tag: 'tabaghe-notification',
+        renotify: true,
+        dir: 'rtl',
+        lang: 'fa',
+        data: { url: payload.url },
+      },
     });
 
     try {

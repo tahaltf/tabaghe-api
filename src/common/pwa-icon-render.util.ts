@@ -9,7 +9,7 @@ export async function renderPwaIconPng(
   size: number,
 ): Promise<Buffer> {
   const side = Math.max(48, Math.min(1024, Math.floor(size)));
-  const padding = Math.round(side * 0.12);
+  const padding = Math.round(side * 0.1);
   const inner = side - padding * 2;
 
   const resized = await sharp(sourcePath)
