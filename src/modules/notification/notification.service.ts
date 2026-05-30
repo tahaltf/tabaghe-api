@@ -620,45 +620,6 @@ export class NotificationService {
     };
   }
 
-  /** ارسال یک push تست برای کاربر جاری (تنظیمات / دیباگ). */
-  async sendPushTest(userId: string): Promise<{
-    sent: boolean;
-    reason?: string;
-    detail?: string;
-  }> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { notifyPush: true },
-    });
-    if (!user?.notifyPush) {
-      return { sent: false, reason: 'notify_push_disabled' };
-    }
-    if (!isVapidConfigured()) {
-      return { sent: false, reason: 'vapid_not_configured' };
-    }
-    const setting = await this.prisma.systemSetting.findUnique({
-      where: { key: `PUSH_SUB_${userId}` },
-      select: { value: true },
-    });
-    if (!setting?.value) {
-      return { sent: false, reason: 'no_subscription' };
-    }
-    const result = await this.processPush(
-      userId,
-      'تست اعلان طبقه',
-      'اگر این پیام را روی صفحهٔ قفل یا نوار اعلان می‌بینید، push درست کار می‌کند.',
-      { url: '/dashboard/notifications' },
-    );
-    if (!result.ok) {
-      return {
-        sent: false,
-        reason: result.reason ?? 'send_failed',
-        detail: result.detail,
-      };
-    }
-    return { sent: true };
-  }
-
   private normalizePushSubscription(
     subscription: PushSubscriptionPayload,
   ): PushSubscriptionPayload {
@@ -778,6 +739,7 @@ export class NotificationService {
     vapid: { publicKey: string; privateKey: string; subject: string },
   ): Promise<{ ok: boolean; reason?: string; detail?: string }> {
     const icon = payload.icon?.trim() || undefined;
+    // فقط data — بدون فیلد notification تا مرورگر/FCM خودکار دوبار نشان ندهد
     const pushBody = JSON.stringify({
       title: payload.title,
       message: payload.message,
@@ -785,17 +747,6 @@ export class NotificationService {
       icon,
       iconRaster: payload.iconRaster,
       tag: 'tabaghe-notification',
-      notification: {
-        title: payload.title,
-        body: payload.message,
-        icon,
-        badge: icon,
-        tag: 'tabaghe-notification',
-        renotify: true,
-        dir: 'rtl',
-        lang: 'fa',
-        data: { url: payload.url },
-      },
     });
 
     try {

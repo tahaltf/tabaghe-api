@@ -62,11 +62,6 @@ export class NotificationController {
     return this.service.getPushStatus(user.id);
   }
 
-  @Post('push-test')
-  sendPushTest(@CurrentUser() user: AuthenticatedUser) {
-    return this.service.sendPushTest(user.id);
-  }
-
   @Post('push-subscription')
   savePushSubscription(
     @CurrentUser() user: AuthenticatedUser,

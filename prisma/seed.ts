@@ -1,5 +1,6 @@
 import { PrismaClient, ListingType, LocationType } from '@prisma/client';
 import { seedDigitalProductCategoryTree } from './seed-data/seed-digital-product-categories';
+import { seedPlatformContent } from './seed-data/seed-platform-content';
 import { IRAN_LOCATION_SEED } from './seed-data/iran-locations';
 import { syncIranLocationSlugs } from '../src/common-module/location-slug.util';
 
@@ -181,6 +182,8 @@ async function main() {
     }
 
     console.log('✅ دیتابیس با موفقیت Seed شد — ساختار ۳ پلن: همکف + بالکن + پنت‌هاوس');
+
+    await seedPlatformContent(prisma);
 }
 
 main()

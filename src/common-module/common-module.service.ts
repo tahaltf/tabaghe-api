@@ -22,6 +22,12 @@ import {
   resolveDefaultFaviconPath,
   resolveDefaultPwaAppIconPath,
 } from '../common/pwa-brand-icon.util';
+import {
+  DEFAULT_ABOUT_US_FA,
+  DEFAULT_FAQ_ITEMS,
+  DEFAULT_SYSTEM_INTRO_FA,
+  DEFAULT_TERMS_CONDITIONS_FA,
+} from '../common/content';
 
 @Injectable()
 export class CommonService {
@@ -699,7 +705,7 @@ export class CommonService {
       select: { value: true, updatedAt: true },
     });
     return {
-      content: row?.value ?? '',
+      content: row?.value?.trim() || DEFAULT_TERMS_CONDITIONS_FA,
       updatedAt: row?.updatedAt ?? null,
     };
   }
@@ -711,14 +717,14 @@ export class CommonService {
       select: { value: true, updatedAt: true },
     });
     return {
-      content: row?.value ?? '',
+      content: row?.value?.trim() || DEFAULT_ABOUT_US_FA,
       updatedAt: row?.updatedAt ?? null,
     };
   }
 
   /** سوالات متداول (برای نمایش عمومی) */
   async getFaqs() {
-    return this.prisma.faq.findMany({
+    const rows = await this.prisma.faq.findMany({
       where: { isActive: true },
       orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
       select: {
@@ -729,6 +735,15 @@ export class CommonService {
         order: true,
       },
     });
+    if (rows.length > 0) return rows;
+
+    return DEFAULT_FAQ_ITEMS.map((item, index) => ({
+      id: `default-faq-${index}`,
+      question: item.question,
+      answer: item.answer,
+      category: item.category,
+      order: item.order,
+    }));
   }
 
   async getIntroduction() {
@@ -736,7 +751,10 @@ export class CommonService {
       where: { key: 'SYSTEM_INTRO_CONTENT' },
       select: { value: true, updatedAt: true },
     });
-    return { content: row?.value ?? '', updatedAt: row?.updatedAt ?? null };
+    return {
+      content: row?.value?.trim() || DEFAULT_SYSTEM_INTRO_FA,
+      updatedAt: row?.updatedAt ?? null,
+    };
   }
 
   async getBlogPosts() {
