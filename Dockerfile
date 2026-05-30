@@ -48,6 +48,7 @@ RUN npm ci --only=production --legacy-peer-deps
 # کپی کردن خروجی‌های اصلی از استیج بیلد
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
+COPY --from=build /app/assets ./assets
 
 # تایید ساختار فایل‌ها جهت اطمینان در لاگ
 RUN ls -R dist

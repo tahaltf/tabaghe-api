@@ -19,6 +19,8 @@ import {
   isRasterImageFilename,
   mimeForBrandFilename,
   resolveBrandLogoAbsolutePath,
+  resolveDefaultFaviconPath,
+  resolveDefaultPwaAppIconPath,
 } from '../common/pwa-brand-icon.util';
 
 @Injectable()
@@ -894,18 +896,22 @@ export class CommonService {
 
   async resolvePwaIconAsset(): Promise<{ path: string; mime: string } | null> {
     const filename = await getPwaAppIconFilename(this.prisma);
-    if (!filename) return null;
-    const path = resolveBrandLogoAbsolutePath(filename);
-    if (!path) return null;
-    return { path, mime: mimeForBrandFilename(filename) };
+    if (filename) {
+      const path = resolveBrandLogoAbsolutePath(filename);
+      if (path) return { path, mime: mimeForBrandFilename(filename) };
+    }
+    const fallback = resolveDefaultPwaAppIconPath();
+    return fallback ? { path: fallback, mime: 'image/png' } : null;
   }
 
   async resolveFaviconAsset(): Promise<{ path: string; mime: string } | null> {
     const filename = await getPwaFaviconFilename(this.prisma);
-    if (!filename) return null;
-    const path = resolveBrandLogoAbsolutePath(filename);
-    if (!path) return null;
-    return { path, mime: mimeForBrandFilename(filename) };
+    if (filename) {
+      const path = resolveBrandLogoAbsolutePath(filename);
+      if (path) return { path, mime: mimeForBrandFilename(filename) };
+    }
+    const fallback = resolveDefaultFaviconPath();
+    return fallback ? { path: fallback, mime: 'image/png' } : null;
   }
 
   async getPushIconMeta(): Promise<{ url: string; raster: boolean }> {

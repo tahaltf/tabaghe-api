@@ -3,6 +3,7 @@ import { extname, join } from 'path';
 import type { PrismaService } from '../infrastructure/prisma/prisma.service';
 
 const BRAND_DIR = './uploads/brand';
+const DEFAULT_LIGHT_LOGO = join(process.cwd(), 'assets', 'brand', 'logo-light-theme.png');
 
 export const PWA_SETTING_KEYS = {
   APP_NAME: 'PWA_APP_NAME',
@@ -117,6 +118,17 @@ export function resolveBrandLogoAbsolutePath(filename: string): string | null {
   const fullPath = join(process.cwd(), BRAND_DIR.replace(/^\.\//, ''), safe);
   if (!existsSync(fullPath)) return null;
   return fullPath;
+}
+
+/** لوگوی پیش‌فرض repo وقتی ادمین هنوز آپلود نکرده */
+export function resolveDefaultPwaAppIconPath(): string | null {
+  if (existsSync(DEFAULT_LIGHT_LOGO)) return DEFAULT_LIGHT_LOGO;
+  return null;
+}
+
+export function resolveDefaultFaviconPath(): string | null {
+  if (existsSync(DEFAULT_LIGHT_LOGO)) return DEFAULT_LIGHT_LOGO;
+  return null;
 }
 
 export function buildPwaManifestDocument(
