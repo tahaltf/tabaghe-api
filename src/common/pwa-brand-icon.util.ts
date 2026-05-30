@@ -4,12 +4,19 @@ import type { PrismaService } from '../infrastructure/prisma/prisma.service';
 
 const BRAND_DIR = './uploads/brand';
 
+export const PWA_SETTING_KEYS = {
+  APP_NAME: 'PWA_APP_NAME',
+  APP_SHORT_NAME: 'PWA_APP_SHORT_NAME',
+  APP_ICON: 'PWA_APP_ICON',
+  APP_FAVICON: 'PWA_APP_FAVICON',
+} as const;
+
 export function getFrontendAppOrigin(): string {
   return (process.env.FRONTEND_APP_URL || 'https://tabagheh.com').replace(/\/+$/, '');
 }
 
 export function getPwaIconPublicUrl(): string {
-  return `${getFrontendAppOrigin()}/pwa/icon`;
+  return `${getFrontendAppOrigin()}/pwa/icon-512.png`;
 }
 
 export function isRasterImageFilename(filename: string): boolean {
@@ -26,35 +33,82 @@ export function mimeForBrandFilename(filename: string): string {
   return 'application/octet-stream';
 }
 
-export async function getUserAppLogoLightFilename(
+async function readSettingMap(
   prisma: PrismaService,
-): Promise<string | null> {
+  keys: string[],
+): Promise<Record<string, string>> {
   const rows = await prisma.systemSetting.findMany({
-    where: { key: { in: ['USER_APP_LOGO_LIGHT', 'USER_APP_LOGO'] } },
+    where: { key: { in: keys } },
     select: { key: true, value: true },
   });
-  const map = Object.fromEntries(rows.map((r) => [r.key, r.value?.trim() ?? '']));
-  const name = map['USER_APP_LOGO_LIGHT'] || map['USER_APP_LOGO'] || '';
+  return Object.fromEntries(rows.map((r) => [r.key, r.value?.trim() ?? '']));
+}
+
+/** آیکن نصب اپ — لوگوی روشن روی پس‌زمینه سفید */
+export async function getPwaAppIconFilename(
+  prisma: PrismaService,
+): Promise<string | null> {
+  const map = await readSettingMap(prisma, [
+    PWA_SETTING_KEYS.APP_ICON,
+    'USER_APP_LOGO_LIGHT',
+    'USER_APP_LOGO',
+  ]);
+  const name =
+    map[PWA_SETTING_KEYS.APP_ICON] ||
+    map['USER_APP_LOGO_LIGHT'] ||
+    map['USER_APP_LOGO'] ||
+    '';
   return name || null;
 }
 
-/** لوگوی تم تاریک (معمولاً سفید / بدون پس‌زمینه) — برای favicon تب مرورگر */
-export async function getUserAppLogoDarkFilename(
+/** favicon تب مرورگر — لوگوی تیره، پس‌زمینه شفاف */
+export async function getPwaFaviconFilename(
   prisma: PrismaService,
 ): Promise<string | null> {
-  const rows = await prisma.systemSetting.findMany({
-    where: {
-      key: { in: ['USER_APP_LOGO_DARK', 'USER_APP_LOGO_LIGHT', 'USER_APP_LOGO'] },
-    },
-    select: { key: true, value: true },
-  });
-  const map = Object.fromEntries(rows.map((r) => [r.key, r.value?.trim() ?? '']));
+  const map = await readSettingMap(prisma, [
+    PWA_SETTING_KEYS.APP_FAVICON,
+    'USER_APP_LOGO_DARK',
+    'USER_APP_LOGO_LIGHT',
+    'USER_APP_LOGO',
+  ]);
   const name =
+    map[PWA_SETTING_KEYS.APP_FAVICON] ||
     map['USER_APP_LOGO_DARK'] ||
     map['USER_APP_LOGO_LIGHT'] ||
     map['USER_APP_LOGO'] ||
     '';
   return name || null;
+}
+
+/** @deprecated use getPwaAppIconFilename */
+export async function getUserAppLogoLightFilename(
+  prisma: PrismaService,
+): Promise<string | null> {
+  return getPwaAppIconFilename(prisma);
+}
+
+/** @deprecated use getPwaFaviconFilename */
+export async function getUserAppLogoDarkFilename(
+  prisma: PrismaService,
+): Promise<string | null> {
+  return getPwaFaviconFilename(prisma);
+}
+
+export async function getPwaAppName(prisma: PrismaService): Promise<string> {
+  const map = await readSettingMap(prisma, [PWA_SETTING_KEYS.APP_NAME]);
+  return map[PWA_SETTING_KEYS.APP_NAME] || 'طبقه';
+}
+
+export async function getPwaAppShortName(prisma: PrismaService): Promise<string> {
+  const map = await readSettingMap(prisma, [
+    PWA_SETTING_KEYS.APP_SHORT_NAME,
+    PWA_SETTING_KEYS.APP_NAME,
+  ]);
+  return (
+    map[PWA_SETTING_KEYS.APP_SHORT_NAME] ||
+    map[PWA_SETTING_KEYS.APP_NAME] ||
+    'طبقه'
+  );
 }
 
 export function resolveBrandLogoAbsolutePath(filename: string): string | null {
@@ -65,7 +119,11 @@ export function resolveBrandLogoAbsolutePath(filename: string): string | null {
   return fullPath;
 }
 
-export function buildPwaManifestDocument(_iconAvailable = true) {
+export function buildPwaManifestDocument(
+  appName: string,
+  shortName: string,
+  _iconAvailable = true,
+) {
   const origin = getFrontendAppOrigin();
   const icons = [
     {
@@ -95,8 +153,8 @@ export function buildPwaManifestDocument(_iconAvailable = true) {
   ];
 
   return {
-    name: 'Tabagheh',
-    short_name: 'Tabagheh',
+    name: appName,
+    short_name: shortName,
     id: '/',
     theme_color: '#ef684c',
     background_color: '#ffffff',

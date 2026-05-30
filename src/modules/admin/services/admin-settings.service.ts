@@ -25,6 +25,10 @@ export const SETTING_KEYS = {
   USER_APP_LOGO_DARK: 'USER_APP_LOGO_DARK',
   /** @deprecated فقط برای سازگاری؛ ترجیح با LIGHT/DARK */
   USER_APP_LOGO: 'USER_APP_LOGO',
+  PWA_APP_NAME: 'PWA_APP_NAME',
+  PWA_APP_SHORT_NAME: 'PWA_APP_SHORT_NAME',
+  PWA_APP_ICON: 'PWA_APP_ICON',
+  PWA_APP_FAVICON: 'PWA_APP_FAVICON',
   ADMIN_PANEL_LOGO: 'ADMIN_PANEL_LOGO',
   CRITICAL_ALERT_ENABLED: 'CRITICAL_ALERT_ENABLED',
   CRITICAL_ALERT_LABEL: 'CRITICAL_ALERT_LABEL',
@@ -121,6 +125,10 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   USER_APP_LOGO_LIGHT: 'لوگوی رابط کاربر — تم روشن',
   USER_APP_LOGO_DARK: 'لوگوی رابط کاربر — تم تاریک',
   USER_APP_LOGO: 'لوگوی سمت کاربر (قدیمی؛ در صورت خالی بودن LIGHT/DARK استفاده می‌شود)',
+  PWA_APP_NAME: 'نام نمایشی اپ / PWA (Add to Home Screen)',
+  PWA_APP_SHORT_NAME: 'نام کوتاه اپ زیر آیکن',
+  PWA_APP_ICON: 'آیکن نصب اپ — لوگوی روشن روی پس‌زمینه سفید',
+  PWA_APP_FAVICON: 'favicon تب مرورگر — لوگوی تیره، پس‌زمینه شفاف',
   ADMIN_PANEL_LOGO: 'لوگوی پنل مدیریت',
   CRITICAL_ALERT_ENABLED: 'وضعیت نمایش اعلان بحرانی سراسری (true/false)',
   CRITICAL_ALERT_LABEL: 'متن لیبل اعلان بحرانی سراسری',
@@ -210,10 +218,12 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
     'قالب تیکت معاوضه (رد کالای طرف مقابل). متغیرها: {{orderShortId}}, {{listingTitle}}, {{refundAmount}}, {{penaltyDelta}}, {{ownNote}}',
 };
 
-const USER_PWA_LOGO_KEYS = new Set<string>([
+const PWA_BRAND_CACHE_KEYS = new Set<string>([
   SETTING_KEYS.USER_APP_LOGO,
   SETTING_KEYS.USER_APP_LOGO_LIGHT,
   SETTING_KEYS.USER_APP_LOGO_DARK,
+  SETTING_KEYS.PWA_APP_ICON,
+  SETTING_KEYS.PWA_APP_FAVICON,
 ]);
 
 @Injectable()
@@ -336,6 +346,8 @@ export class AdminSettingsService {
         key === SETTING_KEYS.USER_APP_LOGO ||
         key === SETTING_KEYS.USER_APP_LOGO_LIGHT ||
         key === SETTING_KEYS.USER_APP_LOGO_DARK ||
+        key === SETTING_KEYS.PWA_APP_ICON ||
+        key === SETTING_KEYS.PWA_APP_FAVICON ||
         key === SETTING_KEYS.ADMIN_PANEL_LOGO) &&
       existing.value
     ) {
@@ -398,6 +410,24 @@ export class AdminSettingsService {
     if (!filename)
       throw new BadRequestException('فایل لوگوی تم تاریک نامعتبر است');
     return this.setBrandLogoByKey(SETTING_KEYS.USER_APP_LOGO_DARK, filename);
+  }
+
+  async setPwaAppIcon(filename: string) {
+    if (!filename) throw new BadRequestException('فایل آیکن اپ نامعتبر است');
+    return this.setBrandLogoByKey(SETTING_KEYS.PWA_APP_ICON, filename);
+  }
+
+  async removePwaAppIcon() {
+    return this.clearBrandLogoByKey(SETTING_KEYS.PWA_APP_ICON);
+  }
+
+  async setPwaAppFavicon(filename: string) {
+    if (!filename) throw new BadRequestException('فایل favicon نامعتبر است');
+    return this.setBrandLogoByKey(SETTING_KEYS.PWA_APP_FAVICON, filename);
+  }
+
+  async removePwaAppFavicon() {
+    return this.clearBrandLogoByKey(SETTING_KEYS.PWA_APP_FAVICON);
   }
 
   async setAdminPanelLogo(filename: string) {
@@ -558,7 +588,7 @@ export class AdminSettingsService {
   }
 
   private invalidatePwaIconsIfUserLogo(key: string): void {
-    if (!USER_PWA_LOGO_KEYS.has(key)) return;
+    if (!PWA_BRAND_CACHE_KEYS.has(key)) return;
     this.pwaIconService.clearCache();
   }
 

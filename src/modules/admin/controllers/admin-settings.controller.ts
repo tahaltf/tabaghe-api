@@ -111,6 +111,30 @@ export class AdminSettingsController {
     return this.service.removeUserAppLogoDark();
   }
 
+  @Post('pwa-app-icon')
+  @UseInterceptors(FileInterceptor('file', brandLogoMulterOptions))
+  async uploadPwaAppIcon(@UploadedFile() file?: Express.Multer.File) {
+    if (!file) throw new BadRequestException('فایلی ارسال نشده است');
+    return this.service.setPwaAppIcon(file.filename);
+  }
+
+  @Delete('pwa-app-icon')
+  removePwaAppIcon() {
+    return this.service.removePwaAppIcon();
+  }
+
+  @Post('pwa-favicon')
+  @UseInterceptors(FileInterceptor('file', brandLogoMulterOptions))
+  async uploadPwaFavicon(@UploadedFile() file?: Express.Multer.File) {
+    if (!file) throw new BadRequestException('فایلی ارسال نشده است');
+    return this.service.setPwaAppFavicon(file.filename);
+  }
+
+  @Delete('pwa-favicon')
+  removePwaFavicon() {
+    return this.service.removePwaAppFavicon();
+  }
+
   @Post('admin-logo')
   @UseInterceptors(FileInterceptor('file', brandLogoMulterOptions))
   async uploadAdminLogo(@UploadedFile() file?: Express.Multer.File) {

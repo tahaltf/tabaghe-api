@@ -12,8 +12,10 @@ import { filterCategoriesVisibleOnSite, isCategoryVisibleOnSite } from '../commo
 import {
   buildPwaManifestDocument,
   getFrontendAppOrigin,
-  getUserAppLogoLightFilename,
-  getUserAppLogoDarkFilename,
+  getPwaAppIconFilename,
+  getPwaFaviconFilename,
+  getPwaAppName,
+  getPwaAppShortName,
   isRasterImageFilename,
   mimeForBrandFilename,
   resolveBrandLogoAbsolutePath,
@@ -864,11 +866,13 @@ export class CommonService {
   }
 
   async buildPwaManifest(): Promise<Record<string, unknown>> {
-    return buildPwaManifestDocument(true);
+    const name = await getPwaAppName(this.prisma);
+    const shortName = await getPwaAppShortName(this.prisma);
+    return buildPwaManifestDocument(name, shortName, true);
   }
 
   async resolvePwaIconAsset(): Promise<{ path: string; mime: string } | null> {
-    const filename = await getUserAppLogoLightFilename(this.prisma);
+    const filename = await getPwaAppIconFilename(this.prisma);
     if (!filename) return null;
     const path = resolveBrandLogoAbsolutePath(filename);
     if (!path) return null;
@@ -876,7 +880,7 @@ export class CommonService {
   }
 
   async resolveFaviconAsset(): Promise<{ path: string; mime: string } | null> {
-    const filename = await getUserAppLogoDarkFilename(this.prisma);
+    const filename = await getPwaFaviconFilename(this.prisma);
     if (!filename) return null;
     const path = resolveBrandLogoAbsolutePath(filename);
     if (!path) return null;

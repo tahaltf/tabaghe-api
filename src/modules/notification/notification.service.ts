@@ -585,10 +585,29 @@ export class NotificationService {
         hasSubscription = false;
       }
     }
+    const vapidConfigured = isVapidConfigured();
+    const notifyPush = user?.notifyPush ?? true;
+    const hints: string[] = [];
+    if (!vapidConfigured) {
+      hints.push(
+        'کلیدهای WEB_PUSH_VAPID_PUBLIC_KEY و WEB_PUSH_VAPID_PRIVATE_KEY روی سرور API تنظیم نشده یا نامعتبر است.',
+      );
+    }
+    if (!hasSubscription) {
+      hints.push(
+        'اشتراک push برای این کاربر ثبت نشده — از تنظیمات یا صفحه اطلاعیه‌ها فعال کنید.',
+      );
+    }
+    if (!notifyPush) {
+      hints.push('اعلان push در حساب کاربر خاموش است.');
+    }
+
     return {
-      notifyPush: user?.notifyPush ?? true,
+      notifyPush,
       hasSubscription,
-      vapidConfigured: isVapidConfigured(),
+      vapidConfigured,
+      ready: vapidConfigured && hasSubscription && notifyPush,
+      hints,
     };
   }
 
@@ -618,7 +637,11 @@ export class NotificationService {
       { url: '/dashboard/notifications' },
     );
     if (!result.ok) {
-      return { sent: false, reason: result.reason ?? 'send_failed' };
+      return {
+        sent: false,
+        reason: result.reason ?? 'send_failed',
+        detail: result.detail,
+      };
     }
     return { sent: true };
   }
@@ -635,11 +658,16 @@ export class NotificationService {
     };
   }
 
-  /** تبدیل base64 استاندارد (btoa) به base64url که کتابخانه web-push می‌خواهد. */
+  /**
+   * کلیدهای PushSubscription معمولاً از قبل base64url هستند — فقط اگر + یا / داشت تبدیل می‌شود.
+   * حذف padding از کلیدهای url-safe باعث push_send_failed می‌شود.
+   */
   private toUrlBase64(value: string): string {
     const trimmed = String(value ?? '').trim();
     if (!trimmed) return trimmed;
-    if (!/[+/=]/.test(trimmed)) return trimmed.replace(/=+$/, '');
+    if (!/[+/]/.test(trimmed)) {
+      return trimmed;
+    }
     const padded =
       trimmed + '='.repeat((4 - (trimmed.length % 4)) % 4);
     return Buffer.from(padded, 'base64')
@@ -675,7 +703,7 @@ export class NotificationService {
     title: string,
     message: string,
     meta?: Record<string, unknown>,
-  ): Promise<{ ok: boolean; reason?: string }> {
+  ): Promise<{ ok: boolean; reason?: string; detail?: string }> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { notifyPush: true },
@@ -733,7 +761,7 @@ export class NotificationService {
       iconRaster: boolean;
     },
     vapid: { publicKey: string; privateKey: string; subject: string },
-  ): Promise<{ ok: boolean; reason?: string }> {
+  ): Promise<{ ok: boolean; reason?: string; detail?: string }> {
     const icon = payload.icon?.trim() || undefined;
     const pushBody = JSON.stringify({
       title: payload.title,
@@ -773,10 +801,14 @@ export class NotificationService {
         await this.removePushSubscription(userId);
       }
       const reason = status ? `push_http_${status}` : 'push_send_failed';
+      const body =
+        err?.body != null
+          ? String(err.body).slice(0, 240)
+          : String(err?.message ?? err).slice(0, 240);
       this.logger.warn(
-        `WebPush request failed (${status || 'n/a'}) user=${userId}: ${String(err?.message ?? err)}`,
+        `WebPush request failed (${status || 'n/a'}) user=${userId}: ${body}`,
       );
-      return { ok: false, reason };
+      return { ok: false, reason, detail: body || undefined };
     }
   }
 }

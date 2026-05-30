@@ -51,7 +51,7 @@ export class PwaAssetsController {
   async favicon(@Res() res: Response): Promise<void> {
     const buf = await this.pwaIconService.getFaviconPngBuffer(32);
     res.setHeader('Content-Type', 'image/png');
-    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate');
     res.send(buf);
   }
 
@@ -59,14 +59,14 @@ export class PwaAssetsController {
   async faviconIco(@Res() res: Response): Promise<void> {
     const buf = await this.pwaIconService.getFaviconPngBuffer(32);
     res.setHeader('Content-Type', 'image/png');
-    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate');
     res.send(buf);
   }
 
   private async sendPng(res: Response, size: number): Promise<void> {
     const buf = await this.pwaIconService.getPngBuffer(size);
     res.setHeader('Content-Type', 'image/png');
-    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate');
     res.send(buf);
   }
 }
