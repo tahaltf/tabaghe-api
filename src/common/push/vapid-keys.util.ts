@@ -1,4 +1,4 @@
-import { createPrivateKey } from 'crypto';
+import { createECDH, createPrivateKey } from 'crypto';
 
 export type VapidKeySet = {
   publicKey: string;
@@ -21,6 +21,42 @@ export function normalizeVapidPrivateKey(raw: string): string {
     return jwk.d;
   }
   return trimmed.replace(/=+$/, '');
+}
+
+/** public key متناظر با private — برای اعتبارسنجی جفت کلید */
+export function deriveVapidPublicKeyFromPrivate(privateKeyBase64Url: string): string {
+  const ecdh = createECDH('prime256v1');
+  ecdh.setPrivateKey(Buffer.from(privateKeyBase64Url, 'base64url'));
+  let publicKey = ecdh.getPublicKey();
+  if (publicKey.length < 65) {
+    publicKey = Buffer.concat([
+      Buffer.alloc(65 - publicKey.length),
+      publicKey,
+    ]);
+  }
+  return publicKey.toString('base64url');
+}
+
+export function validateVapidKeyPair(): {
+  ok: boolean;
+  error?: string;
+  publicKey?: string;
+} {
+  const vapid = resolveVapidKeys();
+  if (!vapid) return { ok: false, error: 'missing_env' };
+  try {
+    const derived = deriveVapidPublicKeyFromPrivate(vapid.privateKey);
+    if (derived !== vapid.publicKey) {
+      return {
+        ok: false,
+        error: 'public_private_mismatch',
+        publicKey: derived,
+      };
+    }
+    return { ok: true, publicKey: vapid.publicKey };
+  } catch (e) {
+    return { ok: false, error: String((e as Error)?.message ?? e) };
+  }
 }
 
 export function resolveVapidKeys(): VapidKeySet | null {

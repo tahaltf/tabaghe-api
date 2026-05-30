@@ -531,6 +531,10 @@ export class CommonService {
       'LISTING_TYPE_DIRECT_ENABLED',
       'LISTING_TYPE_EXCHANGE_ENABLED',
       'LISTING_TYPE_AUCTION_ENABLED',
+      'PWA_APP_NAME',
+      'PWA_APP_SHORT_NAME',
+      'PWA_APP_ICON',
+      'PWA_APP_FAVICON',
     ];
 
     const rows = await this.prisma.systemSetting.findMany({
@@ -633,6 +637,20 @@ export class CommonService {
     const userAppLogoLight = rawLight || legacyUserLogo;
     const userAppLogoDark = rawDark || legacyUserLogo;
 
+    const pwaAppName =
+      (await getPwaAppName(this.prisma)) || 'طبقه';
+    const pwaAppShortName =
+      (await getPwaAppShortName(this.prisma)) || pwaAppName;
+    const pwaIconVersion = [
+      map.PWA_APP_ICON,
+      map.PWA_APP_FAVICON,
+      map.USER_APP_LOGO_LIGHT,
+      map.USER_APP_LOGO,
+    ]
+      .map((v) => v?.trim())
+      .filter(Boolean)
+      .join('|');
+
     return {
       homepageBanner: map.HOMEPAGE_BANNER || null,
       mediaFallbackLogo: map.MEDIA_FALLBACK_LOGO || null,
@@ -640,6 +658,9 @@ export class CommonService {
       userAppLogo: userAppLogoLight,
       userAppLogoLight,
       userAppLogoDark,
+      pwaAppName,
+      pwaAppShortName,
+      pwaIconVersion,
       criticalAlertEnabled: map.CRITICAL_ALERT_ENABLED === 'true',
       criticalAlertLabel: map.CRITICAL_ALERT_LABEL || null,
       criticalAlertText: map.CRITICAL_ALERT_TEXT || null,

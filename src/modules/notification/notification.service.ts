@@ -3,9 +3,9 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NotificationType, Prisma, UserRole } from '@prisma/client';
 import { SmsService } from '../sms/sms.service';
 import { applySmsTemplatePlaceholders } from '../../common/sms/sms-placeholders.util';
-import webpush from 'web-push';
+import webpush = require('web-push');
 import { getFrontendAppOrigin } from '../../common/pwa-brand-icon.util';
-import { isVapidConfigured, resolveVapidKeys } from '../../common/push/vapid-keys.util';
+import { isVapidConfigured, resolveVapidKeys, validateVapidKeyPair } from '../../common/push/vapid-keys.util';
 
 type SmsRule = {
   siteNotificationEnabled?: boolean;
@@ -587,11 +587,19 @@ export class NotificationService {
     }
     const vapidConfigured = isVapidConfigured();
     const notifyPush = user?.notifyPush ?? true;
+    const vapidPair = validateVapidKeyPair();
     const hints: string[] = [];
     if (!vapidConfigured) {
       hints.push(
         'کلیدهای WEB_PUSH_VAPID_PUBLIC_KEY و WEB_PUSH_VAPID_PRIVATE_KEY روی سرور API تنظیم نشده یا نامعتبر است.',
       );
+    } else if (!vapidPair.ok) {
+      hints.push(
+        'کلید public و private VAPID با هم جور نیستند — با npx web-push generate-vapid-keys جفت جدید بسازید و در .env و فرانت یکجا بگذارید.',
+      );
+      if (vapidPair.publicKey) {
+        hints.push(`publicKey درست (از private): ${vapidPair.publicKey}`);
+      }
     }
     if (!hasSubscription) {
       hints.push(
@@ -606,7 +614,8 @@ export class NotificationService {
       notifyPush,
       hasSubscription,
       vapidConfigured,
-      ready: vapidConfigured && hasSubscription && notifyPush,
+      vapidPairValid: vapidPair.ok,
+      ready: vapidConfigured && vapidPair.ok && hasSubscription && notifyPush,
       hints,
     };
   }
@@ -653,11 +662,13 @@ export class NotificationService {
   private normalizePushSubscription(
     subscription: PushSubscriptionPayload,
   ): PushSubscriptionPayload {
+    const p256dh = String(subscription.keys?.p256dh ?? '').trim();
+    const auth = String(subscription.keys?.auth ?? '').trim();
     return {
-      endpoint: subscription.endpoint,
+      endpoint: String(subscription.endpoint ?? '').trim(),
       keys: {
-        p256dh: this.toUrlBase64(subscription.keys?.p256dh ?? ''),
-        auth: this.toUrlBase64(subscription.keys?.auth ?? ''),
+        p256dh: /[+/]/.test(p256dh) ? this.toUrlBase64(p256dh) : p256dh,
+        auth: /[+/]/.test(auth) ? this.toUrlBase64(auth) : auth,
       },
     };
   }
@@ -801,14 +812,22 @@ export class NotificationService {
       return { ok: true };
     } catch (err: any) {
       const status = Number(err?.statusCode ?? 0);
+      const message = String(err?.message ?? err ?? '');
       if (status === 404 || status === 410) {
+        await this.removePushSubscription(userId);
+      }
+      if (
+        !status &&
+        (/p256dh|auth.*bytes|subscription keys/i.test(message) ||
+          message.includes('Invalid'))
+      ) {
         await this.removePushSubscription(userId);
       }
       const reason = status ? `push_http_${status}` : 'push_send_failed';
       const body =
         err?.body != null
           ? String(err.body).slice(0, 240)
-          : String(err?.message ?? err).slice(0, 240);
+          : message.slice(0, 240);
       this.logger.warn(
         `WebPush request failed (${status || 'n/a'}) user=${userId}: ${body}`,
       );

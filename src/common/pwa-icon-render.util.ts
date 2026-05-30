@@ -1,5 +1,5 @@
 import { readFile, stat } from 'fs/promises';
-import sharp from 'sharp';
+import sharp = require('sharp');
 
 const BRAND_ACCENT = '#ef684c';
 
