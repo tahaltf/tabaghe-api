@@ -30,6 +30,11 @@ async function seedContentSettings(prisma, content) {
       description: 'متن صفحه درباره ما',
     },
     {
+      key: 'FOOTER_TAGLINE',
+      value: content.DEFAULT_FOOTER_TAGLINE_FA,
+      description: 'معرفی کوتاه فوتر سایت',
+    },
+    {
       key: 'SYSTEM_INTRO_CONTENT',
       value: content.DEFAULT_SYSTEM_INTRO_FA,
       description: 'محتوای صفحه معرفی سامانه',

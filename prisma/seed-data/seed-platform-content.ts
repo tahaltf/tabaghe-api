@@ -2,6 +2,7 @@ import type { PrismaClient } from '@prisma/client';
 import {
   DEFAULT_ABOUT_US_FA,
   DEFAULT_FAQ_ITEMS,
+  DEFAULT_FOOTER_TAGLINE_FA,
   DEFAULT_SYSTEM_INTRO_FA,
   DEFAULT_TERMS_CONDITIONS_FA,
 } from '../../src/common/content';
@@ -20,6 +21,11 @@ const CONTENT_SETTINGS: Array<{
     key: 'ABOUT_US',
     value: DEFAULT_ABOUT_US_FA,
     description: 'متن صفحه درباره ما',
+  },
+  {
+    key: 'FOOTER_TAGLINE',
+    value: DEFAULT_FOOTER_TAGLINE_FA,
+    description: 'معرفی کوتاه فوتر سایت',
   },
   {
     key: 'SYSTEM_INTRO_CONTENT',
