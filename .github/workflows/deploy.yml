@@ -54,10 +54,9 @@ jobs:
           command_timeout: 30m
           script: |
             set -euo pipefail
-            cd /var/www/tabagheh
+            cd /app/tabagheh
             if [ ! -f .env ]; then
-              echo "Missing /var/www/tabagheh/.env on server (needed for POSTGRES_PASSWORD & DATABASE_URL)"
+              echo "Missing /app/tabagheh/.env on server"
               exit 1
             fi
-            bash ./deploy.sh
-
+            DEPLOY_SERVICES=backend bash ./deploy.sh
