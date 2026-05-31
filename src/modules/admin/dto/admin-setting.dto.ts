@@ -28,7 +28,7 @@ export class UpsertSettingDto {
 export class BulkUpsertSettingsDto {
   @IsArray()
   @ArrayNotEmpty()
-  @ArrayMaxSize(64)
+  @ArrayMaxSize(128)
   @ValidateNested({ each: true })
   @Type(() => UpsertSettingDto)
   items!: UpsertSettingDto[];
