@@ -12,6 +12,8 @@ import {
 import Decimal from 'decimal.js';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 
+const MANUAL_DEPOSIT_KIND = 'manual-deposit';
+
 export type ProfitRange = 'today' | '7d' | '30d' | '90d' | '365d' | 'all';
 
 export interface ProfitSummary {
@@ -90,6 +92,13 @@ export interface AdminDashboardStats {
     open: number;
     answered: number;
   };
+  wallet: {
+    pendingDeposits: number;
+    pendingWithdraws: number;
+  };
+  contactMessages: {
+    unread: number;
+  };
   recentActivity: Array<{
     id: string;
     kind: 'user' | 'listing' | 'order';
@@ -151,6 +160,9 @@ export class AdminDashboardService {
       repairActive,
       ticketsOpen,
       ticketsAnswered,
+      walletPendingDeposits,
+      walletPendingWithdraws,
+      contactMessagesUnread,
       recentUsers,
       recentListings,
       recentOrders,
@@ -224,6 +236,21 @@ export class AdminDashboardService {
 
       this.prisma.ticket.count({ where: { status: TicketStatus.OPEN } }),
       this.prisma.ticket.count({ where: { status: TicketStatus.ANSWERED } }),
+
+      this.prisma.walletTransaction.count({
+        where: {
+          type: WalletTransactionType.DEPOSIT,
+          status: WalletTransactionStatus.PENDING,
+          meta: { path: ['kind'], equals: MANUAL_DEPOSIT_KIND },
+        },
+      }),
+      this.prisma.walletTransaction.count({
+        where: {
+          type: WalletTransactionType.WITHDRAW_REQUEST,
+          status: WalletTransactionStatus.PENDING,
+        },
+      }),
+      this.countUnreadContactMessages(),
 
       this.prisma.user.findMany({
         take: 5,
@@ -332,6 +359,11 @@ export class AdminDashboardService {
       },
       repair: { pending: repairPending, active: repairActive },
       tickets: { open: ticketsOpen, answered: ticketsAnswered },
+      wallet: {
+        pendingDeposits: walletPendingDeposits,
+        pendingWithdraws: walletPendingWithdraws,
+      },
+      contactMessages: { unread: contactMessagesUnread },
       recentActivity,
     };
   }
@@ -529,6 +561,23 @@ export class AdminDashboardService {
       _sum: { platformFee: true },
     });
     return new Decimal(agg._sum.platformFee ?? 0).toNumber();
+  }
+
+  private async countUnreadContactMessages(): Promise<number> {
+    const rows = await this.prisma.systemSetting.findMany({
+      where: { key: { startsWith: 'CONTACT_MESSAGE_' } },
+      select: { value: true },
+    });
+    let unread = 0;
+    for (const row of rows) {
+      try {
+        const parsed = JSON.parse(row.value || '{}');
+        if (parsed && parsed.isRead !== true) unread += 1;
+      } catch {
+        unread += 1;
+      }
+    }
+    return unread;
   }
 
   private async monthlySeriesAllTime(): Promise<ProfitSummary['series']> {

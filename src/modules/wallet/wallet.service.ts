@@ -69,6 +69,36 @@ export class WalletService {
     private readonly notificationService: NotificationService,
   ) {}
 
+  private async notifyWalletRefund(params: {
+    userId: string;
+    amount: number;
+    orderId?: string;
+    listingId?: string;
+    listingTitle?: string;
+    description?: string;
+  }): Promise<void> {
+    if (params.amount <= 0) return;
+    try {
+      await this.notificationService.create({
+        userId: params.userId,
+        type: NotificationType.WALLET_REFUND,
+        title: 'بازگشت وجه به کیف پول',
+        message:
+          params.description ??
+          `${params.amount.toLocaleString('fa-IR')} تومان به موجودی کیف پول شما واریز شد.`,
+        meta: {
+          amount: params.amount,
+          userId: params.userId,
+          orderId: params.orderId,
+          listingId: params.listingId,
+          listingTitle: params.listingTitle,
+        },
+      });
+    } catch {
+      // notification must not block wallet flow
+    }
+  }
+
   /** آیا تراکنش پرداخت/تسویه به سفارش معاوضهٔ مشخص تعلق دارد؟ */
   private settlementBelongsToExchangeOrder(
     t: { referenceId: string | null; meta: unknown },
@@ -1702,6 +1732,14 @@ export class WalletService {
             },
           },
         });
+        void this.notifyWalletRefund({
+          userId: params.buyerId,
+          amount: refundAmount,
+          orderId: params.orderId,
+          listingId: params.listingId,
+          listingTitle,
+          description: `بازگشت وجه خرید برای ${titleQuoted} به‌دلیل لغو سفارش.`,
+        });
       }
     }
   }
@@ -1840,6 +1878,13 @@ export class WalletService {
               } as Prisma.InputJsonValue,
             },
           });
+          void this.notifyWalletRefund({
+            userId: buyerId,
+            amount: peerDebit,
+            orderId,
+            listingId,
+            description: 'بازگشت مابه‌التفاوت معاوضه به کیف پول شما.',
+          });
         }
       }
     }
@@ -1885,6 +1930,13 @@ export class WalletService {
                   'بازگشت مابه‌التفاوت معاوضه به پرداخت‌کننده (بدون هزینه کارشناسی)',
               } as Prisma.InputJsonValue,
             },
+          });
+          void this.notifyWalletRefund({
+            userId: sellerId,
+            amount: peerDebit,
+            orderId,
+            listingId,
+            description: 'بازگشت مابه‌التفاوت معاوضه به کیف پول شما.',
           });
         }
       }
@@ -1971,6 +2023,14 @@ export class WalletService {
           description: params.description,
         } as Prisma.InputJsonValue,
       },
+    });
+    void this.notifyWalletRefund({
+      userId: params.userId,
+      amount: refundAmount,
+      orderId: params.orderId,
+      listingId: params.listingId,
+      listingTitle,
+      description: params.description,
     });
     return refundAmount;
   }
@@ -2191,6 +2251,14 @@ export class WalletService {
           description: params.description,
         } as Prisma.InputJsonValue,
       },
+    });
+    void this.notifyWalletRefund({
+      userId: params.userId,
+      amount,
+      orderId: params.orderId,
+      listingId: params.listingId,
+      listingTitle: params.listingTitle,
+      description: params.description,
     });
     return amount;
   }
@@ -2514,16 +2582,30 @@ export class WalletService {
 
     await this.notificationService.create({
       userId,
-      type: NotificationType.SYSTEM,
+      type: NotificationType.WALLET_DEPOSIT_SUBMITTED,
       title: 'درخواست شارژ دستی ثبت شد',
       message:
         'درخواست شما ثبت شد و پس از بررسی ادمین، نتیجه از همین بخش اطلاع‌رسانی می‌شود.',
       meta: {
         transactionId: created.id,
         amount: amountDec.toNumber(),
+        userId,
         kind: MANUAL_DEPOSIT_KIND,
       },
     });
+
+    void this.notificationService
+      .notifyAdminPersonnel({
+        type: NotificationType.ADMIN_ALERT_WALLET_DEPOSIT,
+        title: 'درخواست شارژ کیف پول',
+        message: `درخواست شارژ دستی جدید به مبلغ ${amountDec.toNumber().toLocaleString('fa-IR')} تومان ثبت شد.`,
+        meta: {
+          transactionId: created.id,
+          amount: amountDec.toNumber(),
+          userId,
+        },
+      })
+      .catch(() => undefined);
 
     return created;
   }
@@ -2642,13 +2724,14 @@ export class WalletService {
         if (txWithUser?.wallet?.userId) {
           await this.notificationService.create({
             userId: txWithUser.wallet.userId,
-            type: NotificationType.SYSTEM,
+            type: NotificationType.WALLET_DEPOSIT_APPROVED,
             title: 'شارژ کیف پول تایید شد',
             message:
               'درخواست شارژ دستی شما تایید شد و مبلغ به موجودی قابل برداشت اضافه شد.',
             meta: {
               transactionId,
               amount: amountDec.toNumber(),
+              userId: txWithUser.wallet.userId,
             },
           });
         }
@@ -2676,7 +2759,7 @@ export class WalletService {
       if (txWithUser?.wallet?.userId) {
         await this.notificationService.create({
           userId: txWithUser.wallet.userId,
-          type: NotificationType.SYSTEM,
+          type: NotificationType.WALLET_DEPOSIT_REJECTED,
           title: 'درخواست شارژ دستی رد شد',
           message: adminNote
             ? `درخواست شارژ شما رد شد. دلیل: ${adminNote}`
@@ -2684,6 +2767,7 @@ export class WalletService {
           meta: {
             transactionId,
             amount: amountDec.toNumber(),
+            userId: txWithUser.wallet.userId,
             rejectionReason: adminNote ?? 'رد توسط ادمین',
           },
         });
@@ -2716,7 +2800,7 @@ export class WalletService {
       throw new BadRequestException('موجودی قابل برداشت کافی نیست');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const created = await this.prisma.$transaction(async (tx) => {
       await tx.wallet.update({
         where: { userId },
         data: {
@@ -2735,6 +2819,34 @@ export class WalletService {
         },
       });
     });
+
+    await this.notificationService.create({
+      userId,
+      type: NotificationType.WALLET_WITHDRAW_SUBMITTED,
+      title: 'درخواست برداشت ثبت شد',
+      message:
+        'درخواست برداشت شما ثبت شد و پس از بررسی ادمین، نتیجه اطلاع‌رسانی می‌شود.',
+      meta: {
+        transactionId: created.id,
+        amount: amountDec.toNumber(),
+        userId,
+      },
+    });
+
+    void this.notificationService
+      .notifyAdminPersonnel({
+        type: NotificationType.ADMIN_ALERT_WALLET_WITHDRAW,
+        title: 'درخواست برداشت کیف پول',
+        message: `درخواست برداشت جدید به مبلغ ${amountDec.toNumber().toLocaleString('fa-IR')} تومان ثبت شد.`,
+        meta: {
+          transactionId: created.id,
+          amount: amountDec.toNumber(),
+          userId,
+        },
+      })
+      .catch(() => undefined);
+
+    return created;
   }
 
   async getWithdrawRequestsAdmin(
@@ -2838,9 +2950,10 @@ export class WalletService {
     action: 'APPROVE' | 'REJECT',
     adminNote?: string,
   ) {
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const transaction = await tx.walletTransaction.findUnique({
         where: { id: transactionId },
+        include: { wallet: { select: { userId: true } } },
       });
 
       if (
@@ -2850,7 +2963,8 @@ export class WalletService {
         throw new BadRequestException('تراکنش نامعتبر است یا قبلا پردازش شده');
       }
 
-      const amountDec = new Decimal(transaction.amount); // جلوگیری از خطای اعشار در آپدیت‌های پریسما
+      const amountDec = new Decimal(transaction.amount);
+      const userId = transaction.wallet.userId;
 
       if (action === 'APPROVE') {
         await tx.wallet.update({
@@ -2871,31 +2985,72 @@ export class WalletService {
           },
         });
 
-        return { message: 'درخواست برداشت تایید و مبلغ کسر شد' };
-      } else {
-        await tx.wallet.update({
-          where: { id: transaction.walletId },
-          data: {
-            balanceBlocked: { decrement: amountDec.toString() },
-            balanceAvailable: { increment: amountDec.toString() },
-          },
-        });
-
-        await tx.walletTransaction.update({
-          where: { id: transactionId },
-          data: {
-            status: WalletTransactionStatus.FAILED,
-            meta: {
-              ...(transaction.meta as object),
-              adminNote,
-              rejectionReason: 'رد توسط ادمین',
-            },
-          },
-        });
-
-        return { message: 'درخواست رد شد و مبلغ به کیف پول بازگشت' };
+        return {
+          message: 'درخواست برداشت تایید و مبلغ کسر شد',
+          userId,
+          amount: amountDec.toNumber(),
+          approved: true as const,
+        };
       }
+
+      await tx.wallet.update({
+        where: { id: transaction.walletId },
+        data: {
+          balanceBlocked: { decrement: amountDec.toString() },
+          balanceAvailable: { increment: amountDec.toString() },
+        },
+      });
+
+      await tx.walletTransaction.update({
+        where: { id: transactionId },
+        data: {
+          status: WalletTransactionStatus.FAILED,
+          meta: {
+            ...(transaction.meta as object),
+            adminNote,
+            rejectionReason: adminNote ?? 'رد توسط ادمین',
+          },
+        },
+      });
+
+      return {
+        message: 'درخواست رد شد و مبلغ به کیف پول بازگشت',
+        userId,
+        amount: amountDec.toNumber(),
+        approved: false as const,
+      };
     });
+
+    if (result.approved) {
+      await this.notificationService.create({
+        userId: result.userId,
+        type: NotificationType.WALLET_WITHDRAW_APPROVED,
+        title: 'برداشت وجه تایید شد',
+        message: 'درخواست برداشت شما تایید شد و مبلغ از کیف پول کسر شد.',
+        meta: {
+          transactionId,
+          amount: result.amount,
+          userId: result.userId,
+        },
+      });
+    } else {
+      await this.notificationService.create({
+        userId: result.userId,
+        type: NotificationType.WALLET_WITHDRAW_REJECTED,
+        title: 'درخواست برداشت رد شد',
+        message: adminNote
+          ? `درخواست برداشت شما رد شد. دلیل: ${adminNote}`
+          : 'درخواست برداشت شما توسط ادمین رد شد و مبلغ به موجودی بازگشت.',
+        meta: {
+          transactionId,
+          amount: result.amount,
+          userId: result.userId,
+          rejectionReason: adminNote ?? 'رد توسط ادمین',
+        },
+      });
+    }
+
+    return { message: result.message };
   }
   async payFromAvailable(
     userId: string,

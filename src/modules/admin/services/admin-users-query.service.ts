@@ -29,6 +29,7 @@ const USER_LIST_SELECT = {
   firstName: true,
   lastName: true,
   rating: true,
+  trustScore: true,
   status: true,
   role: true,
   isActive: true,
@@ -780,6 +781,7 @@ export class AdminUsersQueryService {
       firstName: { firstName: dir },
       phone: { phone: dir },
       rating: { rating: dir },
+      trustScore: { trustScore: dir },
     };
     return allowed[sortBy ?? ''] ?? { createdAt: dir };
   }

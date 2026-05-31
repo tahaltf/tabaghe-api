@@ -958,12 +958,13 @@ export class PaymentsService {
     if (finalized?.userId) {
       await this.notificationService.create({
         userId: finalized.userId,
-        type: NotificationType.SYSTEM,
+        type: NotificationType.WALLET_TOPUP,
         title: 'شارژ کیف پول موفق',
         message: 'پرداخت آنلاین شما با موفقیت انجام شد و کیف پول شارژ شد.',
         meta: {
           transactionId: finalized.transactionId,
           amount: finalized.amount,
+          userId: finalized.userId,
           refId: verified.refId ?? null,
           authority,
         },
@@ -1025,11 +1026,26 @@ export class PaymentsService {
     sellerId: string;
     listingId: string;
   }): Promise<void> {
-    const listing = await this.prisma.listing.findUnique({
-      where: { id: order.listingId },
-      select: { title: true },
-    });
+    const [listing, orderRow] = await Promise.all([
+      this.prisma.listing.findUnique({
+        where: { id: order.listingId },
+        select: { title: true },
+      }),
+      this.prisma.order.findUnique({
+        where: { id: order.id },
+        select: { totalAmount: true, finalPrice: true },
+      }),
+    ]);
     const listingTitle = listing?.title ?? 'کالا';
+    const amount = Number(orderRow?.totalAmount ?? orderRow?.finalPrice ?? 0);
+    const sharedMeta = {
+      orderId: order.id,
+      listingId: order.listingId,
+      listingTitle,
+      amount,
+      totalAmount: amount,
+      finalPrice: Number(orderRow?.finalPrice ?? 0),
+    };
 
     await Promise.all([
       this.notificationService.create({
@@ -1038,8 +1054,7 @@ export class PaymentsService {
         title: 'خرید شما ثبت شد',
         message: `خرید شما برای «${listingTitle}» با موفقیت ثبت شد.`,
         meta: {
-          orderId: order.id,
-          listingId: order.listingId,
+          ...sharedMeta,
           role: 'BUYER',
           status: 'PAID',
         },
@@ -1050,8 +1065,7 @@ export class PaymentsService {
         title: 'کالای شما فروخته شد',
         message: `کالای «${listingTitle}» با موفقیت فروخته شد.`,
         meta: {
-          orderId: order.id,
-          listingId: order.listingId,
+          ...sharedMeta,
           role: 'SELLER',
           status: 'SOLD',
         },

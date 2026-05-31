@@ -80,7 +80,7 @@ export class NotificationListener {
       type: NotificationType.EXCHANGE_OFFER_RECEIVED,
       title: 'پیشنهاد معاوضه جدید',
       message: 'برای آگهی شما یک درخواست معاوضه جدید ثبت شد.',
-      meta: payload,
+      meta: { ...payload, role: 'OWNER' },
     });
   }
 
@@ -98,7 +98,7 @@ export class NotificationListener {
       type: NotificationType.EXCHANGE_OFFER_ACCEPTED,
       title: 'پیشنهاد معاوضه شما تایید شد',
       message: 'پیشنهاد معاوضه شما توسط فروشنده تایید شد.',
-      meta: payload,
+      meta: { ...payload, role: 'OFFERER' },
     });
   }
 
@@ -116,7 +116,7 @@ export class NotificationListener {
       type: NotificationType.EXCHANGE_OFFER_REJECTED,
       title: 'پیشنهاد معاوضه شما رد شد',
       message: 'پیشنهاد معاوضه شما توسط فروشنده رد شد.',
-      meta: payload,
+      meta: { ...payload, role: 'OFFERER' },
     });
   }
 }

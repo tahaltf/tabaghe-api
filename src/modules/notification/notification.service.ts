@@ -3,6 +3,11 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NotificationType, Prisma, UserRole } from '@prisma/client';
 import { SmsService } from '../sms/sms.service';
 import { applySmsTemplatePlaceholders } from '../../common/sms/sms-placeholders.util';
+import {
+  buildNotificationRuleKey,
+  enrichNotificationMeta,
+  inferNotificationRecipientRole,
+} from '../../common/notification/notification-meta-enrichment.util';
 import webpush = require('web-push');
 import { getFrontendAppOrigin } from '../../common/pwa-brand-icon.util';
 import { isVapidConfigured, resolveVapidKeys, validateVapidKeyPair } from '../../common/push/vapid-keys.util';
@@ -36,14 +41,20 @@ export class NotificationService {
     title: string;
     message: string;
     meta?: Record<string, unknown>;
+    /** نقش گیرنده برای انتخاب قالب جدا (مثلاً BUYER / SELLER) */
+    recipientRole?: string;
     /** فقط برای broadcast یک‌باره؛ در غیر این صورت از SMS_NOTIFICATION_RULES استفاده می‌شود */
     smsOverride?: {
       templateId: number;
       parameters?: Array<{ name: string; value: string }>;
     };
   }) {
-    const { userId, type, title, message, meta, smsOverride } = params;
-    const rule = await this.getRuleForType(type);
+    const { userId, type, title, message, meta, smsOverride, recipientRole } =
+      params;
+    const enrichedMetaBase = await enrichNotificationMeta(this.prisma, meta);
+    const resolvedRecipientRole =
+      recipientRole ?? inferNotificationRecipientRole(enrichedMetaBase);
+    const rule = await this.getRuleForType(type, resolvedRecipientRole);
     const siteEnabled = !(rule && rule.siteNotificationEnabled === false);
     const smsFromRule = this.isSmsRuleActive(rule);
     const smsFromOverride =
@@ -52,7 +63,7 @@ export class NotificationService {
     const resolvedTitle = title?.trim();
     const resolvedMessage = rule?.siteNotificationText?.trim() || message;
     const enrichedMeta: Record<string, unknown> = {
-      ...(meta ?? {}),
+      ...enrichedMetaBase,
       title: resolvedTitle,
       message: resolvedMessage,
     };
@@ -302,14 +313,22 @@ export class NotificationService {
 
     // دریافت عنوان آگهی برای شخصی‌سازی پیامک
     let listingTitle = 'یک آگهی';
-    const listingId =
-      meta && typeof meta.listingId === 'string' ? meta.listingId : undefined;
-    if (listingId) {
-      const listing = await this.prisma.listing.findUnique({
-        where: { id: listingId },
-        select: { title: true },
-      });
-      if (listing) listingTitle = listing.title;
+    if (
+      meta &&
+      typeof meta['listingTitle'] === 'string' &&
+      meta['listingTitle'].trim()
+    ) {
+      listingTitle = meta['listingTitle'];
+    } else {
+      const listingId =
+        meta && typeof meta.listingId === 'string' ? meta.listingId : undefined;
+      if (listingId) {
+        const listing = await this.prisma.listing.findUnique({
+          where: { id: listingId },
+          select: { title: true },
+        });
+        if (listing) listingTitle = listing.title;
+      }
     }
 
     const templateId = Number(rule!.smsTemplateConfig!.templateId);
@@ -323,6 +342,26 @@ export class NotificationService {
           firstName: user.firstName,
           lastName: user.lastName,
           listingTitle,
+          buyerName:
+            meta && typeof meta['buyerName'] === 'string'
+              ? meta['buyerName']
+              : undefined,
+          sellerName:
+            meta && typeof meta['sellerName'] === 'string'
+              ? meta['sellerName']
+              : undefined,
+          buyerPhone:
+            meta && typeof meta['buyerPhone'] === 'string'
+              ? meta['buyerPhone']
+              : undefined,
+          sellerPhone:
+            meta && typeof meta['sellerPhone'] === 'string'
+              ? meta['sellerPhone']
+              : undefined,
+          amountFormatted:
+            meta && typeof meta['amountFormatted'] === 'string'
+              ? meta['amountFormatted']
+              : undefined,
           title:
             meta && typeof meta['title'] === 'string' ? meta['title'] : undefined,
           message:
@@ -507,6 +546,7 @@ export class NotificationService {
 
   private async getRuleForType(
     type: NotificationType,
+    recipientRole?: string,
   ): Promise<SmsRule | null> {
     try {
       const row = await this.prisma.systemSetting.findUnique({
@@ -515,7 +555,8 @@ export class NotificationService {
       });
       if (!row?.value) return null;
       const parsed = JSON.parse(row.value) as Record<string, SmsRule>;
-      const rule = parsed?.[String(type)];
+      const roleKey = buildNotificationRuleKey(String(type), recipientRole);
+      const rule = parsed?.[roleKey] ?? parsed?.[String(type)];
       return rule && typeof rule === 'object' ? rule : null;
     } catch {
       return null;

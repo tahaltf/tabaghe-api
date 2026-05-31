@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { readPositiveIntSetting } from '../../common/system-settings/numeric-setting.util';
 import {
   AuctionBidStatus,
   AuctionSettlementStatus,
@@ -2966,7 +2967,7 @@ export class OrdersService {
     },
   ): Promise<void> {
     const shortId = params.orderId ? params.orderId.slice(-6) : '------';
-    const penalty = OrdersService.EXCHANGE_PAYMENT_TIMEOUT_TRUST_PENALTY;
+    const penalty = await this.getExchangePaymentTrustPenalty();
     const listingTitle = params.listingTitle?.trim() || 'کالا';
     const buyerAmountFa = Math.max(
       0,
@@ -3777,6 +3778,7 @@ export class OrdersService {
     }>,
     exchangeNoShipmentCompensationPercent: number,
   ): Promise<void> {
+    const trustPenalty = await this.getExchangePaymentTrustPenalty(tx);
     const current = await tx.order.findUnique({
       where: { id: order.id },
       select: { status: true },
@@ -3867,21 +3869,21 @@ export class OrdersService {
       const offenderId = sellerSent ? order.buyerId : order.sellerId;
       await tx.user.update({
         where: { id: offenderId },
-        data: { trustScore: { decrement: 15 } },
+        data: { trustScore: { decrement: trustPenalty } },
       });
     } else if (exchangeBothNoShipment) {
       await tx.user.update({
         where: { id: order.buyerId },
-        data: { trustScore: { decrement: 15 } },
+        data: { trustScore: { decrement: trustPenalty } },
       });
       await tx.user.update({
         where: { id: order.sellerId },
-        data: { trustScore: { decrement: 15 } },
+        data: { trustScore: { decrement: trustPenalty } },
       });
     } else {
       await tx.user.update({
         where: { id: order.sellerId },
-        data: { trustScore: { decrement: 15 } },
+        data: { trustScore: { decrement: trustPenalty } },
       });
     }
     const targetStatus =
@@ -4279,7 +4281,7 @@ export class OrdersService {
         offenderIds.length === 1 && offenderIds[0] === linkedOrder!.buyerId;
     }
 
-    const penalty = OrdersService.EXCHANGE_PAYMENT_TIMEOUT_TRUST_PENALTY;
+    const penalty = await this.getExchangePaymentTrustPenalty(tx);
     for (const uid of offenderIds) {
       await tx.user.update({
         where: { id: uid },
@@ -4772,6 +4774,16 @@ export class OrdersService {
       OrdersService.DEFAULT_EXCHANGE_NO_SHIPMENT_COMPENSATION,
     );
     return Math.max(0, parsed);
+  }
+
+  private async getExchangePaymentTrustPenalty(
+    tx: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<number> {
+    return readPositiveIntSetting(
+      tx,
+      'EXCHANGE_PAYMENT_TRUST_PENALTY',
+      OrdersService.EXCHANGE_PAYMENT_TIMEOUT_TRUST_PENALTY,
+    );
   }
 
   private async getExchangePaymentDeadlineMinutes(): Promise<number> {

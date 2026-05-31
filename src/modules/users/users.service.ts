@@ -34,6 +34,8 @@ const MY_PROFILE_SELECT = {
   status: true,
   role: true,
   isVerified: true,
+  rating: true,
+  trustScore: true,
   kycRejectionReason: true,
   kycReviewedAt: true,
 } satisfies Prisma.UserSelect;

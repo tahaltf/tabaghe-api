@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { OrderStatus, Prisma } from '@prisma/client';
+import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { UserRatingHistoryService } from '../users/user-rating-history.service';
 
 /** موفقیت معامله: به هر طرف */
@@ -18,6 +19,7 @@ export type OrderReputationSnapshot = {
 @Injectable()
 export class OrderReputationService {
   constructor(
+    private readonly prisma: PrismaService,
     private readonly userRatingHistory: UserRatingHistoryService,
   ) {}
 
@@ -34,11 +36,14 @@ export class OrderReputationService {
   ): Promise<void> {
     if (order.tradeReputationAt) return;
 
+    const successDelta = await this.getSuccessDelta(tx);
+    const penaltyDelta = await this.getPenaltyDelta(tx);
+
     if (outcome === 'SUCCESS') {
       await this.bumpUsers(
         tx,
         [order.buyerId, order.sellerId],
-        TRADE_REPUTATION_SUCCESS_DELTA,
+        successDelta,
         'cap',
         {
           orderId: order.id,
@@ -60,7 +65,7 @@ export class OrderReputationService {
         await this.bumpUsers(
           tx,
           targets,
-          -TRADE_REPUTATION_PENALTY_DELTA,
+          -penaltyDelta,
           'floor',
           {
             orderId: order.id,
@@ -87,11 +92,47 @@ export class OrderReputationService {
   async penalizeUsers(
     tx: Prisma.TransactionClient,
     userIds: string[],
-    delta = -TRADE_REPUTATION_PENALTY_DELTA,
+    delta?: number,
     context?: { orderId?: string; reason?: string; source?: string },
   ): Promise<void> {
     if (!userIds.length) return;
-    await this.bumpUsers(tx, userIds, delta, 'floor', context);
+    const penaltyDelta =
+      delta ?? -(await this.getPenaltyDelta(tx));
+    await this.bumpUsers(tx, userIds, penaltyDelta, 'floor', context);
+  }
+
+  private async getSuccessDelta(
+    tx: Prisma.TransactionClient,
+  ): Promise<number> {
+    return this.readPositiveSetting(
+      tx,
+      'TRADE_REPUTATION_SUCCESS_DELTA',
+      TRADE_REPUTATION_SUCCESS_DELTA,
+    );
+  }
+
+  private async getPenaltyDelta(
+    tx: Prisma.TransactionClient,
+  ): Promise<number> {
+    return this.readPositiveSetting(
+      tx,
+      'TRADE_REPUTATION_PENALTY_DELTA',
+      TRADE_REPUTATION_PENALTY_DELTA,
+    );
+  }
+
+  private async readPositiveSetting(
+    tx: Prisma.TransactionClient,
+    key: string,
+    fallback: number,
+  ): Promise<number> {
+    const row = await tx.systemSetting.findUnique({
+      where: { key },
+      select: { value: true },
+    });
+    const parsed = Number(row?.value ?? fallback);
+    if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+    return parsed;
   }
 
   private async bumpUsers(

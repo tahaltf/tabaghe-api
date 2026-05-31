@@ -15,6 +15,8 @@ import { BRAND_LOGO_UPLOAD_PATH } from '../../../common/upload/brand-logo-upload
 import { INSPECTION_CERTIFICATE_ASSET_UPLOAD_PATH } from '../../../common/upload/inspection-certificate-asset-upload.config';
 import { LISTING_TYPE_ENABLED_SETTING_KEYS } from '../../../common/system-settings/listing-type-enabled';
 import { PwaIconService } from '../../../common-module/pwa-icon.service';
+import { appendJsonLog } from '../../../common/logging/app-log.util';
+import { AuthenticatedUser } from '../../../shared/contracts/auth';
 
 export const SETTING_KEYS = {
   HOMEPAGE_BANNER: 'HOMEPAGE_BANNER',
@@ -51,6 +53,17 @@ export const SETTING_KEYS = {
   AUCTION_PAYMENT_DEADLINE_MINUTES: 'AUCTION_PAYMENT_DEADLINE_MINUTES',
   AUCTION_SECOND_CHANCE_DEADLINE_MINUTES:
     'AUCTION_SECOND_CHANCE_DEADLINE_MINUTES',
+  AUCTION_WINNER_PAYMENT_DEADLINE_HOURS:
+    'AUCTION_WINNER_PAYMENT_DEADLINE_HOURS',
+  AUCTION_SECOND_CHANCE_PAYMENT_DEADLINE_HOURS:
+    'AUCTION_SECOND_CHANCE_PAYMENT_DEADLINE_HOURS',
+  ORDER_COMPLETED_VIDEO_RETENTION_DAYS: 'ORDER_COMPLETED_VIDEO_RETENTION_DAYS',
+  OTP_TTL_MINUTES: 'OTP_TTL_MINUTES',
+  OTP_RESEND_COOLDOWN_SECONDS: 'OTP_RESEND_COOLDOWN_SECONDS',
+  TRADE_REPUTATION_SUCCESS_DELTA: 'TRADE_REPUTATION_SUCCESS_DELTA',
+  TRADE_REPUTATION_PENALTY_DELTA: 'TRADE_REPUTATION_PENALTY_DELTA',
+  EXCHANGE_PAYMENT_TRUST_PENALTY: 'EXCHANGE_PAYMENT_TRUST_PENALTY',
+  AUCTION_LAST_MINUTE_EXTENSION_MINUTES: 'AUCTION_LAST_MINUTE_EXTENSION_MINUTES',
   PLATFORM_ADDRESS: 'PLATFORM_ADDRESS',
   PLATFORM_ADDRESSES: 'PLATFORM_ADDRESSES',
   SUPPORT_PHONE: 'SUPPORT_PHONE',
@@ -151,7 +164,28 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   LISTING_TYPE_AUCTION_ENABLED:
     'فعال بودن ثبت آگهی مزایده برای کاربران (true/false)',
   EXCHANGE_NO_SHIPMENT_COMPENSATION:
-    'مبلغ دلجویی برای طرف ارسال‌کننده در صورت عدم ارسال طرف مقابل (تومان)',
+    'درصد هزینه کارشناسی طرفی که ارسال نکرده: از سهم او کسر و به فرستنده جبران می‌شود (۰–۱۰۰)',
+  AUCTION_WINNER_PAYMENT_DEADLINE_HOURS:
+    'مهلت پرداخت برنده مزایده پس از پایان مزایده (ساعت)',
+  AUCTION_SECOND_CHANCE_PAYMENT_DEADLINE_HOURS:
+    'مهلت پرداخت نفر بعدی در صورت عدم پرداخت برنده (ساعت)',
+  ORDER_COMPLETED_VIDEO_RETENTION_DAYS:
+    'تعداد روز نگهداری ویدیوهای سفارش تکمیل‌شده قبل از حذف خودکار',
+  OTP_TTL_MINUTES: 'مدت اعتبار کد OTP (دقیقه)',
+  OTP_RESEND_COOLDOWN_SECONDS:
+    'حداقل فاصله بین دو درخواست OTP برای یک شماره (ثانیه)',
+  TRADE_REPUTATION_SUCCESS_DELTA:
+    'افزایش امتیاز اعتماد معامله (۰–۵) پس از تکمیل موفق',
+  TRADE_REPUTATION_PENALTY_DELTA:
+    'کاهش امتیاز اعتماد معامله (۰–۵) پس از شکست یا لغو معامله',
+  EXCHANGE_PAYMENT_TRUST_PENALTY:
+    'کسر امتیاز اعتماد سیستمی (۰–۱۰۰) برای طرف مقصر در عدم پرداخت/تأخیر معاوضه',
+  AUCTION_LAST_MINUTE_EXTENSION_MINUTES:
+    'تمدید خودکار پایان مزایده وقتی پیشنهاد در N دقیقه آخر ثبت شود (دقیقه)',
+  AUCTION_PAYMENT_DEADLINE_MINUTES:
+    '@deprecated — از AUCTION_WINNER_PAYMENT_DEADLINE_HOURS استفاده کنید؛ فقط سازگاری',
+  AUCTION_SECOND_CHANCE_DEADLINE_MINUTES:
+    '@deprecated — از AUCTION_SECOND_CHANCE_PAYMENT_DEADLINE_HOURS استفاده کنید',
   ACTION_DEADLINE_REMINDER_DEFAULT_MINUTES:
     'پیش‌فرض یادآوری مهلت: اگر برای هر نوع اقدام مقدار جدا خالی باشد، وقتی کمتر از این دقیقه به پایان مهلت مانده نوتیف ارسال می‌شود',
   ACTION_DEADLINE_REMINDER_EXCHANGE_PAYMENT_MINUTES:
@@ -306,23 +340,70 @@ export class AdminSettingsService {
             : '';
         continue;
       }
+      if (key === SETTING_KEYS.AUCTION_WINNER_PAYMENT_DEADLINE_HOURS) {
+        const hours = byKey.get(key)?.value?.trim();
+        if (hours) {
+          result[key] = hours;
+          continue;
+        }
+        const legacyMinutes = Number(
+          byKey.get(SETTING_KEYS.AUCTION_PAYMENT_DEADLINE_MINUTES)?.value ?? '',
+        );
+        result[key] =
+          Number.isFinite(legacyMinutes) && legacyMinutes > 0
+            ? String(Math.max(1, Math.round(legacyMinutes / 60)))
+            : '';
+        continue;
+      }
+      if (key === SETTING_KEYS.AUCTION_SECOND_CHANCE_PAYMENT_DEADLINE_HOURS) {
+        const hours = byKey.get(key)?.value?.trim();
+        if (hours) {
+          result[key] = hours;
+          continue;
+        }
+        const legacyMinutes = Number(
+          byKey.get(SETTING_KEYS.AUCTION_SECOND_CHANCE_DEADLINE_MINUTES)?.value ??
+            '',
+        );
+        result[key] =
+          Number.isFinite(legacyMinutes) && legacyMinutes > 0
+            ? String(Math.max(1, Math.round(legacyMinutes / 60)))
+            : '';
+        continue;
+      }
       result[key] = byKey.get(key)?.value ?? '';
     }
     return result;
   }
 
-  async upsert(dto: UpsertSettingDto) {
+  async upsert(dto: UpsertSettingDto, actor?: AuthenticatedUser) {
+    const existing = await this.prisma.systemSetting.findUnique({
+      where: { key: dto.key },
+      select: { value: true },
+    });
     const description = dto.description ?? KNOWN_DESCRIPTIONS[dto.key] ?? null;
-    return this.prisma.systemSetting.upsert({
+    const row = await this.prisma.systemSetting.upsert({
       where: { key: dto.key },
       update: { value: dto.value, description },
       create: { key: dto.key, value: dto.value, description },
     });
+    if (existing?.value !== dto.value) {
+      this.logSettingChange(actor, dto.key, existing?.value ?? null, dto.value);
+    }
+    return row;
   }
 
-  async upsertMany(dto: BulkUpsertSettingsDto) {
-    return this.prisma.$transaction(
-      dto.items.map((item) => {
+  async upsertMany(dto: BulkUpsertSettingsDto, actor?: AuthenticatedUser) {
+    const items = this.expandLegacySyncItems(dto.items);
+    const keys = items.map((i) => i.key);
+    const existingRows = await this.prisma.systemSetting.findMany({
+      where: { key: { in: keys } },
+      select: { key: true, value: true },
+    });
+    const oldByKey = new Map(existingRows.map((r) => [r.key, r.value]));
+
+    const result = await this.prisma.$transaction(
+      items.map((item) => {
         const description =
           item.description ?? KNOWN_DESCRIPTIONS[item.key] ?? null;
         return this.prisma.systemSetting.upsert({
@@ -332,6 +413,64 @@ export class AdminSettingsService {
         });
       }),
     );
+
+    for (const item of items) {
+      const prev = oldByKey.get(item.key);
+      if (prev !== item.value) {
+        this.logSettingChange(actor, item.key, prev ?? null, item.value);
+      }
+    }
+
+    return result;
+  }
+
+  private expandLegacySyncItems(
+    items: BulkUpsertSettingsDto['items'],
+  ): BulkUpsertSettingsDto['items'] {
+    const out = [...items];
+    const pushIfMissing = (key: string, value: string) => {
+      if (!out.some((i) => i.key === key)) {
+        out.push({ key, value });
+      }
+    };
+
+    for (const item of items) {
+      if (item.key === SETTING_KEYS.AUCTION_WINNER_PAYMENT_DEADLINE_HOURS) {
+        const hours = Number(item.value);
+        if (Number.isFinite(hours) && hours > 0) {
+          pushIfMissing(
+            SETTING_KEYS.AUCTION_PAYMENT_DEADLINE_MINUTES,
+            String(Math.floor(hours * 60)),
+          );
+        }
+      }
+      if (item.key === SETTING_KEYS.AUCTION_SECOND_CHANCE_PAYMENT_DEADLINE_HOURS) {
+        const hours = Number(item.value);
+        if (Number.isFinite(hours) && hours > 0) {
+          pushIfMissing(
+            SETTING_KEYS.AUCTION_SECOND_CHANCE_DEADLINE_MINUTES,
+            String(Math.floor(hours * 60)),
+          );
+        }
+      }
+    }
+    return out;
+  }
+
+  private logSettingChange(
+    actor: AuthenticatedUser | undefined,
+    key: string,
+    previousValue: string | null,
+    newValue: string,
+  ): void {
+    appendJsonLog('settings-audit.log', {
+      at: new Date().toISOString(),
+      actorId: actor?.id ?? null,
+      actorRole: actor?.role ?? null,
+      key,
+      previousValue,
+      newValue,
+    });
   }
 
   async remove(key: string) {

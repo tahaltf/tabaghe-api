@@ -8,7 +8,8 @@ WORKDIR /app
 COPY package*.json ./
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
-RUN npm ci --legacy-peer-deps
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --legacy-peer-deps
 
 COPY . .
 
@@ -47,7 +48,8 @@ ENV NODE_ENV=production
 
 COPY package*.json ./
 # 🟢 حالا این دستور بدون تلاش برای دانلود کروم و بدون خطا اجرا می‌شود
-RUN npm ci --only=production --legacy-peer-deps
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --only=production --legacy-peer-deps
 
 # کپی کردن خروجی‌های اصلی از استیج بیلد
 COPY --from=build /app/dist ./dist

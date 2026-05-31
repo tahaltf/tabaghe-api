@@ -16,6 +16,8 @@ import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
+import { CurrentUser } from '../../auth/decorators/current-user.decorator';
+import { AuthenticatedUser } from '../../../shared/contracts/auth';
 import { AdminSettingsService } from '../services/admin-settings.service';
 import {
   BulkUpsertSettingsDto,
@@ -42,13 +44,16 @@ export class AdminSettingsController {
   }
 
   @Put()
-  upsert(@Body() dto: UpsertSettingDto) {
-    return this.service.upsert(dto);
+  upsert(@Body() dto: UpsertSettingDto, @CurrentUser() actor: AuthenticatedUser) {
+    return this.service.upsert(dto, actor);
   }
 
   @Put('bulk')
-  upsertMany(@Body() dto: BulkUpsertSettingsDto) {
-    return this.service.upsertMany(dto);
+  upsertMany(
+    @Body() dto: BulkUpsertSettingsDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.service.upsertMany(dto, actor);
   }
 
   @Post('banner')

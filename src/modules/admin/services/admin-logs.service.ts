@@ -18,4 +18,8 @@ export class AdminLogsService {
   listAuctionTimeline(limit = 500) {
     return readRecentJsonLogs('auction-timeline.log', limit);
   }
+
+  listSettingsAudit(limit = 200) {
+    return readRecentJsonLogs('settings-audit.log', limit);
+  }
 }

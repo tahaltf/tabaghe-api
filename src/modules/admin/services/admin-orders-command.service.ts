@@ -25,6 +25,7 @@ import {
   SetParticipantShippingDto,
 } from '../dto/admin-order.dto';
 import { AppSettingsService } from '../../../shared/settings/app-settings.service';
+import { readPositiveIntSetting } from '../../../common/system-settings/numeric-setting.util';
 import { FeeCalculatorService } from '../../fees/fee-calculator.service';
 import {
   OrderReputationService,
@@ -3176,9 +3177,10 @@ export class AdminOrdersCommandService {
             inspectionPenaltyPercent: compensationPercent,
           });
 
+        const trustPenalty = await this.getExchangePaymentTrustPenalty(tx);
         await tx.user.update({
           where: { id: offenderId },
-          data: { trustScore: { decrement: 15 } },
+          data: { trustScore: { decrement: trustPenalty } },
         });
 
         await tx.order.update({
@@ -3299,13 +3301,14 @@ export class AdminOrdersCommandService {
           inspectionPenaltyPercent: 0,
         });
 
+      const trustPenalty = await this.getExchangePaymentTrustPenalty(tx);
       await tx.user.update({
         where: { id: order.buyerId },
-        data: { trustScore: { decrement: 15 } },
+        data: { trustScore: { decrement: trustPenalty } },
       });
       await tx.user.update({
         where: { id: order.sellerId },
-        data: { trustScore: { decrement: 15 } },
+        data: { trustScore: { decrement: trustPenalty } },
       });
 
       const targetStatus =
@@ -3384,6 +3387,12 @@ export class AdminOrdersCommandService {
         offenderId,
       };
     });
+  }
+
+  private getExchangePaymentTrustPenalty(
+    tx: Prisma.TransactionClient = this.prisma,
+  ): Promise<number> {
+    return readPositiveIntSetting(tx, 'EXCHANGE_PAYMENT_TRUST_PENALTY', 15);
   }
 }
 

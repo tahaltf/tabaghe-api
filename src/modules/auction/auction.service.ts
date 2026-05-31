@@ -19,9 +19,10 @@ import { AuctionGateway } from './auction.gateway';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuctionEvents } from './auction.events';
 import { appendJsonLog } from '../../common/logging/app-log.util';
+import { readPositiveIntSetting } from '../../common/system-settings/numeric-setting.util';
 
 const TOP_BIDDERS_LIMIT = 4;
-const LAST_MINUTE_EXTENSION_MINUTES = 10;
+const DEFAULT_LAST_MINUTE_EXTENSION_MINUTES = 10;
 const DEFAULT_WINNER_PAYMENT_DEADLINE_HOURS = 48;
 const DEFAULT_SECOND_CHANCE_PAYMENT_DEADLINE_HOURS = 24;
 const MIN_TRUST_SCORE_FOR_AUCTION = 40;
@@ -81,6 +82,14 @@ export class AuctionService {
       return DEFAULT_SECOND_CHANCE_PAYMENT_DEADLINE_HOURS;
     }
     return Math.floor(parsed);
+  }
+
+  private async getLastMinuteExtensionMinutes(tx: any): Promise<number> {
+    return readPositiveIntSetting(
+      tx,
+      'AUCTION_LAST_MINUTE_EXTENSION_MINUTES',
+      DEFAULT_LAST_MINUTE_EXTENSION_MINUTES,
+    );
   }
 
   private async getNumericSetting(
@@ -464,9 +473,10 @@ export class AuctionService {
       }
 
       const now = new Date();
+      const extensionMinutes = await this.getLastMinuteExtensionMinutes(tx);
       const remaining = auction.endDatetime.getTime() - now.getTime();
       const shouldExtend =
-        remaining > 0 && remaining <= LAST_MINUTE_EXTENSION_MINUTES * 60_000;
+        remaining > 0 && remaining <= extensionMinutes * 60_000;
       await tx.listingAuction.update({
         where: { listingId },
         data: {
@@ -478,7 +488,7 @@ export class AuctionService {
             ? {
                 endDatetime: new Date(
                   auction.endDatetime.getTime() +
-                    LAST_MINUTE_EXTENSION_MINUTES * 60_000,
+                    extensionMinutes * 60_000,
                 ),
               }
             : {}),

@@ -45,4 +45,11 @@ export class AdminLogsController {
   ) {
     return this.logs.listAuctionTimeline(limit);
   }
+
+  @Get('settings-audit')
+  settingsAudit(
+    @Query('limit', new DefaultValuePipe(200), ParseIntPipe) limit: number,
+  ) {
+    return this.logs.listSettingsAudit(limit);
+  }
 }
