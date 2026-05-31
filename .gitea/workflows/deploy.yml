@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Deploy via SSH
-        uses: https://github.com/appleboy/ssh-action@v1.2.0
+        uses: https://gitea.com/actions/appleboy-ssh-action@v1.2.0
         with:
           host: ${{ secrets.PROD_SSH_HOST }}
           username: ${{ secrets.PROD_SSH_USER }}
