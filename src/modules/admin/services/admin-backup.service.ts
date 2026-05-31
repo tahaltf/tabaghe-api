@@ -6,7 +6,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createReadStream } from 'fs';
+import { createReadStream, createWriteStream } from 'fs';
 import { access, mkdir, readdir, stat, unlink } from 'fs/promises';
 import { join, resolve } from 'path';
 import { spawn, spawnSync } from 'child_process';
@@ -584,11 +584,122 @@ export class AdminBackupService {
     await this.ensureBackupDir(cfg.backupDir);
     await this.pruneOldBackups(cfg.backupDir, cfg.retentionDays);
 
+    const errors: string[] = [];
     const script = this.hostScriptPath();
+
     if (cfg.preferHostScript && script) {
-      return this.runHostScript(cfg, script);
+      try {
+        return await this.runHostScript(cfg, script);
+      } catch (err) {
+        errors.push(this.errMsg(err, 'اسکریپت هاست'));
+      }
     }
-    return this.runPgDump(cfg);
+
+    try {
+      return await this.runDockerPgDump(cfg);
+    } catch (err) {
+      errors.push(this.errMsg(err, 'docker exec'));
+    }
+
+    try {
+      return await this.runPgDump(cfg);
+    } catch (err) {
+      errors.push(this.errMsg(err, 'pg_dump'));
+    }
+
+    throw new ServiceUnavailableException(
+      [
+        'بک‌اپ ناموفق — هیچ روشی جواب نداد.',
+        ...errors,
+        'راه‌حل: docker compose build --no-cache backend && docker compose up -d backend',
+        'در .env مقدار BACKUP_POSTGRES_CONTAINER را برابر نام کانتینر Postgres بگذارید (مثلاً tabagheh-db)',
+        'برای مانیتور Docker: volume /var/run/docker.sock:/var/run/docker.sock',
+      ].join(' '),
+    );
+  }
+
+  private errMsg(err: unknown, prefix: string): string {
+    const msg = err instanceof Error ? err.message : String(err);
+    return `${prefix}: ${msg}`;
+  }
+
+  private runDockerPgDump(
+    cfg: BackupConfig,
+  ): Promise<{ fileName: string; path: string }> {
+    if (!this.canRunDocker()) {
+      return Promise.reject(
+        new Error('Docker CLI یا socket در دسترس نیست'),
+      );
+    }
+
+    const container = this.resolvePostgresContainer();
+    if (!this.isContainerRunning(container)) {
+      return Promise.reject(
+        new Error(
+          `کانتینر Postgres «${container}» در حال اجرا نیست — BACKUP_POSTGRES_CONTAINER را در .env اصلاح کنید`,
+        ),
+      );
+    }
+
+    const user = process.env.BACKUP_POSTGRES_USER ?? 'tabagheh_maindb';
+    const db = process.env.BACKUP_POSTGRES_DB ?? 'tabagheh_db';
+    const ts = this.timestamp();
+    const fileName = `tabagheh_db_${ts}.dump`;
+    const outPath = join(cfg.backupDir, fileName);
+
+    return new Promise((resolve, reject) => {
+      const child = spawn(
+        'docker',
+        [
+          'exec',
+          container,
+          'pg_dump',
+          '-U',
+          user,
+          '-d',
+          db,
+          '--format=custom',
+        ],
+        { env: process.env },
+      );
+
+      const fileStream = createWriteStream(outPath);
+      let stderr = '';
+
+      child.stdout.pipe(fileStream);
+      child.stderr.on('data', (d) => (stderr += String(d)));
+      child.on('error', (err) => {
+        fileStream.destroy();
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          reject(new Error('docker CLI یافت نشد — image backend را rebuild کنید'));
+          return;
+        }
+        reject(err);
+      });
+
+      fileStream.on('error', reject);
+
+      child.on('close', (code) => {
+        fileStream.end();
+        if (code !== 0) {
+          reject(new Error(stderr.trim() || `docker exec pg_dump exit ${code}`));
+          return;
+        }
+        resolve({ fileName, path: outPath });
+      });
+    });
+  }
+
+  private canRunDocker(): boolean {
+    try {
+      const r = spawnSync('docker', ['info'], {
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+      return r.status === 0;
+    } catch {
+      return false;
+    }
   }
 
   private runHostScript(
@@ -842,6 +953,7 @@ export class AdminBackupService {
       'tabagheh-db',
       'tabagheh_postgres',
       'postgres_db',
+      'tabagheh-db-1',
     ];
     for (const name of candidates) {
       if (this.isContainerRunning(name)) return name;
