@@ -9,7 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { createReadStream } from 'fs';
 import { access, mkdir, readdir, stat, unlink } from 'fs/promises';
 import { join, resolve } from 'path';
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import type { UpdateBackupConfigDto } from '../dto/admin-backup.dto';
 
@@ -37,6 +37,22 @@ export interface BackupFileItem {
   fileName: string;
   sizeBytes: number;
   createdAt: string;
+}
+
+export interface BackupFilesSummary {
+  fileCount: number;
+  totalBytes: number;
+  latestFileName: string | null;
+  latestCreatedAt: string | null;
+  latestSizeBytes: number | null;
+}
+
+export interface BackupConfigResponse extends BackupConfig {
+  hostScriptPath: string | null;
+  filesSummary: BackupFilesSummary;
+  /** آخرین فایل واقعی روی دیسک (ممکن است با lastRunAt متفاوت باشد) */
+  latestOnDisk: BackupFileItem | null;
+  postgresContainer: string;
 }
 
 export interface ServerJobInfo {
@@ -90,12 +106,81 @@ export class AdminBackupService {
     private readonly configService: ConfigService,
   ) {}
 
-  async getConfig(): Promise<BackupConfig & { hostScriptPath: string | null }> {
+  async getConfig(): Promise<BackupConfigResponse> {
     const cfg = await this.loadConfig();
+    const files = await this.listFiles().catch(() => [] as BackupFileItem[]);
+    const synced = await this.syncConfigFromDiskFiles(cfg, files);
+    const latestOnDisk = files[0] ?? null;
+
     return {
-      ...cfg,
+      ...synced,
       hostScriptPath: this.hostScriptPath(),
+      filesSummary: this.buildFilesSummary(files),
+      latestOnDisk,
+      postgresContainer: this.resolvePostgresContainer(),
     };
+  }
+
+  async pruneBackupFiles(
+    mode: 'retention' | 'keepLatest' | 'allExceptLatest' | 'all',
+    keepLatest = 1,
+  ): Promise<{ deleted: string[]; kept: string[] }> {
+    const cfg = await this.loadConfig();
+    const files = await this.listFiles();
+
+    if (!files.length) {
+      return { deleted: [], kept: [] };
+    }
+
+    let toDelete: BackupFileItem[] = [];
+
+    switch (mode) {
+      case 'retention': {
+        const cutoff =
+          Date.now() - cfg.retentionDays * 24 * 60 * 60 * 1000;
+        toDelete = files.filter(
+          (f) => new Date(f.createdAt).getTime() < cutoff,
+        );
+        break;
+      }
+      case 'keepLatest': {
+        const n = Math.max(1, keepLatest);
+        toDelete = files.slice(n);
+        break;
+      }
+      case 'allExceptLatest':
+        toDelete = files.slice(1);
+        break;
+      case 'all':
+        toDelete = [...files];
+        break;
+      default:
+        throw new BadRequestException('حالت پاکسازی نامعتبر است');
+    }
+
+    const deleted: string[] = [];
+    for (const f of toDelete) {
+      await unlink(join(cfg.backupDir, f.fileName)).catch(() => undefined);
+      deleted.push(f.fileName);
+    }
+
+    const kept = files
+      .map((f) => f.fileName)
+      .filter((name) => !deleted.includes(name));
+
+    if (deleted.length) {
+      const remaining = await this.listFiles().catch(() => []);
+      const latest = remaining[0] ?? null;
+      await this.saveConfig({
+        ...cfg,
+        lastFileName: latest?.fileName ?? null,
+        lastFileSizeBytes: latest?.sizeBytes ?? null,
+        lastRunAt: latest?.createdAt ?? cfg.lastRunAt,
+        lastStatus: latest ? 'success' : cfg.lastStatus,
+      });
+    }
+
+    return { deleted, kept };
   }
 
   async updateConfig(
@@ -236,6 +321,33 @@ export class AdminBackupService {
     const path = await this.resolveBackupPath(fileName);
     await unlink(path);
     return { fileName };
+  }
+
+  async registerUploadedFile(
+    fileName: string,
+    sizeBytes: number,
+  ): Promise<BackupFileItem> {
+    if (!this.isValidBackupFileName(fileName) && !/^tabagheh_db_.+\.dump$/.test(fileName)) {
+      throw new BadRequestException('نام فایل بک‌اپ نامعتبر است');
+    }
+
+    const cfg = await this.loadConfig();
+    const item: BackupFileItem = {
+      fileName,
+      sizeBytes,
+      createdAt: new Date().toISOString(),
+    };
+
+    await this.saveConfig({
+      ...cfg,
+      lastRunAt: item.createdAt,
+      lastStatus: 'success',
+      lastError: null,
+      lastFileName: fileName,
+      lastFileSizeBytes: sizeBytes,
+    });
+
+    return item;
   }
 
   async getDownloadPayload(fileName: string): Promise<{
@@ -415,7 +527,7 @@ export class AdminBackupService {
             `BACKUP_DIR — مسیر داخل کانتینر API (پیش‌فرض: ${cfg.backupDir})`,
             'BACKUP_SCRIPT_PATH — مسیر اسکریپت داخل کانتینر (مثلاً /scripts/tabagheh_pg_backup.sh)',
             'BACKUP_HOST_DIR — پوشه روی هاست که به /var/backups/tabagheh mount می‌شود',
-            'POSTGRES_CONTAINER — نام کانتینر (پیش‌فرض: tabagheh_postgres)',
+            'POSTGRES_CONTAINER / BACKUP_POSTGRES_CONTAINER — نام کانتینر Postgres (مثلاً tabagheh-db یا tabagheh_postgres)',
             'POSTGRES_USER / POSTGRES_DB — مطابق docker-compose',
           ],
         },
@@ -488,8 +600,7 @@ export class AdminBackupService {
         ...process.env,
         BACKUP_DIR: cfg.backupDir,
         RETENTION_DAYS: String(cfg.retentionDays),
-        POSTGRES_CONTAINER:
-          process.env.BACKUP_POSTGRES_CONTAINER ?? 'tabagheh_postgres',
+        POSTGRES_CONTAINER: this.resolvePostgresContainer(),
         POSTGRES_USER: process.env.BACKUP_POSTGRES_USER ?? 'tabagheh_maindb',
         POSTGRES_DB: process.env.BACKUP_POSTGRES_DB ?? 'tabagheh_db',
       };
@@ -596,7 +707,11 @@ export class AdminBackupService {
   }
 
   private isValidBackupFileName(name: string): boolean {
-    return /^tabagheh_db_[\d]{4}-[\d]{2}-[\d]{2}_[\d]{4}\.dump$/.test(name);
+    return (
+      /^tabagheh_db_[\d]{4}-[\d]{2}-[\d]{2}_[\d]{4}\.dump$/.test(name) ||
+      /^tabagheh_db_upload_[\d]{4}-[\d]{2}-[\d]{2}_[\d]{4}\.dump$/.test(name) ||
+      /^tabagheh_db_.+\.dump$/.test(name)
+    );
   }
 
   private async ensureBackupDir(dir: string): Promise<void> {
@@ -663,6 +778,90 @@ export class AdminBackupService {
         ...DEFAULT_CONFIG,
         backupDir: this.normalizeBackupDir(DEFAULT_CONFIG.backupDir),
       };
+    }
+  }
+
+  private buildFilesSummary(files: BackupFileItem[]): BackupFilesSummary {
+    if (!files.length) {
+      return {
+        fileCount: 0,
+        totalBytes: 0,
+        latestFileName: null,
+        latestCreatedAt: null,
+        latestSizeBytes: null,
+      };
+    }
+    const latest = files[0];
+    return {
+      fileCount: files.length,
+      totalBytes: files.reduce((s, f) => s + f.sizeBytes, 0),
+      latestFileName: latest.fileName,
+      latestCreatedAt: latest.createdAt,
+      latestSizeBytes: latest.sizeBytes,
+    };
+  }
+
+  private async syncConfigFromDiskFiles(
+    cfg: BackupConfig,
+    files: BackupFileItem[],
+  ): Promise<BackupConfig> {
+    if (!files.length) return cfg;
+
+    const latest = files[0];
+    const latestTime = new Date(latest.createdAt).getTime();
+    const lastRunTime = cfg.lastRunAt
+      ? new Date(cfg.lastRunAt).getTime()
+      : 0;
+
+    const diskIsNewer =
+      !cfg.lastFileName ||
+      latest.fileName !== cfg.lastFileName ||
+      latestTime > lastRunTime + 60_000;
+
+    if (!diskIsNewer) return cfg;
+
+    const synced: BackupConfig = {
+      ...cfg,
+      lastFileName: latest.fileName,
+      lastFileSizeBytes: latest.sizeBytes,
+      lastRunAt: latest.createdAt,
+      lastStatus: 'success',
+      lastError: null,
+    };
+    await this.saveConfig(synced);
+    return synced;
+  }
+
+  private resolvePostgresContainer(): string {
+    const explicit =
+      process.env.BACKUP_POSTGRES_CONTAINER?.trim() ||
+      process.env.POSTGRES_CONTAINER?.trim();
+    if (explicit) return explicit;
+
+    const candidates = [
+      'tabagheh-db',
+      'tabagheh_postgres',
+      'postgres_db',
+    ];
+    for (const name of candidates) {
+      if (this.isContainerRunning(name)) return name;
+    }
+    return 'tabagheh_postgres';
+  }
+
+  private isContainerRunning(name: string): boolean {
+    try {
+      const r = spawnSync('docker', ['ps', '--format', '{{.Names}}'], {
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+      if (r.status !== 0) return false;
+      return r.stdout
+        .split('\n')
+        .map((l) => l.trim())
+        .includes(name);
+    } catch {
+      return false;
     }
   }
 

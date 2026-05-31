@@ -33,7 +33,11 @@ RUN apk add --no-cache \
     freetype \
     harfbuzz \
     ca-certificates \
-    ttf-freefont
+    ttf-freefont \
+    bash \
+    docker-cli \
+    postgresql-client \
+    coreutils
 
 # 🟢 اصلاح و یکپارچه‌سازی متغیرها در استیج دوم (برای متوقف کردن دانلود در npm ci)
 ENV PUPPETEER_SKIP_DOWNLOAD=true

@@ -3,10 +3,27 @@
 set -euo pipefail
 
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/tabagheh/postgres}"
-POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-tabagheh_postgres}"
 POSTGRES_USER="${POSTGRES_USER:-tabagheh_maindb}"
 POSTGRES_DB="${POSTGRES_DB:-tabagheh_db}"
 RETENTION_DAYS="${RETENTION_DAYS:-14}"
+
+resolve_postgres_container() {
+  if [[ -n "${POSTGRES_CONTAINER:-}" ]]; then
+    echo "$POSTGRES_CONTAINER"
+    return
+  fi
+  if command -v docker >/dev/null 2>&1; then
+    for c in tabagheh-db tabagheh_postgres postgres_db; do
+      if docker ps --format '{{.Names}}' | grep -qx "$c"; then
+        echo "$c"
+        return
+      fi
+    done
+  fi
+  echo "tabagheh_postgres"
+}
+
+POSTGRES_CONTAINER="$(resolve_postgres_container)"
 
 TS="$(date +%F_%H%M)"
 FILE="$BACKUP_DIR/tabagheh_db_${TS}.dump"

@@ -29,6 +29,9 @@ import { AdminBlogController } from './controllers/admin-blog.controller';
 import { AdminBadgesController } from './controllers/admin-badges.controller';
 import { AdminVaultController } from './controllers/admin-vault.controller';
 import { AdminBackupController } from './controllers/admin-backup.controller';
+import { AdminPlatformContentController } from './controllers/admin-platform-content.controller';
+import { AdminServerStorageController } from './controllers/admin-server-storage.controller';
+import { AdminServerMonitorController } from './controllers/admin-server-monitor.controller';
 import { AdminSystemJobsController } from './controllers/admin-system-jobs.controller';
 
 // Services
@@ -56,6 +59,9 @@ import { AdminBadgesService } from './services/admin-badges.service';
 import { AdminVaultService } from './services/admin-vault.service';
 import { AdminListingDeleteService } from './services/admin-listing-delete.service';
 import { AdminBackupService } from './services/admin-backup.service';
+import { AdminPlatformContentService } from './services/admin-platform-content.service';
+import { AdminServerStorageService } from './services/admin-server-storage.service';
+import { AdminServerMonitorService } from './services/admin-server-monitor.service';
 import { AdminBackupScheduler } from './services/admin-backup.scheduler';
 import { AdminSystemJobsService } from './services/admin-system-jobs.service';
 import { OrdersModule } from '../orders/orders.module';
@@ -100,6 +106,9 @@ import { CommonModuleModule } from '../../common-module/common-module.module';
     AdminBadgesController,
     AdminVaultController,
     AdminBackupController,
+    AdminPlatformContentController,
+    AdminServerStorageController,
+    AdminServerMonitorController,
     AdminSystemJobsController,
   ],
   providers: [
@@ -126,6 +135,9 @@ import { CommonModuleModule } from '../../common-module/common-module.module';
     AdminVaultService,
     AdminListingDeleteService,
     AdminBackupService,
+    AdminPlatformContentService,
+    AdminServerStorageService,
+    AdminServerMonitorService,
     AdminBackupScheduler,
     AdminSystemJobsService,
     SmsService,
