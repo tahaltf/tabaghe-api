@@ -1,16 +1,20 @@
 ﻿import { Injectable } from '@nestjs/common';
-import { OrdersService } from './orders.service';
+import { OrdersListQueryService } from './services/query/orders-list-query.service';
+import { OrdersDetailQueryService } from './services/query/orders-detail-query.service';
 
 @Injectable()
 export class OrdersQueryService {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly listQuery: OrdersListQueryService,
+    private readonly detailQuery: OrdersDetailQueryService,
+  ) {}
 
   getOrdersByType(
     userId: string,
     type: 'BUY' | 'SELL',
     options: { page?: number; pageSize?: number } = {},
   ) {
-    return this.ordersService.getOrdersByType(userId, type, options);
+    return this.listQuery.getOrdersByType(userId, type, options);
   }
 
   getMyRequests(
@@ -21,10 +25,10 @@ export class OrdersQueryService {
       pageSize?: number;
     } = {},
   ) {
-    return this.ordersService.getMyRequests(userId, options);
+    return this.listQuery.getMyRequests(userId, options);
   }
 
   getOrderById(userId: string, orderId: string) {
-    return this.ordersService.getOrderById(userId, orderId);
+    return this.detailQuery.getOrderById(userId, orderId);
   }
 }

@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { OrdersService } from './orders.service';
+import { OrdersCheckoutService } from './services/command/orders-checkout.service';
+import { OrdersShippingService } from './services/command/orders-shipping.service';
+import { OrdersCompletionService } from './services/command/orders-completion.service';
+import { OrdersSchedulerService } from './services/scheduler/orders-scheduler.service';
+import { OrdersSettingsService } from './orders-settings.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { FeeCalculatorService } from '../fees/fee-calculator.service';
@@ -11,6 +15,8 @@ import { OrderReputationService } from './order-reputation.service';
 import { ExchangeService } from '../exchange/exchange.service';
 import { QuotaService } from '../quota/quota.service';
 import { ListingCommandService } from '../listing/services/listing-command.service';
+import { OrdersResponseEnrichmentService } from './services/query/orders-response-enrichment.service';
+import { ExchangeOrderNotifyService } from '../notification/exchange-order-notify.service';
 import {
   ListingStatus,
   OrderStatus,
@@ -19,8 +25,11 @@ import {
   WalletTransactionType,
 } from '@prisma/client';
 
-describe('OrdersService', () => {
-  let service: OrdersService;
+describe('Orders domain services', () => {
+  let checkout: OrdersCheckoutService;
+  let shipping: OrdersShippingService;
+  let completion: OrdersCompletionService;
+  let scheduler: OrdersSchedulerService;
 
   const prismaMock = {
     order: {
@@ -38,6 +47,7 @@ describe('OrdersService', () => {
   const walletMock = {
     releaseEscrow: jest.fn(),
     transferToEscrow: jest.fn(),
+    getOrderScopedBlockedAmount: jest.fn().mockResolvedValue(0),
     refundExchangeExtraOnCancel: jest.fn(),
     refundExchangeBothNoShipmentOnCancel: jest.fn(),
     refundExchangeOneSideNoShipmentOnCancel: jest.fn(),
@@ -50,11 +60,22 @@ describe('OrdersService', () => {
   };
   const paymentsMock = { initiateOrderPayment: jest.fn() };
   const notificationMock = { create: jest.fn() };
+  const exchangeOrderNotifyMock = {
+    notifyCheckoutProgress: jest.fn(),
+    afterShipmentUpdated: jest.fn(),
+  };
   const orderReputationMock = { recordTerminalOutcome: jest.fn() };
   const exchangeMock = { rejectNonWinningExchangeOffersAfterSale: jest.fn() };
   const quotaMock = { releaseOnReject: jest.fn().mockResolvedValue(undefined) };
   const listingCommandMock = {
     rejectAfterTradeFailure: jest.fn().mockResolvedValue(undefined),
+  };
+  const enrichmentMock = {
+    computeBuyerConfirmDeadlineNow: jest.fn(),
+    ensureBuyerConfirmDeadline: jest.fn(),
+    isBuyerConfirmDeadlineExpired: jest.fn(),
+    attachBuyerConfirmDeadline: jest.fn((o) => o),
+    enrichOrderClientFields: jest.fn((o) => o),
   };
   const stateMachineMock = {
     canTransition: jest.fn(),
@@ -65,7 +86,11 @@ describe('OrdersService', () => {
     jest.clearAllMocks();
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        OrdersService,
+        OrdersCheckoutService,
+        OrdersShippingService,
+        OrdersCompletionService,
+        OrdersSchedulerService,
+        OrdersSettingsService,
         { provide: PrismaService, useValue: prismaMock },
         { provide: WalletService, useValue: walletMock },
         { provide: FeeCalculatorService, useValue: feeMock },
@@ -73,18 +98,30 @@ describe('OrdersService', () => {
         { provide: OrdersStateMachineService, useValue: stateMachineMock },
         { provide: PaymentsService, useValue: paymentsMock },
         { provide: NotificationService, useValue: notificationMock },
+        {
+          provide: ExchangeOrderNotifyService,
+          useValue: exchangeOrderNotifyMock,
+        },
         { provide: OrderReputationService, useValue: orderReputationMock },
         { provide: ExchangeService, useValue: exchangeMock },
         { provide: QuotaService, useValue: quotaMock },
         { provide: ListingCommandService, useValue: listingCommandMock },
+        {
+          provide: OrdersResponseEnrichmentService,
+          useValue: enrichmentMock,
+        },
       ],
     }).compile();
 
-    service = module.get<OrdersService>(OrdersService);
+    checkout = module.get(OrdersCheckoutService);
+    shipping = module.get(OrdersShippingService);
+    completion = module.get(OrdersCompletionService);
+    scheduler = module.get(OrdersSchedulerService);
   });
 
   it('should be defined', () => {
-    expect(service).toBeDefined();
+    expect(checkout).toBeDefined();
+    expect(scheduler).toBeDefined();
   });
 
   it('handleUniversalOrder EXCHANGE: removes stale cancelled listing order before create', async () => {
@@ -172,7 +209,7 @@ describe('OrdersService', () => {
       async (cb: (trx: typeof tx) => Promise<unknown>) => cb(tx),
     );
 
-    const result = await service.handleUniversalOrder(buyerId, {
+    const result = await checkout.handleUniversalOrder(buyerId, {
       orderType: 'EXCHANGE',
       paymentMethod: 'WALLET',
       exchangeOfferId: offerId,
@@ -302,7 +339,7 @@ describe('OrdersService', () => {
       async (cb: (trx: typeof tx) => Promise<unknown>) => cb(tx),
     );
 
-    await service.handleUniversalOrder(buyerId, {
+    await checkout.handleUniversalOrder(buyerId, {
       orderType: 'EXCHANGE',
       paymentMethod: 'WALLET',
       exchangeOfferId: offerId,
@@ -363,8 +400,12 @@ describe('OrdersService', () => {
     prismaMock.$transaction.mockImplementation(
       async (cb: (trx: typeof tx) => Promise<unknown>) => cb(tx),
     );
+    walletMock.getOrderScopedBlockedAmount.mockImplementation(
+      async (_tx, params: { userId: string }) =>
+        params.userId === 'buyer-1' ? 500 : 0,
+    );
 
-    await service.confirmOrder('buyer-1', 'ord-1');
+    await completion.confirmOrder('buyer-1', 'ord-1');
 
     expect(walletMock.releaseEscrow).toHaveBeenCalledTimes(1);
     expect(walletMock.releaseEscrow).toHaveBeenCalledWith(
@@ -402,12 +443,15 @@ describe('OrdersService', () => {
       shippingDeadline: new Date(Date.now() - 60_000),
       updatedAt: new Date(Date.now() - 86_400_000),
       createdAt: new Date(Date.now() - 86_400_000),
-      // shippingDeadline is not used inside transaction; findMany will just return this record.
+      listing: { title: 'کالا' },
     };
 
     prismaMock.order.findMany.mockResolvedValue([expiredOrder]);
 
     const tx = {
+      systemSetting: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
       exchangeOffer: {
         findUnique: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -426,6 +470,13 @@ describe('OrdersService', () => {
           .fn()
           .mockResolvedValue({ id: listingId, status: ListingStatus.APPROVED }),
       },
+      ticket: {
+        create: jest
+          .fn()
+          .mockResolvedValueOnce({ id: 'ticket-sender' })
+          .mockResolvedValueOnce({ id: 'ticket-offender' }),
+      },
+      notification: { createMany: jest.fn().mockResolvedValue({ count: 2 }) },
     };
 
     prismaMock.$transaction.mockImplementation(
@@ -438,7 +489,7 @@ describe('OrdersService', () => {
       compensation: 20,
     });
 
-    await service.autoCancelExpiredOrders();
+    await scheduler.autoCancelExpiredOrders();
 
     expect(walletMock.refundExchangeOneSideNoShipmentOnCancel).toHaveBeenCalledWith(
       tx,
@@ -514,6 +565,9 @@ describe('OrdersService', () => {
     prismaMock.order.findMany.mockResolvedValue([expiredOrder]);
 
     const tx = {
+      systemSetting: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
       exchangeOffer: {
         findUnique: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -530,6 +584,13 @@ describe('OrdersService', () => {
           .fn()
           .mockResolvedValue({ id: 'lst-1', status: ListingStatus.APPROVED }),
       },
+      ticket: {
+        create: jest
+          .fn()
+          .mockResolvedValueOnce({ id: 'ticket-sender' })
+          .mockResolvedValueOnce({ id: 'ticket-offender' }),
+      },
+      notification: { createMany: jest.fn().mockResolvedValue({ count: 2 }) },
     };
 
     prismaMock.$transaction.mockImplementation(
@@ -542,7 +603,7 @@ describe('OrdersService', () => {
       compensation: 20,
     });
 
-    await service.autoCancelExpiredOrders();
+    await scheduler.autoCancelExpiredOrders();
 
     expect(stateMachineMock.assertTransition).toHaveBeenCalledWith(
       OrderStatus.SHIPPED_TO_HUB,
@@ -589,6 +650,9 @@ describe('OrdersService', () => {
     prismaMock.order.findMany.mockResolvedValue([expiredOrder]);
 
     const tx = {
+      systemSetting: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
       exchangeOffer: {
         findUnique: jest.fn().mockResolvedValue({
           extraPayment: 200,
@@ -631,7 +695,7 @@ describe('OrdersService', () => {
       penaltyPercent: 0,
     });
 
-    await service.autoCancelExpiredOrders();
+    await scheduler.autoCancelExpiredOrders();
 
     expect(
       walletMock.refundExchangeBothNoShipmentOnCancel,
@@ -707,6 +771,9 @@ describe('OrdersService', () => {
     prismaMock.order.findMany.mockResolvedValue([expiredOrder]);
 
     const tx = {
+      systemSetting: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
       exchangeOffer: { findUnique: jest.fn() },
       wallet: { upsert: jest.fn() },
       walletTransaction: { create: jest.fn(), updateMany: jest.fn() },
@@ -738,7 +805,7 @@ describe('OrdersService', () => {
 
     walletMock.refundDirectOrderEscrowOnCancel.mockResolvedValue(undefined);
 
-    await service.autoCancelExpiredOrders();
+    await scheduler.autoCancelExpiredOrders();
 
     expect(listingCommandMock.rejectAfterTradeFailure).toHaveBeenCalledWith(
       tx,
@@ -848,10 +915,21 @@ describe('OrdersService', () => {
     prismaMock.$transaction.mockImplementation(
       async (cb: (trx: typeof tx) => Promise<unknown>) => cb(tx),
     );
+    walletMock.getOrderScopedBlockedAmount
+      .mockResolvedValueOnce(200)
+      .mockResolvedValueOnce(0);
     walletMock.releaseEscrow.mockResolvedValue(undefined);
     orderReputationMock.recordTerminalOutcome.mockResolvedValue(undefined);
 
-    await service.autoConfirmOrders();
+    enrichmentMock.isBuyerConfirmDeadlineExpired.mockResolvedValue(true);
+    walletMock.getOrderScopedBlockedAmount.mockReset();
+    walletMock.getOrderScopedBlockedAmount
+      .mockResolvedValueOnce(200)
+      .mockResolvedValueOnce(0);
+    walletMock.releaseEscrow.mockResolvedValue(undefined);
+    orderReputationMock.recordTerminalOutcome.mockResolvedValue(undefined);
+
+    await scheduler.autoConfirmOrders();
 
     expect(walletMock.releaseEscrow).toHaveBeenCalledWith(
       'seller-1',
@@ -889,7 +967,7 @@ describe('OrdersService', () => {
       prismaMock.order.update = jest.fn();
 
       await expect(
-        service.updateTrackingCode('seller-1', 'ord-1', '123', 'video.mp4'),
+        shipping.updateTrackingCode('seller-1', 'ord-1', '123', 'video.mp4'),
       ).rejects.toThrow('کد رهگیری باید دقیقاً ۲۴ رقم باشد.');
     });
 
@@ -909,7 +987,7 @@ describe('OrdersService', () => {
       prismaMock.order.update = jest.fn();
 
       await expect(
-        service.updateTrackingCode(
+        shipping.updateTrackingCode(
           'seller-1',
           'ord-1',
           '123456789012345678901234',
@@ -933,7 +1011,7 @@ describe('OrdersService', () => {
       });
       prismaMock.order.update = jest.fn().mockResolvedValue({ ok: true });
 
-      await service.updateTrackingCode(
+      await shipping.updateTrackingCode(
         'seller-1',
         'ord-1',
         '123456789012345678901234',
@@ -966,7 +1044,7 @@ describe('OrdersService', () => {
       });
       prismaMock.order.update = jest.fn().mockResolvedValue({ ok: true });
 
-      await service.updateTrackingCode(
+      await shipping.updateTrackingCode(
         'seller-1',
         'ord-2',
         '123456789012345678901234',
@@ -1001,7 +1079,7 @@ describe('OrdersService', () => {
       ]);
       prismaMock.order.update = jest.fn().mockResolvedValue({ id: 'ord-old' });
 
-      await service.purgeCompletedOrderVideos();
+      await scheduler.purgeCompletedOrderVideos();
 
       expect(prismaMock.order.findMany).toHaveBeenCalled();
       expect(prismaMock.order.update).toHaveBeenCalledWith({

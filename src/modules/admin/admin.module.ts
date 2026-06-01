@@ -40,6 +40,11 @@ import { AdminUsersQueryService } from './services/admin-users-query.service';
 import { AdminListingsQueryService } from './services/admin-listings-query.service';
 import { AdminOrdersQueryService } from './services/admin-orders-query.service';
 import { AdminOrdersCommandService } from './services/admin-orders-command.service';
+import { AdminOrdersNotifyService } from './services/orders-command/admin-orders-notify.service';
+import { AdminOrdersStatusService } from './services/orders-command/admin-orders-status.service';
+import { AdminOrdersHubService } from './services/orders-command/admin-orders-hub.service';
+import { AdminOrdersInspectionService } from './services/orders-command/admin-orders-inspection.service';
+import { AdminOrdersEscrowService } from './services/orders-command/admin-orders-escrow.service';
 import { AdminTransactionsService } from './services/admin-transactions.service';
 import { AdminCategoriesService } from './services/admin-categories.service';
 import { AdminLocationsService } from './services/admin-locations.service';
@@ -116,6 +121,11 @@ import { CommonModuleModule } from '../../common-module/common-module.module';
     AdminUsersQueryService,
     AdminListingsQueryService,
     AdminOrdersQueryService,
+    AdminOrdersNotifyService,
+    AdminOrdersStatusService,
+    AdminOrdersHubService,
+    AdminOrdersInspectionService,
+    AdminOrdersEscrowService,
     AdminOrdersCommandService,
     AdminTransactionsService,
     AdminCategoriesService,

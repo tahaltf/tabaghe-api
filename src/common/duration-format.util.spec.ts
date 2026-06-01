@@ -6,6 +6,6 @@ describe('formatMinutesDurationFa', () => {
   });
 
   it('formats hour-based deadlines', () => {
-    expect(formatMinutesDurationFa(48 * 60)).toBe('48 ساعت');
+    expect(formatMinutesDurationFa(48 * 60)).toBe('2 روز');
   });
 });

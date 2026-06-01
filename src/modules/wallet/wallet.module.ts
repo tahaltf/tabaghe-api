@@ -4,11 +4,32 @@ import { WalletController } from './wallet.controller';
 import { AdminWalletController } from './admin-wallet.controller';
 import { PrismaModule } from '../../infrastructure/prisma/prisma.module';
 import { NotificationModule } from '../notification/notification.module';
+import { WalletSupportService } from './services/support/wallet-support.service';
+import { WalletQueryService } from './services/query/wallet-query.service';
+import { WalletBlockService } from './services/block/wallet-block.service';
+import { WalletEscrowService } from './services/escrow/wallet-escrow.service';
+import { WalletRefundService } from './services/refund/wallet-refund.service';
+import { WalletDepositWithdrawService } from './services/deposit-withdraw/wallet-deposit-withdraw.service';
 
 @Module({
   imports: [PrismaModule, NotificationModule],
   controllers: [WalletController, AdminWalletController],
-  providers: [WalletService],
-  exports: [WalletService],
+  providers: [
+    WalletSupportService,
+    WalletQueryService,
+    WalletBlockService,
+    WalletEscrowService,
+    WalletRefundService,
+    WalletDepositWithdrawService,
+    WalletService,
+  ],
+  exports: [
+    WalletService,
+    WalletQueryService,
+    WalletBlockService,
+    WalletEscrowService,
+    WalletRefundService,
+    WalletDepositWithdrawService,
+  ],
 })
 export class WalletModule {}

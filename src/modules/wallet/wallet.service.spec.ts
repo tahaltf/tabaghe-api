@@ -1,12 +1,40 @@
 import { WalletService } from './wallet.service';
+import { WalletSupportService } from './services/support/wallet-support.service';
+import { WalletQueryService } from './services/query/wallet-query.service';
+import { WalletBlockService } from './services/block/wallet-block.service';
+import { WalletEscrowService } from './services/escrow/wallet-escrow.service';
+import { WalletRefundService } from './services/refund/wallet-refund.service';
+import { WalletDepositWithdrawService } from './services/deposit-withdraw/wallet-deposit-withdraw.service';
 import { WalletTransactionStatus, WalletTransactionType } from '@prisma/client';
+
+function createWalletService(prismaMock: unknown, notificationMock: unknown) {
+  const support = new WalletSupportService(
+    prismaMock as any,
+    notificationMock as any,
+  );
+  const query = new WalletQueryService(prismaMock as any, support);
+  const block = new WalletBlockService(prismaMock as any, query);
+  const escrow = new WalletEscrowService(
+    prismaMock as any,
+    support,
+    query,
+    block,
+  );
+  const refund = new WalletRefundService(prismaMock as any, support, escrow);
+  const depositWithdraw = new WalletDepositWithdrawService(
+    prismaMock as any,
+    notificationMock as any,
+    query,
+  );
+  return new WalletService(query, block, escrow, refund, depositWithdraw);
+}
 
 describe('WalletService - refundExchangeExtraOnCancel', () => {
   const prismaMock = {} as any;
   const notificationMock = {} as any;
 
   it('isPayerMe=true: برگرداندن مابه‌التفاوت به خریدار (برداشت از بلوکه فروشنده + واریز به کیف پول خریدار)', async () => {
-    const service = new WalletService(prismaMock, notificationMock);
+    const service = createWalletService(prismaMock, notificationMock);
 
     const scopedDeposits: Record<string, { amount: number; meta: object }[]> = {
       'seller-1-wallet-id': [
@@ -86,7 +114,7 @@ describe('WalletService - refundExchangeExtraOnCancel', () => {
   });
 
   it('isPayerMe=false: برگرداندن مابه‌التفاوت به فروشنده (برداشت از بلوکه خریدار + واریز به کیف پول فروشنده)', async () => {
-    const service = new WalletService(prismaMock, notificationMock);
+    const service = createWalletService(prismaMock, notificationMock);
 
     const scopedDeposits: Record<string, { amount: number; meta: object }[]> = {
       'buyer-1-wallet-id': [
@@ -167,7 +195,7 @@ describe('WalletService - refundExchangeBothNoShipmentOnCancel', () => {
   const notificationMock = {} as any;
 
   it('refunds each participant their actual settlement and unwinds peer blocked deposits', async () => {
-    const service = new WalletService(prismaMock, notificationMock);
+    const service = createWalletService(prismaMock, notificationMock);
 
     const settlementsByWallet: Record<
       string,
@@ -292,7 +320,7 @@ describe('WalletService - refundExchangeBothNoShipmentOnCancel', () => {
   });
 
   it('with zero penalty percent refunds full paid amount per party (both no-shipment)', async () => {
-    const service = new WalletService(prismaMock, notificationMock);
+    const service = createWalletService(prismaMock, notificationMock);
 
     const settlementsByWallet: Record<
       string,
@@ -365,7 +393,7 @@ describe('WalletService - refundExchangeBothNoShipmentOnCancel', () => {
   });
 
   it('does not refund a participant who has no settlement record', async () => {
-    const service = new WalletService(prismaMock, notificationMock);
+    const service = createWalletService(prismaMock, notificationMock);
 
     const tx: any = {
       listing: {
@@ -407,7 +435,7 @@ describe('WalletService - getExchangeParticipantPaidAmount isolation', () => {
   const notificationMock = {} as any;
 
   it('sums only settlements for the target order/listing when buyer paid on two exchanges', async () => {
-    const service = new WalletService(prismaMock, notificationMock);
+    const service = createWalletService(prismaMock, notificationMock);
 
     const settlements = [
       {
@@ -456,7 +484,7 @@ describe('WalletService - refundExchangePaymentTimeoutOnCancel', () => {
   const notificationMock = {} as any;
 
   it('unwinds peer blocked deposit on seller wallet with SUCCESS PENALTY log', async () => {
-    const service = new WalletService(prismaMock, notificationMock);
+    const service = createWalletService(prismaMock, notificationMock);
 
     const settlementsByWallet: Record<
       string,
@@ -544,7 +572,7 @@ describe('WalletService - refundExchangePaymentTimeoutOnCancel', () => {
   });
 
   it('caps buyer refund to expected share when settlements were over-counted', async () => {
-    const service = new WalletService(prismaMock, notificationMock);
+    const service = createWalletService(prismaMock, notificationMock);
 
     const tx: any = {
       listing: {
@@ -598,7 +626,7 @@ describe('WalletService - refundExchangeOneSideNoShipmentOnCancel', () => {
   const notificationMock = {} as any;
 
   it('refunds sender fully, offender minus penalty, credits compensation to sender', async () => {
-    const service = new WalletService(prismaMock, notificationMock);
+    const service = createWalletService(prismaMock, notificationMock);
 
     const settlementsByWallet: Record<
       string,
@@ -699,7 +727,7 @@ describe('WalletService - applyExchangeHubInspectionOutcomeRefunds', () => {
   }
 
   it('both failed: does not refund inspection fee to either side', async () => {
-    const service = new WalletService(prismaMock, notificationMock);
+    const service = createWalletService(prismaMock, notificationMock);
     const tx = makeTx({
       'buyer-1-wallet-id': [
         {
@@ -733,7 +761,7 @@ describe('WalletService - applyExchangeHubInspectionOutcomeRefunds', () => {
   });
 
   it('mixed outcome: healthy side gets full refund plus compensation, failed side loses inspection fee', async () => {
-    const service = new WalletService(prismaMock, notificationMock);
+    const service = createWalletService(prismaMock, notificationMock);
     const tx = makeTx({
       'buyer-1-wallet-id': [
         {
@@ -773,7 +801,7 @@ describe('WalletService - order-scoped blocked isolation', () => {
   const notificationMock = {} as any;
 
   it('getOrderScopedBlockedAmount: فقط بلوکهٔ همان سفارش را برمی‌گرداند', async () => {
-    const service = new WalletService(prismaMock, notificationMock);
+    const service = createWalletService(prismaMock, notificationMock);
     const deposits = [
       {
         amount: 500_000,
@@ -815,12 +843,12 @@ describe('WalletService - order-scoped blocked isolation', () => {
   });
 
   it('releaseEscrow با orderId بیش از بلوکهٔ همان سفارش آزاد نمی‌کند', async () => {
-    const service = new WalletService(prismaMock, notificationMock);
+    const service = createWalletService(prismaMock, notificationMock);
     const getWalletByUserId = jest
-      .spyOn(service as any, 'getWalletByUserId')
-      .mockResolvedValue({ id: 'seller-wallet' });
+      .spyOn(WalletQueryService.prototype, 'getWalletByUserId')
+      .mockResolvedValue({ id: 'seller-wallet' } as any);
     const listingTitleForWalletTx = jest
-      .spyOn(service as any, 'listingTitleForWalletTx')
+      .spyOn(WalletSupportService.prototype, 'listingTitleForWalletTx')
       .mockResolvedValue('کالا');
 
     const tx: any = {

@@ -25,6 +25,7 @@ import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { AdminSetUserPasswordDto } from '../dto/admin-user-password.dto';
 import { AdminSetUserActivationDto } from '../dto/admin-user-activation.dto';
 import { AdminSetUserRatingDto } from '../dto/admin-user-rating.dto';
+import { AdminSetUserTrustScoreDto } from '../dto/admin-user-trust-score.dto';
 import { AdminCreateUserDto } from '../dto/admin-create-user.dto';
 import { AuthenticatedUser } from '../../../shared/contracts/auth';
 
@@ -99,6 +100,15 @@ export class AdminUsersQueryController {
     @Body() dto: AdminSetUserRatingDto,
   ) {
     return this.service.setUserRating(actor, id, dto.rating);
+  }
+
+  @Patch(':id/trust-score')
+  setTrustScore(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: AdminSetUserTrustScoreDto,
+  ) {
+    return this.service.setUserTrustScore(actor, id, dto.trustScore);
   }
 
   @Post()

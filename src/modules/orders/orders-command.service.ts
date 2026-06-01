@@ -1,13 +1,19 @@
 ﻿import { Injectable } from '@nestjs/common';
-import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { OrdersCheckoutService } from './services/command/orders-checkout.service';
+import { OrdersShippingService } from './services/command/orders-shipping.service';
+import { OrdersCompletionService } from './services/command/orders-completion.service';
 
 @Injectable()
 export class OrdersCommandService {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly checkout: OrdersCheckoutService,
+    private readonly shipping: OrdersShippingService,
+    private readonly completion: OrdersCompletionService,
+  ) {}
 
   createOrder(userId: string, dto: CreateOrderDto) {
-    return this.ordersService.handleUniversalOrder(userId, dto);
+    return this.checkout.handleUniversalOrder(userId, dto);
   }
 
   updateTrackingCode(
@@ -16,7 +22,7 @@ export class OrdersCommandService {
     trackingCode: string,
     videoPath?: string,
   ) {
-    return this.ordersService.updateTrackingCode(
+    return this.shipping.updateTrackingCode(
       userId,
       orderId,
       trackingCode,
@@ -30,7 +36,7 @@ export class OrdersCommandService {
     trackingCode: string,
     videoPath?: string,
   ) {
-    return this.ordersService.submitReturnTrackingCode(
+    return this.completion.submitReturnTrackingCode(
       userId,
       orderId,
       trackingCode,
@@ -39,11 +45,11 @@ export class OrdersCommandService {
   }
 
   confirmReturnReceipt(userId: string, orderId: string) {
-    return this.ordersService.confirmReturnReceipt(userId, orderId);
+    return this.completion.confirmReturnReceipt(userId, orderId);
   }
 
   confirmOrder(userId: string, orderId: string) {
-    return this.ordersService.confirmOrder(userId, orderId);
+    return this.completion.confirmOrder(userId, orderId);
   }
 
   disputeOrder(
@@ -52,7 +58,7 @@ export class OrdersCommandService {
     reason: string,
     videoPath?: string,
   ) {
-    return this.ordersService.disputeOrder(userId, orderId, reason, videoPath);
+    return this.completion.disputeOrder(userId, orderId, reason, videoPath);
   }
 
   setExchangeSellerRelistChoice(
@@ -60,7 +66,7 @@ export class OrdersCommandService {
     orderId: string,
     publish: boolean,
   ) {
-    return this.ordersService.setExchangeSellerRelistChoice(
+    return this.shipping.setExchangeSellerRelistChoice(
       userId,
       orderId,
       publish,

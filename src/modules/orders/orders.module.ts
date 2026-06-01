@@ -17,6 +17,14 @@ import { OrdersService } from './orders.service';
 import { OrdersStateMachineService } from './orders-state-machine.service';
 import { OrderReputationService } from './order-reputation.service';
 import { InspectionCertificateService } from './inspection-certificate.service';
+import { OrdersSettingsService } from './orders-settings.service';
+import { OrdersListQueryService } from './services/query/orders-list-query.service';
+import { OrdersDetailQueryService } from './services/query/orders-detail-query.service';
+import { OrdersResponseEnrichmentService } from './services/query/orders-response-enrichment.service';
+import { OrdersCheckoutService } from './services/command/orders-checkout.service';
+import { OrdersShippingService } from './services/command/orders-shipping.service';
+import { OrdersCompletionService } from './services/command/orders-completion.service';
+import { OrdersSchedulerService } from './services/scheduler/orders-scheduler.service';
 
 @Module({
   imports: [
@@ -30,15 +38,30 @@ import { InspectionCertificateService } from './inspection-certificate.service';
   ],
   controllers: [OrdersController, OrdersAdminController],
   providers: [
-    OrdersService,
+    OrdersSettingsService,
     OrdersStateMachineService,
+    OrdersResponseEnrichmentService,
+    OrdersListQueryService,
+    OrdersDetailQueryService,
     OrdersQueryService,
+    OrdersCheckoutService,
+    OrdersShippingService,
+    OrdersCompletionService,
+    OrdersSchedulerService,
     OrdersCommandService,
+    OrdersService,
     OrdersAdminService,
     OrderReputationService,
     InspectionCertificateService,
     UserRatingHistoryService,
   ],
-  exports: [OrderReputationService, OrdersService],
+  exports: [
+    OrderReputationService,
+    OrdersService,
+    OrdersSchedulerService,
+    OrdersCompletionService,
+    OrdersStateMachineService,
+    OrdersResponseEnrichmentService,
+  ],
 })
 export class OrdersModule {}

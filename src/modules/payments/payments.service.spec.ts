@@ -7,6 +7,7 @@ import { AppSettingsService } from '../../shared/settings/app-settings.service';
 import { ZibalGateway } from './gateways/zibal.gateway';
 import { NotificationService } from '../notification/notification.service';
 import { ExchangeService } from '../exchange/exchange.service';
+import { ExchangeOrderNotifyService } from '../notification/exchange-order-notify.service';
 
 describe('PaymentsService', () => {
   let service: PaymentsService;
@@ -53,6 +54,7 @@ describe('PaymentsService', () => {
         { provide: ZibalGateway, useValue: zibalGatewayMock },
         { provide: NotificationService, useValue: notificationMock },
         { provide: ExchangeService, useValue: exchangeMock },
+        { provide: ExchangeOrderNotifyService, useValue: {} },
       ],
     }).compile();
 

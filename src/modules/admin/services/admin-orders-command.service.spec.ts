@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import 'reflect-metadata';
 import { OrderStatus } from '@prisma/client';
 import {
   AdminEscrowAction,
@@ -6,6 +6,68 @@ import {
 } from '../dto/admin-order.dto';
 import { FinalizeExchangeHubInspectionDto } from '../dto/admin-order.dto';
 import { AdminOrdersCommandService } from './admin-orders-command.service';
+import { AdminOrdersNotifyService } from './orders-command/admin-orders-notify.service';
+import { AdminOrdersStatusService } from './orders-command/admin-orders-status.service';
+import { AdminOrdersHubService } from './orders-command/admin-orders-hub.service';
+import { AdminOrdersInspectionService } from './orders-command/admin-orders-inspection.service';
+import { AdminOrdersEscrowService } from './orders-command/admin-orders-escrow.service';
+
+function createAdminOrdersCommandService(deps: {
+  prisma: unknown;
+  appSettings?: unknown;
+  feeCalculator?: unknown;
+  orderReputation: unknown;
+  walletService: unknown;
+  ordersService?: unknown;
+  listingCommand: unknown;
+  stateMachine?: unknown;
+}) {
+  const appSettings =
+    deps.appSettings ??
+    ({ getApiUrl: jest.fn().mockReturnValue('https://api.example.com') } as const);
+  const feeCalculator = deps.feeCalculator ?? {};
+  const ordersService =
+    deps.ordersService ?? ({ ensureBuyerConfirmDeadline: jest.fn() } as const);
+  const stateMachine =
+    deps.stateMachine ?? ({ assertTransition: jest.fn() } as const);
+
+  const notify = new AdminOrdersNotifyService(deps.prisma as never);
+  const status = new AdminOrdersStatusService(
+    deps.prisma as never,
+    appSettings as never,
+    deps.orderReputation as never,
+    deps.walletService as never,
+    ordersService as never,
+    deps.listingCommand as never,
+    stateMachine as never,
+    notify,
+  );
+  const hub = new AdminOrdersHubService(
+    deps.prisma as never,
+    deps.orderReputation as never,
+    deps.walletService as never,
+    ordersService as never,
+    deps.listingCommand as never,
+  );
+  const inspection = new AdminOrdersInspectionService(
+    deps.prisma as never,
+    appSettings as never,
+    feeCalculator as never,
+    deps.orderReputation as never,
+    deps.walletService as never,
+    deps.listingCommand as never,
+    notify,
+  );
+  const escrow = new AdminOrdersEscrowService(
+    deps.prisma as never,
+    feeCalculator as never,
+    deps.orderReputation as never,
+    deps.walletService as never,
+    deps.listingCommand as never,
+    notify,
+  );
+  return new AdminOrdersCommandService(status, hub, inspection, escrow);
+}
 
 describe('AdminOrdersCommandService - exchange financial settlement', () => {
   const makeOrder = () => ({
@@ -19,8 +81,8 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
     exchangeOfferId: 'offer-1',
     buyerId: 'buyer-1',
     sellerId: 'seller-1',
-    trackingCode: null,
-    sellerTrackingCode: null,
+    trackingCode: 'TRK-B',
+    sellerTrackingCode: 'TRK-S',
     packagingVideo: null,
     buyerPackagingVideo: null,
     listing: { id: 'lst-1', title: 'listing title' },
@@ -86,8 +148,13 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
     const prisma = {
       order: {
         findUnique: jest.fn().mockResolvedValue(makeOrder()),
+        update: jest.fn().mockResolvedValue({
+          id: 'ord-1',
+          status: OrderStatus.CHECKING_AT_HUB,
+        }),
       },
       notification: { createMany: jest.fn().mockResolvedValue({ count: 2 }) },
+      ticket: { create: jest.fn().mockResolvedValue({ id: 'ticket-1' }) },
       $transaction: jest.fn(async (cb: (trx: typeof tx) => Promise<unknown>) =>
         cb(tx),
       ),
@@ -104,6 +171,10 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
       repairMissingDirectCancelRefund: jest
         .fn()
         .mockResolvedValue({ repaired: false }),
+      resolveOrderScopedCap: jest.fn(async (_tx, params) =>
+        Math.max(0, Number(params.requestedAmount) || 0),
+      ),
+      getOrderScopedBlockedAmount: jest.fn(async () => 200),
     };
     const ordersService = {
       ensureBuyerConfirmDeadline: jest.fn().mockResolvedValue(undefined),
@@ -111,16 +182,20 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
     const listingCommand = {
       rejectAfterTradeFailure: jest.fn().mockResolvedValue(undefined),
     };
+    const stateMachine = {
+      assertTransition: jest.fn(),
+    };
 
-    const service = new AdminOrdersCommandService(
-      prisma as never,
-      appSettings as never,
-      feeCalculator as never,
-      orderReputation as never,
-      walletService as never,
-      ordersService as never,
-      listingCommand as never,
-    );
+    const service = createAdminOrdersCommandService({
+      prisma,
+      appSettings,
+      feeCalculator,
+      orderReputation,
+      walletService,
+      ordersService,
+      listingCommand,
+      stateMachine,
+    });
     return { service, prisma, tx };
   }
 
@@ -188,8 +263,8 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
     );
   });
 
-  it('throws error when additional available balance is insufficient', async () => {
-    const { service } = makeService({
+  it('marks order awaiting wallet topup when available balance is insufficient', async () => {
+    const { service, prisma } = makeService({
       offerExtraPayment: 200,
       offerIsPayerMe: false,
       buyerBlocked: 200,
@@ -200,9 +275,19 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
     dto.listingSettlementAmount = 350;
     dto.listingSettlementDirection = 'DEBIT';
 
-    await expect(
-      service.finalizeExchangeHubInspection('ord-1', dto),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    await service.finalizeExchangeHubInspection('ord-1', dto);
+
+    expect(prisma.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'ord-1' },
+        data: expect.objectContaining({
+          status: OrderStatus.CHECKING_AT_HUB,
+          exchangeHubInspection: expect.objectContaining({
+            awaitingFinanceSettlement: true,
+          }),
+        }),
+      }),
+    );
   });
 
   it('handles reverse settlement from seller to buyer using seller blocked then available', async () => {
@@ -287,11 +372,16 @@ describe('AdminOrdersCommandService - exchange hub return inspection', () => {
         ),
       },
       notification: { create: jest.fn().mockResolvedValue({}) },
+      listing: { update: jest.fn().mockResolvedValue({}) },
     };
 
     const prisma = {
       order: { findUnique: jest.fn().mockResolvedValue(orderRecord) },
       notification: { createMany: jest.fn().mockResolvedValue({ count: 2 }) },
+      systemSetting: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       $transaction: jest.fn(async (cb: (trx: typeof tx) => Promise<unknown>) =>
         cb(tx),
       ),
@@ -304,17 +394,19 @@ describe('AdminOrdersCommandService - exchange hub return inspection', () => {
       rejectAfterTradeFailure: jest.fn().mockResolvedValue(undefined),
     };
 
-    const service = new AdminOrdersCommandService(
-      prisma as never,
-      {
-        getApiUrl: jest.fn().mockReturnValue('https://api.example.com'),
-      } as never,
-      {} as never,
-      orderReputation as never,
-      { repairMissingDirectCancelRefund: jest.fn() } as never,
-      { ensureBuyerConfirmDeadline: jest.fn() } as never,
-      listingCommand as never,
-    );
+    const service = createAdminOrdersCommandService({
+      prisma,
+      orderReputation,
+      walletService: {
+        repairMissingDirectCancelRefund: jest.fn(),
+        applyExchangeHubInspectionOutcomeRefunds: jest.fn().mockResolvedValue({
+          buyerRefundAmount: 80_000,
+          sellerRefundAmount: 280_000,
+        }),
+      },
+      listingCommand,
+      stateMachine: { assertTransition: jest.fn() },
+    });
 
     return { service, tx, orderReputation, listingCommand, dto, prisma };
   }
@@ -443,6 +535,10 @@ describe('AdminOrdersCommandService - exchange release escrow', () => {
       repairMissingDirectCancelRefund: jest
         .fn()
         .mockResolvedValue({ repaired: false }),
+      resolveOrderScopedCap: jest.fn(async (_tx, params) =>
+        Math.max(0, Number(params.requestedAmount) || 0),
+      ),
+      releaseEscrow: jest.fn().mockResolvedValue(undefined),
     };
     const ordersService = {
       ensureBuyerConfirmDeadline: jest.fn().mockResolvedValue(undefined),
@@ -450,20 +546,21 @@ describe('AdminOrdersCommandService - exchange release escrow', () => {
     const listingCommand = {
       rejectAfterTradeFailure: jest.fn().mockResolvedValue(undefined),
     };
-    const service = new AdminOrdersCommandService(
-      prisma as never,
-      appSettings as never,
-      feeCalculator as never,
-      orderReputation as never,
-      walletService as never,
-      ordersService as never,
-      listingCommand as never,
-    );
-    return { service, tx };
+    const service = createAdminOrdersCommandService({
+      prisma,
+      appSettings,
+      feeCalculator,
+      orderReputation,
+      walletService,
+      ordersService,
+      listingCommand,
+      stateMachine: { assertTransition: jest.fn() },
+    });
+    return { service, tx, walletService };
   }
 
   it('releases only sellerRevenue for EXCHANGE (not totalAmount-verificationFee)', async () => {
-    const { service, tx } = makeReleaseService({
+    const { service, walletService } = makeReleaseService({
       sellerRevenue: 400,
       totalAmount: 500,
       verificationFee: 20,
@@ -474,24 +571,12 @@ describe('AdminOrdersCommandService - exchange release escrow', () => {
 
     await service.resolveEscrow('ord-release-1', dto);
 
-    expect(tx.wallet.upsert).toHaveBeenCalledWith({
-      where: { userId: 'seller-1' },
-      create: {
-        userId: 'seller-1',
-        balanceAvailable: 400,
-        balanceBlocked: 0,
-      },
-      update: {
-        balanceBlocked: { decrement: 400 },
-        balanceAvailable: { increment: 400 },
-      },
-    });
-    expect(tx.walletTransaction.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          amount: 400,
-        }),
-      }),
+    expect(walletService.releaseEscrow).toHaveBeenCalledWith(
+      'seller-1',
+      400,
+      'lst-1',
+      expect.anything(),
+      { orderId: 'ord-release-1' },
     );
   });
 });

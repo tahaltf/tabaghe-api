@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { OrdersController } from './orders.controller';
 import { OrdersCommandService } from './orders-command.service';
 import { OrdersQueryService } from './orders-query.service';
+import { InspectionCertificateService } from './inspection-certificate.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { IsVerifiedGuard } from '../auth/guards/is-verified.guard';
 
@@ -21,12 +22,20 @@ describe('OrdersController', () => {
     getOrderById: jest.fn(),
   };
 
+  const inspectionCertificateMock = {
+    generateInspectionCertificatePdf: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [OrdersController],
       providers: [
         { provide: OrdersCommandService, useValue: commandMock },
         { provide: OrdersQueryService, useValue: queryMock },
+        {
+          provide: InspectionCertificateService,
+          useValue: inspectionCertificateMock,
+        },
       ],
     })
       .overrideGuard(JwtAuthGuard)

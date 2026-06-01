@@ -1,6 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuctionService } from './auction.service';
+import { AuctionSupportService } from './services/auction-support.service';
+import { AuctionBiddingService } from './services/auction-bidding.service';
+import { AuctionSettlementService } from './services/auction-settlement.service';
+import { AuctionQueryService } from './services/auction-query.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { FeeCalculatorService } from '../fees/fee-calculator.service';
@@ -25,6 +29,10 @@ describe('AuctionService', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        AuctionSupportService,
+        AuctionBiddingService,
+        AuctionSettlementService,
+        AuctionQueryService,
         AuctionService,
         { provide: PrismaService, useValue: prismaMock },
         { provide: WalletService, useValue: walletMock },

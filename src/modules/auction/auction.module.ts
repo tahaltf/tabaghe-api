@@ -12,6 +12,10 @@ import { IdempotencyService } from '../../common/idempotency.service';
 import { AdminLedgerController } from './admin-ledger.controller';
 import { AdminAuctionAuditController } from './admin-auction-audit.controller';
 import { FeesModule } from '../fees/fees.module';
+import { AuctionSupportService } from './services/auction-support.service';
+import { AuctionBiddingService } from './services/auction-bidding.service';
+import { AuctionSettlementService } from './services/auction-settlement.service';
+import { AuctionQueryService } from './services/auction-query.service';
 
 @Module({
   imports: [PrismaModule, WalletModule, NotificationModule, FeesModule],
@@ -22,12 +26,21 @@ import { FeesModule } from '../fees/fees.module';
     AdminLedgerController,
   ],
   providers: [
+    AuctionSupportService,
+    AuctionBiddingService,
+    AuctionSettlementService,
+    AuctionQueryService,
     AuctionService,
     AuctionGateway,
     AuctionJob,
     AuctionScheduler,
     IdempotencyService,
   ],
-  exports: [AuctionService],
+  exports: [
+    AuctionService,
+    AuctionBiddingService,
+    AuctionSettlementService,
+    AuctionQueryService,
+  ],
 })
 export class AuctionModule {}

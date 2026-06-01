@@ -23,7 +23,9 @@ import {
   OrderStatus,
   OrderType,
 } from '@prisma/client';
-import { OrdersService } from './orders.service';
+import { OrdersSchedulerService } from './services/scheduler/orders-scheduler.service';
+import { OrdersSettingsService } from './orders-settings.service';
+import { OrdersCompletionService } from './services/command/orders-completion.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { FeeCalculatorService } from '../fees/fee-calculator.service';
@@ -31,15 +33,22 @@ import { OrdersStateMachineService } from './orders-state-machine.service';
 import { AppSettingsService } from '../../shared/settings/app-settings.service';
 import { PaymentsService } from '../payments/payments.service';
 import { NotificationService } from '../notification/notification.service';
+import { ExchangeOrderNotifyService } from '../notification/exchange-order-notify.service';
+import { OrdersResponseEnrichmentService } from './services/query/orders-response-enrichment.service';
 import { OrderReputationService } from './order-reputation.service';
 import { ExchangeService } from '../exchange/exchange.service';
 import { QuotaService } from '../quota/quota.service';
 import { ListingCommandService } from '../listing/services/listing-command.service';
 import { FinalizeExchangeHubInspectionDto } from '../admin/dto/admin-order.dto';
 import { AdminOrdersCommandService } from '../admin/services/admin-orders-command.service';
+import { AdminOrdersNotifyService } from '../admin/services/orders-command/admin-orders-notify.service';
+import { AdminOrdersStatusService } from '../admin/services/orders-command/admin-orders-status.service';
+import { AdminOrdersHubService } from '../admin/services/orders-command/admin-orders-hub.service';
+import { AdminOrdersInspectionService } from '../admin/services/orders-command/admin-orders-inspection.service';
+import { AdminOrdersEscrowService } from '../admin/services/orders-command/admin-orders-escrow.service';
 
 describe('Exchange lifecycle — payment timeout (scenarios 1–3)', () => {
-  let service: OrdersService;
+  let service: OrdersSchedulerService;
 
   const walletMock = {
     resolveExchangeParticipantPaidAmount: jest.fn(),
@@ -54,7 +63,12 @@ describe('Exchange lifecycle — payment timeout (scenarios 1–3)', () => {
   const listingCommandMock = {
     rejectAfterTradeFailure: jest.fn().mockResolvedValue(undefined),
   };
-  const prismaMock = { $transaction: jest.fn() };
+  const prismaMock = {
+    $transaction: jest.fn(),
+    systemSetting: {
+      findUnique: jest.fn().mockResolvedValue(null),
+    },
+  };
 
   const offerBase = {
     id: 'offer-1',
@@ -94,21 +108,28 @@ describe('Exchange lifecycle — payment timeout (scenarios 1–3)', () => {
     });
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        OrdersService,
+        OrdersSchedulerService,
+        OrdersSettingsService,
         { provide: PrismaService, useValue: prismaMock },
         { provide: WalletService, useValue: walletMock },
         { provide: FeeCalculatorService, useValue: {} },
         { provide: AppSettingsService, useValue: {} },
         { provide: OrdersStateMachineService, useValue: { assertTransition: jest.fn() } },
         { provide: PaymentsService, useValue: {} },
-        { provide: NotificationService, useValue: {} },
+        { provide: NotificationService, useValue: { create: jest.fn(), createMany: jest.fn() } },
+        { provide: ExchangeOrderNotifyService, useValue: {} },
         { provide: OrderReputationService, useValue: orderReputationMock },
         { provide: ExchangeService, useValue: {} },
         { provide: QuotaService, useValue: {} },
         { provide: ListingCommandService, useValue: listingCommandMock },
+        {
+          provide: OrdersResponseEnrichmentService,
+          useValue: { isBuyerConfirmDeadlineExpired: jest.fn() },
+        },
+        { provide: OrdersCompletionService, useValue: { confirmOrder: jest.fn() } },
       ],
     }).compile();
-    service = module.get(OrdersService);
+    service = module.get(OrdersSchedulerService);
   });
 
   async function runTimeout(
@@ -133,6 +154,9 @@ describe('Exchange lifecycle — payment timeout (scenarios 1–3)', () => {
       user: { update: jest.fn().mockResolvedValue({}) },
       listing: { update: jest.fn().mockResolvedValue({}) },
       notification: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      systemSetting: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
       ticket: {
         create: jest.fn().mockResolvedValue({ id: 'ticket-1' }),
       },
@@ -298,6 +322,7 @@ describe('Exchange lifecycle — hub inspection (scenarios 7–12)', () => {
         create: jest.fn().mockResolvedValue({ id: 'ticket-1' }),
       },
       notification: { create: jest.fn().mockResolvedValue({}) },
+      listing: { update: jest.fn().mockResolvedValue({}) },
     };
 
     const prisma = {
@@ -327,6 +352,15 @@ describe('Exchange lifecycle — hub inspection (scenarios 7–12)', () => {
         buyerRefundAmount: 100_000,
         sellerRefundAmount: 100_000,
       }),
+      getOrderScopedBlockedAmount: jest.fn(async (_tx, params) =>
+        params.userId === 'buyer-1' ? 500_000 : 200_000,
+      ),
+      resolveOrderScopedCap: jest.fn(async (_tx, params) =>
+        Math.max(0, Number(params.requestedAmount) || 0),
+      ),
+      debitOrderScopedBlocked: jest.fn(async (_tx, params) =>
+        Math.max(0, Number(params.requestedAmount) || 0),
+      ),
     };
 
     const orderReputation = {
@@ -336,14 +370,42 @@ describe('Exchange lifecycle — hub inspection (scenarios 7–12)', () => {
       rejectAfterTradeFailure: jest.fn().mockResolvedValue(undefined),
     };
 
+    const notify = new AdminOrdersNotifyService(prisma as never);
     const hubService = new AdminOrdersCommandService(
-      prisma as never,
-      { getApiUrl: jest.fn().mockReturnValue('https://api.test') } as never,
-      {} as never,
-      orderReputation as never,
-      walletService as never,
-      { ensureBuyerConfirmDeadline: jest.fn() } as never,
-      listingCommand as never,
+      new AdminOrdersStatusService(
+        prisma as never,
+        { getApiUrl: jest.fn().mockReturnValue('https://api.test') } as never,
+        orderReputation as never,
+        walletService as never,
+        { ensureBuyerConfirmDeadline: jest.fn() } as never,
+        listingCommand as never,
+        { assertTransition: jest.fn() } as never,
+        notify,
+      ),
+      new AdminOrdersHubService(
+        prisma as never,
+        orderReputation as never,
+        walletService as never,
+        { ensureBuyerConfirmDeadline: jest.fn() } as never,
+        listingCommand as never,
+      ),
+      new AdminOrdersInspectionService(
+        prisma as never,
+        { getApiUrl: jest.fn().mockReturnValue('https://api.test') } as never,
+        {} as never,
+        orderReputation as never,
+        walletService as never,
+        listingCommand as never,
+        notify,
+      ),
+      new AdminOrdersEscrowService(
+        prisma as never,
+        {} as never,
+        orderReputation as never,
+        walletService as never,
+        listingCommand as never,
+        notify,
+      ),
     );
 
     return {

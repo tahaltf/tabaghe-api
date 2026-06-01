@@ -554,6 +554,27 @@ export class AdminUsersQueryService {
     return updated;
   }
 
+  async setUserTrustScore(
+    actor: AuthenticatedUser,
+    userId: string,
+    trustScore: number,
+  ): Promise<{ id: string; trustScore: number }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true },
+    });
+    if (!user) throw new NotFoundException('کاربر یافت نشد');
+    this.assertCanManageTarget(actor, user.role);
+
+    const normalized = Math.round(Math.min(100, Math.max(0, trustScore)));
+
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { trustScore: normalized },
+      select: { id: true, trustScore: true },
+    });
+  }
+
   async ratingHistory(
     actor: AuthenticatedUser,
     userId: string,
