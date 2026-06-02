@@ -38,18 +38,25 @@ export class SitemapService {
 
   async buildUrlEntries(): Promise<SitemapUrlEntry[]> {
     const staticPages = this.getStaticPages();
-    const [listings, blogPosts, categories, categoryLocations] =
-      await Promise.all([
-        this.fetchListingEntries(),
-        this.fetchBlogEntries(),
-        this.fetchCategoryEntries(),
-        this.fetchCategoryLocationEntries(),
-      ]);
+    const [
+      listings,
+      blogPosts,
+      categories,
+      categoryLocations,
+      listingLocationHubs,
+    ] = await Promise.all([
+      this.fetchListingEntries(),
+      this.fetchBlogEntries(),
+      this.fetchCategoryEntries(),
+      this.fetchCategoryLocationEntries(),
+      this.fetchListingLocationHubEntries(),
+    ]);
 
     return [
       ...staticPages,
       ...categories,
       ...categoryLocations,
+      ...listingLocationHubs,
       ...listings,
       ...blogPosts,
     ];
@@ -128,6 +135,54 @@ export class SitemapService {
       changefreq: page.changefreq,
       priority: page.priority,
     }));
+  }
+
+  private async fetchListingLocationHubEntries(): Promise<SitemapUrlEntry[]> {
+    const rows = await this.prisma.listing.findMany({
+      where: {
+        status: ListingStatus.APPROVED,
+        deletedAt: null,
+      },
+      select: {
+        updatedAt: true,
+        city: { select: { slug: true } },
+        province: { select: { slug: true } },
+      },
+    });
+
+    const cityMap = new Map<string, Date>();
+    const provinceMap = new Map<string, Date>();
+
+    for (const row of rows) {
+      if (row.city?.slug) {
+        const prev = cityMap.get(row.city.slug);
+        if (!prev || row.updatedAt > prev) {
+          cityMap.set(row.city.slug, row.updatedAt);
+        }
+      }
+      if (row.province?.slug) {
+        const prev = provinceMap.get(row.province.slug);
+        if (!prev || row.updatedAt > prev) {
+          provinceMap.set(row.province.slug, row.updatedAt);
+        }
+      }
+    }
+
+    const now = new Date().toISOString();
+    const cityEntries = [...cityMap.entries()].map(([slug, lastmod]) => ({
+      loc: `${this.siteOrigin}/listings/city/${slug}`,
+      lastmod: lastmod.toISOString() || now,
+      changefreq: 'daily' as const,
+      priority: 0.68,
+    }));
+    const provinceEntries = [...provinceMap.entries()].map(([slug, lastmod]) => ({
+      loc: `${this.siteOrigin}/listings/province/${slug}`,
+      lastmod: lastmod.toISOString() || now,
+      changefreq: 'daily' as const,
+      priority: 0.66,
+    }));
+
+    return [...cityEntries, ...provinceEntries];
   }
 
   private async fetchCategoryLocationEntries(): Promise<SitemapUrlEntry[]> {

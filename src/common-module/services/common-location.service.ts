@@ -4,6 +4,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { findLocationBySlug } from '../location-slug.util';
 
 
 @Injectable()
@@ -25,5 +26,9 @@ export class CommonLocationService {
       orderBy: { name: 'asc' },
       select: { id: true, name: true, slug: true },
     });
+  }
+
+  async getLocationBySlug(slug: string) {
+    return findLocationBySlug(this.prisma, slug);
   }
 }

@@ -39,6 +39,15 @@ export class CommonController {
     return this.commonService.getCities(provinceId);
   }
 
+  @Get('locations/slug/:slug')
+  async locationBySlug(@Param('slug') slug: string) {
+    const location = await this.commonService.getLocationBySlug(slug);
+    if (!location) {
+      throw new NotFoundException();
+    }
+    return location;
+  }
+
   @Get('categories')
   async categories() {
     return this.commonService.getCategories();
