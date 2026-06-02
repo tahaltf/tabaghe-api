@@ -4,6 +4,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   MinLength,
   ValidateNested,
@@ -57,4 +58,13 @@ export class BroadcastNotificationDto {
   @ValidateNested()
   @Type(() => SmsTemplateConfigDto)
   smsTemplateConfig?: SmsTemplateConfigDto;
+
+  /** مسیر داخلی (مثلاً /listing/abc) یا لینک خارجی https — اختیاری */
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Matches(/^(\/[^\s]*|https?:\/\/[^\s]+)$/i, {
+    message: 'linkUrl must be an internal path (/...) or http(s) URL',
+  })
+  linkUrl?: string;
 }

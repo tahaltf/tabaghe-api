@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NotificationType, Prisma, UserRole } from '@prisma/client';
 import { SmsService } from '../sms/sms.service';
@@ -491,13 +491,15 @@ export class NotificationService {
     title: string;
     message: string;
     userIds?: string[]; // undefined => همه کاربران
+    linkUrl?: string;
     alsoSendSms?: boolean;
     smsTemplateConfig?: {
       templateId: number;
       parameters?: Array<{ name: string; value: string }>;
     };
   }) {
-    const { title, message, userIds, alsoSendSms, smsTemplateConfig } = params;
+    const { title, message, userIds, linkUrl, alsoSendSms, smsTemplateConfig } =
+      params;
     let recipients: { id: string }[];
     if (userIds && userIds.length > 0) {
       recipients = await this.prisma.user.findMany({
@@ -518,10 +520,11 @@ export class NotificationService {
         ? smsTemplateConfig
         : undefined;
 
-    const meta = {
+    const normalizedLink = this.normalizeBroadcastLinkUrl(linkUrl);
+    const meta: Record<string, unknown> = {
       title: title.trim(),
       message: message.trim(),
-      url: '/dashboard/notifications',
+      ...(normalizedLink ? { url: normalizedLink } : {}),
     };
 
     const chunkSize = 40;
@@ -546,6 +549,17 @@ export class NotificationService {
       smsViaNotificationRules: smsFromRules,
       smsViaBroadcastOverride: !!smsOverride,
     };
+  }
+
+  private normalizeBroadcastLinkUrl(raw?: string): string | undefined {
+    const trimmed = raw?.trim();
+    if (!trimmed) return undefined;
+    if (trimmed.startsWith('/admin/')) {
+      throw new BadRequestException('لینک اطلاعیه نمی‌تواند به پنل ادمین اشاره کند');
+    }
+    if (trimmed.startsWith('/')) return trimmed;
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    throw new BadRequestException('لینک باید با / یا http(s):// شروع شود');
   }
 
   private async getRuleForType(

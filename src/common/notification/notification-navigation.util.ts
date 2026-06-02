@@ -33,8 +33,13 @@ export function resolveNotificationPath(
   }
 
   const explicitUrl = metaString(m, 'url');
-  if (explicitUrl.startsWith('/') && !explicitUrl.startsWith('/admin/')) {
-    return explicitUrl;
+  if (explicitUrl) {
+    if (explicitUrl.startsWith('/') && !explicitUrl.startsWith('/admin/')) {
+      return explicitUrl;
+    }
+    if (/^https?:\/\//i.test(explicitUrl)) {
+      return explicitUrl;
+    }
   }
 
   const ticketId = metaString(m, 'ticketId');
@@ -122,7 +127,7 @@ export function resolveNotificationPath(
   }
 
   if (type === 'ADMIN_ANNOUNCEMENT') {
-    return '/dashboard/notifications';
+    return null;
   }
 
   if (listingId) {
