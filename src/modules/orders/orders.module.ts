@@ -6,7 +6,7 @@ import { NotificationModule } from '../notification/notification.module';
 import { ExchangeModule } from '../exchange/exchange.module';
 import { QuotaModule } from '../quota/quota.module';
 import { ListingModule } from '../listing/listing.module';
-import { UserRatingHistoryService } from '../users/user-rating-history.service';
+import { OrderReputationModule } from './order-reputation.module';
 
 import { OrdersAdminController } from './orders-admin.controller';
 import { OrdersController } from './orders.controller';
@@ -15,7 +15,6 @@ import { OrdersCommandService } from './orders-command.service';
 import { OrdersQueryService } from './orders-query.service';
 import { OrdersService } from './orders.service';
 import { OrdersStateMachineService } from './orders-state-machine.service';
-import { OrderReputationService } from './order-reputation.service';
 import { InspectionCertificateService } from './inspection-certificate.service';
 import { OrdersSettingsService } from './orders-settings.service';
 import { OrdersListQueryService } from './services/query/orders-list-query.service';
@@ -35,6 +34,7 @@ import { OrdersSchedulerService } from './services/scheduler/orders-scheduler.se
     ExchangeModule,
     QuotaModule,
     ListingModule,
+    OrderReputationModule,
   ],
   controllers: [OrdersController, OrdersAdminController],
   providers: [
@@ -51,12 +51,10 @@ import { OrdersSchedulerService } from './services/scheduler/orders-scheduler.se
     OrdersCommandService,
     OrdersService,
     OrdersAdminService,
-    OrderReputationService,
     InspectionCertificateService,
-    UserRatingHistoryService,
   ],
   exports: [
-    OrderReputationService,
+    OrderReputationModule,
     OrdersService,
     OrdersSchedulerService,
     OrdersCompletionService,

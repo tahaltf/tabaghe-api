@@ -12,14 +12,14 @@ import { IdempotencyService } from '../../common/idempotency.service';
 import { AdminLedgerController } from './admin-ledger.controller';
 import { AdminAuctionAuditController } from './admin-auction-audit.controller';
 import { FeesModule } from '../fees/fees.module';
-import { OrdersModule } from '../orders/orders.module';
+import { OrderReputationModule } from '../orders/order-reputation.module';
 import { AuctionSupportService } from './services/auction-support.service';
 import { AuctionBiddingService } from './services/auction-bidding.service';
 import { AuctionSettlementService } from './services/auction-settlement.service';
 import { AuctionQueryService } from './services/auction-query.service';
 
 @Module({
-  imports: [PrismaModule, WalletModule, NotificationModule, FeesModule, OrdersModule],
+  imports: [PrismaModule, WalletModule, NotificationModule, FeesModule, OrderReputationModule],
   controllers: [
     AuctionController,
     AdminAuctionController,
