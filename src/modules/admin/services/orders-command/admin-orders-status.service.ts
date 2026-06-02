@@ -464,9 +464,5 @@ export class AdminOrdersStatusService {
         { orderId: existing.id },
       );
     }
-    await tx.user.update({
-      where: { id: existing.sellerId },
-      data: { trustScore: { increment: 2 } },
-    });
   }
 }

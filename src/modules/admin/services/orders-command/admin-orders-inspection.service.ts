@@ -1179,12 +1179,6 @@ export class AdminOrdersInspectionService {
             inspectionPenaltyPercent: compensationPercent,
           });
 
-        const trustPenalty = await this.getExchangePaymentTrustPenalty(tx);
-        await tx.user.update({
-          where: { id: offenderId },
-          data: { trustScore: { decrement: trustPenalty } },
-        });
-
         await tx.order.update({
           where: { id },
           data: {
@@ -1302,16 +1296,6 @@ export class AdminOrdersInspectionService {
           verificationFee: Number(order.verificationFee || 0),
           inspectionPenaltyPercent: 0,
         });
-
-      const trustPenalty = await this.getExchangePaymentTrustPenalty(tx);
-      await tx.user.update({
-        where: { id: order.buyerId },
-        data: { trustScore: { decrement: trustPenalty } },
-      });
-      await tx.user.update({
-        where: { id: order.sellerId },
-        data: { trustScore: { decrement: trustPenalty } },
-      });
 
       const targetStatus =
         order.status === OrderStatus.SHIPPED_TO_HUB

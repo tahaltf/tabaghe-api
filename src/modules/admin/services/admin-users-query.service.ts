@@ -13,6 +13,7 @@ import {
   UserStatus,
 } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { ratingToTrustScore } from '../../../common/user-reputation.util';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { UserRatingHistoryService } from '../../users/user-rating-history.service';
 import {
@@ -536,16 +537,21 @@ export class AdminUsersQueryService {
     });
     if (!current) throw new NotFoundException('کاربر یافت نشد');
 
+    const normalizedRating = Math.min(5, Math.max(0, Number(rating)));
+
     const updated = await this.prisma.user.update({
       where: { id: userId },
-      data: { rating },
+      data: {
+        rating: normalizedRating,
+        trustScore: ratingToTrustScore(normalizedRating),
+      },
       select: { id: true, rating: true },
     });
 
     await this.userRatingHistory.record(this.prisma, {
       userId,
       previous: Number(current.rating ?? 5),
-      next: rating,
+      next: normalizedRating,
       reason: 'تغییر دستی امتیاز توسط ادمین',
       source: 'admin_manual',
       actorId: actor.id,
@@ -567,12 +573,9 @@ export class AdminUsersQueryService {
     this.assertCanManageTarget(actor, user.role);
 
     const normalized = Math.round(Math.min(100, Math.max(0, trustScore)));
-
-    return this.prisma.user.update({
-      where: { id: userId },
-      data: { trustScore: normalized },
-      select: { id: true, trustScore: true },
-    });
+    const rating = normalized / 20;
+    const result = await this.setUserRating(actor, userId, rating);
+    return { id: result.id, trustScore: ratingToTrustScore(result.rating) };
   }
 
   async ratingHistory(

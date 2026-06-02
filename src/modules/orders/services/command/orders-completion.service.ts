@@ -730,11 +730,6 @@ export class OrdersCompletionService {
         );
       }
 
-      await tx.user.update({
-        where: { id: order.sellerId },
-        data: { trustScore: { increment: 2 } },
-      });
-
       // 🎯 تغییر وضعیت به تکمیل شده (تسویه نهایی)
       const prevDirectStatus = order.status;
       const completedDirect = await tx.order.update({
@@ -743,6 +738,7 @@ export class OrdersCompletionService {
           status: OrderStatus.COMPLETED,
         }),
       });
+
       await this.orderReputation.recordTerminalOutcome(
         tx,
         {

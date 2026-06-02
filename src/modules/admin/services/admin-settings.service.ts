@@ -175,11 +175,11 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   OTP_RESEND_COOLDOWN_SECONDS:
     'حداقل فاصله بین دو درخواست OTP برای یک شماره (ثانیه)',
   TRADE_REPUTATION_SUCCESS_DELTA:
-    'افزایش امتیاز اعتماد معامله (۰–۵) پس از تکمیل موفق',
+    'افزایش امتیاز اعتماد (۰–۵) پس از تکمیل موفق',
   TRADE_REPUTATION_PENALTY_DELTA:
-    'کاهش امتیاز اعتماد معامله (۰–۵) پس از شکست یا لغو معامله',
+    'کاهش امتیاز اعتماد (۰–۵) پس از شکست یا لغو معامله',
   EXCHANGE_PAYMENT_TRUST_PENALTY:
-    'کسر امتیاز اعتماد سیستمی (۰–۱۰۰) برای طرف مقصر در عدم پرداخت/تأخیر معاوضه',
+    'کسر امتیاز اعتماد (۰–۱۰۰) برای طرف مقصر در عدم پرداخت/تأخیر معاوضه',
   AUCTION_LAST_MINUTE_EXTENSION_MINUTES:
     'تمدید خودکار پایان مزایده وقتی پیشنهاد در N دقیقه آخر ثبت شود (دقیقه)',
   AUCTION_PAYMENT_DEADLINE_MINUTES:

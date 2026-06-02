@@ -238,10 +238,16 @@ export class AdminDisputesService {
               );
             }
           }
-          await tx.user.update({
-            where: { id: order.buyerId },
-            data: { trustScore: { decrement: 5 } },
-          });
+          await this.orderReputation.applyTrustPointsPenalty(
+            tx,
+            [order.buyerId],
+            5,
+            {
+              orderId: order.id,
+              reason: 'جریمه شکایت به نفع فروشنده',
+              source: 'dispute_release_seller',
+            },
+          );
           await tx.order.update({
             where: { id },
             data: enrichOrderUpdateForCompletion({

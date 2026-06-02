@@ -13,6 +13,7 @@ import {
 } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { effectiveTrustScoreFromRating } from '../../../common/user-reputation.util';
 
 import { WalletService } from '../../wallet/wallet.service';
 import { FeeCalculatorService } from '../../fees/fee-calculator.service';
@@ -48,7 +49,7 @@ export class AuctionBiddingService {
       });
       const bidder = await tx.user.findUnique({
         where: { id: userId },
-        select: { trustScore: true, isVerified: true },
+        select: { rating: true, isVerified: true },
       });
 
       if (!auction) throw new NotFoundException('مزایده یافت نشد');
@@ -66,7 +67,7 @@ export class AuctionBiddingService {
       );
       if (
         !bidder.isVerified ||
-        Number(bidder.trustScore ?? 0) < minTrustScore
+        Number(effectiveTrustScoreFromRating(bidder.rating)) < minTrustScore
       ) {
         throw new ForbiddenException(
           'به دلیل وضعیت اعتماد حساب، امکان شرکت در مزایده برای شما فعال نیست. لطفاً با پشتیبانی تماس بگیرید.',

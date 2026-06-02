@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { OrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import {
+  ratingToTrustScore,
+  trustPointsToRatingDelta,
+} from '../../common/user-reputation.util';
 import { UserRatingHistoryService } from '../users/user-rating-history.service';
 
 /** موفقیت معامله: به هر طرف */
@@ -101,6 +105,30 @@ export class OrderReputationService {
     await this.bumpUsers(tx, userIds, penaltyDelta, 'floor', context);
   }
 
+  /** کسر امتیاز اعتماد (۰–۵) بر اساس واحد legacy ۰–۱۰۰ — مثلاً ۱۵ → ۰.۷۵ */
+  async applyTrustPointsPenalty(
+    tx: Prisma.TransactionClient,
+    userIds: string[],
+    trustPoints: number,
+    context?: { orderId?: string; listingId?: string; reason?: string; source?: string },
+  ): Promise<void> {
+    const delta = trustPointsToRatingDelta(trustPoints);
+    if (!delta || !userIds.length) return;
+    await this.bumpUsers(tx, userIds, -Math.abs(delta), 'floor', context);
+  }
+
+  /** افزایش امتیاز اعتماد از واحد legacy ۰–۱۰۰ */
+  async applyTrustPointsBonus(
+    tx: Prisma.TransactionClient,
+    userIds: string[],
+    trustPoints: number,
+    context?: { orderId?: string; listingId?: string; reason?: string; source?: string },
+  ): Promise<void> {
+    const delta = trustPointsToRatingDelta(trustPoints);
+    if (!delta || !userIds.length) return;
+    await this.bumpUsers(tx, userIds, Math.abs(delta), 'cap', context);
+  }
+
   private async getSuccessDelta(
     tx: Prisma.TransactionClient,
   ): Promise<number> {
@@ -158,7 +186,10 @@ export class OrderReputationService {
       }
       await tx.user.update({
         where: { id: userId },
-        data: { rating: next },
+        data: {
+          rating: next,
+          trustScore: ratingToTrustScore(next),
+        },
       });
       await this.userRatingHistory.record(tx, {
         userId,

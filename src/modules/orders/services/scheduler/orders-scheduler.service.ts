@@ -849,7 +849,6 @@ export class OrdersSchedulerService {
     }>,
     exchangeNoShipmentCompensationPercent: number,
   ): Promise<void> {
-    const trustPenalty = await this.settings.getExchangePaymentTrustPenalty(tx);
     const current = await tx.order.findUnique({
       where: { id: order.id },
       select: { status: true },
@@ -936,27 +935,6 @@ export class OrdersSchedulerService {
     const isDirectShippingTimeoutCancel =
       order.type !== OrderType.EXCHANGE || exchangeOnlyOneSent;
 
-    if (order.type === OrderType.EXCHANGE && exchangeOnlyOneSent) {
-      const offenderId = sellerSent ? order.buyerId : order.sellerId;
-      await tx.user.update({
-        where: { id: offenderId },
-        data: { trustScore: { decrement: trustPenalty } },
-      });
-    } else if (exchangeBothNoShipment) {
-      await tx.user.update({
-        where: { id: order.buyerId },
-        data: { trustScore: { decrement: trustPenalty } },
-      });
-      await tx.user.update({
-        where: { id: order.sellerId },
-        data: { trustScore: { decrement: trustPenalty } },
-      });
-    } else {
-      await tx.user.update({
-        where: { id: order.sellerId },
-        data: { trustScore: { decrement: trustPenalty } },
-      });
-    }
     const targetStatus =
       order.type === OrderType.EXCHANGE && exchangeOnlyOneSent
         ? OrderStatus.REJECTED_AT_HUB
@@ -1353,14 +1331,17 @@ export class OrdersSchedulerService {
     }
 
     const penalty = await this.settings.getExchangePaymentTrustPenalty(tx);
-    for (const uid of offenderIds) {
-      await tx.user.update({
-        where: { id: uid },
-        data: { trustScore: { decrement: penalty } },
-      });
-    }
-    if (!linkedOrder && offenderIds.length > 0) {
-      await this.orderReputation.penalizeUsers(tx, offenderIds);
+    if (offenderIds.length > 0) {
+      await this.orderReputation.applyTrustPointsPenalty(
+        tx,
+        offenderIds,
+        penalty,
+        {
+          orderId: linkedOrder?.id,
+          reason: 'جریمه تأخیر یا عدم پرداخت معاوضه',
+          source: 'exchange_payment_timeout',
+        },
+      );
     }
 
     let buyerRefund = 0;

@@ -59,6 +59,7 @@ describe('Exchange lifecycle — payment timeout (scenarios 1–3)', () => {
   const orderReputationMock = {
     recordTerminalOutcome: jest.fn().mockResolvedValue(undefined),
     penalizeUsers: jest.fn().mockResolvedValue(undefined),
+    applyTrustPointsPenalty: jest.fn().mockResolvedValue(undefined),
   };
   const listingCommandMock = {
     rejectAfterTradeFailure: jest.fn().mockResolvedValue(undefined),
@@ -191,7 +192,13 @@ describe('Exchange lifecycle — payment timeout (scenarios 1–3)', () => {
         }),
       }),
     );
-    expect(tx.user.update).toHaveBeenCalledTimes(2);
+    expect(tx.user.update).not.toHaveBeenCalled();
+    expect(orderReputationMock.applyTrustPointsPenalty).toHaveBeenCalledWith(
+      tx,
+      expect.arrayContaining(['buyer-1', 'seller-1']),
+      expect.any(Number),
+      expect.objectContaining({ source: 'exchange_payment_timeout' }),
+    );
     expect(tx.exchangeOffer.update).toHaveBeenCalledWith({
       where: { id: 'offer-1' },
       data: { status: ExchangeOfferStatus.CANCELLED },
@@ -219,11 +226,13 @@ describe('Exchange lifecycle — payment timeout (scenarios 1–3)', () => {
         }),
       }),
     );
-    expect(tx.user.update).toHaveBeenCalledTimes(1);
-    expect(tx.user.update).toHaveBeenCalledWith({
-      where: { id: 'seller-1' },
-      data: expect.objectContaining({ trustScore: { decrement: expect.any(Number) } }),
-    });
+    expect(tx.user.update).not.toHaveBeenCalled();
+    expect(orderReputationMock.applyTrustPointsPenalty).toHaveBeenCalledWith(
+      tx,
+      ['seller-1'],
+      expect.any(Number),
+      expect.objectContaining({ source: 'exchange_payment_timeout' }),
+    );
     expect(listingCommandMock.rejectAfterTradeFailure).toHaveBeenCalled();
   });
 
@@ -245,10 +254,13 @@ describe('Exchange lifecycle — payment timeout (scenarios 1–3)', () => {
         }),
       }),
     );
-    expect(tx.user.update).toHaveBeenCalledWith({
-      where: { id: 'buyer-1' },
-      data: expect.objectContaining({ trustScore: { decrement: expect.any(Number) } }),
-    });
+    expect(tx.user.update).not.toHaveBeenCalled();
+    expect(orderReputationMock.applyTrustPointsPenalty).toHaveBeenCalledWith(
+      tx,
+      ['buyer-1'],
+      expect.any(Number),
+      expect.objectContaining({ source: 'exchange_payment_timeout' }),
+    );
     expect(tx.listing.update).toHaveBeenCalledWith({
       where: { id: 'lst-1' },
       data: { status: ListingStatus.APPROVED },

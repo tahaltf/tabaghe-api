@@ -20,6 +20,7 @@ import { AuctionGateway } from '../auction.gateway';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuctionEvents } from '../auction.events';
 import { AuctionSupportService } from './auction-support.service';
+import { OrderReputationService } from '../../orders/order-reputation.service';
 import { DEFAULT_WINNER_PAYMENT_DEADLINE_HOURS } from '../auction.constants';
 
 
@@ -32,6 +33,7 @@ export class AuctionSettlementService {
     private readonly auctionGateway: AuctionGateway,
     private readonly eventEmitter: EventEmitter2,
     private readonly support: AuctionSupportService,
+    private readonly orderReputation: OrderReputationService,
   ) {}
 
   async finalizeAuction(listingId: string) {
@@ -384,17 +386,16 @@ export class AuctionSettlementService {
             listingId,
             tx,
           );
-          const winnerUser = await tx.user.findUnique({
-            where: { id: currentWinnerBid.bidderId },
-            select: { trustScore: true },
-          });
-          const currentTrust = Number(winnerUser?.trustScore ?? 100);
-          await tx.user.update({
-            where: { id: currentWinnerBid.bidderId },
-            data: {
-              trustScore: Math.max(0, currentTrust - 5),
+          await this.orderReputation.applyTrustPointsPenalty(
+            tx,
+            [currentWinnerBid.bidderId],
+            5,
+            {
+              listingId,
+              reason: 'جریمه عدم پرداخت مزایده',
+              source: 'auction_no_pay',
             },
-          });
+          );
           this.eventEmitter.emit(AuctionEvents.PENALIZED, {
             listingId,
             userId: currentWinnerBid.bidderId,
