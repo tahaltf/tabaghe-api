@@ -15,4 +15,11 @@ describe('notification-navigation.util', () => {
       resolveNotificationPath('TICKET_REPLY', { ticketId: 't1' }),
     ).toBe('/dashboard/support?ticketId=t1');
   });
+
+  it('routes admin announcements only when link is provided', () => {
+    expect(resolveNotificationPath('ADMIN_ANNOUNCEMENT', {})).toBeNull();
+    expect(
+      resolveNotificationPath('ADMIN_ANNOUNCEMENT', { url: '/listings' }),
+    ).toBe('/listings');
+  });
 });
