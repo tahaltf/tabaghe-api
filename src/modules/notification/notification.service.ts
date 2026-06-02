@@ -8,6 +8,7 @@ import {
   enrichNotificationMeta,
   inferNotificationRecipientRole,
 } from '../../common/notification/notification-meta-enrichment.util';
+import { resolveNotificationPath } from '../../common/notification/notification-navigation.util';
 import webpush = require('web-push');
 import { getFrontendAppOrigin } from '../../common/pwa-brand-icon.util';
 import { isVapidConfigured, resolveVapidKeys, validateVapidKeyPair } from '../../common/push/vapid-keys.util';
@@ -62,16 +63,19 @@ export class NotificationService {
 
     const resolvedTitle = title?.trim();
     const resolvedMessage = rule?.siteNotificationText?.trim() || message;
+    const navPath = resolveNotificationPath(String(type), enrichedMetaBase);
     const enrichedMeta: Record<string, unknown> = {
       ...enrichedMetaBase,
       title: resolvedTitle,
       message: resolvedMessage,
+      ...(navPath ? { url: navPath } : {}),
     };
     const metaValue = meta === undefined ? undefined : (enrichedMeta as Prisma.InputJsonValue);
 
     // Push مستقل از فعال بودن نوتیف سایت/SMS است (فقط notifyPush کاربر + اشتراک مرورگر)
     this.processPush(
       userId,
+      type,
       resolvedTitle ?? '',
       resolvedMessage ?? '',
       enrichedMeta,
@@ -172,12 +176,12 @@ export class NotificationService {
         ...(meta ?? {}),
         title: resolvedTitle,
         message: resolvedMessage,
-        url: '/admin/notifications',
       };
       await Promise.all(
         admins.map((a) =>
           this.processPush(
             a.id,
+            type,
             resolvedTitle ?? '',
             resolvedMessage ?? '',
             adminMeta,
@@ -701,22 +705,16 @@ export class NotificationService {
     return { ok: true };
   }
 
-  private resolvePushUrl(meta?: Record<string, unknown>): string {
-    if (meta && typeof meta['url'] === 'string') {
-      const url = meta['url'].trim();
-      if (url.startsWith('/')) return url;
-    }
-    if (meta && typeof meta['orderId'] === 'string') {
-      return `/orders/${meta['orderId']}`;
-    }
-    if (meta && typeof meta['listingId'] === 'string') {
-      return `/listing/${meta['listingId']}`;
-    }
-    return '/dashboard/notifications';
+  private resolvePushUrl(
+    type: NotificationType,
+    meta?: Record<string, unknown>,
+  ): string | null {
+    return resolveNotificationPath(String(type), meta);
   }
 
   private async processPush(
     userId: string,
+    type: NotificationType,
     title: string,
     message: string,
     meta?: Record<string, unknown>,
@@ -749,12 +747,18 @@ export class NotificationService {
       return { ok: false, reason: 'vapid_not_configured' };
     }
 
-    const url = this.resolvePushUrl(meta);
+    const url = this.resolvePushUrl(type, meta);
     const iconMeta = this.resolvePushIconMeta();
     return this.sendWebPush(
       userId,
       subscription,
-      { title, message, url, icon: iconMeta.icon, iconRaster: iconMeta.iconRaster },
+      {
+        title,
+        message,
+        url,
+        icon: iconMeta.icon,
+        iconRaster: iconMeta.iconRaster,
+      },
       vapid,
     );
   }
@@ -773,7 +777,7 @@ export class NotificationService {
     payload: {
       title: string;
       message: string;
-      url: string;
+      url: string | null;
       icon?: string;
       iconRaster: boolean;
     },
@@ -784,7 +788,8 @@ export class NotificationService {
     const pushBody = JSON.stringify({
       title: payload.title,
       message: payload.message,
-      url: payload.url,
+      url: payload.url ?? '',
+      navigate: payload.url != null && payload.url.length > 0,
       icon,
       iconRaster: payload.iconRaster,
       tag: 'tabaghe-notification',
