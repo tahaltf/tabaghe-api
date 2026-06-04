@@ -112,12 +112,14 @@ export class AdminOrdersQueryService {
           select: {
             id: true,
             title: true,
+            description: true,
             type: true,
             thumbnail: true,
             gallery: true,
             category: { select: { id: true, title: true } },
             direct: { select: { price: true } },
             auction: { select: { basePrice: true, highestBidAmount: true } },
+            exchange: { select: { desiredDescription: true } },
           },
         },
         buyer: {
@@ -153,13 +155,20 @@ export class AdminOrdersQueryService {
     } | null = null;
     let exchangeOffer: {
       title?: string | null;
+      description?: string | null;
       images?: string[];
       thumbnail?: string | null;
     } | null = null;
     if (order.type === OrderType.EXCHANGE && order.exchangeOfferId) {
       const offer = await this.prisma.exchangeOffer.findUnique({
         where: { id: order.exchangeOfferId },
-        select: { extraPayment: true, isPayerMe: true, title: true, images: true },
+        select: {
+          extraPayment: true,
+          isPayerMe: true,
+          title: true,
+          description: true,
+          images: true,
+        },
       });
       if (offer) {
         exchangeOfferDetails = {
@@ -168,6 +177,7 @@ export class AdminOrdersQueryService {
         };
         exchangeOffer = {
           title: offer.title,
+          description: offer.description,
           images: offer.images ?? [],
           thumbnail: offer.images?.[0] ?? null,
         };
