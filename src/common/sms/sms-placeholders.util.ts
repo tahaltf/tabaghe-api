@@ -1,3 +1,5 @@
+import { getOrderStatusLabelFa } from '../order/order-status-labels.util';
+
 /**
  * جایگزینی متغیرهای قالب پیامک (sms.ir و مشابه).
  * نام placeholderها نسبت به حروف بزرگ/کوچک و فاصلهٔ داخل {{ }} اغماض‌پذیر است.
@@ -56,8 +58,22 @@ export function applySmsTemplatePlaceholders(
     String(meta['totalAmountFormatted'] ?? meta['totalAmount'] ?? ''),
   );
 
+  const statusFa =
+    String(meta['statusLabel'] ?? meta['statusFa'] ?? meta['orderStatusLabel'] ?? '').trim() ||
+    (meta['status'] != null ? getOrderStatusLabelFa(String(meta['status'])) : '');
+  if (statusFa) {
+    s = s.replace(/\{\{\s*status\s*\}\}/gi, statusFa);
+    s = s.replace(/\{\{\s*orderStatus\s*\}\}/gi, statusFa);
+    s = s.replace(/\{\{\s*statusLabel\s*\}\}/gi, statusFa);
+    s = s.replace(/\{\{\s*orderStatusLabel\s*\}\}/gi, statusFa);
+    s = s.replace(/\{\{\s*statusFa\s*\}\}/gi, statusFa);
+  }
+
   for (const [k, v] of Object.entries(meta)) {
-    const val = v === null || v === undefined ? '' : String(v);
+    let val = v === null || v === undefined ? '' : String(v);
+    if (k === 'status' || k === 'orderStatus') {
+      val = getOrderStatusLabelFa(val) || val;
+    }
     const re = new RegExp(`\\{\\{\\s*${escapeRegExp(k)}\\s*\\}\\}`, 'gi');
     s = s.replace(re, val);
   }

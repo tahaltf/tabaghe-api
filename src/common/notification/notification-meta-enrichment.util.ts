@@ -1,4 +1,5 @@
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { getOrderStatusLabelFa } from '../order/order-status-labels.util';
 
 function formatUserName(
   user: { firstName: string | null; lastName: string | null; phone: string } | null | undefined,
@@ -116,6 +117,13 @@ export async function enrichNotificationMeta(
   }
   if (out.refundAmount != null && out.refundAmountFormatted == null) {
     out.refundAmountFormatted = formatAmountFa(out.refundAmount);
+  }
+
+  if (typeof out.status === 'string' && out.status.trim()) {
+    const statusLabel = getOrderStatusLabelFa(out.status);
+    out.statusLabel = statusLabel;
+    out.orderStatusLabel = statusLabel;
+    out.statusFa = statusLabel;
   }
 
   return out;
