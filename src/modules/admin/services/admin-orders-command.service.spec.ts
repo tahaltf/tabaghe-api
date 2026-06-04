@@ -31,7 +31,9 @@ function createAdminOrdersCommandService(deps: {
   const stateMachine =
     deps.stateMachine ?? ({ assertTransition: jest.fn() } as const);
 
-  const notify = new AdminOrdersNotifyService(deps.prisma as never);
+  const notify = new AdminOrdersNotifyService({
+    create: jest.fn().mockResolvedValue({ notification: { id: 'n1' }, dispatched: true }),
+  } as never);
   const status = new AdminOrdersStatusService(
     deps.prisma as never,
     appSettings as never,
@@ -48,6 +50,10 @@ function createAdminOrdersCommandService(deps: {
     deps.walletService as never,
     ordersService as never,
     deps.listingCommand as never,
+    {
+      notifyMany: jest.fn().mockResolvedValue(undefined),
+      notifyExchangeHubItemReceived: jest.fn().mockResolvedValue(undefined),
+    } as never,
   );
   const inspection = new AdminOrdersInspectionService(
     deps.prisma as never,

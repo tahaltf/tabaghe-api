@@ -127,6 +127,7 @@ export class AdminTicketsService {
         title: 'تیکت جدید از سمت پشتیبانی',
         message: `تیکت جدیدی با عنوان «${dto.subject.trim()}» برای شما ثبت شد.`,
         meta: { ticketId: created.id },
+        forceSiteNotification: true,
       });
     } catch {
       // ignore notification errors
@@ -166,6 +167,7 @@ export class AdminTicketsService {
         title: 'پاسخ جدید پشتیبانی',
         message: `برای تیکت «${ticket.subject}» پاسخ جدید ثبت شد.`,
         meta: { ticketId: ticket.id },
+        forceSiteNotification: true,
       });
     } catch {
       // ignore notification errors to avoid breaking reply flow

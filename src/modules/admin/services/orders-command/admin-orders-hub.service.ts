@@ -26,6 +26,7 @@ import { WalletService } from '../../../wallet/wallet.service';
 import { OrdersService } from '../../../orders/orders.service';
 import { ListingCommandService } from '../../../listing/services/listing-command.service';
 import { buildOrderTicketSubject } from '../../../../common/ticket-message.util';
+import { OperationalNotifyService } from '../../../notification/operational-notify.service';
 
 @Injectable()
 export class AdminOrdersHubService {
@@ -35,7 +36,23 @@ export class AdminOrdersHubService {
     private readonly walletService: WalletService,
     private readonly ordersService: OrdersService,
     private readonly listingCommand: ListingCommandService,
+    private readonly operationalNotify: OperationalNotifyService,
   ) {}
+
+  private async dispatchHubNotifications(
+    rows: Prisma.NotificationCreateManyInput[],
+  ): Promise<void> {
+    if (!rows.length) return;
+    await this.operationalNotify.notifyMany(
+      rows.map((row) => ({
+        userId: row.userId,
+        type: row.type,
+        title: row.title,
+        message: row.message,
+        meta: row.meta as Record<string, unknown>,
+      })),
+    );
+  }
 
   async setHubShippingCodes(id: string, dto: SetHubShippingCodesDto) {
     const existing = await this.prisma.order.findUnique({
@@ -270,9 +287,7 @@ export class AdminOrdersHubService {
       );
     }
 
-    if (notifications.length > 0) {
-      await this.prisma.notification.createMany({ data: notifications });
-    }
+    await this.dispatchHubNotifications(notifications);
 
     // در مرجوعی معاوضه، به‌محض اینکه هر دو کد رهگیری برگشت از هاب ثبت شد،
     // سرکِ پرداخت‌شده باید فوراً از بلوکه طرف مقابل آزاد و به پرداخت‌کننده برگردد
@@ -436,17 +451,15 @@ export class AdminOrdersHubService {
     });
 
     const message = `کد رهگیری سفارش شما: ${trackingCode}`;
-    await this.prisma.notification.createMany({
-      data: [
-        {
-          userId: existing.buyerId,
-          type: NotificationType.ORDER_STATUS_CHANGED,
-          title: 'کد رهگیری ثبت شد',
-          message,
-          meta: { orderId: id, trackingCode } as Prisma.InputJsonValue,
-        },
-      ],
-    });
+    await this.dispatchHubNotifications([
+      {
+        userId: existing.buyerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'کد رهگیری ثبت شد',
+        message,
+        meta: { orderId: id, trackingCode } as Prisma.InputJsonValue,
+      },
+    ]);
     return order;
   }
 
@@ -502,38 +515,40 @@ export class AdminOrdersHubService {
       dto.sellerNote ? `توضیح برای شما: ${dto.sellerNote}` : null,
     ].filter(Boolean);
 
-    await this.prisma.notification.createMany({
-      data: [
-        {
-          userId: existing.buyerId,
-          type: NotificationType.ORDER_STATUS_CHANGED,
-          title: 'به‌روزرسانی اطلاعات ارسال',
-          message: buyerMsgParts.length
-            ? buyerMsgParts.join(' | ')
-            : 'اطلاعات ارسال سفارش به‌روزرسانی شد.',
-          meta: {
-            orderId: id,
-            sellerTrackingCode: dto.sellerTrackingCode ?? null,
-            buyerTrackingCode: dto.buyerTrackingCode ?? null,
-            buyerNote: dto.buyerNote ?? null,
-          } as Prisma.InputJsonValue,
-        },
-        {
-          userId: existing.sellerId,
-          type: NotificationType.ORDER_STATUS_CHANGED,
-          title: 'به‌روزرسانی اطلاعات ارسال',
-          message: sellerMsgParts.length
-            ? sellerMsgParts.join(' | ')
-            : 'اطلاعات ارسال سفارش به‌روزرسانی شد.',
-          meta: {
-            orderId: id,
-            sellerTrackingCode: dto.sellerTrackingCode ?? null,
-            buyerTrackingCode: dto.buyerTrackingCode ?? null,
-            sellerNote: dto.sellerNote ?? null,
-          } as Prisma.InputJsonValue,
-        },
-      ],
-    });
+    await this.dispatchHubNotifications([
+      {
+        userId: existing.buyerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'به‌روزرسانی اطلاعات ارسال',
+        message: buyerMsgParts.length
+          ? buyerMsgParts.join(' | ')
+          : 'اطلاعات ارسال سفارش به‌روزرسانی شد.',
+        meta: {
+          orderId: id,
+          sellerTrackingCode: dto.sellerTrackingCode ?? null,
+          buyerTrackingCode: dto.buyerTrackingCode ?? null,
+          buyerNote: dto.buyerNote ?? null,
+          audience: 'BUYER',
+          role: 'BUYER',
+        } as Prisma.InputJsonValue,
+      },
+      {
+        userId: existing.sellerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'به‌روزرسانی اطلاعات ارسال',
+        message: sellerMsgParts.length
+          ? sellerMsgParts.join(' | ')
+          : 'اطلاعات ارسال سفارش به‌روزرسانی شد.',
+        meta: {
+          orderId: id,
+          sellerTrackingCode: dto.sellerTrackingCode ?? null,
+          buyerTrackingCode: dto.buyerTrackingCode ?? null,
+          sellerNote: dto.sellerNote ?? null,
+          audience: 'SELLER',
+          role: 'SELLER',
+        } as Prisma.InputJsonValue,
+      },
+    ]);
 
     return updated;
   }
@@ -545,6 +560,9 @@ export class AdminOrdersHubService {
         id: true,
         type: true,
         status: true,
+        buyerId: true,
+        sellerId: true,
+        listingId: true,
         trackingCode: true,
         sellerTrackingCode: true,
         exchangeHubInspection: true,
@@ -600,12 +618,26 @@ export class AdminOrdersHubService {
           ? OrderStatus.RECEIVED_AT_HUB
           : OrderStatus.SHIPPED_TO_HUB;
 
-    return this.prisma.order.update({
+    const updated = await this.prisma.order.update({
       where: { id },
       data: {
         status: targetStatus,
         exchangeHubInspection: next as Prisma.InputJsonValue,
       },
     });
+
+    if (dto.received) {
+      await this.operationalNotify.notifyExchangeHubItemReceived({
+        orderId: id,
+        buyerId: existing.buyerId,
+        sellerId: existing.sellerId,
+        listingId: existing.listingId,
+        side: dto.side,
+        bothReceived,
+        status: targetStatus,
+      });
+    }
+
+    return updated;
   }
 }

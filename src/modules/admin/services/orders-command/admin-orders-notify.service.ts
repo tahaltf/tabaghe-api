@@ -1,34 +1,13 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
-import {
-  ExchangeOfferStatus,
-  ListingStatus,
-  ListingType,
-  NotificationType,
-  OrderStatus,
-  Prisma,
-  UserRole,
-  WalletTransactionStatus,
-  WalletTransactionType,
-} from '@prisma/client';
-import { PrismaService } from '../../../../infrastructure/prisma/prisma.service';
-
-import {
-  OrderReputationService,
-  TRADE_REPUTATION_PENALTY_DELTA,
-} from '../../../orders/order-reputation.service';
-import {
-  buildOrderTicketSubject,
-  formatTicketMessageBody,
-} from '../../../../common/ticket-message.util';
+import { Injectable } from '@nestjs/common';
+import { NotificationType, OrderStatus } from '@prisma/client';
+import { NotificationService } from '../../../notification/notification.service';
+import { formatTicketMessageBody } from '../../../../common/ticket-message.util';
+import { TRADE_REPUTATION_PENALTY_DELTA } from '../../../orders/order-reputation.service';
 import { STATUS_LABELS } from '../admin-orders.constants';
 
 @Injectable()
 export class AdminOrdersNotifyService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly notifications: NotificationService) {}
 
   buildDirectHubInspectionRejectionMessaging(opts: {
     listingTitle: string;
@@ -106,31 +85,14 @@ export class AdminOrdersNotifyService {
     const label =
       STATUS_LABELS[OrderStatus.REJECTED_AT_HUB] ?? 'رد شده در هاب';
     const titleBase = `وضعیت سفارش: ${label}`;
-    await this.prisma.notification.createMany({
-      data: [
-        {
-          userId: buyerId,
-          type: NotificationType.ORDER_STATUS_CHANGED,
-          title: titleBase,
-          message: buyerMessage,
-          meta: {
-            orderId,
-            status: OrderStatus.REJECTED_AT_HUB,
-            audience: 'BUYER',
-          } as Prisma.InputJsonValue,
-        },
-        {
-          userId: sellerId,
-          type: NotificationType.ORDER_STATUS_CHANGED,
-          title: titleBase,
-          message: sellerMessage,
-          meta: {
-            orderId,
-            status: OrderStatus.REJECTED_AT_HUB,
-            audience: 'SELLER',
-          } as Prisma.InputJsonValue,
-        },
-      ],
+    await this.dispatchOrderStatusPair({
+      buyerId,
+      sellerId,
+      orderId,
+      status: OrderStatus.REJECTED_AT_HUB,
+      title: titleBase,
+      buyerMessage,
+      sellerMessage,
     });
   }
 
@@ -146,33 +108,52 @@ export class AdminOrdersNotifyService {
     const message = note
       ? `وضعیت سفارش به «${label}» تغییر یافت. توضیح: ${note}`
       : `وضعیت سفارش به «${label}» تغییر یافت.`;
-    await this.prisma.notification.createMany({
-      data: [
-        {
-          userId: buyerId,
-          type: NotificationType.ORDER_STATUS_CHANGED,
-          title,
-          message,
-          meta: {
-            orderId,
-            status,
-            note,
-            audience: 'BUYER',
-          } as Prisma.InputJsonValue,
-        },
-        {
-          userId: sellerId,
-          type: NotificationType.ORDER_STATUS_CHANGED,
-          title,
-          message,
-          meta: {
-            orderId,
-            status,
-            note,
-            audience: 'SELLER',
-          } as Prisma.InputJsonValue,
-        },
-      ],
+    await this.dispatchOrderStatusPair({
+      buyerId,
+      sellerId,
+      orderId,
+      status,
+      title,
+      buyerMessage: message,
+      sellerMessage: message,
+      note,
     });
+  }
+
+  private async dispatchOrderStatusPair(params: {
+    buyerId: string;
+    sellerId: string;
+    orderId: string;
+    status: OrderStatus;
+    title: string;
+    buyerMessage: string;
+    sellerMessage: string;
+    note?: string;
+  }): Promise<void> {
+    const metaBase = {
+      orderId: params.orderId,
+      status: params.status,
+      note: params.note,
+    };
+    await Promise.all([
+      this.notifications.create({
+        userId: params.buyerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: params.title,
+        message: params.buyerMessage,
+        forceSiteNotification: true,
+        recipientRole: 'BUYER',
+        meta: { ...metaBase, audience: 'BUYER', role: 'BUYER' },
+      }),
+      this.notifications.create({
+        userId: params.sellerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: params.title,
+        message: params.sellerMessage,
+        forceSiteNotification: true,
+        recipientRole: 'SELLER',
+        meta: { ...metaBase, audience: 'SELLER', role: 'SELLER' },
+      }),
+    ]);
   }
 }

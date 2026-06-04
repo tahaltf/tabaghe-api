@@ -21,8 +21,105 @@ export class OperationalNotifyService {
   async notifyMany(items: NotifyPayload[]): Promise<void> {
     if (!items.length) return;
     await Promise.all(
-      items.map((item) => this.notificationService.create(item)),
+      items.map((item) =>
+        this.notificationService.create({
+          ...item,
+          forceSiteNotification: true,
+          recipientRole:
+            item.meta?.role != null
+              ? String(item.meta.role)
+              : item.meta?.audience != null
+                ? String(item.meta.audience)
+                : undefined,
+        }),
+      ),
     );
+  }
+
+  /** ثبت دریافت یکی از کالاهای معاوضه در انبار (ادمین) */
+  async notifyExchangeHubItemReceived(params: {
+    orderId: string;
+    buyerId: string;
+    sellerId: string;
+    listingId: string;
+    side: 'LISTING' | 'OFFER';
+    bothReceived: boolean;
+    status: OrderStatus | string;
+  }): Promise<void> {
+    const listingTitle = await this.listingTitle(params.listingId);
+    const baseMeta = {
+      orderId: params.orderId,
+      listingId: params.listingId,
+      listingTitle,
+      status: params.status,
+      phase: 'exchange_hub_item_received',
+    };
+
+    if (params.side === 'LISTING') {
+      await this.notifyMany([
+        {
+          userId: params.sellerId,
+          type: NotificationType.ORDER_STATUS_CHANGED,
+          title: 'دریافت کالای شما در انبار',
+          message: `کالای آگهی شما برای معاوضه «${listingTitle}» در انبار طبقه دریافت و ثبت شد.`,
+          meta: { ...baseMeta, role: 'SELLER', audience: 'SELLER', leg: 'LISTING' },
+        },
+        {
+          userId: params.buyerId,
+          type: NotificationType.ORDER_STATUS_CHANGED,
+          title: 'دریافت کالای آگهی در انبار',
+          message: `کالای آگهی (طرف فروشنده) برای معاوضه «${listingTitle}» در انبار دریافت شد.`,
+          meta: { ...baseMeta, role: 'BUYER', audience: 'BUYER', leg: 'LISTING' },
+        },
+      ]);
+    } else {
+      await this.notifyMany([
+        {
+          userId: params.buyerId,
+          type: NotificationType.ORDER_STATUS_CHANGED,
+          title: 'دریافت کالای شما در انبار',
+          message: `کالای پیشنهادی شما برای معاوضه «${listingTitle}» در انبار طبقه دریافت و ثبت شد.`,
+          meta: { ...baseMeta, role: 'BUYER', audience: 'BUYER', leg: 'OFFER' },
+        },
+        {
+          userId: params.sellerId,
+          type: NotificationType.ORDER_STATUS_CHANGED,
+          title: 'دریافت کالای پیشنهادی در انبار',
+          message: `کالای پیشنهادی (طرف خریدار) برای معاوضه «${listingTitle}» در انبار دریافت شد.`,
+          meta: { ...baseMeta, role: 'SELLER', audience: 'SELLER', leg: 'OFFER' },
+        },
+      ]);
+    }
+
+    if (params.bothReceived) {
+      const bothMessage = `هر دو کالای معاوضه «${listingTitle}» در انبار دریافت شدند. پس از شروع کارشناسی از همین مسیر مطلع می‌شوید.`;
+      await this.notifyMany([
+        {
+          userId: params.buyerId,
+          type: NotificationType.ORDER_STATUS_CHANGED,
+          title: 'هر دو کالا در انبار',
+          message: bothMessage,
+          meta: {
+            ...baseMeta,
+            role: 'BUYER',
+            audience: 'BUYER',
+            phase: 'exchange_hub_both_received',
+          },
+        },
+        {
+          userId: params.sellerId,
+          type: NotificationType.ORDER_STATUS_CHANGED,
+          title: 'هر دو کالا در انبار',
+          message: bothMessage,
+          meta: {
+            ...baseMeta,
+            role: 'SELLER',
+            audience: 'SELLER',
+            phase: 'exchange_hub_both_received',
+          },
+        },
+      ]);
+    }
   }
 
   private async listingTitle(listingId: string): Promise<string> {
