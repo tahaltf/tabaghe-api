@@ -17,6 +17,7 @@ import { OrdersSchedulerService } from '../scheduler/orders-scheduler.service';
 import { OrdersCompletionService } from '../command/orders-completion.service';
 import { ORDER_DETAIL_INCLUDE } from './order-detail.include';
 import { OrdersResponseEnrichmentService } from './orders-response-enrichment.service';
+import { isHubOutboundShipmentNotificationMeta } from '../../../../common/order/hub-shipment-note.util';
 
 const DEFAULT_SELLER_RETURN_CONFIRM_DEADLINE_MINUTES = 72 * 60;
 const DEFAULT_EXCHANGE_PAYMENT_DEADLINE_MINUTES = 24 * 60;
@@ -258,15 +259,10 @@ export class OrdersDetailQueryService {
         const hubShipmentNotification =
           noteCandidates.find((n) => {
             const meta = (n.meta as Record<string, unknown> | null) ?? {};
-            const note = meta['note'];
             const audience = meta['audience'];
-            if (typeof note !== 'string' || !note.trim()) return false;
             if (audience === 'BUYER' && !isBuyerView) return false;
             if (audience === 'SELLER' && !isSellerView) return false;
-            if (note.includes('نتیجه کارشناسی معاوضه — مرجوع هر دو')) {
-              return false;
-            }
-            return true;
+            return isHubOutboundShipmentNotificationMeta(meta);
           }) ?? null;
 
         const hubShipmentNoteRaw = (
