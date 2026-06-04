@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NotificationType, Prisma, UserRole } from '@prisma/client';
@@ -49,20 +50,36 @@ export class NotificationService {
       templateId: number;
       parameters?: Array<{ name: string; value: string }>;
     };
+    /** اطلاعیهٔ دستی ادمین: همیشه در سایت ثبت شود حتی اگر نوتیف سایت در قوانین خاموش باشد */
+    forceSiteNotification?: boolean;
   }) {
-    const { userId, type, title, message, meta, smsOverride, recipientRole } =
-      params;
+    const {
+      userId,
+      type,
+      title,
+      message,
+      meta,
+      smsOverride,
+      recipientRole,
+      forceSiteNotification,
+    } = params;
     const enrichedMetaBase = await enrichNotificationMeta(this.prisma, meta);
     const resolvedRecipientRole =
       recipientRole ?? inferNotificationRecipientRole(enrichedMetaBase);
     const rule = await this.getRuleForType(type, resolvedRecipientRole);
-    const siteEnabled = !(rule && rule.siteNotificationEnabled === false);
+    const siteEnabled =
+      forceSiteNotification === true
+        ? true
+        : !(rule && rule.siteNotificationEnabled === false);
     const smsFromRule = this.isSmsRuleActive(rule);
     const smsFromOverride =
       !!smsOverride?.templateId && Number(smsOverride.templateId) > 0;
 
     const resolvedTitle = title?.trim();
-    const resolvedMessage = rule?.siteNotificationText?.trim() || message;
+    const resolvedMessage =
+      forceSiteNotification === true
+        ? message?.trim() || ''
+        : rule?.siteNotificationText?.trim() || message;
     const navPath = resolveNotificationPath(String(type), enrichedMetaBase);
     const enrichedMeta: Record<string, unknown> = {
       ...enrichedMetaBase,
@@ -72,18 +89,16 @@ export class NotificationService {
     };
     const metaValue = meta === undefined ? undefined : (enrichedMeta as Prisma.InputJsonValue);
 
-    // Push مستقل از فعال بودن نوتیف سایت/SMS است (فقط notifyPush کاربر + اشتراک مرورگر)
-    this.processPush(
-      userId,
-      type,
-      resolvedTitle ?? '',
-      resolvedMessage ?? '',
-      enrichedMeta,
-    ).catch((err) => {
-      this.logger.error('Failed to process push notification', err);
-    });
-
     if (!siteEnabled && !smsFromRule && !smsFromOverride) {
+      this.processPush(
+        userId,
+        type,
+        resolvedTitle ?? '',
+        resolvedMessage ?? '',
+        enrichedMeta,
+      ).catch((err) => {
+        this.logger.error('Failed to process push notification', err);
+      });
       return { notification: null, dispatched: true };
     }
 
@@ -102,6 +117,18 @@ export class NotificationService {
         },
       });
     }
+
+    // Push بعد از ثبت سایت (برای tag یکتا) — کلیک در گوشی به لیست اطلاعیه‌ها می‌رود
+    this.processPush(
+      userId,
+      type,
+      resolvedTitle ?? '',
+      resolvedMessage ?? '',
+      enrichedMeta,
+      notification?.id,
+    ).catch((err) => {
+      this.logger.error('Failed to process push notification', err);
+    });
 
     if (smsFromOverride && !smsFromRule) {
       this.processSmsOverride(userId, smsOverride!, enrichedMeta).catch(
@@ -501,13 +528,15 @@ export class NotificationService {
     const { title, message, userIds, linkUrl, alsoSendSms, smsTemplateConfig } =
       params;
     let recipients: { id: string }[];
-    if (userIds && userIds.length > 0) {
+    if (userIds === undefined) {
+      recipients = await this.prisma.user.findMany({ select: { id: true } });
+    } else if (userIds.length === 0) {
+      return { created: 0 };
+    } else {
       recipients = await this.prisma.user.findMany({
         where: { id: { in: userIds } },
         select: { id: true },
       });
-    } else {
-      recipients = await this.prisma.user.findMany({ select: { id: true } });
     }
     if (recipients.length === 0) return { created: 0 };
 
@@ -521,34 +550,94 @@ export class NotificationService {
         : undefined;
 
     const normalizedLink = this.normalizeBroadcastLinkUrl(linkUrl);
+    const trimmedTitle = title.trim();
+    const trimmedMessage = message.trim();
     const meta: Record<string, unknown> = {
-      title: title.trim(),
-      message: message.trim(),
+      title: trimmedTitle,
+      message: trimmedMessage,
       ...(normalizedLink ? { url: normalizedLink } : {}),
     };
+    const metaJson = meta as Prisma.InputJsonValue;
 
-    const chunkSize = 40;
+    // اطلاعیهٔ ادمین: همیشه مستقیم در DB (مستقل از خاموش بودن «نوتیف سایت» در قوانین)
+    const chunkSize = 100;
+    for (let i = 0; i < recipients.length; i += chunkSize) {
+      const chunk = recipients.slice(i, i + chunkSize);
+      await this.prisma.notification.createMany({
+        data: chunk.map((r) => ({
+          userId: r.id,
+          type: NotificationType.ADMIN_ANNOUNCEMENT,
+          title: trimmedTitle,
+          message: trimmedMessage,
+          meta: metaJson,
+        })),
+      });
+    }
+
+    // پیامک و push جداگانه (بدون ثبت دوبارهٔ رکورد سایت)
     for (let i = 0; i < recipients.length; i += chunkSize) {
       const chunk = recipients.slice(i, i + chunkSize);
       await Promise.all(
         chunk.map((r) =>
-          this.create({
-            userId: r.id,
-            type: NotificationType.ADMIN_ANNOUNCEMENT,
-            title,
-            message,
+          this.dispatchAdminAnnouncementChannels(
+            r.id,
+            trimmedTitle,
+            trimmedMessage,
             meta,
+            rule,
+            smsFromRules,
             smsOverride,
-          }),
+          ),
         ),
       );
     }
 
     return {
       created: recipients.length,
+      siteNotificationsCreated: recipients.length,
       smsViaNotificationRules: smsFromRules,
       smsViaBroadcastOverride: !!smsOverride,
     };
+  }
+
+  /** پس از createMany اطلاعیهٔ ادمین — فقط SMS و push */
+  private async dispatchAdminAnnouncementChannels(
+    userId: string,
+    title: string,
+    message: string,
+    meta: Record<string, unknown>,
+    rule: SmsRule | null,
+    smsFromRules: boolean,
+    smsOverride?: {
+      templateId: number;
+      parameters?: Array<{ name: string; value: string }>;
+    },
+  ): Promise<void> {
+    const pushMeta = { ...meta, title, message };
+    this.processPush(
+      userId,
+      NotificationType.ADMIN_ANNOUNCEMENT,
+      title,
+      message,
+      pushMeta,
+    ).catch((err) => {
+      this.logger.error('Failed to process push for admin announcement', err);
+    });
+
+    if (smsOverride?.templateId && !smsFromRules) {
+      this.processSmsOverride(userId, smsOverride, pushMeta).catch((err) => {
+        this.logger.error('Failed to process SMS override for admin announcement', err);
+      });
+    } else if (smsFromRules && rule) {
+      this.processSms(
+        userId,
+        NotificationType.ADMIN_ANNOUNCEMENT,
+        pushMeta,
+        rule,
+      ).catch((err) => {
+        this.logger.error('Failed to process SMS for admin announcement', err);
+      });
+    }
   }
 
   private normalizeBroadcastLinkUrl(raw?: string): string | undefined {
@@ -719,19 +808,13 @@ export class NotificationService {
     return { ok: true };
   }
 
-  private resolvePushUrl(
-    type: NotificationType,
-    meta?: Record<string, unknown>,
-  ): string | null {
-    return resolveNotificationPath(String(type), meta);
-  }
-
   private async processPush(
     userId: string,
     type: NotificationType,
     title: string,
     message: string,
     meta?: Record<string, unknown>,
+    notificationId?: string,
   ): Promise<{ ok: boolean; reason?: string; detail?: string }> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -761,15 +844,15 @@ export class NotificationService {
       return { ok: false, reason: 'vapid_not_configured' };
     }
 
-    const url = this.resolvePushUrl(type, meta);
     const iconMeta = this.resolvePushIconMeta();
+    const pushNotificationId = notificationId?.trim() || randomUUID();
     return this.sendWebPush(
       userId,
       subscription,
       {
         title,
         message,
-        url,
+        notificationId: pushNotificationId,
         icon: iconMeta.icon,
         iconRaster: iconMeta.iconRaster,
       },
@@ -791,22 +874,25 @@ export class NotificationService {
     payload: {
       title: string;
       message: string;
-      url: string | null;
+      notificationId: string;
       icon?: string;
       iconRaster: boolean;
     },
     vapid: { publicKey: string; privateKey: string; subject: string },
   ): Promise<{ ok: boolean; reason?: string; detail?: string }> {
     const icon = payload.icon?.trim() || undefined;
+    const notificationId = payload.notificationId.trim() || randomUUID();
+    const inboxPath = '/dashboard/notifications';
     // فقط data — بدون فیلد notification تا مرورگر/FCM خودکار دوبار نشان ندهد
     const pushBody = JSON.stringify({
       title: payload.title,
       message: payload.message,
-      url: payload.url ?? '',
-      navigate: payload.url != null && payload.url.length > 0,
+      url: inboxPath,
+      notificationId,
+      navigate: true,
       icon,
       iconRaster: payload.iconRaster,
-      tag: 'tabaghe-notification',
+      tag: `tabaghe-${notificationId}`,
     });
 
     try {

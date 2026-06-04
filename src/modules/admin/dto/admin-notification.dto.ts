@@ -49,6 +49,12 @@ export class BroadcastNotificationDto {
   @IsString({ each: true })
   userIds?: string[];
 
+  /** شماره موبایل (09…) — به شناسه کاربر تبدیل می‌شود */
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  phones?: string[];
+
   @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
