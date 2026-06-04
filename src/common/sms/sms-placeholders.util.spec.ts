@@ -21,4 +21,15 @@ describe('applySmsTemplatePlaceholders', () => {
     });
     expect(out).toBe('در حال بررسی در هاب');
   });
+
+  it('maps financial settlement meta to Persian label', () => {
+    const out = applySmsTemplatePlaceholders('وضعیت: {{status}}', {
+      meta: {
+        status: 'VERIFIED_AT_HUB',
+        statusLabel: 'تایید با اصلاح مالی',
+        resolution: 'FINANCIAL_SETTLEMENT_THEN_SHIP',
+      },
+    });
+    expect(out).toBe('وضعیت: تایید با اصلاح مالی');
+  });
 });

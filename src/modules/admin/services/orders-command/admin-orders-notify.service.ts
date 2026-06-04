@@ -4,6 +4,16 @@ import { NotificationService } from '../../../notification/notification.service'
 import { formatTicketMessageBody } from '../../../../common/ticket-message.util';
 import { TRADE_REPUTATION_PENALTY_DELTA } from '../../../orders/order-reputation.service';
 import { STATUS_LABELS } from '../admin-orders.constants';
+import { ORDER_STATUS_FINANCIAL_SETTLEMENT_LABEL_FA } from '../../../../common/order/order-status-labels.util';
+
+export type AdminOrderNotifyOptions = {
+  statusLabel?: string;
+  metaExtras?: Record<string, unknown>;
+  /** عنوان اعلان؛ در غیر این صورت «وضعیت سفارش تغییر کرد» */
+  title?: string;
+  /** متن یکسان خریدار و فروشنده؛ در صورت تنظیم، قالب پیش‌فرض با note استفاده نمی‌شود */
+  message?: string;
+};
 
 @Injectable()
 export class AdminOrdersNotifyService {
@@ -102,12 +112,18 @@ export class AdminOrdersNotifyService {
     orderId: string,
     status: OrderStatus,
     note?: string,
+    options?: AdminOrderNotifyOptions,
   ): Promise<void> {
-    const label = STATUS_LABELS[status] ?? status;
-    const title = `وضعیت سفارش تغییر کرد`;
-    const message = note
-      ? `وضعیت سفارش به «${label}» تغییر یافت. توضیح: ${note}`
-      : `وضعیت سفارش به «${label}» تغییر یافت.`;
+    const label =
+      options?.statusLabel?.trim() ||
+      STATUS_LABELS[status] ||
+      status;
+    const title = options?.title?.trim() || 'وضعیت سفارش تغییر کرد';
+    const message =
+      options?.message?.trim() ||
+      (note
+        ? `وضعیت سفارش به «${label}» تغییر یافت. توضیح: ${note}`
+        : `وضعیت سفارش به «${label}» تغییر یافت.`);
     await this.dispatchOrderStatusPair({
       buyerId,
       sellerId,
@@ -117,6 +133,8 @@ export class AdminOrdersNotifyService {
       buyerMessage: message,
       sellerMessage: message,
       note,
+      metaExtras: options?.metaExtras,
+      statusLabel: options?.statusLabel,
     });
   }
 
@@ -129,11 +147,26 @@ export class AdminOrdersNotifyService {
     buyerMessage: string;
     sellerMessage: string;
     note?: string;
+    statusLabel?: string;
+    metaExtras?: Record<string, unknown>;
   }): Promise<void> {
+    const statusLabel =
+      params.statusLabel?.trim() ||
+      (params.metaExtras?.resolution === 'FINANCIAL_SETTLEMENT_THEN_SHIP'
+        ? ORDER_STATUS_FINANCIAL_SETTLEMENT_LABEL_FA
+        : undefined);
     const metaBase = {
       orderId: params.orderId,
       status: params.status,
       note: params.note,
+      ...(params.metaExtras ?? {}),
+      ...(statusLabel
+        ? {
+            statusLabel,
+            statusFa: statusLabel,
+            orderStatusLabel: statusLabel,
+          }
+        : {}),
     };
     await Promise.all([
       this.notifications.create({

@@ -4,6 +4,7 @@ import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { NotificationService } from '../../notification/notification.service';
 import { SmsService } from '../../sms/sms.service';
 import { applySmsTemplatePlaceholders } from '../../../common/sms/sms-placeholders.util';
+import { isUserOperationalSmsEnabled } from '../../../common/notification/user-sms-notification.util';
 
 @Injectable()
 export class AdminSmsService {
@@ -36,7 +37,13 @@ export class AdminSmsService {
           : userIds.length > 0
             ? { id: { in: userIds } }
             : { id: { in: [] } },
-      select: { id: true, phone: true, firstName: true, lastName: true },
+      select: {
+        id: true,
+        phone: true,
+        firstName: true,
+        lastName: true,
+        notifySms: true,
+      },
     });
 
     const createSite = alsoCreateSiteNotification !== false;
@@ -45,9 +52,10 @@ export class AdminSmsService {
 
     let sent = 0;
     let failed = 0;
+    let skippedOptOut = 0;
     let siteCreated = 0;
     for (const user of users) {
-      if (user.phone) {
+      if (user.phone && isUserOperationalSmsEnabled(user.notifySms)) {
         try {
           await this.sms.sendByTemplate(user.phone, templateId, [
             {
@@ -62,6 +70,8 @@ export class AdminSmsService {
         } catch {
           failed++;
         }
+      } else if (user.phone && !isUserOperationalSmsEnabled(user.notifySms)) {
+        skippedOptOut++;
       } else {
         failed++;
       }
@@ -78,6 +88,6 @@ export class AdminSmsService {
       }
     }
 
-    return { total: users.length, sent, failed, siteCreated };
+    return { total: users.length, sent, failed, skippedOptOut, siteCreated };
   }
 }

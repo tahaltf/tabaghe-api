@@ -9,6 +9,7 @@ import {
   enrichNotificationMeta,
   inferNotificationRecipientRole,
 } from '../../common/notification/notification-meta-enrichment.util';
+import { isUserOperationalSmsEnabled } from '../../common/notification/user-sms-notification.util';
 import { resolveNotificationPath } from '../../common/notification/notification-navigation.util';
 import webpush = require('web-push');
 import { getFrontendAppOrigin } from '../../common/pwa-brand-icon.util';
@@ -342,6 +343,13 @@ export class NotificationService {
       return;
     }
 
+    if (!isUserOperationalSmsEnabled(user.notifySms)) {
+      this.logger.debug(
+        `SMS skipped for ${type}: user ${userId} disabled SMS in settings`,
+      );
+      return;
+    }
+
     // دریافت عنوان آگهی برای شخصی‌سازی پیامک
     let listingTitle = 'یک آگهی';
     if (
@@ -433,9 +441,16 @@ export class NotificationService {
   ) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { phone: true, firstName: true, lastName: true },
+      select: { phone: true, firstName: true, lastName: true, notifySms: true },
     });
     if (!user?.phone) return;
+
+    if (!isUserOperationalSmsEnabled(user.notifySms)) {
+      this.logger.debug(
+        `SMS override skipped: user ${userId} disabled SMS in settings`,
+      );
+      return;
+    }
 
     const templateId = Number(config.templateId);
     if (!Number.isFinite(templateId) || templateId <= 0) return;

@@ -1,5 +1,5 @@
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { getOrderStatusLabelFa } from '../order/order-status-labels.util';
+import { resolveOrderStatusLabelFromMeta } from '../order/order-status-labels.util';
 
 function formatUserName(
   user: { firstName: string | null; lastName: string | null; phone: string } | null | undefined,
@@ -120,7 +120,7 @@ export async function enrichNotificationMeta(
   }
 
   if (typeof out.status === 'string' && out.status.trim()) {
-    const statusLabel = getOrderStatusLabelFa(out.status);
+    const statusLabel = resolveOrderStatusLabelFromMeta(out);
     out.statusLabel = statusLabel;
     out.orderStatusLabel = statusLabel;
     out.statusFa = statusLabel;

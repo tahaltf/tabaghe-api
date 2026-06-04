@@ -33,6 +33,8 @@ function normalizeStatusKey(status: string): string {
     .replace(/[\s-]+/g, '_');
 }
 
+export const ORDER_STATUS_FINANCIAL_SETTLEMENT_LABEL_FA = 'تایید با اصلاح مالی';
+
 export function getOrderStatusLabelFa(
   status: string | null | undefined,
 ): string {
@@ -43,4 +45,34 @@ export function getOrderStatusLabelFa(
   const normalized = normalizeStatusKey(raw);
   const mapped = STATUS_ALIASES[normalized] ?? (normalized as OrderStatus);
   return ORDER_STATUS_LABELS_FA[mapped] ?? raw;
+}
+
+/** برچسب وضعیت با در نظر گرفتن meta (مثلاً اصلاح مالی معاوضه روی VERIFIED_AT_HUB) */
+export function resolveOrderStatusLabelFromMeta(
+  meta: Record<string, unknown>,
+): string {
+  const explicit =
+    typeof meta.statusLabel === 'string' && meta.statusLabel.trim()
+      ? meta.statusLabel.trim()
+      : '';
+  if (explicit) return explicit;
+
+  const status = typeof meta.status === 'string' ? meta.status : '';
+  const settlementKind = String(meta.settlementKind ?? '');
+  const phase = String(meta.phase ?? '');
+  const resolution = String(meta.resolution ?? '');
+
+  if (status && normalizeStatusKey(status) === OrderStatus.VERIFIED_AT_HUB) {
+    if (
+      settlementKind === 'exchange-financial-settlement' ||
+      phase.includes('financial_settlement') ||
+      phase.includes('exchange_financial') ||
+      resolution === 'FINANCIAL_SETTLEMENT_THEN_SHIP' ||
+      meta.exchangeFinancialSettlement === true
+    ) {
+      return ORDER_STATUS_FINANCIAL_SETTLEMENT_LABEL_FA;
+    }
+  }
+
+  return getOrderStatusLabelFa(status);
 }
