@@ -1,8 +1,10 @@
 import {
+  applyExchangeFinancialSettlement,
   buildExchangeFinancialSettlementNotifyMessage,
   buildExchangeFinancialSettlementOrderNote,
   buildExchangeFinancialSettlementTicketBody,
   exchangeInspectionItemLabelForUser,
+  resolveExchangeSurplusReceivableBases,
 } from './exchange-financial-settlement-messaging.util';
 
 describe('exchange-financial-settlement-messaging', () => {
@@ -41,5 +43,26 @@ describe('exchange-financial-settlement-messaging', () => {
     const msg = buildExchangeFinancialSettlementNotifyMessage('a1b2c3');
     expect(msg).toContain('#A1B2C3');
     expect(msg.length).toBeLessThan(120);
+  });
+
+  it('assigns surplus receivable to offerer when listing author pays extra', () => {
+    const bases = resolveExchangeSurplusReceivableBases({
+      extraPayment: 263_528,
+      isPayerMe: false,
+    });
+    expect(bases.sellerBefore).toBe(0);
+    expect(bases.buyerBefore).toBe(263_528);
+  });
+
+  it('applies offer-side deduction to buyer surplus only', () => {
+    const bases = resolveExchangeSurplusReceivableBases({
+      extraPayment: 263_528,
+      isPayerMe: false,
+    });
+    const { buyerAfter } = applyExchangeFinancialSettlement(bases, {
+      listingSettlementAmount: 0,
+      offerSettlementAmount: 50,
+    });
+    expect(buyerAfter).toBe(263_478);
   });
 });

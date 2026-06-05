@@ -103,3 +103,62 @@ export function buildExchangeFinancialSettlementTicketNotifyMessage(
 ): string {
   return `تیکت کارشناسی معاوضه سفارش #${orderShortId.toUpperCase()} باز شد. جزئیات در تیکت پشتیبانی ثبت شده است.`;
 }
+
+export interface ExchangeSurplusOfferLike {
+  extraPayment: unknown;
+  isPayerMe: boolean;
+}
+
+export interface ExchangeSurplusReceivableBases {
+  extra: number;
+  sellerBefore: number;
+  buyerBefore: number;
+}
+
+/** سهم سرک (مابه‌التفاوت) قابل دریافت هر طرف — نه مجموع پرداخت‌های کیف پول/درگاه. */
+export function resolveExchangeSurplusReceivableBases(
+  offer: ExchangeSurplusOfferLike,
+): ExchangeSurplusReceivableBases {
+  const extra = Math.max(0, Number(offer.extraPayment || 0));
+  const sellerBefore = offer.isPayerMe ? extra : 0;
+  const buyerBefore = !offer.isPayerMe ? extra : 0;
+  return { extra, sellerBefore, buyerBefore };
+}
+
+export interface ExchangeFinancialSettlementAmounts {
+  listingSettlementAmount: number;
+  offerSettlementAmount: number;
+}
+
+export interface ExchangeFinancialSettlementResult {
+  sellerAfter: number;
+  buyerAfter: number;
+}
+
+/**
+ * اصلاح مالی معاوضه روی سهم سرک اعمال می‌شود:
+ * - listingSettlementAmount: از فروشنده کم و به خریدار اضافه
+ * - offerSettlementAmount: از خریدار کم و به فروشنده اضافه
+ */
+export function applyExchangeFinancialSettlement(
+  bases: ExchangeSurplusReceivableBases,
+  amounts: ExchangeFinancialSettlementAmounts,
+): ExchangeFinancialSettlementResult {
+  const listingSettlementAmount = Math.max(
+    0,
+    Number(amounts.listingSettlementAmount || 0),
+  );
+  const offerSettlementAmount = Math.max(
+    0,
+    Number(amounts.offerSettlementAmount || 0),
+  );
+  const sellerAfter = Math.max(
+    0,
+    bases.sellerBefore - listingSettlementAmount + offerSettlementAmount,
+  );
+  const buyerAfter = Math.max(
+    0,
+    bases.buyerBefore + listingSettlementAmount - offerSettlementAmount,
+  );
+  return { sellerAfter, buyerAfter };
+}
