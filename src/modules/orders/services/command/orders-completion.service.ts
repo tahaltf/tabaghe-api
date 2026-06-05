@@ -31,6 +31,7 @@ import { FeeCalculatorService } from '../../../fees/fee-calculator.service';
 import { AppSettingsService } from '../../../../shared/settings/app-settings.service';
 import { PaymentsService } from '../../../payments/payments.service';
 import { NotificationService } from '../../../notification/notification.service';
+import { OperationalNotifyService } from '../../../notification/operational-notify.service';
 import { ExchangeOrderNotifyService } from '../../../notification/exchange-order-notify.service';
 import { OrderReputationService } from '../../order-reputation.service';
 import { ExchangeService } from '../../../exchange/exchange.service';
@@ -83,6 +84,7 @@ export class OrdersCompletionService {
     private readonly walletService: WalletService,
     private readonly stateMachine: OrdersStateMachineService,
     private readonly notificationService: NotificationService,
+    private readonly operationalNotify: OperationalNotifyService,
     private readonly appSettings: AppSettingsService,
     private readonly orderReputation: OrderReputationService,
     private readonly exchangeService: ExchangeService,
@@ -447,7 +449,21 @@ export class OrdersCompletionService {
   }
 
   async confirmOrder(userId: string, orderId: string) {
-    return this.prisma.$transaction(async (tx) => {
+    const before = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        status: true,
+        buyerId: true,
+        sellerId: true,
+        listingId: true,
+        type: true,
+        buyerConfirmedDelivery: true,
+        sellerConfirmedDelivery: true,
+        exchangeHubInspection: true,
+      },
+    });
+
+    const order = await this.prisma.$transaction(async (tx) => {
       const order = await tx.order.findUnique({ where: { id: orderId } });
 
       if (!order) throw new NotFoundException('سفارش یافت نشد');
@@ -752,6 +768,79 @@ export class OrdersCompletionService {
       );
       return completedDirect;
     });
+
+    if (
+      before?.status !== OrderStatus.COMPLETED &&
+      order.status === OrderStatus.COMPLETED
+    ) {
+      await this.operationalNotify
+        .notifyOrderCompleted({
+          orderId: order.id,
+          buyerId: order.buyerId,
+          sellerId: order.sellerId,
+          listingId: order.listingId,
+          orderType: order.type,
+        })
+        .catch(() => undefined);
+    } else if (order.type === OrderType.EXCHANGE && before) {
+      const beforeInspection =
+        (before.exchangeHubInspection as Record<string, unknown> | null) ?? {};
+      const afterInspection =
+        (order.exchangeHubInspection as Record<string, unknown> | null) ?? {};
+      const isReturnBothFlow =
+        afterInspection['resolution'] === 'RETURN_BOTH_TO_SENDERS' &&
+        (order.status === OrderStatus.CANCELLED ||
+          order.status === OrderStatus.REJECTED_AT_HUB);
+      const refundsJustReleased =
+        isReturnBothFlow &&
+        !beforeInspection['refundsReleasedAt'] &&
+        Boolean(afterInspection['refundsReleasedAt']);
+
+      if (refundsJustReleased) {
+        await this.operationalNotify
+          .notifyExchangeAutoReturnEscrowReleased({
+            orderId: order.id,
+            listingId: order.listingId,
+            buyerId: order.buyerId,
+            sellerId: order.sellerId,
+          })
+          .catch(() => undefined);
+      } else if (
+        order.status !== OrderStatus.COMPLETED &&
+        (isReturnBothFlow
+          ? afterInspection['awaitingReturnConfirmations'] === true
+          : true)
+      ) {
+        const buyerJustConfirmed =
+          !before.buyerConfirmedDelivery && order.buyerConfirmedDelivery;
+        const sellerJustConfirmed =
+          !before.sellerConfirmedDelivery && order.sellerConfirmedDelivery;
+        if (buyerJustConfirmed || sellerJustConfirmed) {
+          const confirmedBy = buyerJustConfirmed ? 'BUYER' : 'SELLER';
+          const legParams = {
+            orderId: order.id,
+            listingId: order.listingId,
+            buyerId: order.buyerId,
+            sellerId: order.sellerId,
+            confirmedBy,
+          } as const;
+          if (isReturnBothFlow) {
+            await this.operationalNotify
+              .notifyExchangeReturnLegConfirmed(legParams)
+              .catch(() => undefined);
+          } else {
+            await this.operationalNotify
+              .notifyExchangeLegDeliveryConfirmed({
+                ...legParams,
+                status: order.status,
+              })
+              .catch(() => undefined);
+          }
+        }
+      }
+    }
+
+    return order;
   }
   // 7. ثبت شکایت (Dispute) ✅ اصلاح شده برای حل ارور includes
   // =================================================================

@@ -28,6 +28,7 @@ import {
   formatTicketMessageBody,
 } from '../../../../common/ticket-message.util';
 import { AdminOrdersNotifyService } from './admin-orders-notify.service';
+import { OperationalNotifyService } from '../../../notification/operational-notify.service';
 
 @Injectable()
 export class AdminOrdersStatusService {
@@ -40,6 +41,7 @@ export class AdminOrdersStatusService {
     private readonly listingCommand: ListingCommandService,
     private readonly stateMachine: OrdersStateMachineService,
     private readonly notify: AdminOrdersNotifyService,
+    private readonly operationalNotify: OperationalNotifyService,
   ) {}
 
   repairBuyerRefundForCancelledOrder(orderId: string) {
@@ -394,13 +396,38 @@ export class AdminOrdersStatusService {
       return o;
     });
     await this.ordersService.ensureBuyerConfirmDeadline(id);
-    await this.notify.notifyParties(
-      existing.buyerId,
-      existing.sellerId,
-      id,
-      status,
-      note,
-    );
+    const isExchangeInspectionStart =
+      existing.type === 'EXCHANGE' &&
+      status === OrderStatus.CHECKING_AT_HUB &&
+      existing.status !== OrderStatus.CHECKING_AT_HUB;
+    const isOrderCompleted =
+      status === OrderStatus.COMPLETED &&
+      existing.status !== OrderStatus.COMPLETED;
+    if (isExchangeInspectionStart) {
+      await this.operationalNotify.notifyExchangeHubInspectionStarted({
+        orderId: id,
+        buyerId: existing.buyerId,
+        sellerId: existing.sellerId,
+        listingId: existing.listingId,
+        note,
+      });
+    } else if (isOrderCompleted) {
+      await this.operationalNotify.notifyOrderCompleted({
+        orderId: id,
+        buyerId: existing.buyerId,
+        sellerId: existing.sellerId,
+        listingId: existing.listingId,
+        orderType: existing.type,
+      });
+    } else {
+      await this.notify.notifyParties(
+        existing.buyerId,
+        existing.sellerId,
+        id,
+        status,
+        note,
+      );
+    }
     return order;
   }
 

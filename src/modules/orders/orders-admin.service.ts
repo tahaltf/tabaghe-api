@@ -3,7 +3,7 @@
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { OrderStatus, Prisma } from '@prisma/client';
+import { OrderStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OrdersStateMachineService } from './orders-state-machine.service';
 
@@ -62,63 +62,4 @@ export class OrdersAdminService {
     });
   }
 
-  async setExchangeHubReceipt(
-    orderId: string,
-    dto: { side: 'LISTING' | 'OFFER'; received: boolean },
-  ) {
-    const existing = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      select: {
-        id: true,
-        type: true,
-        status: true,
-        exchangeHubInspection: true,
-      },
-    });
-    if (!existing) throw new NotFoundException('سفارش یافت نشد');
-    if (existing.type !== 'EXCHANGE') {
-      throw new BadRequestException(
-        'این عملیات فقط برای سفارش معاوضه مجاز است',
-      );
-    }
-    if (
-      existing.status !== OrderStatus.SHIPPED_TO_HUB &&
-      existing.status !== OrderStatus.RECEIVED_AT_HUB &&
-      existing.status !== OrderStatus.CHECKING_AT_HUB
-    ) {
-      throw new BadRequestException(
-        'سفارش در وضعیت مناسب برای ثبت دریافت مرسوله در هاب نیست',
-      );
-    }
-
-    const prev =
-      (existing.exchangeHubInspection as Record<string, unknown> | null) ?? {};
-    const next = {
-      ...prev,
-      sellerReceivedAtHub:
-        dto.side === 'LISTING'
-          ? dto.received
-          : Boolean(prev['sellerReceivedAtHub']),
-      buyerReceivedAtHub:
-        dto.side === 'OFFER'
-          ? dto.received
-          : Boolean(prev['buyerReceivedAtHub']),
-    };
-    const bothReceived =
-      Boolean(next.sellerReceivedAtHub) && Boolean(next.buyerReceivedAtHub);
-    const targetStatus =
-      existing.status === OrderStatus.CHECKING_AT_HUB
-        ? OrderStatus.CHECKING_AT_HUB
-        : bothReceived
-          ? OrderStatus.RECEIVED_AT_HUB
-          : OrderStatus.SHIPPED_TO_HUB;
-
-    return this.prisma.order.update({
-      where: { id: orderId },
-      data: {
-        status: targetStatus,
-        exchangeHubInspection: next as Prisma.InputJsonValue,
-      },
-    });
-  }
 }

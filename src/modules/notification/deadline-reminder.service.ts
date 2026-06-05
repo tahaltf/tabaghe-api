@@ -234,11 +234,20 @@ export class DeadlineReminderService {
       return;
     }
 
-    const { dispatched } = await this.notificationService.create({
+    const recipientRole = params.entityId.endsWith(':buyer')
+      ? 'BUYER'
+      : params.entityId.endsWith(':seller')
+        ? 'SELLER'
+        : undefined;
+    const phaseKey = recipientRole
+      ? `${params.action}_${recipientRole}`
+      : params.action;
+    const { dispatched } = await this.notificationService.createUserOperational({
       userId: params.userId,
       type: NotificationType.ACTION_DEADLINE_REMINDER,
       title: params.title,
       message: params.message,
+      recipientRole,
       meta: {
         reminderAction: params.action,
         entityId: params.entityId,
@@ -248,6 +257,9 @@ export class DeadlineReminderService {
         timeLeftFa: params.timeLeftFa,
         actionLabel: params.actionLabel,
         deadlineFa: this.formatDeadlineFa(params.deadlineAt),
+        phase: params.action,
+        phaseKey,
+        ...(recipientRole ? { role: recipientRole, audience: recipientRole } : {}),
       },
     });
 

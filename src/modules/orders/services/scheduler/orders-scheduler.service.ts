@@ -31,6 +31,7 @@ import { FeeCalculatorService } from '../../../fees/fee-calculator.service';
 import { AppSettingsService } from '../../../../shared/settings/app-settings.service';
 import { PaymentsService } from '../../../payments/payments.service';
 import { NotificationService } from '../../../notification/notification.service';
+import { OperationalNotifyService } from '../../../notification/operational-notify.service';
 import { ExchangeOrderNotifyService } from '../../../notification/exchange-order-notify.service';
 import { OrderReputationService } from '../../order-reputation.service';
 import { ExchangeService } from '../../../exchange/exchange.service';
@@ -87,6 +88,7 @@ export class OrdersSchedulerService {
     private readonly walletService: WalletService,
     private readonly feeCalculator: FeeCalculatorService,
     private readonly notificationService: NotificationService,
+    private readonly operationalNotify: OperationalNotifyService,
     private readonly exchangeOrderNotify: ExchangeOrderNotifyService,
     private readonly orderReputation: OrderReputationService,
     private readonly exchangeService: ExchangeService,
@@ -268,6 +270,7 @@ export class OrdersSchedulerService {
     tx: Prisma.TransactionClient,
     params: {
       orderId: string | null;
+      listingId?: string;
       buyerId: string;
       sellerId: string;
       listingTitle: string;
@@ -280,7 +283,17 @@ export class OrdersSchedulerService {
       sellerRefundAmount: number;
       offenderIds: string[];
     },
-  ): Promise<void> {
+  ): Promise<{
+    orderId: string | null;
+    listingId?: string;
+    buyerId: string;
+    sellerId: string;
+    listingTitle: string;
+    buyerCompliant: boolean;
+    sellerCompliant: boolean;
+    buyerTicketId: string;
+    sellerTicketId: string;
+  }> {
     const shortId = params.orderId ? params.orderId.slice(-6) : '------';
     const penalty = await this.settings.getExchangePaymentTrustPenalty();
     const listingTitle = params.listingTitle?.trim() || 'کالا';
@@ -399,40 +412,17 @@ export class OrdersSchedulerService {
     const buyerCompliant = !params.offenderIds.includes(params.buyerId);
     const sellerCompliant = !params.offenderIds.includes(params.sellerId);
 
-    await tx.notification.createMany({
-      data: [
-        {
-          userId: params.buyerId,
-          type: NotificationType.TICKET_REPLY,
-          title: buyerCompliant
-            ? 'معاوضه لغو شد — بازگشت وجه'
-            : 'معاوضه لغو شد — مهلت پرداخت',
-          message: buyerCompliant
-            ? `معاوضه برای «${listingTitle}» لغو شد. سهم پرداختی شما به کیف پول برگشت؛ بابت ناراحتی پیش‌آمده پوزش می‌خواهیم.`
-            : `معاوضه برای «${listingTitle}» به‌دلیل عدم تکمیل پرداخت شما در مهلت مقرر لغو شد.`,
-          meta: {
-            ...(params.orderId ? { orderId: params.orderId } : {}),
-            ticketId: buyerTicket.id,
-            reason: 'exchange-payment-timeout-cancel',
-          } as Prisma.InputJsonValue,
-        },
-        {
-          userId: params.sellerId,
-          type: NotificationType.TICKET_REPLY,
-          title: sellerCompliant
-            ? 'معاوضه لغو شد — بازگشت وجه'
-            : 'معاوضه لغو شد — مهلت پرداخت',
-          message: sellerCompliant
-            ? `معاوضه برای «${listingTitle}» لغو شد. سهم پرداختی شما به کیف پول برگشت؛ بابت ناراحتی پیش‌آمده پوزش می‌خواهیم.`
-            : `معاوضه برای «${listingTitle}» به‌دلیل عدم تکمیل پرداخت شما در مهلت مقرر لغو شد.`,
-          meta: {
-            ...(params.orderId ? { orderId: params.orderId } : {}),
-            ticketId: sellerTicket.id,
-            reason: 'exchange-payment-timeout-cancel',
-          } as Prisma.InputJsonValue,
-        },
-      ],
-    });
+    return {
+      orderId: params.orderId,
+      listingId: params.listingId,
+      buyerId: params.buyerId,
+      sellerId: params.sellerId,
+      listingTitle,
+      buyerCompliant,
+      sellerCompliant,
+      buyerTicketId: buyerTicket.id,
+      sellerTicketId: sellerTicket.id,
+    };
   }
 
   /** تیکت و اعلان برای لغو معاوضه به‌دلیل عدم ارسال هر دو طرف در مهلت */
@@ -483,6 +473,7 @@ export class OrdersSchedulerService {
     tx: Prisma.TransactionClient,
     params: {
       orderId: string;
+      listingId: string;
       buyerId: string;
       sellerId: string;
       listingTitle: string;
@@ -494,7 +485,20 @@ export class OrdersSchedulerService {
       inspectionPenaltyPerParty: number;
       trustPenaltyPoints?: number;
     },
-  ): Promise<void> {
+  ): Promise<{
+    orderId: string;
+    listingId: string;
+    buyerId: string;
+    sellerId: string;
+    listingTitle: string;
+    shortId: string;
+    penaltyPerParty: number;
+    penaltyPct: number;
+    buyerRefundAmount: number;
+    sellerRefundAmount: number;
+    buyerTicketId: string;
+    sellerTicketId: string;
+  }> {
     const shortId = params.orderId.slice(-6);
     const penalty = params.trustPenaltyPoints ?? 15;
     const listingTitle = params.listingTitle?.trim() || 'کالا';
@@ -566,38 +570,20 @@ export class OrdersSchedulerService {
       select: { id: true },
     });
 
-    await tx.notification.createMany({
-      data: [
-        {
-          userId: params.buyerId,
-          type: NotificationType.TICKET_REPLY,
-          title: 'معاوضه لغو شد — بازگشت وجه',
-          message:
-            penaltyPerParty > 0
-              ? `معاوضه #${shortId} لغو شد. ${Math.max(0, params.buyerRefundAmount).toLocaleString('fa-IR')} تومان پس از کسر ${penaltyPct}٪ جریمه کارشناسی به کیف پول شما واریز شد.`
-              : `معاوضه #${shortId} به‌دلیل عدم ارسال هر دو طرف لغو شد و سهم پرداختی شما به کیف پول برگشت.`,
-          meta: {
-            orderId: params.orderId,
-            ticketId: buyerTicket.id,
-            reason: 'exchange-both-no-shipment-cancel',
-          } as Prisma.InputJsonValue,
-        },
-        {
-          userId: params.sellerId,
-          type: NotificationType.TICKET_REPLY,
-          title: 'معاوضه لغو شد — بازگشت وجه',
-          message:
-            penaltyPerParty > 0
-              ? `معاوضه #${shortId} لغو شد. ${Math.max(0, params.sellerRefundAmount).toLocaleString('fa-IR')} تومان پس از کسر ${penaltyPct}٪ جریمه کارشناسی به کیف پول شما واریز شد.`
-              : `معاوضه #${shortId} به‌دلیل عدم ارسال هر دو طرف لغو شد و سهم پرداختی شما به کیف پول برگشت.`,
-          meta: {
-            orderId: params.orderId,
-            ticketId: sellerTicket.id,
-            reason: 'exchange-both-no-shipment-cancel',
-          } as Prisma.InputJsonValue,
-        },
-      ],
-    });
+    return {
+      orderId: params.orderId,
+      listingId: params.listingId,
+      buyerId: params.buyerId,
+      sellerId: params.sellerId,
+      listingTitle,
+      shortId,
+      penaltyPerParty,
+      penaltyPct,
+      buyerRefundAmount: params.buyerRefundAmount,
+      sellerRefundAmount: params.sellerRefundAmount,
+      buyerTicketId: buyerTicket.id,
+      sellerTicketId: sellerTicket.id,
+    };
   }
 
   /** تیکت و اعلان: یک طرف ارسال کرده، طرف مقابل در مهلت ارسال نکرده */
@@ -605,6 +591,7 @@ export class OrdersSchedulerService {
     tx: Prisma.TransactionClient,
     params: {
       orderId: string;
+      listingId: string;
       buyerId: string;
       sellerId: string;
       senderId: string;
@@ -616,7 +603,16 @@ export class OrdersSchedulerService {
       inspectionPenaltyPercent: number;
       trustPenaltyPoints?: number;
     },
-  ): Promise<void> {
+  ): Promise<{
+    orderId: string;
+    listingId: string;
+    buyerId: string;
+    sellerId: string;
+    listingTitle: string;
+    buyerIsSender: boolean;
+    buyerTicketId: string;
+    sellerTicketId: string;
+  }> {
     const shortId = params.orderId.slice(-6);
     const penalty = params.trustPenaltyPoints ?? 15;
     const listingTitle = params.listingTitle?.trim() || 'کالا';
@@ -698,40 +694,16 @@ export class OrdersSchedulerService {
       select: { id: true },
     });
 
-    await tx.notification.createMany({
-      data: [
-        {
-          userId: params.buyerId,
-          type: NotificationType.TICKET_REPLY,
-          title: buyerIsSender
-            ? 'معاوضه لغو شد — بازگشت وجه و مرجوع کالا'
-            : 'معاوضه لغو شد — کسر امتیاز',
-          message: buyerIsSender
-            ? `معامله «${listingTitle}» لغو شد؛ وجه شما برگشت و کالا بدون کارشناسی در صف مرجوع از هاب است.`
-            : `معامله «${listingTitle}» به‌دلیل عدم ارسال شما در مهلت لغو شد.`,
-          meta: {
-            orderId: params.orderId,
-            ticketId: buyerTicket.id,
-            reason: 'exchange-one-side-no-shipment-cancel',
-          } as Prisma.InputJsonValue,
-        },
-        {
-          userId: params.sellerId,
-          type: NotificationType.TICKET_REPLY,
-          title: buyerIsSender
-            ? 'معاوضه لغو شد — کسر امتیاز'
-            : 'معاوضه لغو شد — بازگشت وجه و مرجوع کالا',
-          message: buyerIsSender
-            ? `معامله «${listingTitle}» به‌دلیل عدم ارسال شما در مهلت لغو شد.`
-            : `معامله «${listingTitle}» لغو شد؛ وجه شما برگشت و کالا بدون کارشناسی در صف مرجوع از هاب است.`,
-          meta: {
-            orderId: params.orderId,
-            ticketId: sellerTicket.id,
-            reason: 'exchange-one-side-no-shipment-cancel',
-          } as Prisma.InputJsonValue,
-        },
-      ],
-    });
+    return {
+      orderId: params.orderId,
+      listingId: params.listingId,
+      buyerId: params.buyerId,
+      sellerId: params.sellerId,
+      listingTitle,
+      buyerIsSender,
+      buyerTicketId: buyerTicket.id,
+      sellerTicketId: sellerTicket.id,
+    };
   }
 
   async tryAutoConfirmExpiredOrder(orderId: string): Promise<boolean> {
@@ -840,13 +812,22 @@ export class OrdersSchedulerService {
   ): Promise<void> {
     const exchangeNoShipmentCompensationPercent =
       await this.settings.getExchangeNoShipmentCompensation();
-    await this.prisma.$transaction(async (tx) => {
-      await this.cancelExpiredShippingOrderInTx(
+    const deferred = await this.prisma.$transaction(async (tx) =>
+      this.cancelExpiredShippingOrderInTx(
         tx,
         order,
         exchangeNoShipmentCompensationPercent,
-      );
-    });
+      ),
+    );
+    if (deferred?.kind === 'both_no_shipment') {
+      await this.operationalNotify
+        .notifyExchangeBothNoShipmentCancel(deferred.params)
+        .catch(() => undefined);
+    } else if (deferred?.kind === 'one_side') {
+      await this.operationalNotify
+        .notifyExchangeOneSideNoShipmentCancel(deferred.params)
+        .catch(() => undefined);
+    }
   }
 
   private async cancelExpiredShippingOrderInTx(
@@ -855,7 +836,21 @@ export class OrdersSchedulerService {
       include: { listing: { select: { title: true } } };
     }>,
     exchangeNoShipmentCompensationPercent: number,
-  ): Promise<void> {
+  ): Promise<
+    | {
+        kind: 'both_no_shipment';
+        params: Parameters<
+          OperationalNotifyService['notifyExchangeBothNoShipmentCancel']
+        >[0];
+      }
+    | {
+        kind: 'one_side';
+        params: Parameters<
+          OperationalNotifyService['notifyExchangeOneSideNoShipmentCancel']
+        >[0];
+      }
+    | null
+  > {
     const current = await tx.order.findUnique({
       where: { id: order.id },
       select: { status: true },
@@ -868,7 +863,7 @@ export class OrdersSchedulerService {
         (order.type === OrderType.EXCHANGE &&
           current.status === OrderStatus.SHIPPED_TO_HUB));
     if (!statusAllowsCancel) {
-      return;
+      return null;
     }
 
     const sellerSent = Boolean(order.trackingCode);
@@ -1054,40 +1049,50 @@ export class OrdersSchedulerService {
         penaltyPerParty: 0,
         penaltyPercent: exchangeNoShipmentCompensationPercent,
       };
-      await this.createExchangeBothNoShipmentCancelTickets(tx, {
-        orderId: order.id,
-        buyerId: order.buyerId,
-        sellerId: order.sellerId,
-        listingTitle: order.listing?.title ?? 'کالا',
-        buyerPaidAmount: refundSummary.buyerPaid,
-        sellerPaidAmount: refundSummary.sellerPaid,
-        buyerRefundAmount: refundSummary.buyerRefund,
-        sellerRefundAmount: refundSummary.sellerRefund,
-        inspectionPenaltyPercent: refundSummary.penaltyPercent,
-        inspectionPenaltyPerParty: refundSummary.penaltyPerParty,
-        trustPenaltyPoints: 15,
-      });
-    } else if (
+      const bothNotify = await this.createExchangeBothNoShipmentCancelTickets(
+        tx,
+        {
+          orderId: order.id,
+          listingId: order.listingId,
+          buyerId: order.buyerId,
+          sellerId: order.sellerId,
+          listingTitle: order.listing?.title ?? 'کالا',
+          buyerPaidAmount: refundSummary.buyerPaid,
+          sellerPaidAmount: refundSummary.sellerPaid,
+          buyerRefundAmount: refundSummary.buyerRefund,
+          sellerRefundAmount: refundSummary.sellerRefund,
+          inspectionPenaltyPercent: refundSummary.penaltyPercent,
+          inspectionPenaltyPerParty: refundSummary.penaltyPerParty,
+          trustPenaltyPoints: 15,
+        },
+      );
+      return { kind: 'both_no_shipment', params: bothNotify };
+    }
+    if (
       order.type === OrderType.EXCHANGE &&
       exchangeOnlyOneSent &&
       oneSideRefundSummary
     ) {
       const senderId = sellerSent ? order.sellerId : order.buyerId;
       const offenderId = sellerSent ? order.buyerId : order.sellerId;
-      await this.createExchangeOneSideNoShipmentCancelTickets(tx, {
-        orderId: order.id,
-        buyerId: order.buyerId,
-        sellerId: order.sellerId,
-        senderId,
-        offenderId,
-        listingTitle: order.listing?.title ?? 'کالا',
-        senderRefundAmount: oneSideRefundSummary.senderRefund,
-        offenderRefundAmount: oneSideRefundSummary.offenderRefund,
-        compensationAmount: oneSideRefundSummary.compensation,
-        inspectionPenaltyPercent: exchangeNoShipmentCompensationPercent,
-        trustPenaltyPoints: 15,
-      });
-    } else if (
+      const oneSideNotify =
+        await this.createExchangeOneSideNoShipmentCancelTickets(tx, {
+          orderId: order.id,
+          listingId: order.listingId,
+          buyerId: order.buyerId,
+          sellerId: order.sellerId,
+          senderId,
+          offenderId,
+          listingTitle: order.listing?.title ?? 'کالا',
+          senderRefundAmount: oneSideRefundSummary.senderRefund,
+          offenderRefundAmount: oneSideRefundSummary.offenderRefund,
+          compensationAmount: oneSideRefundSummary.compensation,
+          inspectionPenaltyPercent: exchangeNoShipmentCompensationPercent,
+          trustPenaltyPoints: 15,
+        });
+      return { kind: 'one_side', params: oneSideNotify };
+    }
+    if (
       isDirectShippingTimeoutCancel &&
       targetStatus === OrderStatus.CANCELLED
     ) {
@@ -1100,6 +1105,7 @@ export class OrdersSchedulerService {
         trustPenaltyPoints: 15,
       });
     }
+    return null;
   }
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -1168,9 +1174,21 @@ export class OrdersSchedulerService {
 
     for (const offer of timedOutAcceptedOffers) {
       try {
-        await this.prisma.$transaction(async (tx) => {
-          await this.processExchangePaymentTimeoutInTx(tx, offer);
-        });
+        const deferred = await this.prisma.$transaction(async (tx) =>
+          this.processExchangePaymentTimeoutInTx(tx, offer),
+        );
+        if (deferred && typeof deferred === 'object') {
+          if (deferred.waitlistRestore) {
+            await this.operationalNotify
+              .notifyExchangeWaitlistRestored(deferred.waitlistRestore)
+              .catch(() => undefined);
+          }
+          if (deferred.paymentCancel) {
+            await this.operationalNotify
+              .notifyExchangePaymentTimeoutCancel(deferred.paymentCancel)
+              .catch(() => undefined);
+          }
+        }
       } catch (error) {
         console.error(
           `Error auto-canceling exchange timeout for offer ${offer.id}:`,
@@ -1190,7 +1208,14 @@ export class OrdersSchedulerService {
       offererId: string;
       listing: { id: string; title: string | null; authorId: string } | null;
     },
-  ): Promise<void> {
+  ): Promise<{
+    waitlistRestore?: Parameters<
+      OperationalNotifyService['notifyExchangeWaitlistRestored']
+    >[0];
+    paymentCancel?: Parameters<
+      OperationalNotifyService['notifyExchangePaymentTimeoutCancel']
+    >[0];
+  } | void> {
     const linkedOrder = await tx.order.findFirst({
       where: { exchangeOfferId: offer.id },
       select: {
@@ -1308,6 +1333,9 @@ export class OrdersSchedulerService {
     let offenderIds: string[] = [];
     let rejectListing = false;
     let restoreWaitlisted = false;
+    let waitlistRestore:
+      | Parameters<OperationalNotifyService['notifyExchangeWaitlistRestored']>[0]
+      | undefined;
 
     if (buyerPaidAmount <= 0 && sellerPaidAmount <= 0) {
       scenario = 'neither_paid';
@@ -1455,18 +1483,11 @@ export class OrdersSchedulerService {
         ...new Set(waitlistedOfferers.map((r) => r.offererId)),
       ];
       if (waitlistedUserIds.length > 0) {
-        await tx.notification.createMany({
-          data: waitlistedUserIds.map((uid) => ({
-            userId: uid,
-            type: NotificationType.SYSTEM,
-            title: 'پیشنهاد شما دوباره در انتظار بررسی است',
-            message: `مهلت پرداخت معاوضه برای «${listingTitle}» به پایان رسید. پیشنهاد شما دوباره فعال شد و فروشنده می‌تواند یکی از درخواست‌ها را انتخاب کند.`,
-            meta: {
-              listingId: offer.listingId,
-              reason: 'exchange-payment-timeout-waitlist-restore',
-            } as Prisma.InputJsonValue,
-          })),
-        });
+        waitlistRestore = {
+          listingId: offer.listingId,
+          listingTitle,
+          userIds: waitlistedUserIds,
+        };
       }
     } else {
       await tx.listing.update({
@@ -1477,16 +1498,25 @@ export class OrdersSchedulerService {
 
     const ticketBuyerId = linkedOrder?.buyerId ?? offererId;
     const ticketSellerId = linkedOrder?.sellerId ?? sellerId;
-    await this.createExchangePaymentTimeoutCancelTickets(tx, {
-      orderId: linkedOrder?.id ?? null,
-      buyerId: ticketBuyerId,
-      sellerId: ticketSellerId,
-      listingTitle,
-      scenario,
-      buyerRefundAmount: buyerRefund,
-      sellerRefundAmount: sellerRefund,
-      offenderIds,
-    });
+    const paymentCancel = await this.createExchangePaymentTimeoutCancelTickets(
+      tx,
+      {
+        orderId: linkedOrder?.id ?? null,
+        listingId: offer.listingId,
+        buyerId: ticketBuyerId,
+        sellerId: ticketSellerId,
+        listingTitle,
+        scenario,
+        buyerRefundAmount: buyerRefund,
+        sellerRefundAmount: sellerRefund,
+        offenderIds,
+      },
+    );
+
+    return {
+      ...(waitlistRestore ? { waitlistRestore } : {}),
+      paymentCancel,
+    };
   }
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -1624,7 +1654,7 @@ export class OrdersSchedulerService {
 
     for (const order of orders) {
       try {
-        await this.prisma.$transaction(async (tx) => {
+        const released = await this.prisma.$transaction(async (tx) => {
           const locked = await tx.order.findUnique({
             where: { id: order.id },
             select: {
@@ -1641,7 +1671,7 @@ export class OrdersSchedulerService {
               exchangeHubInspection: true,
             },
           });
-          if (!locked) return;
+          if (!locked) return null;
 
           const inspection =
             (locked.exchangeHubInspection as Record<string, unknown> | null) ??
@@ -1653,7 +1683,7 @@ export class OrdersSchedulerService {
             inspection['awaitingReturnConfirmations'] !== true ||
             inspection['refundsReleasedAt']
           ) {
-            return;
+            return null;
           }
 
           const returnShipmentCompletedAtRaw =
@@ -1666,12 +1696,12 @@ export class OrdersSchedulerService {
             !returnShipmentCompletedAt ||
             Number.isNaN(returnShipmentCompletedAt.getTime())
           ) {
-            return;
+            return null;
           }
           const autoReleaseAt = new Date(
             returnShipmentCompletedAt.getTime() + deadlineMinutes * 60 * 1000,
           );
-          if (autoReleaseAt > now) return;
+          if (autoReleaseAt > now) return null;
 
           const openTickets = await tx.ticket.count({
             where: {
@@ -1683,7 +1713,7 @@ export class OrdersSchedulerService {
               },
             },
           });
-          if (openTickets > 0) return;
+          if (openTickets > 0) return null;
 
           const exchangeOffer = locked.exchangeOfferId
             ? await tx.exchangeOffer.findUnique({
@@ -1731,33 +1761,18 @@ export class OrdersSchedulerService {
             },
           });
 
-          await tx.notification.createMany({
-            data: [
-              {
-                userId: locked.buyerId,
-                type: NotificationType.ORDER_STATUS_CHANGED,
-                title: 'آزادسازی خودکار وجه مرجوعی',
-                message:
-                  'با پایان مهلت تایید دریافت و نبود اختلاف فعال، سهم پرداختی شما (بدون هزینه کارشناسی) آزاد شد.',
-                meta: {
-                  orderId: locked.id,
-                  autoRelease: true,
-                } as Prisma.InputJsonValue,
-              },
-              {
-                userId: locked.sellerId,
-                type: NotificationType.ORDER_STATUS_CHANGED,
-                title: 'آزادسازی خودکار وجه مرجوعی',
-                message:
-                  'با پایان مهلت تایید دریافت و نبود اختلاف فعال، سهم پرداختی شما (بدون هزینه کارشناسی) آزاد شد.',
-                meta: {
-                  orderId: locked.id,
-                  autoRelease: true,
-                } as Prisma.InputJsonValue,
-              },
-            ],
-          });
+          return {
+            orderId: locked.id,
+            listingId: locked.listingId,
+            buyerId: locked.buyerId,
+            sellerId: locked.sellerId,
+          };
         });
+        if (released) {
+          await this.operationalNotify
+            .notifyExchangeAutoReturnEscrowReleased(released)
+            .catch(() => undefined);
+        }
       } catch (error) {
         console.error(
           `Error auto-releasing exchange return escrow for order ${order.id}:`,

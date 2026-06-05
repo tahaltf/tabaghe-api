@@ -8,7 +8,6 @@ import { QuotaModule } from '../quota/quota.module';
 import { ListingModule } from '../listing/listing.module';
 import { OrderReputationModule } from './order-reputation.module';
 
-import { OrdersAdminController } from './orders-admin.controller';
 import { OrdersController } from './orders.controller';
 import { OrdersAdminService } from './orders-admin.service';
 import { OrdersCommandService } from './orders-command.service';
@@ -36,7 +35,7 @@ import { OrdersSchedulerService } from './services/scheduler/orders-scheduler.se
     ListingModule,
     OrderReputationModule,
   ],
-  controllers: [OrdersController, OrdersAdminController],
+  controllers: [OrdersController],
   providers: [
     OrdersSettingsService,
     OrdersStateMachineService,

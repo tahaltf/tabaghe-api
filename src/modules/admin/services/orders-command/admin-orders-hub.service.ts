@@ -637,16 +637,18 @@ export class AdminOrdersHubService {
 
     const prev =
       (existing.exchangeHubInspection as Record<string, unknown> | null) ?? {};
+    const wasListingReceived = Boolean(prev['sellerReceivedAtHub']);
+    const wasOfferReceived = Boolean(prev['buyerReceivedAtHub']);
     const next = {
       ...prev,
       sellerReceivedAtHub:
         dto.side === 'LISTING'
           ? dto.received
-          : Boolean(prev['sellerReceivedAtHub']),
+          : wasListingReceived,
       buyerReceivedAtHub:
         dto.side === 'OFFER'
           ? dto.received
-          : Boolean(prev['buyerReceivedAtHub']),
+          : wasOfferReceived,
     };
     const bothReceived =
       Boolean(next.sellerReceivedAtHub) && Boolean(next.buyerReceivedAtHub);
@@ -665,7 +667,11 @@ export class AdminOrdersHubService {
       },
     });
 
-    if (dto.received) {
+    const isNewSideReceipt =
+      dto.received &&
+      ((dto.side === 'LISTING' && !wasListingReceived) ||
+        (dto.side === 'OFFER' && !wasOfferReceived));
+    if (isNewSideReceipt) {
       await this.operationalNotify.notifyExchangeHubItemReceived({
         orderId: id,
         buyerId: existing.buyerId,

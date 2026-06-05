@@ -7,7 +7,6 @@ import {
   ExchangeOfferStatus,
   ListingStatus,
   ListingType,
-  NotificationType,
   OrderStatus,
   Prisma,
   UserRole,
@@ -31,15 +30,11 @@ import {
   formatTicketMessageBody,
 } from '../../../../common/ticket-message.util';
 import { EXCHANGE_INSPECTION_TICKET_TEMPLATE_KEYS } from '../admin-orders.constants';
-import { AdminOrdersNotifyService } from './admin-orders-notify.service';
-import { ORDER_STATUS_FINANCIAL_SETTLEMENT_LABEL_FA } from '../../../../common/order/order-status-labels.util';
+import { OperationalNotifyService } from '../../../notification/operational-notify.service';
 import {
   applyExchangeFinancialSettlement,
-  buildExchangeFinancialSettlementNotifyMessage,
   buildExchangeFinancialSettlementOrderNote,
   buildExchangeFinancialSettlementTicketBody,
-  buildExchangeFinancialSettlementTicketNotifyMessage,
-  EXCHANGE_FINANCIAL_SETTLEMENT_NOTIFY_TITLE,
   EXCHANGE_FINANCIAL_SETTLEMENT_TICKET_SUBJECT,
   resolveExchangeSurplusReceivableBases,
 } from '../../../../common/order/exchange-financial-settlement-messaging.util';
@@ -54,7 +49,7 @@ export class AdminOrdersInspectionService {
     private readonly orderReputation: OrderReputationService,
     private readonly walletService: WalletService,
     private readonly listingCommand: ListingCommandService,
-    private readonly notify: AdminOrdersNotifyService,
+    private readonly operationalNotify: OperationalNotifyService,
   ) {}
 
   private buildExchangeReturnInspectionTicketMessage(params: {
@@ -379,13 +374,13 @@ export class AdminOrdersInspectionService {
           exchangeHubInspection: inspectionPayload as Prisma.InputJsonValue,
         },
       });
-      await this.notify.notifyParties(
-        existing.buyerId,
-        existing.sellerId,
-        id,
-        OrderStatus.VERIFIED_AT_HUB,
-        'نتیجه کارشناسی: هر دو کالا تایید شد و برای ارسال به مقصد نهایی آماده می‌شود.',
-      );
+      await this.operationalNotify.notifyExchangeHubInspectionVerified({
+        orderId: id,
+        buyerId: existing.buyerId,
+        sellerId: existing.sellerId,
+        listingId: existing.listing.id,
+        note: 'هر دو کالا تایید شد و برای ارسال به مقصد نهایی آماده می‌شود.',
+      });
       return updated;
     }
 
@@ -806,32 +801,13 @@ export class AdminOrdersInspectionService {
             exchangeHubInspection: pendingPayload as Prisma.InputJsonValue,
           },
         });
-        const debtorLabel =
-          updated.debtorUserId === existing.sellerId ? 'فروشنده' : 'خریدار';
-        await this.prisma.notification.createMany({
-          data: [
-            {
-              userId: updated.debtorUserId,
-              type: NotificationType.ORDER_STATUS_CHANGED,
-              title: 'شارژ کیف پول برای ادامه معاوضه',
-              message: `برای اعمال توافق مالی کارشناسی، ${updated.shortfall.toLocaleString('fa-IR')} تومان به کیف پول شما نیاز است. پس از شارژ، پشتیبانی دوباره تسویه را ثبت می‌کند.`,
-              meta: {
-                orderId: id,
-                shortfall: updated.shortfall,
-                awaitingFinanceSettlement: true,
-              } as Prisma.InputJsonValue,
-            },
-            {
-              userId:
-                updated.debtorUserId === existing.buyerId
-                  ? existing.sellerId
-                  : existing.buyerId,
-              type: NotificationType.ORDER_STATUS_CHANGED,
-              title: 'در انتظار تسویه مالی معاوضه',
-              message: `معامله در انتظار شارژ کیف پول ${debtorLabel} برای تکمیل توافق مالی کارشناسی است.`,
-              meta: { orderId: id } as Prisma.InputJsonValue,
-            },
-          ],
+        await this.operationalNotify.notifyExchangeHubAwaitingFinanceTopup({
+          orderId: id,
+          buyerId: existing.buyerId,
+          sellerId: existing.sellerId,
+          listingId: existing.listing.id,
+          debtorUserId: updated.debtorUserId,
+          shortfall: updated.shortfall,
         });
         return awaitingOrder;
       }
@@ -877,48 +853,22 @@ export class AdminOrdersInspectionService {
         }),
       ]);
 
-      await this.prisma.notification.createMany({
-        data: [
-          {
-            userId: existing.buyerId,
-            type: NotificationType.TICKET_REPLY,
-            title: 'تیکت کارشناسی معاوضه',
-            message:
-              buildExchangeFinancialSettlementTicketNotifyMessage(orderShortId),
-            meta: {
-              orderId: id,
-              ticketId: buyerSettlementTicket.id,
-            } as Prisma.InputJsonValue,
-          },
-          {
-            userId: existing.sellerId,
-            type: NotificationType.TICKET_REPLY,
-            title: 'تیکت کارشناسی معاوضه',
-            message:
-              buildExchangeFinancialSettlementTicketNotifyMessage(orderShortId),
-            meta: {
-              orderId: id,
-              ticketId: sellerSettlementTicket.id,
-            } as Prisma.InputJsonValue,
-          },
-        ],
+      await this.operationalNotify.notifyExchangeHubInspectionTickets({
+        orderId: id,
+        buyerId: existing.buyerId,
+        sellerId: existing.sellerId,
+        buyerTicketId: buyerSettlementTicket.id,
+        sellerTicketId: sellerSettlementTicket.id,
+        orderShortId,
+        kind: 'financial_settlement',
       });
-
-      await this.notify.notifyParties(
-        existing.buyerId,
-        existing.sellerId,
-        id,
-        OrderStatus.VERIFIED_AT_HUB,
-        undefined,
+      await this.operationalNotify.notifyExchangeHubInspectionFinancialSettlement(
         {
-          statusLabel: ORDER_STATUS_FINANCIAL_SETTLEMENT_LABEL_FA,
-          title: EXCHANGE_FINANCIAL_SETTLEMENT_NOTIFY_TITLE,
-          message: buildExchangeFinancialSettlementNotifyMessage(orderShortId),
-          metaExtras: {
-            resolution: 'FINANCIAL_SETTLEMENT_THEN_SHIP',
-            settlementKind: 'exchange-financial-settlement',
-            phase: 'exchange_financial_settlement',
-          },
+          orderId: id,
+          buyerId: existing.buyerId,
+          sellerId: existing.sellerId,
+          listingId: existing.listing.id,
+          orderShortId,
         },
       );
       return updated.order;
@@ -939,7 +889,7 @@ export class AdminOrdersInspectionService {
     const exchangeInspectionTemplates =
       await this.readExchangeInspectionTicketTemplates();
 
-    return this.prisma.$transaction(async (tx) => {
+    const returnOutcome = await this.prisma.$transaction(async (tx) => {
       const refundSummary =
         await this.walletService.applyExchangeHubInspectionOutcomeRefunds(tx, {
           orderId: id,
@@ -1045,19 +995,6 @@ export class AdminOrdersInspectionService {
         select: { id: true },
       });
 
-      await tx.notification.create({
-        data: {
-          userId: existing.sellerId,
-          type: NotificationType.TICKET_REPLY,
-          title: 'تیکت نتیجه کارشناسی معاوضه',
-          message: `برای سفارش #${id.slice(-6)} تیکت پشتیبانی ایجاد شد.`,
-          meta: {
-            orderId: id,
-            ticketId: sellerTicket.id,
-          } as Prisma.InputJsonValue,
-        },
-      });
-
       const buyerTicketMessage =
         this.buildExchangeReturnInspectionTicketMessage({
           role: 'buyer',
@@ -1082,29 +1019,31 @@ export class AdminOrdersInspectionService {
         select: { id: true },
       });
 
-      await tx.notification.create({
-        data: {
-          userId: existing.buyerId,
-          type: NotificationType.TICKET_REPLY,
-          title: 'تیکت نتیجه کارشناسی معاوضه',
-          message: `برای سفارش #${id.slice(-6)} تیکت پشتیبانی ایجاد شد.`,
-          meta: {
-            orderId: id,
-            ticketId: buyerTicket.id,
-          } as Prisma.InputJsonValue,
-        },
-      });
-
-      await this.notify.notifyParties(
-        existing.buyerId,
-        existing.sellerId,
-        id,
-        OrderStatus.REJECTED_AT_HUB,
-        'کارشناسی معاوضه رد شد؛ کالای شما از هاب مرجوع می‌شود. جزئیات در تیکت پشتیبانی.',
-      );
-
-      return updatedOrder;
+      return {
+        updatedOrder,
+        sellerTicketId: sellerTicket.id,
+        buyerTicketId: buyerTicket.id,
+      };
     });
+
+    const orderShortId = id.slice(-6).toUpperCase();
+    await this.operationalNotify.notifyExchangeHubInspectionTickets({
+      orderId: id,
+      buyerId: existing.buyerId,
+      sellerId: existing.sellerId,
+      buyerTicketId: returnOutcome.buyerTicketId,
+      sellerTicketId: returnOutcome.sellerTicketId,
+      orderShortId,
+      kind: 'return',
+    });
+    await this.operationalNotify.notifyExchangeHubInspectionRejected({
+      orderId: id,
+      buyerId: existing.buyerId,
+      sellerId: existing.sellerId,
+      listingId: existing.listing.id,
+      note: 'کالای شما از هاب مرجوع می‌شود. جزئیات در تیکت پشتیبانی.',
+    });
+    return returnOutcome.updatedOrder;
   }
 
   private async readExchangeNoShipmentCompensationPercent(): Promise<number> {

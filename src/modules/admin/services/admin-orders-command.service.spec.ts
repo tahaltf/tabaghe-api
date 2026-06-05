@@ -34,6 +34,17 @@ function createAdminOrdersCommandService(deps: {
   const notify = new AdminOrdersNotifyService({
     create: jest.fn().mockResolvedValue({ notification: { id: 'n1' }, dispatched: true }),
   } as never);
+  const operationalNotify = {
+    notifyExchangeHubInspectionStarted: jest.fn().mockResolvedValue(undefined),
+    notifyExchangeHubInspectionVerified: jest.fn().mockResolvedValue(undefined),
+    notifyExchangeHubInspectionRejected: jest.fn().mockResolvedValue(undefined),
+    notifyExchangeHubInspectionFinancialSettlement: jest
+      .fn()
+      .mockResolvedValue(undefined),
+    notifyExchangeHubAwaitingFinanceTopup: jest.fn().mockResolvedValue(undefined),
+    notifyExchangeHubInspectionTickets: jest.fn().mockResolvedValue(undefined),
+    notifyOrderCompleted: jest.fn().mockResolvedValue(undefined),
+  };
   const status = new AdminOrdersStatusService(
     deps.prisma as never,
     appSettings as never,
@@ -43,6 +54,7 @@ function createAdminOrdersCommandService(deps: {
     deps.listingCommand as never,
     stateMachine as never,
     notify,
+    operationalNotify as never,
   );
   const hub = new AdminOrdersHubService(
     deps.prisma as never,
@@ -63,7 +75,7 @@ function createAdminOrdersCommandService(deps: {
     deps.orderReputation as never,
     deps.walletService as never,
     deps.listingCommand as never,
-    notify,
+    operationalNotify as never,
   );
   const escrow = new AdminOrdersEscrowService(
     deps.prisma as never,
@@ -72,6 +84,7 @@ function createAdminOrdersCommandService(deps: {
     deps.walletService as never,
     deps.listingCommand as never,
     notify,
+    operationalNotify as never,
   );
   return new AdminOrdersCommandService(status, hub, inspection, escrow);
 }

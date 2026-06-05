@@ -5,9 +5,9 @@ import { NotificationType, Prisma, UserRole } from '@prisma/client';
 import { SmsService } from '../sms/sms.service';
 import { applySmsTemplatePlaceholders } from '../../common/sms/sms-placeholders.util';
 import {
-  buildNotificationRuleKey,
   enrichNotificationMeta,
   inferNotificationRecipientRole,
+  resolveNotificationRuleKeyCandidates,
 } from '../../common/notification/notification-meta-enrichment.util';
 import { isUserOperationalSmsEnabled } from '../../common/notification/user-sms-notification.util';
 import { resolveNotificationPath } from '../../common/notification/notification-navigation.util';
@@ -67,7 +67,11 @@ export class NotificationService {
     const enrichedMetaBase = await enrichNotificationMeta(this.prisma, meta);
     const resolvedRecipientRole =
       recipientRole ?? inferNotificationRecipientRole(enrichedMetaBase);
-    const rule = await this.getRuleForType(type, resolvedRecipientRole);
+    const rule = await this.getRuleForType(
+      type,
+      resolvedRecipientRole,
+      enrichedMetaBase,
+    );
     const siteEnabled =
       forceSiteNotification === true
         ? true
@@ -144,6 +148,16 @@ export class NotificationService {
     }
 
     return { notification, dispatched: true };
+  }
+
+  /**
+   * اعلان عملیاتی کاربر (کیف پول، تکمیل سفارش و …):
+   * همیشه در سایت ثبت می‌شود؛ SMS طبق SMS_NOTIFICATION_RULES.
+   */
+  createUserOperational(
+    params: Omit<Parameters<NotificationService['create']>[0], 'forceSiteNotification'>,
+  ) {
+    return this.create({ ...params, forceSiteNotification: true });
   }
 
   /** چند گیرنده — هر کدام از مسیر create (سایت + SMS + push) */
@@ -327,7 +341,13 @@ export class NotificationService {
     meta?: Record<string, unknown>,
     rulePrefetched?: SmsRule | null,
   ) {
-    const rule = rulePrefetched ?? (await this.getRuleForType(type));
+    const rule =
+      rulePrefetched ??
+      (await this.getRuleForType(
+        type,
+        inferNotificationRecipientRole(meta) ?? undefined,
+        meta,
+      ));
     if (!this.isSmsRuleActive(rule)) {
       this.logger.debug(`SMS skipped for ${type}: rule disabled or no template`);
       return;
@@ -669,6 +689,7 @@ export class NotificationService {
   private async getRuleForType(
     type: NotificationType,
     recipientRole?: string,
+    meta?: Record<string, unknown>,
   ): Promise<SmsRule | null> {
     try {
       const row = await this.prisma.systemSetting.findUnique({
@@ -677,9 +698,18 @@ export class NotificationService {
       });
       if (!row?.value) return null;
       const parsed = JSON.parse(row.value) as Record<string, SmsRule>;
-      const roleKey = buildNotificationRuleKey(String(type), recipientRole);
-      const rule = parsed?.[roleKey] ?? parsed?.[String(type)];
-      return rule && typeof rule === 'object' ? rule : null;
+      const candidates = resolveNotificationRuleKeyCandidates(
+        String(type),
+        recipientRole,
+        meta,
+      );
+      for (const key of candidates) {
+        const rule = parsed?.[key];
+        if (rule && typeof rule === 'object') {
+          return rule;
+        }
+      }
+      return null;
     } catch {
       return null;
     }

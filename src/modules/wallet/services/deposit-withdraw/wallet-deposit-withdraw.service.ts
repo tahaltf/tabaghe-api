@@ -87,7 +87,7 @@ export class WalletDepositWithdrawService {
       },
     });
 
-    await this.notificationService.create({
+    await this.notificationService.createUserOperational({
       userId,
       type: NotificationType.WALLET_DEPOSIT_SUBMITTED,
       title: 'درخواست شارژ دستی ثبت شد',
@@ -229,7 +229,7 @@ export class WalletDepositWithdrawService {
           select: { wallet: { select: { userId: true } } },
         });
         if (txWithUser?.wallet?.userId) {
-          await this.notificationService.create({
+          await this.notificationService.createUserOperational({
             userId: txWithUser.wallet.userId,
             type: NotificationType.WALLET_DEPOSIT_APPROVED,
             title: 'شارژ کیف پول تایید شد',
@@ -264,7 +264,7 @@ export class WalletDepositWithdrawService {
         select: { wallet: { select: { userId: true } } },
       });
       if (txWithUser?.wallet?.userId) {
-        await this.notificationService.create({
+        await this.notificationService.createUserOperational({
           userId: txWithUser.wallet.userId,
           type: NotificationType.WALLET_DEPOSIT_REJECTED,
           title: 'درخواست شارژ دستی رد شد',
@@ -327,7 +327,7 @@ export class WalletDepositWithdrawService {
       });
     });
 
-    await this.notificationService.create({
+    await this.notificationService.createUserOperational({
       userId,
       type: NotificationType.WALLET_WITHDRAW_SUBMITTED,
       title: 'درخواست برداشت ثبت شد',
@@ -529,7 +529,7 @@ export class WalletDepositWithdrawService {
     });
 
     if (result.approved) {
-      await this.notificationService.create({
+      await this.notificationService.createUserOperational({
         userId: result.userId,
         type: NotificationType.WALLET_WITHDRAW_APPROVED,
         title: 'برداشت وجه تایید شد',
@@ -541,7 +541,7 @@ export class WalletDepositWithdrawService {
         },
       });
     } else {
-      await this.notificationService.create({
+      await this.notificationService.createUserOperational({
         userId: result.userId,
         type: NotificationType.WALLET_WITHDRAW_REJECTED,
         title: 'درخواست برداشت رد شد',

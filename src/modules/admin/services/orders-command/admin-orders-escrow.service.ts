@@ -27,6 +27,7 @@ import {
   formatTicketMessageBody,
 } from '../../../../common/ticket-message.util';
 import { AdminOrdersNotifyService } from './admin-orders-notify.service';
+import { OperationalNotifyService } from '../../../notification/operational-notify.service';
 
 @Injectable()
 export class AdminOrdersEscrowService {
@@ -37,10 +38,12 @@ export class AdminOrdersEscrowService {
     private readonly walletService: WalletService,
     private readonly listingCommand: ListingCommandService,
     private readonly notify: AdminOrdersNotifyService,
+    private readonly operationalNotify: OperationalNotifyService,
   ) {}
 
   async resolveEscrow(id: string, dto: ResolveOrderEscrowDto) {
-    return this.prisma.$transaction(async (tx) => {
+    const postTxNotifies: Array<() => Promise<void>> = [];
+    const result = await this.prisma.$transaction(async (tx) => {
       const action = dto.action;
       const note = dto.note;
       const order = await tx.order.findUnique({
@@ -280,14 +283,39 @@ export class AdminOrdersEscrowService {
           data: { status: ListingStatus.APPROVED },
         });
 
-        await this.notify.notifyParties(
-          order.buyerId,
-          order.sellerId,
-          order.id,
-          OrderStatus.CANCELLED,
-          note ??
-            'هر دو کالا رد شد؛ معامله لغو و مرجوعی برای هر دو طرف ثبت شد.',
-        );
+        postTxNotifies.push(async () => {
+          await this.operationalNotify.notifyExchangeBothRejectedCancel({
+            orderId: order.id,
+            listingId: order.listingId,
+            buyerId: order.buyerId,
+            sellerId: order.sellerId,
+            note:
+              note ??
+              'هر دو کالا رد شد؛ معامله لغو و مرجوعی برای هر دو طرف ثبت شد.',
+          });
+          await this.operationalNotify.notifyExchangeHubOutboundShipped({
+            orderId: order.id,
+            buyerId: order.buyerId,
+            sellerId: order.sellerId,
+            listingId: order.listingId,
+            leg: 'TO_BUYER',
+            status: OrderStatus.CANCELLED,
+            trackingCode: returnToBuyer,
+            isReturn: true,
+            note: note ?? undefined,
+          });
+          await this.operationalNotify.notifyExchangeHubOutboundShipped({
+            orderId: order.id,
+            buyerId: order.buyerId,
+            sellerId: order.sellerId,
+            listingId: order.listingId,
+            leg: 'TO_SELLER',
+            status: OrderStatus.CANCELLED,
+            trackingCode: returnToSeller,
+            isReturn: true,
+            note: note ?? undefined,
+          });
+        });
 
         return updated;
       }
@@ -518,34 +546,36 @@ export class AdminOrdersEscrowService {
           ],
         );
 
-        await tx.notification.createMany({
-          data: [
-            {
-              userId: order.buyerId,
-              type: NotificationType.TICKET_REPLY,
-              title: 'تیکت توافق مالی ثبت شد',
-              message: `برای سفارش #${order.id.slice(-6)} مبلغ ${refundAmount.toLocaleString('fa-IR')} تومان به کیف پول شما اضافه شد.`,
-              meta: {
-                orderId: order.id,
-                ticketId: buyerAgreementTicket.id,
-                agreementAmount: refundAmount,
-                settlementKind: 'partial_refund_agreement',
-              } as Prisma.InputJsonValue,
-            },
-            {
-              userId: order.sellerId,
-              type: NotificationType.TICKET_REPLY,
-              title: 'تیکت توافق مالی ثبت شد',
-              message: `برای سفارش #${order.id.slice(-6)} مبلغ ${refundAmount.toLocaleString('fa-IR')} تومان از سهم فروش شما کسر شد.`,
-              meta: {
-                orderId: order.id,
-                ticketId: sellerAgreementTicket.id,
-                agreementAmount: refundAmount,
-                settlementKind: 'partial_refund_agreement',
-              } as Prisma.InputJsonValue,
-            },
-          ],
-        });
+        if (order.type !== 'EXCHANGE') {
+          await tx.notification.createMany({
+            data: [
+              {
+                userId: order.buyerId,
+                type: NotificationType.TICKET_REPLY,
+                title: 'تیکت توافق مالی ثبت شد',
+                message: `برای سفارش #${order.id.slice(-6)} مبلغ ${refundAmount.toLocaleString('fa-IR')} تومان به کیف پول شما اضافه شد.`,
+                meta: {
+                  orderId: order.id,
+                  ticketId: buyerAgreementTicket.id,
+                  agreementAmount: refundAmount,
+                  settlementKind: 'partial_refund_agreement',
+                } as Prisma.InputJsonValue,
+              },
+              {
+                userId: order.sellerId,
+                type: NotificationType.TICKET_REPLY,
+                title: 'تیکت توافق مالی ثبت شد',
+                message: `برای سفارش #${order.id.slice(-6)} مبلغ ${refundAmount.toLocaleString('fa-IR')} تومان از سهم فروش شما کسر شد.`,
+                meta: {
+                  orderId: order.id,
+                  ticketId: sellerAgreementTicket.id,
+                  agreementAmount: refundAmount,
+                  settlementKind: 'partial_refund_agreement',
+                } as Prisma.InputJsonValue,
+              },
+            ],
+          });
+        }
 
         const prevInspection =
           (order.exchangeHubInspection as Record<string, unknown> | null) ?? {};
@@ -595,13 +625,37 @@ export class AdminOrdersEscrowService {
               .join('\n'),
           },
         });
-        await this.notify.notifyParties(
-          order.buyerId,
-          order.sellerId,
-          order.id,
-          OrderStatus.VERIFIED_AT_HUB,
-          `بازپرداخت جزئی ${refundAmount.toLocaleString('fa-IR')} تومان اعمال شد و سفارش ادامه یافت.`,
-        );
+        if (order.type === 'EXCHANGE') {
+          const orderShortId = order.id.slice(-6);
+          postTxNotifies.push(async () => {
+            await this.operationalNotify.notifyExchangeHubInspectionFinancialSettlement(
+              {
+                orderId: order.id,
+                buyerId: order.buyerId,
+                sellerId: order.sellerId,
+                listingId: order.listingId,
+                orderShortId,
+              },
+            );
+            await this.operationalNotify.notifyExchangeHubInspectionTickets({
+              orderId: order.id,
+              buyerId: order.buyerId,
+              sellerId: order.sellerId,
+              buyerTicketId: buyerAgreementTicket.id,
+              sellerTicketId: sellerAgreementTicket.id,
+              orderShortId,
+              kind: 'financial_settlement',
+            });
+          });
+        } else {
+          await this.notify.notifyParties(
+            order.buyerId,
+            order.sellerId,
+            order.id,
+            OrderStatus.VERIFIED_AT_HUB,
+            `بازپرداخت جزئی ${refundAmount.toLocaleString('fa-IR')} تومان اعمال شد و سفارش ادامه یافت.`,
+          );
+        }
         return updated;
       }
 
@@ -784,13 +838,13 @@ export class AdminOrdersEscrowService {
           prevReleaseSeller,
           'SUCCESS',
         );
-        await this.notify.notifyParties(
-          order.buyerId,
-          order.sellerId,
-          order.id,
-          OrderStatus.COMPLETED,
-          note ?? 'تسویه دستی سفارش توسط ادمین انجام شد',
-        );
+        await this.operationalNotify.notifyOrderCompleted({
+          orderId: order.id,
+          buyerId: order.buyerId,
+          sellerId: order.sellerId,
+          listingId: order.listingId,
+          orderType: order.type,
+        });
         return updated;
       }
 
@@ -961,5 +1015,9 @@ export class AdminOrdersEscrowService {
       );
       return updated;
     });
+    for (const notify of postTxNotifies) {
+      await notify().catch(() => undefined);
+    }
+    return result;
   }
 }

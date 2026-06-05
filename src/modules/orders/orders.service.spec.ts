@@ -17,6 +17,7 @@ import { QuotaService } from '../quota/quota.service';
 import { ListingCommandService } from '../listing/services/listing-command.service';
 import { OrdersResponseEnrichmentService } from './services/query/orders-response-enrichment.service';
 import { ExchangeOrderNotifyService } from '../notification/exchange-order-notify.service';
+import { OperationalNotifyService } from '../notification/operational-notify.service';
 import {
   ListingStatus,
   OrderStatus,
@@ -60,6 +61,9 @@ describe('Orders domain services', () => {
   };
   const paymentsMock = { initiateOrderPayment: jest.fn() };
   const notificationMock = { create: jest.fn() };
+  const operationalNotifyMock = {
+    notifyOrderCompleted: jest.fn().mockResolvedValue(undefined),
+  };
   const exchangeOrderNotifyMock = {
     notifyCheckoutProgress: jest.fn(),
     afterShipmentUpdated: jest.fn(),
@@ -98,6 +102,10 @@ describe('Orders domain services', () => {
         { provide: OrdersStateMachineService, useValue: stateMachineMock },
         { provide: PaymentsService, useValue: paymentsMock },
         { provide: NotificationService, useValue: notificationMock },
+        {
+          provide: OperationalNotifyService,
+          useValue: operationalNotifyMock,
+        },
         {
           provide: ExchangeOrderNotifyService,
           useValue: exchangeOrderNotifyMock,
@@ -404,6 +412,13 @@ describe('Orders domain services', () => {
       async (_tx, params: { userId: string }) =>
         params.userId === 'buyer-1' ? 500 : 0,
     );
+    prismaMock.order.findUnique.mockResolvedValue({
+      status: 'SHIPPED_TO_BUYER',
+      buyerId: 'buyer-1',
+      sellerId: 'seller-1',
+      listingId: 'lst-1',
+      type: 'EXCHANGE',
+    });
 
     await completion.confirmOrder('buyer-1', 'ord-1');
 

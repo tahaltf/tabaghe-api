@@ -30,7 +30,7 @@ export class WalletSupportService {
   }): Promise<void> {
     if (params.amount <= 0) return;
     try {
-      await this.notificationService.create({
+      await this.notificationService.createUserOperational({
         userId: params.userId,
         type: NotificationType.WALLET_REFUND,
         title: 'بازگشت وجه به کیف پول',

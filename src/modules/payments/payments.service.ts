@@ -956,7 +956,7 @@ export class PaymentsService {
     });
 
     if (finalized?.userId) {
-      await this.notificationService.create({
+      await this.notificationService.createUserOperational({
         userId: finalized.userId,
         type: NotificationType.WALLET_TOPUP,
         title: 'شارژ کیف پول موفق',

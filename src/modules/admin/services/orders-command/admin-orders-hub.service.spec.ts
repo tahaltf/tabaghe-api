@@ -97,6 +97,68 @@ describe('AdminOrdersHubService - exchange outbound notifications', () => {
     expect(operationalNotify.notifyExchangeHubOutboundShipped).toHaveBeenCalledTimes(1);
   });
 
+  it('notifies buyer and seller when offer item is received at hub', async () => {
+    const { service, operationalNotify } = makeService({
+      existing: {
+        status: OrderStatus.SHIPPED_TO_HUB,
+        trackingCode: '1'.repeat(24),
+        sellerTrackingCode: '2'.repeat(24),
+      },
+    });
+
+    await service.setExchangeHubReceipt('ord-1', {
+      side: 'OFFER',
+      received: true,
+    });
+
+    expect(operationalNotify.notifyExchangeHubItemReceived).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderId: 'ord-1',
+        side: 'OFFER',
+      }),
+    );
+  });
+
+  it('does not notify again when offer receipt is already recorded', async () => {
+    const { service, operationalNotify } = makeService({
+      existing: {
+        status: OrderStatus.SHIPPED_TO_HUB,
+        sellerTrackingCode: '2'.repeat(24),
+        exchangeHubInspection: { buyerReceivedAtHub: true },
+      },
+    });
+
+    await service.setExchangeHubReceipt('ord-1', {
+      side: 'OFFER',
+      received: true,
+    });
+
+    expect(operationalNotify.notifyExchangeHubItemReceived).not.toHaveBeenCalled();
+  });
+
+  it('notifies seller and buyer when listing item is received at hub', async () => {
+    const { service, operationalNotify } = makeService({
+      existing: {
+        status: OrderStatus.SHIPPED_TO_HUB,
+        trackingCode: '1'.repeat(24),
+        sellerTrackingCode: null,
+      },
+    });
+
+    await service.setExchangeHubReceipt('ord-1', {
+      side: 'LISTING',
+      received: true,
+    });
+
+    expect(operationalNotify.notifyExchangeHubItemReceived).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderId: 'ord-1',
+        side: 'LISTING',
+        bothReceived: false,
+      }),
+    );
+  });
+
   it('does not re-notify when tracking code is updated again', async () => {
     const { service, operationalNotify } = makeService({
       existing: {

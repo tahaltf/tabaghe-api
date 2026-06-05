@@ -45,6 +45,14 @@ export function applySmsTemplatePlaceholders(
   s = s.replace(/\{\{\s*adminFirstName\s*\}\}/gi, adminFn);
   s = s.replace(/\{\{\s*title\s*\}\}/gi, title);
   s = s.replace(/\{\{\s*message\s*\}\}/gi, message);
+  s = s.replace(
+    /\{\{\s*note\s*\}\}/gi,
+    String(meta['note'] ?? meta['statusNote'] ?? ''),
+  );
+  s = s.replace(
+    /\{\{\s*trackingCode\s*\}\}/gi,
+    String(meta['trackingCode'] ?? ''),
+  );
   s = s.replace(/\{\{\s*buyerName\s*\}\}/gi, String(ctx.buyerName ?? meta['buyerName'] ?? ''));
   s = s.replace(/\{\{\s*sellerName\s*\}\}/gi, String(ctx.sellerName ?? meta['sellerName'] ?? ''));
   s = s.replace(/\{\{\s*buyerPhone\s*\}\}/gi, String(ctx.buyerPhone ?? meta['buyerPhone'] ?? ''));

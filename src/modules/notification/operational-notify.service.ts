@@ -1,6 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { NotificationType, OrderStatus, OrderType } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import {
+  buildExchangeFinancialSettlementNotifyMessage,
+  buildExchangeFinancialSettlementTicketNotifyMessage,
+  EXCHANGE_FINANCIAL_SETTLEMENT_NOTIFY_TITLE,
+} from '../../common/order/exchange-financial-settlement-messaging.util';
+import {
+  ORDER_STATUS_FINANCIAL_SETTLEMENT_LABEL_FA,
+  ORDER_STATUS_LABELS_FA,
+} from '../../common/order/order-status-labels.util';
 import { NotificationService } from './notification.service';
 
 type NotifyPayload = {
@@ -47,13 +56,22 @@ export class OperationalNotifyService {
     status: OrderStatus | string;
   }): Promise<void> {
     const listingTitle = await this.listingTitle(params.listingId);
+    const listingPhase = 'exchange_hub_listing_received';
+    const offerPhase = 'exchange_hub_offer_received';
     const baseMeta = {
       orderId: params.orderId,
       listingId: params.listingId,
       listingTitle,
       status: params.status,
-      phase: 'exchange_hub_item_received',
     };
+    const sellerListingNote =
+      'کالای آگهی شما در انبار طبقه دریافت و ثبت شد.';
+    const buyerListingPeerNote =
+      'کالای آگهی فروشنده در انبار طبقه دریافت شد.';
+    const buyerOfferNote =
+      'کالای پیشنهادی شما در انبار طبقه دریافت و ثبت شد.';
+    const sellerOfferPeerNote =
+      'کالای پیشنهادی خریدار در انبار طبقه دریافت شد.';
 
     if (params.side === 'LISTING') {
       await this.notifyMany([
@@ -62,14 +80,28 @@ export class OperationalNotifyService {
           type: NotificationType.ORDER_STATUS_CHANGED,
           title: 'دریافت کالای شما در انبار',
           message: `کالای آگهی شما برای معاوضه «${listingTitle}» در انبار طبقه دریافت و ثبت شد.`,
-          meta: { ...baseMeta, role: 'SELLER', audience: 'SELLER', leg: 'LISTING' },
+          meta: {
+            ...baseMeta,
+            phase: listingPhase,
+            role: 'SELLER',
+            audience: 'SELLER',
+            leg: 'LISTING',
+            note: sellerListingNote,
+          },
         },
         {
           userId: params.buyerId,
           type: NotificationType.ORDER_STATUS_CHANGED,
           title: 'دریافت کالای آگهی در انبار',
-          message: `کالای آگهی (طرف فروشنده) برای معاوضه «${listingTitle}» در انبار دریافت شد.`,
-          meta: { ...baseMeta, role: 'BUYER', audience: 'BUYER', leg: 'LISTING' },
+          message: `کالای آگهی فروشنده برای معاوضه «${listingTitle}» در انبار طبقه دریافت شد.`,
+          meta: {
+            ...baseMeta,
+            phase: listingPhase,
+            role: 'BUYER',
+            audience: 'BUYER',
+            leg: 'LISTING',
+            note: buyerListingPeerNote,
+          },
         },
       ]);
     } else {
@@ -79,14 +111,28 @@ export class OperationalNotifyService {
           type: NotificationType.ORDER_STATUS_CHANGED,
           title: 'دریافت کالای شما در انبار',
           message: `کالای پیشنهادی شما برای معاوضه «${listingTitle}» در انبار طبقه دریافت و ثبت شد.`,
-          meta: { ...baseMeta, role: 'BUYER', audience: 'BUYER', leg: 'OFFER' },
+          meta: {
+            ...baseMeta,
+            phase: offerPhase,
+            role: 'BUYER',
+            audience: 'BUYER',
+            leg: 'OFFER',
+            note: buyerOfferNote,
+          },
         },
         {
           userId: params.sellerId,
           type: NotificationType.ORDER_STATUS_CHANGED,
           title: 'دریافت کالای پیشنهادی در انبار',
-          message: `کالای پیشنهادی (طرف خریدار) برای معاوضه «${listingTitle}» در انبار دریافت شد.`,
-          meta: { ...baseMeta, role: 'SELLER', audience: 'SELLER', leg: 'OFFER' },
+          message: `کالای پیشنهادی خریدار برای معاوضه «${listingTitle}» در انبار طبقه دریافت شد.`,
+          meta: {
+            ...baseMeta,
+            phase: offerPhase,
+            role: 'SELLER',
+            audience: 'SELLER',
+            leg: 'OFFER',
+            note: sellerOfferPeerNote,
+          },
         },
       ]);
     }
@@ -122,6 +168,347 @@ export class OperationalNotifyService {
     }
   }
 
+  /** شروع کارشناسی هر دو کالای معاوضه در هاب (ادمین) */
+  async notifyExchangeHubInspectionStarted(params: {
+    orderId: string;
+    buyerId: string;
+    sellerId: string;
+    listingId: string;
+    note?: string;
+  }): Promise<void> {
+    const listingTitle = await this.listingTitle(params.listingId);
+    const status = OrderStatus.CHECKING_AT_HUB;
+    const statusLabel =
+      ORDER_STATUS_LABELS_FA[status] ?? 'در حال بررسی در هاب';
+    const noteSuffix = params.note?.trim()
+      ? ` توضیح: ${params.note.trim()}`
+      : '';
+    const baseMeta = {
+      orderId: params.orderId,
+      listingId: params.listingId,
+      listingTitle,
+      status,
+      statusLabel,
+      statusFa: statusLabel,
+      orderStatusLabel: statusLabel,
+      phase: 'exchange_hub_inspection_started',
+    };
+    const inspectionNote = 'کارشناسی فنی کالاها در مرکز طبقه آغاز شد.';
+    const message = `کارشناسی فنی معاوضه «${listingTitle}» در مرکز طبقه آغاز شد. پس از اعلام نتیجه از همین مسیر مطلع می‌شوید.${noteSuffix}`;
+
+    await this.notifyMany([
+      {
+        userId: params.buyerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'شروع کارشناسی در هاب',
+        message,
+        meta: {
+          ...baseMeta,
+          role: 'BUYER',
+          audience: 'BUYER',
+          note: inspectionNote,
+        },
+      },
+      {
+        userId: params.sellerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'شروع کارشناسی در هاب',
+        message,
+        meta: {
+          ...baseMeta,
+          role: 'SELLER',
+          audience: 'SELLER',
+          note: inspectionNote,
+        },
+      },
+    ]);
+  }
+
+  /** تکمیل نهایی معامله / سفارش */
+  async notifyOrderCompleted(params: {
+    orderId: string;
+    buyerId: string;
+    sellerId: string;
+    listingId: string;
+    orderType: OrderType | string;
+  }): Promise<void> {
+    const listingTitle = await this.listingTitle(params.listingId);
+    const status = OrderStatus.COMPLETED;
+    const statusLabel = ORDER_STATUS_LABELS_FA[status] ?? 'تکمیل شد';
+    const isExchange = params.orderType === OrderType.EXCHANGE;
+    const message = isExchange
+      ? `معاوضه «${listingTitle}» با موفقیت تکمیل شد. از همراهی شما در طبقه سپاسگزاریم.`
+      : `سفارش «${listingTitle}» با موفقیت تکمیل شد.`;
+    const baseMeta = {
+      orderId: params.orderId,
+      listingId: params.listingId,
+      listingTitle,
+      status,
+      statusLabel,
+      statusFa: statusLabel,
+      orderStatusLabel: statusLabel,
+      phase: 'order_completed',
+      phaseKey: 'order_completed',
+      note: message,
+    };
+
+    await this.notifyMany([
+      {
+        userId: params.buyerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'معامله تکمیل شد',
+        message,
+        meta: { ...baseMeta, role: 'BUYER', audience: 'BUYER' },
+      },
+      {
+        userId: params.sellerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'معامله تکمیل شد',
+        message,
+        meta: { ...baseMeta, role: 'SELLER', audience: 'SELLER' },
+      },
+    ]);
+  }
+
+  /** نتیجه کارشناسی: هر دو کالا تایید — آماده ارسال به مقصد */
+  async notifyExchangeHubInspectionVerified(params: {
+    orderId: string;
+    buyerId: string;
+    sellerId: string;
+    listingId: string;
+    note?: string;
+  }): Promise<void> {
+    const listingTitle = await this.listingTitle(params.listingId);
+    const status = OrderStatus.VERIFIED_AT_HUB;
+    const statusLabel = ORDER_STATUS_LABELS_FA[status] ?? 'تایید در هاب';
+    const detail =
+      params.note?.trim() ||
+      'هر دو کالا تایید شد و برای ارسال به مقصد نهایی آماده می‌شود.';
+    const message = `کارشناسی معاوضه «${listingTitle}» تایید شد. ${detail}`;
+    const baseMeta = {
+      orderId: params.orderId,
+      listingId: params.listingId,
+      listingTitle,
+      status,
+      statusLabel,
+      statusFa: statusLabel,
+      orderStatusLabel: statusLabel,
+      phase: 'exchange_hub_inspection_verified',
+      resolution: 'SHIP_TO_DESTINATIONS',
+      note: detail,
+    };
+
+    await this.notifyMany([
+      {
+        userId: params.buyerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'تایید کارشناسی معاوضه',
+        message,
+        meta: { ...baseMeta, role: 'BUYER', audience: 'BUYER' },
+      },
+      {
+        userId: params.sellerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'تایید کارشناسی معاوضه',
+        message,
+        meta: { ...baseMeta, role: 'SELLER', audience: 'SELLER' },
+      },
+    ]);
+  }
+
+  /** نتیجه کارشناسی: رد — مرجوع هر دو کالا */
+  async notifyExchangeHubInspectionRejected(params: {
+    orderId: string;
+    buyerId: string;
+    sellerId: string;
+    listingId: string;
+    note?: string;
+  }): Promise<void> {
+    const listingTitle = await this.listingTitle(params.listingId);
+    const status = OrderStatus.REJECTED_AT_HUB;
+    const statusLabel = ORDER_STATUS_LABELS_FA[status] ?? 'رد شده در هاب';
+    const detail =
+      params.note?.trim() ||
+      'کارشناسی معاوضه رد شد؛ کالای شما از هاب مرجوع می‌شود. جزئیات در تیکت پشتیبانی.';
+    const message = `کارشناسی معاوضه «${listingTitle}» رد شد. ${detail}`;
+    const baseMeta = {
+      orderId: params.orderId,
+      listingId: params.listingId,
+      listingTitle,
+      status,
+      statusLabel,
+      statusFa: statusLabel,
+      orderStatusLabel: statusLabel,
+      phase: 'exchange_hub_inspection_rejected',
+      resolution: 'RETURN_BOTH_TO_SENDERS',
+      note: detail,
+    };
+
+    await this.notifyMany([
+      {
+        userId: params.buyerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'رد کارشناسی معاوضه',
+        message,
+        meta: { ...baseMeta, role: 'BUYER', audience: 'BUYER' },
+      },
+      {
+        userId: params.sellerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'رد کارشناسی معاوضه',
+        message,
+        meta: { ...baseMeta, role: 'SELLER', audience: 'SELLER' },
+      },
+    ]);
+  }
+
+  /** نتیجه کارشناسی: تایید با اصلاح مالی */
+  async notifyExchangeHubInspectionFinancialSettlement(params: {
+    orderId: string;
+    buyerId: string;
+    sellerId: string;
+    listingId: string;
+    orderShortId: string;
+  }): Promise<void> {
+    const listingTitle = await this.listingTitle(params.listingId);
+    const status = OrderStatus.VERIFIED_AT_HUB;
+    const statusLabel = ORDER_STATUS_FINANCIAL_SETTLEMENT_LABEL_FA;
+    const message = buildExchangeFinancialSettlementNotifyMessage(
+      params.orderShortId,
+    );
+    const baseMeta = {
+      orderId: params.orderId,
+      listingId: params.listingId,
+      listingTitle,
+      status,
+      statusLabel,
+      statusFa: statusLabel,
+      orderStatusLabel: statusLabel,
+      phase: 'exchange_financial_settlement',
+      resolution: 'FINANCIAL_SETTLEMENT_THEN_SHIP',
+      settlementKind: 'exchange-financial-settlement',
+      note: message,
+    };
+
+    await this.notifyMany([
+      {
+        userId: params.buyerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: EXCHANGE_FINANCIAL_SETTLEMENT_NOTIFY_TITLE,
+        message,
+        meta: { ...baseMeta, role: 'BUYER', audience: 'BUYER' },
+      },
+      {
+        userId: params.sellerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: EXCHANGE_FINANCIAL_SETTLEMENT_NOTIFY_TITLE,
+        message,
+        meta: { ...baseMeta, role: 'SELLER', audience: 'SELLER' },
+      },
+    ]);
+  }
+
+  /** در انتظار شارژ کیف پول برای تکمیل توافق مالی کارشناسی */
+  async notifyExchangeHubAwaitingFinanceTopup(params: {
+    orderId: string;
+    buyerId: string;
+    sellerId: string;
+    listingId: string;
+    debtorUserId: string;
+    shortfall: number;
+  }): Promise<void> {
+    const listingTitle = await this.listingTitle(params.listingId);
+    const shortfallFa = params.shortfall.toLocaleString('fa-IR');
+    const debtorIsSeller = params.debtorUserId === params.sellerId;
+    const debtorLabel = debtorIsSeller ? 'فروشنده' : 'خریدار';
+    const peerUserId = debtorIsSeller ? params.buyerId : params.sellerId;
+    const baseMeta = {
+      orderId: params.orderId,
+      listingId: params.listingId,
+      listingTitle,
+      status: OrderStatus.CHECKING_AT_HUB,
+      phase: 'exchange_hub_awaiting_finance_topup',
+      awaitingFinanceSettlement: true,
+      shortfall: params.shortfall,
+    };
+
+    await this.notifyMany([
+      {
+        userId: params.debtorUserId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'شارژ کیف پول برای ادامه معاوضه',
+        message: `برای اعمال توافق مالی کارشناسی معاوضه «${listingTitle}»، ${shortfallFa} تومان به کیف پول شما نیاز است. پس از شارژ، پشتیبانی دوباره تسویه را ثبت می‌کند.`,
+        meta: {
+          ...baseMeta,
+          role: debtorIsSeller ? 'SELLER' : 'BUYER',
+          audience: debtorIsSeller ? 'SELLER' : 'BUYER',
+        },
+      },
+      {
+        userId: peerUserId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'در انتظار تسویه مالی معاوضه',
+        message: `معامله «${listingTitle}» در انتظار شارژ کیف پول ${debtorLabel} برای تکمیل توافق مالی کارشناسی است.`,
+        meta: {
+          ...baseMeta,
+          role: debtorIsSeller ? 'BUYER' : 'SELLER',
+          audience: debtorIsSeller ? 'BUYER' : 'SELLER',
+        },
+      },
+    ]);
+  }
+
+  /** تیکت نتیجه کارشناسی معاوضه برای هر دو طرف */
+  async notifyExchangeHubInspectionTickets(params: {
+    orderId: string;
+    buyerId: string;
+    sellerId: string;
+    buyerTicketId: string;
+    sellerTicketId: string;
+    orderShortId: string;
+    kind: 'return' | 'financial_settlement';
+  }): Promise<void> {
+    const isFinancial = params.kind === 'financial_settlement';
+    const title = isFinancial
+      ? 'تیکت کارشناسی معاوضه'
+      : 'تیکت نتیجه کارشناسی معاوضه';
+    const message = isFinancial
+      ? buildExchangeFinancialSettlementTicketNotifyMessage(params.orderShortId)
+      : `برای سفارش #${params.orderShortId} تیکت پشتیبانی ایجاد شد.`;
+    const phase = isFinancial
+      ? 'exchange_financial_settlement_ticket'
+      : 'exchange_hub_inspection_return_ticket';
+
+    await this.notifyMany([
+      {
+        userId: params.buyerId,
+        type: NotificationType.TICKET_REPLY,
+        title,
+        message,
+        meta: {
+          orderId: params.orderId,
+          ticketId: params.buyerTicketId,
+          phase,
+          role: 'BUYER',
+          audience: 'BUYER',
+        },
+      },
+      {
+        userId: params.sellerId,
+        type: NotificationType.TICKET_REPLY,
+        title,
+        message,
+        meta: {
+          orderId: params.orderId,
+          ticketId: params.sellerTicketId,
+          phase,
+          role: 'SELLER',
+          audience: 'SELLER',
+        },
+      },
+    ]);
+  }
+
   /** ارسال خروجی یکی از مرسوله‌های معاوضه از انبار (ادمین) */
   async notifyExchangeHubOutboundShipped(params: {
     orderId: string;
@@ -140,15 +527,21 @@ export class OperationalNotifyService {
       ? ` توضیح: ${params.note.trim()}`
       : '';
     const trackingSuffix = tracking ? ` کد رهگیری: ${tracking}.` : '';
+    const phase = params.isReturn
+      ? 'exchange_hub_return_outbound'
+      : 'exchange_hub_outbound_shipped';
+    const phaseKey = params.isReturn
+      ? `exchange_hub_return_${params.leg}`
+      : `exchange_hub_outbound_${params.leg}`;
     const baseMeta = {
       orderId: params.orderId,
       listingId: params.listingId,
       listingTitle,
       status: params.status,
       trackingCode: tracking || undefined,
-      phase: params.isReturn
-        ? 'exchange_hub_return_outbound'
-        : 'exchange_hub_outbound_shipped',
+      phase,
+      phaseKey,
+      leg: params.leg,
     };
 
     if (params.isReturn) {
@@ -515,6 +908,7 @@ export class OperationalNotifyService {
           status: OrderStatus.AWAITING_SHIPMENT_TO_HUB,
           phase: 'exchange_ready_to_ship',
           role: 'BUYER',
+          audience: 'BUYER',
         },
       },
       {
@@ -529,6 +923,7 @@ export class OperationalNotifyService {
           status: OrderStatus.AWAITING_SHIPMENT_TO_HUB,
           phase: 'exchange_ready_to_ship',
           role: 'SELLER',
+          audience: 'SELLER',
         },
       },
     ]);
@@ -541,20 +936,25 @@ export class OperationalNotifyService {
     const listingTitle = await this.listingTitle(order.listingId);
     const peerUserId =
       payerUserId === order.buyerId ? order.sellerId : order.buyerId;
-    await this.notificationService.create({
-      userId: peerUserId,
-      type: NotificationType.ORDER_STATUS_CHANGED,
-      title: 'پرداخت طرف مقابل معاوضه',
-      message: `طرف مقابل سهم خود را برای معاوضه «${listingTitle}» پرداخت کرد. پس از پرداخت شما، مرحله ارسال باز می‌شود.`,
-      meta: {
-        orderId: order.id,
-        listingId: order.listingId,
-        listingTitle,
-        status: OrderStatus.AWAITING_PAYMENT,
-        phase: 'exchange_peer_paid',
-        payerUserId,
+    const peerRole = peerUserId === order.buyerId ? 'BUYER' : 'SELLER';
+    await this.notifyMany([
+      {
+        userId: peerUserId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'پرداخت طرف مقابل معاوضه',
+        message: `طرف مقابل سهم خود را برای معاوضه «${listingTitle}» پرداخت کرد. پس از پرداخت شما، مرحله ارسال باز می‌شود.`,
+        meta: {
+          orderId: order.id,
+          listingId: order.listingId,
+          listingTitle,
+          status: OrderStatus.AWAITING_PAYMENT,
+          phase: 'exchange_peer_paid',
+          payerUserId,
+          role: peerRole,
+          audience: peerRole,
+        },
       },
-    });
+    ]);
   }
 
   async afterExchangeShipmentUpdated(
@@ -574,68 +974,89 @@ export class OperationalNotifyService {
     const buyerSent = Boolean(order.sellerTrackingCode);
     const peerUserId =
       shipperUserId === order.buyerId ? order.sellerId : order.buyerId;
+    const shipperIsSeller = shipperUserId === order.sellerId;
+    const shipperRole = shipperIsSeller ? 'SELLER' : 'BUYER';
+    const peerRole = shipperIsSeller ? 'BUYER' : 'SELLER';
+    const shipperLeg = shipperIsSeller ? 'LISTING' : 'OFFER';
+    const peerLeg = shipperIsSeller ? 'OFFER' : 'LISTING';
+    const hubStatus = order.status ?? OrderStatus.SHIPPED_TO_HUB;
 
     if (sellerSent && buyerSent) {
-      const message = `هر دو طرف ارسال معاوضه «${listingTitle}» را ثبت کردند. پس از دریافت در انبار، کارشناسی آغاز می‌شود.`;
+      const message = `هر دو کالای معاوضه «${listingTitle}» به انبار طبقه ارسال شدند. پس از دریافت در انبار، کارشناسی آغاز می‌شود.`;
       await this.notifyMany([
         {
           userId: order.buyerId,
           type: NotificationType.ORDER_STATUS_CHANGED,
-          title: 'ثبت ارسال هر دو طرف',
+          title: 'هر دو کالا در راه انبار',
           message,
           meta: {
             orderId: order.id,
             listingId: order.listingId,
             listingTitle,
-            status: order.status,
+            status: hubStatus,
             phase: 'exchange_both_shipped',
             role: 'BUYER',
+            audience: 'BUYER',
           },
         },
         {
           userId: order.sellerId,
           type: NotificationType.ORDER_STATUS_CHANGED,
-          title: 'ثبت ارسال هر دو طرف',
+          title: 'هر دو کالا در راه انبار',
           message,
           meta: {
             orderId: order.id,
             listingId: order.listingId,
             listingTitle,
-            status: order.status,
+            status: hubStatus,
             phase: 'exchange_both_shipped',
             role: 'SELLER',
+            audience: 'SELLER',
           },
         },
       ]);
       return;
     }
 
+    const selfMessage = shipperIsSeller
+      ? `ارسال کالای آگهی شما برای معاوضه «${listingTitle}» به انبار طبقه ثبت شد. وضعیت: در راه انبار. منتظر ارسال کالای پیشنهادی خریدار هستیم.`
+      : `ارسال کالای پیشنهادی شما برای معاوضه «${listingTitle}» به انبار طبقه ثبت شد. وضعیت: در راه انبار. منتظر ارسال کالای آگهی فروشنده هستیم.`;
+    const peerMessage = shipperIsSeller
+      ? `فروشنده ارسال کالای آگهی را برای معاوضه «${listingTitle}» ثبت کرد. لطفاً تا پایان مهلت، کالای پیشنهادی خود را ارسال و کد رهگیری را ثبت کنید.`
+      : `خریدار ارسال کالای پیشنهادی را برای معاوضه «${listingTitle}» ثبت کرد. لطفاً تا پایان مهلت، کالای آگهی خود را ارسال و کد رهگیری را ثبت کنید.`;
+
     await this.notifyMany([
       {
         userId: shipperUserId,
         type: NotificationType.ORDER_STATUS_CHANGED,
-        title: 'ثبت ارسال شما',
-        message: `ارسال شما برای معاوضه «${listingTitle}» ثبت شد. منتظر ارسال طرف مقابل هستیم.`,
+        title: 'ارسال شما به انبار ثبت شد',
+        message: selfMessage,
         meta: {
           orderId: order.id,
           listingId: order.listingId,
           listingTitle,
-          status: order.status,
+          status: hubStatus,
           phase: 'exchange_self_shipped',
+          leg: shipperLeg,
+          role: shipperRole,
+          audience: shipperRole,
         },
       },
       {
         userId: peerUserId,
         type: NotificationType.ORDER_STATUS_CHANGED,
-        title: 'طرف مقابل ارسال کرد — ارسال شما',
-        message: `طرف مقابل برای معاوضه «${listingTitle}» ارسال را ثبت کرده است. لطفاً تا پایان مهلت، ارسال خود را ثبت کنید.`,
+        title: 'طرف مقابل ارسال کرد — نوبت شما',
+        message: peerMessage,
         meta: {
           orderId: order.id,
           listingId: order.listingId,
           listingTitle,
-          status: order.status,
+          status: hubStatus,
           phase: 'exchange_peer_must_ship',
+          leg: peerLeg,
           shipperUserId,
+          role: peerRole,
+          audience: peerRole,
         },
       },
     ]);
@@ -727,6 +1148,421 @@ export class OperationalNotifyService {
         amount,
         phase: approved ? 'wallet_withdraw_approved' : 'wallet_withdraw_rejected',
         rejectionReason: adminNote,
+      },
+    });
+  }
+
+  /** اعلان جفت‌طرفه معاوضه با متن و نقش مجزا برای خریدار/فروشنده */
+  async notifyExchangePartyPair(params: {
+    orderId: string | null;
+    listingId?: string;
+    buyerId: string;
+    sellerId: string;
+    listingTitle: string;
+    phase: string;
+    phaseKey: string;
+    status?: OrderStatus | string;
+    type?: NotificationType;
+    buyer: {
+      title: string;
+      message: string;
+      ticketId?: string;
+      leg?: string;
+      note?: string;
+    };
+    seller: {
+      title: string;
+      message: string;
+      ticketId?: string;
+      leg?: string;
+      note?: string;
+    };
+  }): Promise<void> {
+    const listingTitle = params.listingTitle?.trim() || 'کالا';
+    const type = params.type ?? NotificationType.ORDER_STATUS_CHANGED;
+    const status = params.status ?? OrderStatus.CANCELLED;
+    const statusLabel =
+      ORDER_STATUS_LABELS_FA[status as OrderStatus] ?? String(status);
+    const baseMeta = {
+      orderId: params.orderId ?? undefined,
+      listingId: params.listingId,
+      listingTitle,
+      status,
+      statusLabel,
+      phase: params.phase,
+      phaseKey: params.phaseKey,
+    };
+
+    await this.notifyMany([
+      {
+        userId: params.buyerId,
+        type,
+        title: params.buyer.title,
+        message: params.buyer.message,
+        meta: {
+          ...baseMeta,
+          role: 'BUYER',
+          audience: 'BUYER',
+          leg: params.buyer.leg,
+          note: params.buyer.note ?? params.buyer.message,
+          ...(params.buyer.ticketId ? { ticketId: params.buyer.ticketId } : {}),
+        },
+      },
+      {
+        userId: params.sellerId,
+        type,
+        title: params.seller.title,
+        message: params.seller.message,
+        meta: {
+          ...baseMeta,
+          role: 'SELLER',
+          audience: 'SELLER',
+          leg: params.seller.leg,
+          note: params.seller.note ?? params.seller.message,
+          ...(params.seller.ticketId ? { ticketId: params.seller.ticketId } : {}),
+        },
+      },
+    ]);
+  }
+
+  /** لغو معاوضه به‌دلیل اتمام مهلت پرداخت */
+  async notifyExchangePaymentTimeoutCancel(params: {
+    orderId: string | null;
+    listingId?: string;
+    buyerId: string;
+    sellerId: string;
+    listingTitle: string;
+    buyerCompliant: boolean;
+    sellerCompliant: boolean;
+    buyerTicketId: string;
+    sellerTicketId: string;
+  }): Promise<void> {
+    const listingTitle = params.listingTitle?.trim() || 'کالا';
+    await this.notifyExchangePartyPair({
+      orderId: params.orderId,
+      listingId: params.listingId,
+      buyerId: params.buyerId,
+      sellerId: params.sellerId,
+      listingTitle,
+      phase: 'exchange_payment_timeout_cancel',
+      phaseKey: 'exchange_payment_timeout_cancel',
+      status: OrderStatus.CANCELLED,
+      buyer: {
+        title: params.buyerCompliant
+          ? 'معاوضه لغو شد — بازگشت وجه'
+          : 'معاوضه لغو شد — مهلت پرداخت',
+        message: params.buyerCompliant
+          ? `معاوضه برای «${listingTitle}» لغو شد. سهم پرداختی شما به کیف پول برگشت؛ بابت ناراحتی پیش‌آمده پوزش می‌خواهیم.`
+          : `معاوضه برای «${listingTitle}» به‌دلیل عدم تکمیل پرداخت شما در مهلت مقرر لغو شد.`,
+        ticketId: params.buyerTicketId,
+        leg: 'OFFER',
+      },
+      seller: {
+        title: params.sellerCompliant
+          ? 'معاوضه لغو شد — بازگشت وجه'
+          : 'معاوضه لغو شد — مهلت پرداخت',
+        message: params.sellerCompliant
+          ? `معاوضه برای «${listingTitle}» لغو شد. سهم پرداختی شما به کیف پول برگشت؛ بابت ناراحتی پیش‌آمده پوزش می‌خواهیم.`
+          : `معاوضه برای «${listingTitle}» به‌دلیل عدم تکمیل پرداخت شما در مهلت مقرر لغو شد.`,
+        ticketId: params.sellerTicketId,
+        leg: 'LISTING',
+      },
+    });
+  }
+
+  /** لغو معاوضه — عدم ارسال هر دو طرف */
+  async notifyExchangeBothNoShipmentCancel(params: {
+    orderId: string;
+    listingId: string;
+    buyerId: string;
+    sellerId: string;
+    listingTitle: string;
+    shortId: string;
+    penaltyPerParty: number;
+    penaltyPct: number;
+    buyerRefundAmount: number;
+    sellerRefundAmount: number;
+    buyerTicketId: string;
+    sellerTicketId: string;
+  }): Promise<void> {
+    const listingTitle = params.listingTitle?.trim() || 'کالا';
+    const buildMessage = (refund: number) =>
+      params.penaltyPerParty > 0
+        ? `معاوضه #${params.shortId} لغو شد. ${Math.max(0, refund).toLocaleString('fa-IR')} تومان پس از کسر ${params.penaltyPct}٪ جریمه کارشناسی به کیف پول شما واریز شد.`
+        : `معاوضه #${params.shortId} به‌دلیل عدم ارسال هر دو طرف لغو شد و سهم پرداختی شما به کیف پول برگشت.`;
+
+    await this.notifyExchangePartyPair({
+      orderId: params.orderId,
+      listingId: params.listingId,
+      buyerId: params.buyerId,
+      sellerId: params.sellerId,
+      listingTitle,
+      phase: 'exchange_both_no_shipment_cancel',
+      phaseKey: 'exchange_both_no_shipment_cancel',
+      status: OrderStatus.CANCELLED,
+      buyer: {
+        title: 'معاوضه لغو شد — بازگشت وجه',
+        message: buildMessage(params.buyerRefundAmount),
+        ticketId: params.buyerTicketId,
+        leg: 'OFFER',
+      },
+      seller: {
+        title: 'معاوضه لغو شد — بازگشت وجه',
+        message: buildMessage(params.sellerRefundAmount),
+        ticketId: params.sellerTicketId,
+        leg: 'LISTING',
+      },
+    });
+  }
+
+  /** لغو معاوضه — یک طرف ارسال کرده، طرف دیگر نکرده */
+  async notifyExchangeOneSideNoShipmentCancel(params: {
+    orderId: string;
+    listingId: string;
+    buyerId: string;
+    sellerId: string;
+    listingTitle: string;
+    buyerIsSender: boolean;
+    buyerTicketId: string;
+    sellerTicketId: string;
+  }): Promise<void> {
+    const listingTitle = params.listingTitle?.trim() || 'کالا';
+    await this.notifyExchangePartyPair({
+      orderId: params.orderId,
+      listingId: params.listingId,
+      buyerId: params.buyerId,
+      sellerId: params.sellerId,
+      listingTitle,
+      phase: 'exchange_one_side_no_shipment_cancel',
+      phaseKey: 'exchange_one_side_no_shipment_cancel',
+      status: OrderStatus.CANCELLED,
+      buyer: {
+        title: params.buyerIsSender
+          ? 'معاوضه لغو شد — بازگشت وجه و مرجوع کالا'
+          : 'معاوضه لغو شد — کسر امتیاز',
+        message: params.buyerIsSender
+          ? `معامله «${listingTitle}» لغو شد؛ وجه شما برگشت و کالای پیشنهادی شما بدون کارشناسی در صف مرجوع از هاب است.`
+          : `معامله «${listingTitle}» به‌دلیل عدم ارسال کالای پیشنهادی شما در مهلت لغو شد.`,
+        ticketId: params.buyerTicketId,
+        leg: 'OFFER',
+      },
+      seller: {
+        title: params.buyerIsSender
+          ? 'معاوضه لغو شد — کسر امتیاز'
+          : 'معاوضه لغو شد — بازگشت وجه و مرجوع کالا',
+        message: params.buyerIsSender
+          ? `معامله «${listingTitle}» به‌دلیل عدم ارسال کالای آگهی شما در مهلت لغو شد.`
+          : `معامله «${listingTitle}» لغو شد؛ وجه شما برگشت و کالای آگهی شما بدون کارشناسی در صف مرجوع از هاب است.`,
+        ticketId: params.sellerTicketId,
+        leg: 'LISTING',
+      },
+    });
+  }
+
+  /** فعال‌سازی مجدد پیشنهادهای معاوضه در صف پس از لغو به‌دلیل مهلت پرداخت */
+  async notifyExchangeWaitlistRestored(params: {
+    listingId: string;
+    listingTitle: string;
+    userIds: string[];
+  }): Promise<void> {
+    if (!params.userIds.length) return;
+    const listingTitle = params.listingTitle?.trim() || 'کالا';
+    const message = `مهلت پرداخت معاوضه برای «${listingTitle}» به پایان رسید. پیشنهاد شما دوباره فعال شد و فروشنده می‌تواند یکی از درخواست‌ها را انتخاب کند.`;
+    await Promise.all(
+      params.userIds.map((userId) =>
+        this.notificationService.create({
+          userId,
+          type: NotificationType.SYSTEM,
+          title: 'پیشنهاد شما دوباره در انتظار بررسی است',
+          message,
+          forceSiteNotification: true,
+          recipientRole: 'OFFERER',
+          meta: {
+            listingId: params.listingId,
+            listingTitle,
+            phase: 'exchange_waitlist_restore',
+            phaseKey: 'exchange_waitlist_restore',
+            role: 'OFFERER',
+            audience: 'OFFERER',
+          },
+        }),
+      ),
+    );
+  }
+
+  /** آزادسازی خودکار وجه مرجوعی پس از پایان مهلت تایید دریافت */
+  async notifyExchangeAutoReturnEscrowReleased(params: {
+    orderId: string;
+    listingId: string;
+    buyerId: string;
+    sellerId: string;
+  }): Promise<void> {
+    const listingTitle = await this.listingTitle(params.listingId);
+    const message =
+      'با پایان مهلت تایید دریافت و نبود اختلاف فعال، سهم پرداختی شما (بدون هزینه کارشناسی) آزاد شد.';
+    await this.notifyExchangePartyPair({
+      orderId: params.orderId,
+      listingId: params.listingId,
+      buyerId: params.buyerId,
+      sellerId: params.sellerId,
+      listingTitle,
+      phase: 'exchange_auto_return_escrow_released',
+      phaseKey: 'exchange_auto_return_escrow_released',
+      status: OrderStatus.CANCELLED,
+      buyer: {
+        title: 'آزادسازی خودکار وجه مرجوعی',
+        message,
+        leg: 'OFFER',
+      },
+      seller: {
+        title: 'آزادسازی خودکار وجه مرجوعی',
+        message,
+        leg: 'LISTING',
+      },
+    });
+  }
+
+  /** تایید دریافت مرجوعی یکی از طرفین (جریان RETURN_BOTH) */
+  async notifyExchangeReturnLegConfirmed(params: {
+    orderId: string;
+    listingId: string;
+    buyerId: string;
+    sellerId: string;
+    confirmedBy: 'BUYER' | 'SELLER';
+  }): Promise<void> {
+    const listingTitle = await this.listingTitle(params.listingId);
+    const leg = params.confirmedBy === 'BUYER' ? 'TO_BUYER' : 'TO_SELLER';
+    const phaseKey = `exchange_return_leg_confirmed_${leg}`;
+    const baseMeta = {
+      orderId: params.orderId,
+      listingId: params.listingId,
+      listingTitle,
+      status: OrderStatus.CANCELLED,
+      phase: 'exchange_return_leg_confirmed',
+      phaseKey,
+      leg,
+    };
+
+    if (params.confirmedBy === 'BUYER') {
+      await this.notifyMany([
+        {
+          userId: params.sellerId,
+          type: NotificationType.ORDER_STATUS_CHANGED,
+          title: 'تایید دریافت مرجوعی خریدار',
+          message: `خریدار دریافت مرجوعی کالای پیشنهادی خود برای معاوضه «${listingTitle}» را تایید کرد.`,
+          meta: {
+            ...baseMeta,
+            role: 'SELLER',
+            audience: 'SELLER',
+            leg: 'OFFER',
+          },
+        },
+      ]);
+      return;
+    }
+
+    await this.notifyMany([
+      {
+        userId: params.buyerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'تایید دریافت مرجوعی فروشنده',
+        message: `فروشنده دریافت مرجوعی کالای آگهی خود برای معاوضه «${listingTitle}» را تایید کرد.`,
+        meta: {
+          ...baseMeta,
+          role: 'BUYER',
+          audience: 'BUYER',
+          leg: 'LISTING',
+        },
+      },
+    ]);
+  }
+
+  /** تایید دریافت یکی از کالاها توسط یک طرف (هنوز معامله تکمیل نشده) */
+  async notifyExchangeLegDeliveryConfirmed(params: {
+    orderId: string;
+    listingId: string;
+    buyerId: string;
+    sellerId: string;
+    confirmedBy: 'BUYER' | 'SELLER';
+    status: OrderStatus | string;
+  }): Promise<void> {
+    const listingTitle = await this.listingTitle(params.listingId);
+    const leg = params.confirmedBy === 'BUYER' ? 'TO_BUYER' : 'TO_SELLER';
+    const phaseKey = `exchange_leg_delivery_confirmed_${leg}`;
+    const baseMeta = {
+      orderId: params.orderId,
+      listingId: params.listingId,
+      listingTitle,
+      status: params.status,
+      phase: 'exchange_leg_delivery_confirmed',
+      phaseKey,
+      leg,
+    };
+
+    if (params.confirmedBy === 'BUYER') {
+      await this.notifyMany([
+        {
+          userId: params.sellerId,
+          type: NotificationType.ORDER_STATUS_CHANGED,
+          title: 'تایید دریافت کالای آگهی',
+          message: `خریدار دریافت کالای آگهی شما برای معاوضه «${listingTitle}» را تایید کرد.`,
+          meta: {
+            ...baseMeta,
+            role: 'SELLER',
+            audience: 'SELLER',
+            leg: 'LISTING',
+          },
+        },
+      ]);
+      return;
+    }
+
+    await this.notifyMany([
+      {
+        userId: params.buyerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'تایید دریافت کالای پیشنهادی',
+        message: `فروشنده دریافت کالای پیشنهادی شما برای معاوضه «${listingTitle}» را تایید کرد.`,
+        meta: {
+          ...baseMeta,
+          role: 'BUYER',
+          audience: 'BUYER',
+          leg: 'OFFER',
+        },
+      },
+    ]);
+  }
+
+  /** لغو معاوضه پس از رد هر دو کالا در کارشناسی */
+  async notifyExchangeBothRejectedCancel(params: {
+    orderId: string;
+    listingId: string;
+    buyerId: string;
+    sellerId: string;
+    note?: string;
+  }): Promise<void> {
+    const listingTitle = await this.listingTitle(params.listingId);
+    const detail =
+      params.note?.trim() ||
+      'هر دو کالا رد شد؛ معامله لغو و مرجوعی برای هر دو طرف ثبت شد.';
+    await this.notifyExchangePartyPair({
+      orderId: params.orderId,
+      listingId: params.listingId,
+      buyerId: params.buyerId,
+      sellerId: params.sellerId,
+      listingTitle,
+      phase: 'exchange_both_rejected_cancel',
+      phaseKey: 'exchange_both_rejected_cancel',
+      status: OrderStatus.CANCELLED,
+      buyer: {
+        title: 'لغو معاوضه — رد هر دو کالا',
+        message: `معاوضه «${listingTitle}» لغو شد. کالای پیشنهادی شما و کالای آگهی رد شدند. ${detail}`,
+        leg: 'OFFER',
+      },
+      seller: {
+        title: 'لغو معاوضه — رد هر دو کالا',
+        message: `معاوضه «${listingTitle}» لغو شد. کالای آگهی شما و کالای پیشنهادی خریدار رد شدند. ${detail}`,
+        leg: 'LISTING',
       },
     });
   }

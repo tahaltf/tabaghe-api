@@ -155,3 +155,35 @@ export function buildNotificationRuleKey(
   if (recipientRole) return `${type}@${recipientRole}`;
   return type;
 }
+
+function readMetaPhaseKey(meta?: Record<string, unknown>): string | undefined {
+  const explicit =
+    typeof meta?.phaseKey === 'string' ? meta.phaseKey.trim() : '';
+  if (explicit) return explicit;
+  const phase = typeof meta?.phase === 'string' ? meta.phase.trim() : '';
+  const leg = typeof meta?.leg === 'string' ? meta.leg.trim() : '';
+  if (!phase) return undefined;
+  if (leg) return `${phase}_${leg}`;
+  return phase;
+}
+
+/** اولویت جستجوی قانون SMS/اعلان: نقش+فاز → نقش → نوع پایه */
+export function resolveNotificationRuleKeyCandidates(
+  type: string,
+  recipientRole?: string,
+  meta?: Record<string, unknown>,
+): string[] {
+  const keys: string[] = [];
+  const phaseKey = readMetaPhaseKey(meta);
+  if (phaseKey && recipientRole) {
+    keys.push(`${type}@${recipientRole}@${phaseKey}`);
+  }
+  if (phaseKey) {
+    keys.push(`${type}@${phaseKey}`);
+  }
+  if (recipientRole) {
+    keys.push(buildNotificationRuleKey(type, recipientRole));
+  }
+  keys.push(type);
+  return [...new Set(keys)];
+}
