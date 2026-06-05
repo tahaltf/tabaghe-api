@@ -1,6 +1,20 @@
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import type { PrismaClient } from '@prisma/client';
+
+function resolveDigitalCategoriesJsonPath(): string {
+  const candidates = [
+    join(__dirname, 'digital-product-categories.json'),
+    join(process.cwd(), 'prisma/seed-data/digital-product-categories.json'),
+    join(__dirname, '../../../prisma/seed-data/digital-product-categories.json'),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  throw new Error(
+    `digital-product-categories.json not found. Tried: ${candidates.join(', ')}`,
+  );
+}
 
 type DigitalSub = { name: string; slug: string; children?: string[] };
 type DigitalRoot = {
@@ -33,7 +47,7 @@ function makeChildSlug(parentSubSlug: string, title: string, index: number): str
 export async function seedDigitalProductCategoryTree(
   prisma: PrismaClient,
 ): Promise<void> {
-  const jsonPath = join(__dirname, 'digital-product-categories.json');
+  const jsonPath = resolveDigitalCategoriesJsonPath();
   const roots = JSON.parse(
     readFileSync(jsonPath, 'utf8'),
   ) as DigitalRoot[];

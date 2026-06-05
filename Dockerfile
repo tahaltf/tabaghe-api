@@ -18,7 +18,9 @@ ARG DATABASE_URL="postgresql://temp:temp@localhost:5432/temp"
 ENV NODE_ENV=production
 
 RUN DATABASE_URL=$DATABASE_URL npx prisma generate && \
-    npm run build
+    npm run build && \
+    mkdir -p dist/prisma/seed-data && \
+    cp prisma/seed-data/*.json dist/prisma/seed-data/
 
 # -----------------------------------------------------------------------------
 # Stage 2: Production Env with Chromium (Puppeteer)
