@@ -122,6 +122,169 @@ export class OperationalNotifyService {
     }
   }
 
+  /** ارسال خروجی یکی از مرسوله‌های معاوضه از انبار (ادمین) */
+  async notifyExchangeHubOutboundShipped(params: {
+    orderId: string;
+    buyerId: string;
+    sellerId: string;
+    listingId: string;
+    leg: 'TO_BUYER' | 'TO_SELLER';
+    status: OrderStatus | string;
+    trackingCode: string;
+    note?: string;
+    isReturn?: boolean;
+  }): Promise<void> {
+    const listingTitle = await this.listingTitle(params.listingId);
+    const tracking = params.trackingCode.trim();
+    const noteSuffix = params.note?.trim()
+      ? ` توضیح: ${params.note.trim()}`
+      : '';
+    const trackingSuffix = tracking ? ` کد رهگیری: ${tracking}.` : '';
+    const baseMeta = {
+      orderId: params.orderId,
+      listingId: params.listingId,
+      listingTitle,
+      status: params.status,
+      trackingCode: tracking || undefined,
+      phase: params.isReturn
+        ? 'exchange_hub_return_outbound'
+        : 'exchange_hub_outbound_shipped',
+    };
+
+    if (params.isReturn) {
+      if (params.leg === 'TO_BUYER') {
+        await this.notifyMany([
+          {
+            userId: params.buyerId,
+            type: NotificationType.ORDER_STATUS_CHANGED,
+            title: 'مرجوعی شما از انبار ثبت شد',
+            message: `مرسوله مرجوعی مربوط به شما برای معاوضه «${listingTitle}» از انبار ثبت شد.${trackingSuffix}${noteSuffix}`,
+            meta: {
+              ...baseMeta,
+              role: 'BUYER',
+              audience: 'BUYER',
+              leg: 'TO_BUYER',
+            },
+          },
+          {
+            userId: params.sellerId,
+            type: NotificationType.ORDER_STATUS_CHANGED,
+            title: 'ثبت مرجوعی طرف مقابل',
+            message: `مرسوله مرجوعی خریدار برای معاوضه «${listingTitle}» از انبار ثبت شد.${trackingSuffix}${noteSuffix}`,
+            meta: {
+              ...baseMeta,
+              role: 'SELLER',
+              audience: 'SELLER',
+              leg: 'TO_BUYER',
+            },
+          },
+        ]);
+        return;
+      }
+
+      await this.notifyMany([
+        {
+          userId: params.sellerId,
+          type: NotificationType.ORDER_STATUS_CHANGED,
+          title: 'مرجوعی شما از انبار ثبت شد',
+          message: `مرسوله مرجوعی مربوط به شما برای معاوضه «${listingTitle}» از انبار ثبت شد.${trackingSuffix}${noteSuffix}`,
+          meta: {
+            ...baseMeta,
+            role: 'SELLER',
+            audience: 'SELLER',
+            leg: 'TO_SELLER',
+          },
+        },
+        {
+          userId: params.buyerId,
+          type: NotificationType.ORDER_STATUS_CHANGED,
+          title: 'ثبت مرجوعی طرف مقابل',
+          message: `مرسوله مرجوعی فروشنده برای معاوضه «${listingTitle}» از انبار ثبت شد.${trackingSuffix}${noteSuffix}`,
+          meta: {
+            ...baseMeta,
+            role: 'BUYER',
+            audience: 'BUYER',
+            leg: 'TO_SELLER',
+          },
+        },
+      ]);
+      return;
+    }
+
+    if (params.leg === 'TO_BUYER') {
+      const buyerNote =
+        params.note?.trim() ||
+        'کالای آگهی از انبار برای شما ارسال شد و کد رهگیری ثبت گردید.';
+      const sellerNote =
+        params.note?.trim() ||
+        'کالای آگهی شما از انبار به خریدار ارسال شد و کد رهگیری ثبت گردید.';
+      await this.notifyMany([
+        {
+          userId: params.buyerId,
+          type: NotificationType.ORDER_STATUS_CHANGED,
+          title: 'ارسال کالا از انبار برای شما',
+          message: `کالای آگهی برای معاوضه «${listingTitle}» از انبار طبقه برای شما ارسال شد. پس از دریافت، تأیید را ثبت کنید.${trackingSuffix}${noteSuffix}`,
+          meta: {
+            ...baseMeta,
+            role: 'BUYER',
+            audience: 'BUYER',
+            leg: 'TO_BUYER',
+            note: buyerNote,
+          },
+        },
+        {
+          userId: params.sellerId,
+          type: NotificationType.ORDER_STATUS_CHANGED,
+          title: 'ارسال کالای آگهی شما از انبار',
+          message: `کالای آگهی شما برای معاوضه «${listingTitle}» از انبار به خریدار ارسال شد.${trackingSuffix}${noteSuffix}`,
+          meta: {
+            ...baseMeta,
+            role: 'SELLER',
+            audience: 'SELLER',
+            leg: 'TO_BUYER',
+            note: sellerNote,
+          },
+        },
+      ]);
+      return;
+    }
+
+    const buyerNote =
+      params.note?.trim() ||
+      'کالای پیشنهادی شما از انبار به فروشنده ارسال شد و کد رهگیری ثبت گردید.';
+    const sellerNote =
+      params.note?.trim() ||
+      'کالای پیشنهادی خریدار از انبار برای شما ارسال شد و کد رهگیری ثبت گردید.';
+    await this.notifyMany([
+      {
+        userId: params.buyerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'ارسال کالای پیشنهادی شما از انبار',
+        message: `کالای پیشنهادی شما برای معاوضه «${listingTitle}» از انبار به فروشنده ارسال شد.${trackingSuffix}${noteSuffix}`,
+        meta: {
+          ...baseMeta,
+          role: 'BUYER',
+          audience: 'BUYER',
+          leg: 'TO_SELLER',
+          note: buyerNote,
+        },
+      },
+      {
+        userId: params.sellerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'ارسال کالا از انبار برای شما',
+        message: `کالای پیشنهادی خریدار برای معاوضه «${listingTitle}» از انبار برای شما ارسال شد. پس از دریافت، تأیید را ثبت کنید.${trackingSuffix}${noteSuffix}`,
+        meta: {
+          ...baseMeta,
+          role: 'SELLER',
+          audience: 'SELLER',
+          leg: 'TO_SELLER',
+          note: sellerNote,
+        },
+      },
+    ]);
+  }
+
   private async listingTitle(listingId: string): Promise<string> {
     const listing = await this.prisma.listing.findUnique({
       where: { id: listingId },

@@ -24,16 +24,31 @@ export function isInspectionLikeHubNote(note: string): boolean {
   return INSPECTION_NOTE_MARKERS.some((m) => text.includes(m));
 }
 
+const HUB_OUTBOUND_NOTIFICATION_PHASES = new Set<string>([
+  'exchange_hub_outbound_shipped',
+  'exchange_hub_return_outbound',
+  'shipped_from_hub_to_buyer',
+]);
+
 /** آیا meta نوتیف مربوط به ثبت رهگیری خروجی از هاب است (نه کارشناسی) */
 export function isHubOutboundShipmentNotificationMeta(
   meta: Record<string, unknown>,
 ): boolean {
   const status = String(meta['status'] ?? '').trim();
-  if (!HUB_OUTBOUND_NOTIFICATION_STATUSES.has(status)) return false;
+  const phase = String(meta['phase'] ?? '').trim();
+  const hasOutboundPhase = HUB_OUTBOUND_NOTIFICATION_PHASES.has(phase);
+  if (!HUB_OUTBOUND_NOTIFICATION_STATUSES.has(status) && !hasOutboundPhase) {
+    return false;
+  }
 
   const note = meta['note'];
-  if (typeof note !== 'string' || !note.trim()) return false;
-  if (isInspectionLikeHubNote(note)) return false;
+  const trackingCode = meta['trackingCode'];
+  const hasNote = typeof note === 'string' && note.trim().length > 0;
+  const hasTracking =
+    typeof trackingCode === 'string' && trackingCode.trim().length > 0;
+
+  if (!hasNote && !(hasOutboundPhase && hasTracking)) return false;
+  if (hasNote && isInspectionLikeHubNote(note)) return false;
 
   return true;
 }

@@ -53,6 +53,7 @@ function createAdminOrdersCommandService(deps: {
     {
       notifyMany: jest.fn().mockResolvedValue(undefined),
       notifyExchangeHubItemReceived: jest.fn().mockResolvedValue(undefined),
+      notifyExchangeHubOutboundShipped: jest.fn().mockResolvedValue(undefined),
     } as never,
   );
   const inspection = new AdminOrdersInspectionService(

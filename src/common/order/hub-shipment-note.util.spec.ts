@@ -22,6 +22,18 @@ describe('hub-shipment-note.util', () => {
     ).toBe(true);
   });
 
+  it('accepts exchange hub outbound phase with tracking code', () => {
+    expect(
+      isHubOutboundShipmentNotificationMeta({
+        status: 'SHIPPED_TO_BUYER',
+        phase: 'exchange_hub_outbound_shipped',
+        trackingCode: 'HS-123',
+        leg: 'TO_SELLER',
+        audience: 'SELLER',
+      }),
+    ).toBe(true);
+  });
+
   it('rejects verified-at-hub inspection meta', () => {
     expect(
       isHubOutboundShipmentNotificationMeta({

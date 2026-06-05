@@ -63,6 +63,8 @@ export class OrdersListQueryService {
           requiresVerification: true,
           trackingCode: true,
           sellerTrackingCode: true,
+          hubToBuyerTrackingCode: true,
+          hubToSellerTrackingCode: true,
           exchangeHubInspection: true,
           cancelReason: true,
           listing: {

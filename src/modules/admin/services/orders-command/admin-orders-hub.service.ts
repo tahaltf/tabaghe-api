@@ -233,49 +233,40 @@ export class AdminOrdersHubService {
 
     const notifications: Prisma.NotificationCreateManyInput[] = [];
     if (existing.type === 'EXCHANGE') {
-      const hasBuyerLegUpdate = Boolean(dto.hubToBuyerTrackingCode);
-      const hasSellerLegUpdate = Boolean(dto.hubToSellerTrackingCode);
-      const statusForNotification = nextStatus;
-      const titleForNotification = isExchangeReturnFlow
-        ? returnShipmentCompleted
-          ? 'مرجوعی از هاب ثبت شد'
-          : 'ثبت مسیر مرجوعی از هاب'
-        : 'وضعیت سفارش تغییر کرد';
-      const messageForBuyer = isExchangeReturnFlow
-        ? `مرسوله مرجوعی مربوط به شما از هاب ثبت شد. ${buyerNote}`
-        : `وضعیت سفارش به «ارسال به خریدار» تغییر یافت. توضیح: ${buyerNote}`;
-      const messageForSeller = isExchangeReturnFlow
-        ? `مرسوله مرجوعی مربوط به شما از هاب ثبت شد. ${sellerNote}`
-        : `وضعیت سفارش به «ارسال به خریدار» تغییر یافت. توضیح: ${sellerNote}`;
-      if (hasBuyerLegUpdate) {
-        notifications.push({
-          userId: existing.buyerId,
-          type: NotificationType.ORDER_STATUS_CHANGED,
-          title: titleForNotification,
-          message: messageForBuyer,
-          meta: {
-            orderId: id,
-            status: statusForNotification,
-            note: buyerNote,
-            audience: 'BUYER',
-          } as Prisma.InputJsonValue,
+      const buyerLegFirstShip = isFirstHubShipmentForLeg(
+        existing.hubToBuyerTrackingCode,
+        dto.hubToBuyerTrackingCode,
+      );
+      const sellerLegFirstShip = isFirstHubShipmentForLeg(
+        existing.hubToSellerTrackingCode,
+        dto.hubToSellerTrackingCode,
+      );
+      if (buyerLegFirstShip) {
+        await this.operationalNotify.notifyExchangeHubOutboundShipped({
+          orderId: id,
+          buyerId: existing.buyerId,
+          sellerId: existing.sellerId,
+          listingId: existing.listingId,
+          leg: 'TO_BUYER',
+          status: nextStatus,
+          trackingCode: String(dto.hubToBuyerTrackingCode ?? '').trim(),
+          note: dto.note,
+          isReturn: isExchangeReturnFlow,
         });
       }
-      if (hasSellerLegUpdate) {
-        notifications.push({
-          userId: existing.sellerId,
-          type: NotificationType.ORDER_STATUS_CHANGED,
-          title: titleForNotification,
-          message: messageForSeller,
-          meta: {
-            orderId: id,
-            status: statusForNotification,
-            note: sellerNote,
-            audience: 'SELLER',
-          } as Prisma.InputJsonValue,
+      if (sellerLegFirstShip) {
+        await this.operationalNotify.notifyExchangeHubOutboundShipped({
+          orderId: id,
+          buyerId: existing.buyerId,
+          sellerId: existing.sellerId,
+          listingId: existing.listingId,
+          leg: 'TO_SELLER',
+          status: nextStatus,
+          trackingCode: String(dto.hubToSellerTrackingCode ?? '').trim(),
+          note: dto.note,
+          isReturn: isExchangeReturnFlow,
         });
       }
-      // اگر هر دو رهگیری با هم ثبت شدند، هر دو نوتیفیکیشن ساخته می‌شود.
     } else if (isDirectHubReturnFlow) {
       const returnNote =
         dto.note ??
