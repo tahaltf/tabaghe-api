@@ -42,6 +42,10 @@ import {
   EXCHANGE_FINANCIAL_SETTLEMENT_TICKET_SUBJECT,
 } from '../../../../common/order/exchange-financial-settlement-messaging.util';
 import { buildExchangeSettlementWalletMeta } from '../../../../common/wallet/exchange-settlement-wallet-meta.util';
+import {
+  applyExchangeFinancialSettlement,
+  resolveExchangeSurplusReceivableBases,
+} from '../../../../common/order/exchange-surplus-receivable.util';
 
 @Injectable()
 export class AdminOrdersInspectionService {
@@ -430,21 +434,28 @@ export class AdminOrdersInspectionService {
           'در معاوضه، اصلاح مالی فقط کاهشی است و جهت CREDIT مجاز نیست',
         );
       }
-      const sellerBefore = Number(existing.sellerRevenue || 0);
-      const buyerBefore = Math.max(
-        0,
-        Number(existing.totalAmount || 0) - sellerBefore,
+      const exchangeOfferForSummary = existing.exchangeOfferId
+        ? await this.prisma.exchangeOffer.findUnique({
+            where: { id: existing.exchangeOfferId },
+            select: { extraPayment: true, isPayerMe: true },
+          })
+        : null;
+      if (!exchangeOfferForSummary) {
+        throw new BadRequestException(
+          'اطلاعات پیشنهاد معاوضه برای محاسبه تسویه مالی یافت نشد',
+        );
+      }
+      const surplusBases = resolveExchangeSurplusReceivableBases(
+        exchangeOfferForSummary,
       );
+      const sellerBefore = surplusBases.sellerBefore;
+      const buyerBefore = surplusBases.buyerBefore;
       // اصلاح مالی همیشه "کاهشی" است:
       // listingSettlementAmount => کاهش از فروشنده و افزایش به خریدار
       // offerSettlementAmount => کاهش از خریدار و افزایش به فروشنده
-      const sellerAfter = Math.max(
-        0,
-        sellerBefore - listingSettlementAmount + offerSettlementAmount,
-      );
-      const buyerAfter = Math.max(
-        0,
-        buyerBefore + listingSettlementAmount - offerSettlementAmount,
+      const { sellerAfter, buyerAfter } = applyExchangeFinancialSettlement(
+        surplusBases,
+        { listingSettlementAmount, offerSettlementAmount },
       );
       const settlementSummary = {
         sellerAdjustment: {

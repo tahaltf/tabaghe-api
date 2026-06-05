@@ -152,6 +152,12 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
     };
 
     const prisma = {
+      exchangeOffer: {
+        findUnique: jest.fn().mockResolvedValue({
+          extraPayment: params?.offerExtraPayment ?? 200,
+          isPayerMe: params?.offerIsPayerMe ?? false,
+        }),
+      },
       order: {
         findUnique: jest.fn().mockResolvedValue(makeOrder()),
         update: jest.fn().mockResolvedValue({
@@ -230,7 +236,7 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
     expect(tx.order.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          sellerRevenue: 200,
+          sellerRevenue: 0,
           status: OrderStatus.VERIFIED_AT_HUB,
         }),
       }),
@@ -329,7 +335,7 @@ describe('AdminOrdersCommandService - exchange financial settlement', () => {
     });
     expect(tx.order.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ sellerRevenue: 600 }),
+        data: expect.objectContaining({ sellerRevenue: 550 }),
       }),
     );
   });
