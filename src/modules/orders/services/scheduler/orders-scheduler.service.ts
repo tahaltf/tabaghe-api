@@ -74,6 +74,10 @@ import {
 } from '../../orders.constants';
 import { BUYER_CONFIRM_ELIGIBLE_STATUSES } from '../query/orders-response-enrichment.service';
 import { OrdersCompletionService } from '../command/orders-completion.service';
+import {
+  isExchangeAutoConfirmDue,
+  isExchangeLegConfirmDeadlineExpired,
+} from '../../../../common/order/exchange-hub-confirm-deadline.util';
 
 
 @Injectable()
@@ -103,13 +107,16 @@ export class OrdersSchedulerService {
     return this.responseEnrichment.ensureBuyerConfirmDeadline(orderId);
   }
 
-  private async isBuyerConfirmDeadlineExpired(order: {
-    status: OrderStatus;
-    buyerConfirmDeadline: Date | null;
-    disputedAt: Date | null;
-    updatedAt: Date;
-    createdAt: Date;
-  }): Promise<boolean> {
+  private async isBuyerConfirmDeadlineExpired(
+    order: Prisma.OrderGetPayload<Record<string, never>>,
+  ): Promise<boolean> {
+    if (order.disputedAt) return false;
+    if (!BUYER_CONFIRM_ELIGIBLE_STATUSES.includes(order.status)) {
+      return false;
+    }
+    if (order.type === OrderType.EXCHANGE) {
+      return isExchangeAutoConfirmDue(order);
+    }
     return this.responseEnrichment.isBuyerConfirmDeadlineExpired(order);
   }
 
@@ -1519,79 +1526,55 @@ export class OrdersSchedulerService {
     order: Prisma.OrderGetPayload<Record<string, never>>,
   ): Promise<void> {
     if (order.type === OrderType.EXCHANGE) {
-      await this.prisma.$transaction(async (tx) => {
-        const locked = await tx.order.findUnique({
-          where: { id: order.id },
-        });
-        if (!locked) return;
-        if (
-          locked.status === OrderStatus.COMPLETED ||
-          locked.status === OrderStatus.CANCELLED ||
-          locked.disputedAt
-        ) {
-          return;
-        }
-        if (
-          !BUYER_CONFIRM_ELIGIBLE_STATUSES.includes(locked.status)
-        ) {
-          return;
-        }
-
-        const [sellerRelease, buyerRelease] = await Promise.all([
-          this.walletService.getOrderScopedBlockedAmount(tx, {
-            userId: locked.sellerId,
-            orderId: locked.id,
-            listingId: locked.listingId,
-          }),
-          this.walletService.getOrderScopedBlockedAmount(tx, {
-            userId: locked.buyerId,
-            orderId: locked.id,
-            listingId: locked.listingId,
-          }),
-        ]);
-        if (sellerRelease > 0) {
-          await this.walletService.releaseEscrow(
-            locked.sellerId,
-            sellerRelease,
-            locked.listingId,
-            tx,
-            { orderId: locked.id },
-          );
-        }
-        if (buyerRelease > 0) {
-          await this.walletService.releaseEscrow(
-            locked.buyerId,
-            buyerRelease,
-            locked.listingId,
-            tx,
-            { orderId: locked.id },
-          );
-        }
-        const prevAutoConfirm = locked.status;
-        await tx.order.update({
-          where: { id: locked.id },
-          data: enrichOrderUpdateForCompletion({
-            buyerConfirmedDelivery: true,
-            sellerConfirmedDelivery: true,
-            status: OrderStatus.COMPLETED,
-          }),
-        });
-        await this.orderReputation.recordTerminalOutcome(
-          tx,
-          {
-            id: locked.id,
-            buyerId: locked.buyerId,
-            sellerId: locked.sellerId,
-            tradeReputationAt: locked.tradeReputationAt,
-          },
-          prevAutoConfirm,
-          'SUCCESS',
-        );
-      });
+      await this.processExchangeAutoConfirm(order);
       return;
     }
 
     await this.completion.confirmOrder(order.buyerId, order.id);
+  }
+
+  /** معاوضه: فقط طرفی که مرسوله‌اش از هاب ارسال شده و مهلتش گذشته — نه کل معامله یک‌جا */
+  private async processExchangeAutoConfirm(
+    order: Prisma.OrderGetPayload<Record<string, never>>,
+  ): Promise<void> {
+    if (
+      order.status === OrderStatus.COMPLETED ||
+      order.status === OrderStatus.CANCELLED ||
+      order.disputedAt
+    ) {
+      return;
+    }
+    if (!BUYER_CONFIRM_ELIGIBLE_STATUSES.includes(order.status)) {
+      return;
+    }
+
+    const inspection = (order.exchangeHubInspection ??
+      null) as Record<string, unknown> | null;
+    const fallback = order.buyerConfirmDeadline;
+
+    const buyerDue = isExchangeLegConfirmDeadlineExpired({
+      hubTrackingCode: order.hubToBuyerTrackingCode,
+      alreadyConfirmed: Boolean(order.buyerConfirmedDelivery),
+      inspection,
+      leg: 'BUYER',
+      fallbackDeadline: fallback,
+    });
+    const sellerDue = isExchangeLegConfirmDeadlineExpired({
+      hubTrackingCode: order.hubToSellerTrackingCode,
+      alreadyConfirmed: Boolean(order.sellerConfirmedDelivery),
+      inspection,
+      leg: 'SELLER',
+      fallbackDeadline: fallback,
+    });
+
+    if (!buyerDue && !sellerDue) return;
+
+    if (buyerDue) {
+      await this.completion.confirmOrder(order.buyerId, order.id);
+    }
+    if (sellerDue) {
+      await this.completion.confirmOrder(order.sellerId, order.id);
+    }
   }
 
   @Cron(CronExpression.EVERY_MINUTE)

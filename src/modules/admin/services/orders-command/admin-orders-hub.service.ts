@@ -26,6 +26,7 @@ import { WalletService } from '../../../wallet/wallet.service';
 import { OrdersService } from '../../../orders/orders.service';
 import { ListingCommandService } from '../../../listing/services/listing-command.service';
 import { buildOrderTicketSubject } from '../../../../common/ticket-message.util';
+import { mergeExchangeLegConfirmDeadline } from '../../../../common/order/exchange-hub-confirm-deadline.util';
 import { OperationalNotifyService } from '../../../notification/operational-notify.service';
 
 @Injectable()
@@ -135,6 +136,38 @@ export class AdminOrdersHubService {
           : OrderStatus.REJECTED_AT_HUB
         : OrderStatus.SHIPPED_TO_BUYER;
 
+    let nextInspection: Prisma.InputJsonValue | undefined = mergedInspection
+      ? (mergedInspection as Prisma.InputJsonValue)
+      : undefined;
+    if (
+      existing.type === 'EXCHANGE' &&
+      !isExchangeReturnFlow &&
+      !isDirectHubReturnFlow
+    ) {
+      const legDeadline =
+        await this.ordersService.computeBuyerConfirmDeadlineNow();
+      const legDeadlineIso = legDeadline.toISOString();
+      let patched =
+        (nextInspection as Record<string, unknown> | undefined) ??
+        (inspection as Record<string, unknown> | null) ??
+        {};
+      if (dto.hubToBuyerTrackingCode?.trim()) {
+        patched = mergeExchangeLegConfirmDeadline(
+          patched,
+          'BUYER',
+          legDeadlineIso,
+        );
+      }
+      if (dto.hubToSellerTrackingCode?.trim()) {
+        patched = mergeExchangeLegConfirmDeadline(
+          patched,
+          'SELLER',
+          legDeadlineIso,
+        );
+      }
+      nextInspection = patched as Prisma.InputJsonValue;
+    }
+
     const updated = await this.prisma.order.update({
       where: { id },
       data: {
@@ -158,9 +191,7 @@ export class AdminOrdersHubService {
                 .join('\n'),
             }
           : {}),
-        ...(mergedInspection
-          ? { exchangeHubInspection: mergedInspection as Prisma.InputJsonValue }
-          : {}),
+        ...(nextInspection ? { exchangeHubInspection: nextInspection } : {}),
         ...(!isExchangeReturnFlow &&
         nextStatus === OrderStatus.SHIPPED_TO_BUYER &&
         !existing.buyerConfirmDeadline

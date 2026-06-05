@@ -876,8 +876,9 @@ describe('Orders domain services', () => {
     expect(tx.notification.createMany).toHaveBeenCalled();
   });
 
-  it('autoConfirmOrders: includes SHIPPED_TO_BUYER in auto-confirm flow', async () => {
+  it('autoConfirmOrders: exchange auto-confirms only shipped legs (not whole deal)', async () => {
     const orderId = 'ord-auto-1';
+    const past = new Date(Date.now() - 60_000).toISOString();
     prismaMock.order.findMany.mockResolvedValue([
       {
         id: orderId,
@@ -889,65 +890,26 @@ describe('Orders domain services', () => {
         createdAt: new Date(Date.now() - 86_400_000),
         buyerId: 'buyer-1',
         sellerId: 'seller-1',
+        hubToBuyerTrackingCode: 'B-TRACK',
+        hubToSellerTrackingCode: null,
+        buyerConfirmedDelivery: false,
+        sellerConfirmedDelivery: false,
+        exchangeHubInspection: { buyerLegConfirmDeadline: past },
       },
     ]);
 
-    const tx = {
-      order: {
-        findUnique: jest.fn().mockResolvedValue({
-          id: orderId,
-          type: OrderType.EXCHANGE,
-          status: OrderStatus.SHIPPED_TO_BUYER,
-          sellerId: 'seller-1',
-          buyerId: 'buyer-1',
-          listingId: 'lst-1',
-          sellerRevenue: 200,
-          platformFee: 0,
-          tradeReputationAt: null,
-        }),
-        update: jest.fn().mockResolvedValue({}),
-      },
-      wallet: {
-        findUnique: jest.fn().mockResolvedValue({ balanceBlocked: 200 }),
-      },
-    };
-
-    prismaMock.$transaction.mockImplementation(
-      async (cb: (trx: typeof tx) => Promise<unknown>) => cb(tx),
-    );
-    walletMock.getOrderScopedBlockedAmount
-      .mockResolvedValueOnce(200)
-      .mockResolvedValueOnce(0);
-    walletMock.releaseEscrow.mockResolvedValue(undefined);
-    orderReputationMock.recordTerminalOutcome.mockResolvedValue(undefined);
-
-    enrichmentMock.isBuyerConfirmDeadlineExpired.mockResolvedValue(true);
-    walletMock.getOrderScopedBlockedAmount.mockReset();
-    walletMock.getOrderScopedBlockedAmount
-      .mockResolvedValueOnce(200)
-      .mockResolvedValueOnce(0);
-    walletMock.releaseEscrow.mockResolvedValue(undefined);
-    orderReputationMock.recordTerminalOutcome.mockResolvedValue(undefined);
+    const confirmSpy = jest
+      .spyOn(completion, 'confirmOrder')
+      .mockResolvedValue({ id: orderId } as never);
 
     await scheduler.autoConfirmOrders();
 
-    expect(walletMock.releaseEscrow).toHaveBeenCalledWith(
-      'seller-1',
-      200,
-      'lst-1',
-      tx,
-      { orderId },
-    );
-    expect(orderReputationMock.recordTerminalOutcome).toHaveBeenCalledWith(
-      tx,
-      expect.objectContaining({
-        id: orderId,
-        buyerId: 'buyer-1',
-        sellerId: 'seller-1',
-      }),
-      OrderStatus.SHIPPED_TO_BUYER,
-      'SUCCESS',
-    );
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(confirmSpy).toHaveBeenCalledWith('buyer-1', orderId);
+    expect(walletMock.releaseEscrow).not.toHaveBeenCalled();
+    expect(orderReputationMock.recordTerminalOutcome).not.toHaveBeenCalled();
+
+    confirmSpy.mockRestore();
   });
 
   describe('updateTrackingCode', () => {
