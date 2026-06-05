@@ -22,6 +22,8 @@ import {
   AdminUpdateTicketDto,
 } from '../dto/admin-ticket.dto';
 import { normalizeTicketMessage } from '../../../common/ticket-message.util';
+import { AdminUserPlanLookupService } from './admin-user-plan-lookup.service';
+import type { AdminUserPlanInfo } from './admin-user-plan-lookup.service';
 
 const TICKET_INCLUDE = {
   user: { select: { id: true, phone: true, firstName: true, lastName: true } },
@@ -35,19 +37,41 @@ const TICKET_DETAIL_INCLUDE = {
   messages: { orderBy: { createdAt: 'asc' } },
 } satisfies Prisma.TicketInclude;
 
-export type AdminTicketItem = Prisma.TicketGetPayload<{
+type AdminTicketUser = Prisma.TicketGetPayload<{
   include: typeof TICKET_INCLUDE;
-}>;
-export type AdminTicketDetail = Prisma.TicketGetPayload<{
-  include: typeof TICKET_DETAIL_INCLUDE;
-}>;
+}>['user'] & { activePlan: AdminUserPlanInfo | null };
+
+export type AdminTicketItem = Omit<
+  Prisma.TicketGetPayload<{ include: typeof TICKET_INCLUDE }>,
+  'user'
+> & { user: AdminTicketUser };
+
+export type AdminTicketDetail = Omit<
+  Prisma.TicketGetPayload<{ include: typeof TICKET_DETAIL_INCLUDE }>,
+  'user'
+> & { user: AdminTicketUser };
 
 @Injectable()
 export class AdminTicketsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notification: NotificationService,
+    private readonly userPlanLookup: AdminUserPlanLookupService,
   ) {}
+
+  private async attachUserPlans<
+    T extends { user: { id: string } },
+  >(items: T[]): Promise<Array<T & { user: T['user'] & { activePlan: AdminUserPlanInfo | null } }>> {
+    const userIds = [...new Set(items.map((i) => i.user.id))];
+    const planByUser = await this.userPlanLookup.loadActivePlansForUsers(userIds);
+    return items.map((item) => ({
+      ...item,
+      user: {
+        ...item.user,
+        activePlan: planByUser.get(item.user.id) ?? null,
+      },
+    }));
+  }
 
   async list(
     query: AdminTicketListQueryDto,
@@ -72,7 +96,7 @@ export class AdminTicketsService {
       query.sortBy === 'createdAt' ? 'createdAt' : 'lastMessageAt';
     const sortDir = query.sortDir === 'asc' ? 'asc' : 'desc';
 
-    const [items, total] = await Promise.all([
+    const [rawItems, total] = await Promise.all([
       this.prisma.ticket.findMany({
         where,
         include: TICKET_INCLUDE,
@@ -83,6 +107,8 @@ export class AdminTicketsService {
       this.prisma.ticket.count({ where }),
     ]);
 
+    const items = await this.attachUserPlans(rawItems);
+
     return { items, pagination: buildPaginationMeta(page, pageSize, total) };
   }
 
@@ -92,7 +118,8 @@ export class AdminTicketsService {
       include: TICKET_DETAIL_INCLUDE,
     });
     if (!ticket) throw new NotFoundException('تیکت یافت نشد');
-    return ticket;
+    const [enriched] = await this.attachUserPlans([ticket]);
+    return enriched;
   }
 
   async createForUser(

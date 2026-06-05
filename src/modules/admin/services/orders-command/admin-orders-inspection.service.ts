@@ -41,6 +41,7 @@ import {
   EXCHANGE_FINANCIAL_SETTLEMENT_NOTIFY_TITLE,
   EXCHANGE_FINANCIAL_SETTLEMENT_TICKET_SUBJECT,
 } from '../../../../common/order/exchange-financial-settlement-messaging.util';
+import { buildExchangeSettlementWalletMeta } from '../../../../common/wallet/exchange-settlement-wallet-meta.util';
 
 @Injectable()
 export class AdminOrdersInspectionService {
@@ -53,24 +54,6 @@ export class AdminOrdersInspectionService {
     private readonly listingCommand: ListingCommandService,
     private readonly notify: AdminOrdersNotifyService,
   ) {}
-
-  private buildExchangeSettlementWalletMeta(
-    order: { id: string; listing: { id: string; title: string } },
-    itemSide: 'listing' | 'offer',
-    offerTitle: string | undefined,
-    extra: Record<string, unknown>,
-  ): Record<string, unknown> {
-    const listingTitle =
-      itemSide === 'offer' && offerTitle?.trim()
-        ? offerTitle.trim()
-        : order.listing.title?.trim() || undefined;
-    return {
-      orderId: order.id,
-      listingId: order.listing.id,
-      ...(listingTitle ? { listingTitle } : {}),
-      ...extra,
-    };
-  }
 
   private buildExchangeReturnInspectionTicketMessage(params: {
     role: 'seller' | 'buyer';
@@ -595,17 +578,13 @@ export class AdminOrdersInspectionService {
                 type: WalletTransactionType.PENALTY,
                 status: WalletTransactionStatus.SUCCESS,
                 referenceId: existing.id,
-                meta: this.buildExchangeSettlementWalletMeta(
-                  existing,
-                  'listing',
+                meta: buildExchangeSettlementWalletMeta({
+                  order: existing,
+                  itemSide: 'listing',
                   offerTitle,
-                  {
-                    kind: 'order-escrow',
-                    phase: 'seller_settlement_debit_available',
-                    settlementKind: 'exchange-financial-settlement',
-                    description: `اصلاح مالی معاوضه: ${listingSettlementAmount.toLocaleString('fa-IR')} تومان از موجودی قابل برداشت فروشنده کسر شد.`,
-                  },
-                ) as Prisma.InputJsonValue,
+                  amount: listingSettlementAmount,
+                  phase: 'seller_settlement_debit_available',
+                }) as Prisma.InputJsonValue,
               },
             });
             await tx.wallet.update({
@@ -619,17 +598,13 @@ export class AdminOrdersInspectionService {
                 type: WalletTransactionType.DEPOSIT,
                 status: WalletTransactionStatus.PENDING,
                 referenceId: existing.id,
-                meta: this.buildExchangeSettlementWalletMeta(
-                  existing,
-                  'listing',
+                meta: buildExchangeSettlementWalletMeta({
+                  order: existing,
+                  itemSide: 'listing',
                   offerTitle,
-                  {
-                    kind: 'order-escrow',
-                    phase: 'buyer_settlement_blocked',
-                    settlementKind: 'exchange-financial-settlement',
-                    description: `اصلاح مالی معاوضه: ${listingSettlementAmount.toLocaleString('fa-IR')} تومان به مبلغ بلوکه خریدار اضافه شد.`,
-                  },
-                ) as Prisma.InputJsonValue,
+                  amount: listingSettlementAmount,
+                  phase: 'buyer_settlement_blocked',
+                }) as Prisma.InputJsonValue,
               },
             });
           } else {
@@ -651,17 +626,13 @@ export class AdminOrdersInspectionService {
               listingId: existing.listing.id,
               requestedAmount: listingSettlementAmount,
               referenceId: existing.id,
-              penaltyMeta: this.buildExchangeSettlementWalletMeta(
-                existing,
-                'listing',
+              penaltyMeta: buildExchangeSettlementWalletMeta({
+                order: existing,
+                itemSide: 'listing',
                 offerTitle,
-                {
-                  kind: 'order-escrow',
-                  phase: 'seller_settlement_debit_blocked',
-                  settlementKind: 'exchange-financial-settlement',
-                  description: `اصلاح مالی معاوضه: ${listingSettlementAmount.toLocaleString('fa-IR')} تومان از مبلغ بلوکه‌شده فروشنده کسر شد.`,
-                },
-              ) as Prisma.InputJsonValue,
+                amount: listingSettlementAmount,
+                phase: 'seller_settlement_debit_blocked',
+              }) as Prisma.InputJsonValue,
             });
             await tx.wallet.update({
               where: { userId: existing.buyerId },
@@ -676,17 +647,13 @@ export class AdminOrdersInspectionService {
                 type: WalletTransactionType.REFUND,
                 status: WalletTransactionStatus.SUCCESS,
                 referenceId: existing.id,
-                meta: this.buildExchangeSettlementWalletMeta(
-                  existing,
-                  'listing',
+                meta: buildExchangeSettlementWalletMeta({
+                  order: existing,
+                  itemSide: 'listing',
                   offerTitle,
-                  {
-                    kind: 'order-escrow',
-                    phase: 'buyer_settlement_credit_available',
-                    settlementKind: 'exchange-financial-settlement',
-                    description: `اصلاح مالی معاوضه: ${listingSettlementAmount.toLocaleString('fa-IR')} تومان به پرداخت‌کننده سرک برگشت و به موجودی قابل برداشت او اضافه شد.`,
-                  },
-                ) as Prisma.InputJsonValue,
+                  amount: listingSettlementAmount,
+                  phase: 'buyer_settlement_credit_available',
+                }) as Prisma.InputJsonValue,
               },
             });
           }
@@ -707,17 +674,13 @@ export class AdminOrdersInspectionService {
                 type: WalletTransactionType.PENALTY,
                 status: WalletTransactionStatus.SUCCESS,
                 referenceId: existing.id,
-                meta: this.buildExchangeSettlementWalletMeta(
-                  existing,
-                  'offer',
+                meta: buildExchangeSettlementWalletMeta({
+                  order: existing,
+                  itemSide: 'offer',
                   offerTitle,
-                  {
-                    kind: 'order-escrow',
-                    phase: 'buyer_settlement_debit_available',
-                    settlementKind: 'exchange-financial-settlement',
-                    description: `اصلاح مالی معاوضه: ${offerSettlementAmount.toLocaleString('fa-IR')} تومان از موجودی قابل برداشت خریدار کسر شد.`,
-                  },
-                ) as Prisma.InputJsonValue,
+                  amount: offerSettlementAmount,
+                  phase: 'buyer_settlement_debit_available',
+                }) as Prisma.InputJsonValue,
               },
             });
             await tx.wallet.update({
@@ -731,17 +694,13 @@ export class AdminOrdersInspectionService {
                 type: WalletTransactionType.DEPOSIT,
                 status: WalletTransactionStatus.PENDING,
                 referenceId: existing.id,
-                meta: this.buildExchangeSettlementWalletMeta(
-                  existing,
-                  'offer',
+                meta: buildExchangeSettlementWalletMeta({
+                  order: existing,
+                  itemSide: 'offer',
                   offerTitle,
-                  {
-                    kind: 'order-escrow',
-                    phase: 'seller_settlement_blocked',
-                    settlementKind: 'exchange-financial-settlement',
-                    description: `اصلاح مالی معاوضه: ${offerSettlementAmount.toLocaleString('fa-IR')} تومان به مبلغ بلوکه فروشنده اضافه شد.`,
-                  },
-                ) as Prisma.InputJsonValue,
+                  amount: offerSettlementAmount,
+                  phase: 'seller_settlement_blocked',
+                }) as Prisma.InputJsonValue,
               },
             });
           } else {
@@ -763,17 +722,13 @@ export class AdminOrdersInspectionService {
               listingId: existing.listing.id,
               requestedAmount: offerSettlementAmount,
               referenceId: existing.id,
-              penaltyMeta: this.buildExchangeSettlementWalletMeta(
-                existing,
-                'offer',
+              penaltyMeta: buildExchangeSettlementWalletMeta({
+                order: existing,
+                itemSide: 'offer',
                 offerTitle,
-                {
-                  kind: 'order-escrow',
-                  phase: 'buyer_settlement_debit_blocked',
-                  settlementKind: 'exchange-financial-settlement',
-                  description: `اصلاح مالی معاوضه: ${offerSettlementAmount.toLocaleString('fa-IR')} تومان از مبلغ بلوکه‌شده خریدار کسر شد.`,
-                },
-              ) as Prisma.InputJsonValue,
+                amount: offerSettlementAmount,
+                phase: 'buyer_settlement_debit_blocked',
+              }) as Prisma.InputJsonValue,
             });
             await tx.wallet.update({
               where: { userId: existing.sellerId },
@@ -786,17 +741,13 @@ export class AdminOrdersInspectionService {
                 type: WalletTransactionType.REFUND,
                 status: WalletTransactionStatus.SUCCESS,
                 referenceId: existing.id,
-                meta: this.buildExchangeSettlementWalletMeta(
-                  existing,
-                  'offer',
+                meta: buildExchangeSettlementWalletMeta({
+                  order: existing,
+                  itemSide: 'offer',
                   offerTitle,
-                  {
-                    kind: 'order-escrow',
-                    phase: 'seller_settlement_credit_available',
-                    settlementKind: 'exchange-financial-settlement',
-                    description: `اصلاح مالی معاوضه: ${offerSettlementAmount.toLocaleString('fa-IR')} تومان به پرداخت‌کننده سرک برگشت و به موجودی قابل برداشت او اضافه شد.`,
-                  },
-                ) as Prisma.InputJsonValue,
+                  amount: offerSettlementAmount,
+                  phase: 'seller_settlement_credit_available',
+                }) as Prisma.InputJsonValue,
               },
             });
           }

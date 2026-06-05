@@ -7,6 +7,8 @@ import {
 } from '../../../shared/contracts/pagination';
 import { AdminListingListQueryDto } from '../dto/admin-query.dto';
 import { ListingExpiryService } from '../../listing/services/listing-expiry.service';
+import { AdminUserPlanLookupService } from './admin-user-plan-lookup.service';
+import type { AdminUserPlanInfo } from './admin-user-plan-lookup.service';
 
 const LISTING_LIST_INCLUDE = {
   category: { select: { id: true, title: true } },
@@ -41,16 +43,36 @@ const LISTING_LIST_INCLUDE = {
   },
 } satisfies Prisma.ListingInclude;
 
-export type AdminListingItem = Prisma.ListingGetPayload<{
+type AdminListingAuthor = Prisma.ListingGetPayload<{
   include: typeof LISTING_LIST_INCLUDE;
-}>;
+}>['author'] & { activePlan: AdminUserPlanInfo | null };
+
+export type AdminListingItem = Omit<
+  Prisma.ListingGetPayload<{ include: typeof LISTING_LIST_INCLUDE }>,
+  'author'
+> & { author: AdminListingAuthor };
 
 @Injectable()
 export class AdminListingsQueryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly listingExpiry: ListingExpiryService,
+    private readonly userPlanLookup: AdminUserPlanLookupService,
   ) {}
+
+  private async attachAuthorPlans<
+    T extends { author: { id: string } },
+  >(items: T[]): Promise<Array<T & { author: T['author'] & { activePlan: AdminUserPlanInfo | null } }>> {
+    const userIds = [...new Set(items.map((i) => i.author.id))];
+    const planByUser = await this.userPlanLookup.loadActivePlansForUsers(userIds);
+    return items.map((item) => ({
+      ...item,
+      author: {
+        ...item.author,
+        activePlan: planByUser.get(item.author.id) ?? null,
+      },
+    }));
+  }
 
   async list(
     query: AdminListingListQueryDto,
@@ -83,7 +105,7 @@ export class AdminListingsQueryService {
       secondary,
     ];
 
-    const [items, total] = await Promise.all([
+    const [rawItems, total] = await Promise.all([
       this.prisma.listing.findMany({
         where,
         include: LISTING_LIST_INCLUDE,
@@ -93,6 +115,8 @@ export class AdminListingsQueryService {
       }),
       this.prisma.listing.count({ where }),
     ]);
+
+    const items = await this.attachAuthorPlans(rawItems);
 
     return { items, pagination: buildPaginationMeta(page, pageSize, total) };
   }
@@ -160,7 +184,8 @@ export class AdminListingsQueryService {
       },
     });
     if (!listing) throw new NotFoundException('آگهی یافت نشد');
-    return listing;
+    const [enriched] = await this.attachAuthorPlans([listing]);
+    return enriched;
   }
 
   async setStatus(id: string, status: ListingStatus) {

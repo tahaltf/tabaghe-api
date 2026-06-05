@@ -66,17 +66,11 @@ export type AdminUserDetail = Prisma.UserGetPayload<{
   include: typeof USER_DETAIL_INCLUDE;
 }>;
 
-export interface AdminUserPlanInfo {
-  id: string;
-  planId: string;
-  title: string;
-  status: string;
-  isBuiltinFree: boolean;
-  purchasedAt: Date;
-  expiresAt: Date | null;
-  daysRemaining: number | null;
-  isActive: boolean;
-}
+export type { AdminUserPlanInfo } from './admin-user-plan-lookup.service';
+import {
+  AdminUserPlanLookupService,
+  AdminUserPlanInfo,
+} from './admin-user-plan-lookup.service';
 
 export interface AdminUserListItem extends AdminUserListItemRaw {
   activePlan: AdminUserPlanInfo | null;
@@ -102,6 +96,7 @@ export class AdminUsersQueryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly userRatingHistory: UserRatingHistoryService,
+    private readonly userPlanLookup: AdminUserPlanLookupService,
   ) {}
 
   async list(
@@ -146,58 +141,13 @@ export class AdminUsersQueryService {
     ]);
 
     const userIds = rawItems.map((u) => u.id);
-    const planByUser = await this.loadActivePlansForUsers(userIds);
+    const planByUser = await this.userPlanLookup.loadActivePlansForUsers(userIds);
     const items: AdminUserListItem[] = rawItems.map((u) => ({
       ...u,
       activePlan: planByUser.get(u.id) ?? null,
     }));
 
     return { items, pagination: buildPaginationMeta(page, pageSize, total) };
-  }
-
-  /**
-   * نزدیک‌ترین خرید پلنِ فعال هر کاربر را برمی‌گرداند.
-   * این متد برای ستون «پلن فعال» در جدول کاربران ادمین استفاده می‌شود.
-   */
-  private async loadActivePlansForUsers(
-    userIds: string[],
-  ): Promise<Map<string, AdminUserPlanInfo>> {
-    const result = new Map<string, AdminUserPlanInfo>();
-    if (!userIds.length) return result;
-    const now = new Date();
-
-    const purchases = await this.prisma.userPlanPurchase.findMany({
-      where: {
-        userId: { in: userIds },
-        status: 'ACTIVE',
-        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-      },
-      include: { plan: true },
-      orderBy: { expiresAt: 'asc' },
-    });
-
-    for (const p of purchases) {
-      if (result.has(p.userId)) continue; // اولین پلن فعال (با نزدیک‌ترین انقضا) را نگه می‌داریم
-      const expiresAt = p.expiresAt ?? null;
-      const daysRemaining = expiresAt
-        ? Math.max(
-            0,
-            Math.ceil((expiresAt.getTime() - now.getTime()) / 86400000),
-          )
-        : null;
-      result.set(p.userId, {
-        id: p.id,
-        planId: p.planId,
-        title: p.plan?.title ?? 'پلن نامشخص',
-        status: p.status,
-        isBuiltinFree: false,
-        purchasedAt: p.createdAt,
-        expiresAt,
-        daysRemaining,
-        isActive: true,
-      });
-    }
-    return result;
   }
 
   /**
