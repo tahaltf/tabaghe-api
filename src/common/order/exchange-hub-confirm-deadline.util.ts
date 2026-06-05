@@ -9,10 +9,32 @@ export function resolveExchangeLegConfirmDeadline(
   fallbackDeadline?: Date | string | null,
 ): Date | null {
   const key = leg === 'BUYER' ? BUYER_LEG_KEY : SELLER_LEG_KEY;
-  const raw = inspection?.[key] ?? fallbackDeadline ?? null;
-  if (!raw) return null;
-  const parsed = raw instanceof Date ? raw : new Date(String(raw));
+  const raw = inspection?.[key] ?? null;
+  if (raw) {
+    const parsed = raw instanceof Date ? raw : new Date(String(raw));
+    return Number.isFinite(parsed.getTime()) ? parsed : null;
+  }
+  // اگر طرف دیگر مهلت جداگانه دارد، این طرف نباید از مهلت مشترک/قدیمی استفاده کند
+  const otherKey = leg === 'BUYER' ? SELLER_LEG_KEY : BUYER_LEG_KEY;
+  if (inspection?.[otherKey]) {
+    return null;
+  }
+  if (!fallbackDeadline) return null;
+  const parsed =
+    fallbackDeadline instanceof Date
+      ? fallbackDeadline
+      : new Date(String(fallbackDeadline));
   return Number.isFinite(parsed.getTime()) ? parsed : null;
+}
+
+/** آیا این مسیر برای اولین بار از هاب ارسال می‌شود؟ */
+export function isFirstHubShipmentForLeg(
+  existingTracking: string | null | undefined,
+  incomingTracking: string | undefined,
+): boolean {
+  const next = String(incomingTracking ?? '').trim();
+  if (!next) return false;
+  return !String(existingTracking ?? '').trim();
 }
 
 export function mergeExchangeLegConfirmDeadline(

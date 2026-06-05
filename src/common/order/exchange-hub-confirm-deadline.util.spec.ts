@@ -1,6 +1,7 @@
 import {
   isExchangeAutoConfirmDue,
   isExchangeLegConfirmDeadlineExpired,
+  isFirstHubShipmentForLeg,
   mergeExchangeLegConfirmDeadline,
   resolveExchangeLegConfirmDeadline,
 } from './exchange-hub-confirm-deadline.util';
@@ -66,5 +67,27 @@ describe('exchange-hub-confirm-deadline', () => {
         exchangeHubInspection: inspection,
       }),
     ).toBe(false);
+  });
+
+  it('does not apply buyer deadline to seller before seller leg ships', () => {
+    const inspection = mergeExchangeLegConfirmDeadline(null, 'BUYER', past);
+    expect(
+      resolveExchangeLegConfirmDeadline(inspection, 'SELLER', past),
+    ).toBeNull();
+    expect(
+      isExchangeLegConfirmDeadlineExpired({
+        hubTrackingCode: 'S-1',
+        alreadyConfirmed: false,
+        inspection,
+        leg: 'SELLER',
+        fallbackDeadline: past,
+      }),
+    ).toBe(false);
+  });
+
+  it('detects first hub shipment per leg only', () => {
+    expect(isFirstHubShipmentForLeg(null, 'ABC')).toBe(true);
+    expect(isFirstHubShipmentForLeg('ABC', 'ABC')).toBe(false);
+    expect(isFirstHubShipmentForLeg('ABC', 'XYZ')).toBe(false);
   });
 });

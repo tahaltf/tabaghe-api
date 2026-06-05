@@ -26,7 +26,13 @@ import { WalletService } from '../../../wallet/wallet.service';
 import { OrdersService } from '../../../orders/orders.service';
 import { ListingCommandService } from '../../../listing/services/listing-command.service';
 import { buildOrderTicketSubject } from '../../../../common/ticket-message.util';
-import { mergeExchangeLegConfirmDeadline } from '../../../../common/order/exchange-hub-confirm-deadline.util';
+import {
+  isExchangeAutoConfirmDue,
+  isExchangeLegConfirmDeadlineExpired,
+  isFirstHubShipmentForLeg,
+  mergeExchangeLegConfirmDeadline,
+  resolveExchangeLegConfirmDeadline,
+} from '../../../../common/order/exchange-hub-confirm-deadline.util';
 import { OperationalNotifyService } from '../../../notification/operational-notify.service';
 
 @Injectable()
@@ -151,14 +157,24 @@ export class AdminOrdersHubService {
         (nextInspection as Record<string, unknown> | undefined) ??
         (inspection as Record<string, unknown> | null) ??
         {};
-      if (dto.hubToBuyerTrackingCode?.trim()) {
+      if (
+        isFirstHubShipmentForLeg(
+          existing.hubToBuyerTrackingCode,
+          dto.hubToBuyerTrackingCode,
+        )
+      ) {
         patched = mergeExchangeLegConfirmDeadline(
           patched,
           'BUYER',
           legDeadlineIso,
         );
       }
-      if (dto.hubToSellerTrackingCode?.trim()) {
+      if (
+        isFirstHubShipmentForLeg(
+          existing.hubToSellerTrackingCode,
+          dto.hubToSellerTrackingCode,
+        )
+      ) {
         patched = mergeExchangeLegConfirmDeadline(
           patched,
           'SELLER',
@@ -193,6 +209,7 @@ export class AdminOrdersHubService {
           : {}),
         ...(nextInspection ? { exchangeHubInspection: nextInspection } : {}),
         ...(!isExchangeReturnFlow &&
+        existing.type !== 'EXCHANGE' &&
         nextStatus === OrderStatus.SHIPPED_TO_BUYER &&
         !existing.buyerConfirmDeadline
           ? {
