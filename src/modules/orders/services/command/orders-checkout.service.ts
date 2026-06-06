@@ -1080,6 +1080,8 @@ export class OrdersCheckoutService {
           listingId: order.listingId,
           role: 'BUYER',
           status: 'PAID',
+          phase: 'purchase_registered',
+          phaseKey: 'purchase_registered',
         },
       }),
       this.notificationService.create({
@@ -1092,6 +1094,8 @@ export class OrdersCheckoutService {
           listingId: order.listingId,
           role: 'SELLER',
           status: 'SOLD',
+          phase: 'sale_registered',
+          phaseKey: 'sale_registered',
         },
       }),
     ]);

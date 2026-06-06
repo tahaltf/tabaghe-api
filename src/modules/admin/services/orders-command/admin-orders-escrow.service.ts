@@ -559,6 +559,10 @@ export class AdminOrdersEscrowService {
                   ticketId: buyerAgreementTicket.id,
                   agreementAmount: refundAmount,
                   settlementKind: 'partial_refund_agreement',
+                  role: 'BUYER',
+                  audience: 'BUYER',
+                  phase: 'financial_settlement_ticket',
+                  phaseKey: 'financial_settlement_ticket',
                 } as Prisma.InputJsonValue,
               },
               {
@@ -571,6 +575,10 @@ export class AdminOrdersEscrowService {
                   ticketId: sellerAgreementTicket.id,
                   agreementAmount: refundAmount,
                   settlementKind: 'partial_refund_agreement',
+                  role: 'SELLER',
+                  audience: 'SELLER',
+                  phase: 'financial_settlement_ticket',
+                  phaseKey: 'financial_settlement_ticket',
                 } as Prisma.InputJsonValue,
               },
             ],
@@ -1002,6 +1010,10 @@ export class AdminOrdersEscrowService {
           meta: {
             orderId: order.id,
             ticketId: buyerTicket.id,
+            role: 'BUYER',
+            audience: 'BUYER',
+            phase: 'admin_cancel_ticket',
+            phaseKey: 'admin_cancel_ticket',
           } as Prisma.InputJsonValue,
         },
       });

@@ -32,6 +32,7 @@ import { AppSettingsService } from '../../../../shared/settings/app-settings.ser
 import { PaymentsService } from '../../../payments/payments.service';
 import { NotificationService } from '../../../notification/notification.service';
 import { ExchangeOrderNotifyService } from '../../../notification/exchange-order-notify.service';
+import { OperationalNotifyService } from '../../../notification/operational-notify.service';
 import { OrderReputationService } from '../../order-reputation.service';
 import { ExchangeService } from '../../../exchange/exchange.service';
 import { QuotaService } from '../../../quota/quota.service';
@@ -82,6 +83,7 @@ export class OrdersShippingService {
     private readonly stateMachine: OrdersStateMachineService,
     private readonly notificationService: NotificationService,
     private readonly exchangeOrderNotify: ExchangeOrderNotifyService,
+    private readonly operationalNotify: OperationalNotifyService,
     private readonly listingCommand: ListingCommandService,
     private readonly settings: OrdersSettingsService,
     private readonly responseEnrichment: OrdersResponseEnrichmentService,
@@ -214,6 +216,23 @@ export class OrdersShippingService {
 
     if (order.type === OrderType.EXCHANGE) {
       await this.exchangeOrderNotify.afterShipmentUpdated(updated, userId);
+    } else if (
+      order.type === OrderType.DIRECT ||
+      order.type === OrderType.AUCTION
+    ) {
+      const needsHub =
+        updated.requiresVerification ||
+        order.listing?.sellerRequiresVerification;
+      await this.operationalNotify
+        .notifyDirectShipmentRegistered({
+          orderId: updated.id,
+          buyerId: updated.buyerId,
+          sellerId: updated.sellerId,
+          listingId: updated.listingId,
+          toHub: needsHub,
+          newStatus: updated.status,
+        })
+        .catch(() => undefined);
     }
 
     return updated;

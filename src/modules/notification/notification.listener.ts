@@ -19,7 +19,11 @@ export class NotificationListener {
       type: NotificationType.AUCTION_LOST,
       title: 'پیشنهاد شما بالاتر زده شد',
       message: 'کاربر دیگری پیشنهاد بالاتری ثبت کرده است.',
-      meta: payload,
+      meta: {
+        ...payload,
+        phase: 'outbid',
+        phaseKey: 'outbid',
+      },
     });
   }
 
@@ -36,7 +40,11 @@ export class NotificationListener {
       type: NotificationType.AUCTION_WON,
       title: 'شما برنده مزایده شدید',
       message: 'لطفاً پرداخت را قبل از پایان مهلت انجام دهید.',
-      meta: payload,
+      meta: {
+        ...payload,
+        phase: 'auction_won',
+        phaseKey: 'auction_won',
+      },
     });
   }
 
@@ -50,7 +58,11 @@ export class NotificationListener {
       type: NotificationType.AUCTION_PENALIZED,
       title: 'جریمه شدید',
       message: 'به دلیل عدم پرداخت، جریمه اعمال شد.',
-      meta: payload,
+      meta: {
+        ...payload,
+        phase: 'penalized',
+        phaseKey: 'penalized',
+      },
     });
   }
 
@@ -61,7 +73,11 @@ export class NotificationListener {
       type: NotificationType.AUCTION_PAYMENT_REMINDER,
       title: 'فرصت خرید نفر بعدی فعال شد',
       message: 'برنده قبلی پرداخت نکرد. در صورت تمایل پرداخت را تکمیل کنید.',
-      meta: payload,
+      meta: {
+        ...payload,
+        phase: 'second_chance',
+        phaseKey: 'second_chance',
+      },
     });
   }
 

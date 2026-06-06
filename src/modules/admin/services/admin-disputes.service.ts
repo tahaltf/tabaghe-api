@@ -420,14 +420,28 @@ export class AdminDisputesService {
             type: 'ORDER_STATUS_CHANGED',
             title: 'نتیجه رسیدگی به شکایت',
             message: `شکایت سفارش #${id.slice(-6)} رسیدگی شد. ${dto.resolution}`,
-            meta: { orderId: id, outcome: dto.outcome },
+            meta: {
+              orderId: id,
+              outcome: dto.outcome,
+              role: 'BUYER',
+              audience: 'BUYER',
+              phase: 'dispute_resolved',
+              phaseKey: 'dispute_resolved',
+            },
           }),
           this.notification.create({
             userId: order.sellerId,
             type: 'ORDER_STATUS_CHANGED',
             title: 'نتیجه رسیدگی به شکایت',
             message: `شکایت سفارش #${id.slice(-6)} رسیدگی شد. ${dto.resolution}`,
-            meta: { orderId: id, outcome: dto.outcome },
+            meta: {
+              orderId: id,
+              outcome: dto.outcome,
+              role: 'SELLER',
+              audience: 'SELLER',
+              phase: 'dispute_resolved',
+              phaseKey: 'dispute_resolved',
+            },
           }),
         ]);
       } catch {

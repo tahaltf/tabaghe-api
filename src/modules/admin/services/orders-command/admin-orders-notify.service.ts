@@ -103,6 +103,10 @@ export class AdminOrdersNotifyService {
       title: titleBase,
       buyerMessage,
       sellerMessage,
+      metaExtras: {
+        phase: 'hub_inspection_rejected',
+        phaseKey: 'hub_inspection_rejected',
+      },
     });
   }
 
@@ -155,6 +159,10 @@ export class AdminOrdersNotifyService {
       (params.metaExtras?.resolution === 'FINANCIAL_SETTLEMENT_THEN_SHIP'
         ? ORDER_STATUS_FINANCIAL_SETTLEMENT_LABEL_FA
         : undefined);
+    const statusPhaseKey =
+      typeof params.status === 'string' && params.status.trim()
+        ? params.status.trim().toUpperCase()
+        : undefined;
     const metaBase = {
       orderId: params.orderId,
       status: params.status,
@@ -166,6 +174,11 @@ export class AdminOrdersNotifyService {
             statusFa: statusLabel,
             orderStatusLabel: statusLabel,
           }
+        : {}),
+      ...(!params.metaExtras?.phaseKey &&
+      !params.metaExtras?.phase &&
+      statusPhaseKey
+        ? { phase: statusPhaseKey, phaseKey: statusPhaseKey }
         : {}),
     };
     await Promise.all([
