@@ -81,10 +81,17 @@ export class NotificationService {
       !!smsOverride?.templateId && Number(smsOverride.templateId) > 0;
 
     const resolvedTitle = title?.trim();
-    const resolvedMessage =
-      forceSiteNotification === true
-        ? message?.trim() || ''
-        : rule?.siteNotificationText?.trim() || message;
+    const templateText = rule?.siteNotificationText?.trim() ?? '';
+    const fallbackMessage = message?.trim() || '';
+    const resolvedMessage = templateText
+      ? await this.applySiteNotificationTemplate(
+          templateText,
+          userId,
+          resolvedTitle,
+          fallbackMessage,
+          enrichedMetaBase,
+        )
+      : fallbackMessage;
     const navPath = resolveNotificationPath(String(type), enrichedMetaBase);
     const enrichedMeta: Record<string, unknown> = {
       ...enrichedMetaBase,
@@ -719,6 +726,44 @@ export class NotificationService {
     if (trimmed.startsWith('/')) return trimmed;
     if (/^https?:\/\//i.test(trimmed)) return trimmed;
     throw new BadRequestException('لینک باید با / یا http(s):// شروع شود');
+  }
+
+  private async applySiteNotificationTemplate(
+    templateText: string,
+    userId: string,
+    title: string | undefined,
+    fallbackMessage: string,
+    meta: Record<string, unknown>,
+  ): Promise<string> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { firstName: true, lastName: true },
+    });
+    const metaForTemplate: Record<string, unknown> = {
+      ...meta,
+      ...(title?.trim() ? { title: title.trim() } : {}),
+    };
+    return applySmsTemplatePlaceholders(templateText, {
+      firstName: user?.firstName,
+      lastName: user?.lastName,
+      title,
+      message: fallbackMessage,
+      listingTitle:
+        typeof meta['listingTitle'] === 'string' ? meta['listingTitle'] : undefined,
+      buyerName:
+        typeof meta['buyerName'] === 'string' ? meta['buyerName'] : undefined,
+      sellerName:
+        typeof meta['sellerName'] === 'string' ? meta['sellerName'] : undefined,
+      buyerPhone:
+        typeof meta['buyerPhone'] === 'string' ? meta['buyerPhone'] : undefined,
+      sellerPhone:
+        typeof meta['sellerPhone'] === 'string' ? meta['sellerPhone'] : undefined,
+      amountFormatted:
+        typeof meta['amountFormatted'] === 'string'
+          ? meta['amountFormatted']
+          : undefined,
+      meta: metaForTemplate,
+    });
   }
 
   private async getRuleForType(

@@ -531,6 +531,12 @@ export class OperationalNotifyService {
 
     if (params.isReturn) {
       if (params.leg === 'TO_BUYER') {
+        const buyerNote =
+          params.note?.trim() ||
+          'مرسوله مرجوعی شما از انبار ثبت شد و کد رهگیری ثبت گردید.';
+        const sellerNote =
+          params.note?.trim() ||
+          'مرسوله مرجوعی خریدار از انبار ثبت شد و کد رهگیری ثبت گردید.';
         await this.notifyMany([
           {
             userId: params.buyerId,
@@ -542,6 +548,7 @@ export class OperationalNotifyService {
               role: 'BUYER',
               audience: 'BUYER',
               leg: 'TO_BUYER',
+              note: buyerNote,
             },
           },
           {
@@ -554,12 +561,19 @@ export class OperationalNotifyService {
               role: 'SELLER',
               audience: 'SELLER',
               leg: 'TO_BUYER',
+              note: sellerNote,
             },
           },
         ]);
         return;
       }
 
+      const sellerNote =
+        params.note?.trim() ||
+        'مرسوله مرجوعی شما از انبار ثبت شد و کد رهگیری ثبت گردید.';
+      const buyerNote =
+        params.note?.trim() ||
+        'مرسوله مرجوعی فروشنده از انبار ثبت شد و کد رهگیری ثبت گردید.';
       await this.notifyMany([
         {
           userId: params.sellerId,
@@ -571,6 +585,7 @@ export class OperationalNotifyService {
             role: 'SELLER',
             audience: 'SELLER',
             leg: 'TO_SELLER',
+            note: sellerNote,
           },
         },
         {
@@ -583,6 +598,7 @@ export class OperationalNotifyService {
             role: 'BUYER',
             audience: 'BUYER',
             leg: 'TO_SELLER',
+            note: buyerNote,
           },
         },
       ]);
@@ -1519,34 +1535,38 @@ export class OperationalNotifyService {
     };
 
     if (params.confirmedBy === 'BUYER') {
+      const sellerNote = `خریدار دریافت مرجوعی کالای پیشنهادی خود برای معاوضه «${listingTitle}» را تایید کرد.`;
       await this.notifyMany([
         {
           userId: params.sellerId,
           type: NotificationType.ORDER_STATUS_CHANGED,
           title: 'تایید دریافت مرجوعی خریدار',
-          message: `خریدار دریافت مرجوعی کالای پیشنهادی خود برای معاوضه «${listingTitle}» را تایید کرد.`,
+          message: sellerNote,
           meta: {
             ...baseMeta,
             role: 'SELLER',
             audience: 'SELLER',
             leg: 'OFFER',
+            note: sellerNote,
           },
         },
       ]);
       return;
     }
 
+    const buyerNote = `فروشنده دریافت مرجوعی کالای آگهی خود برای معاوضه «${listingTitle}» را تایید کرد.`;
     await this.notifyMany([
       {
         userId: params.buyerId,
         type: NotificationType.ORDER_STATUS_CHANGED,
         title: 'تایید دریافت مرجوعی فروشنده',
-        message: `فروشنده دریافت مرجوعی کالای آگهی خود برای معاوضه «${listingTitle}» را تایید کرد.`,
+        message: buyerNote,
         meta: {
           ...baseMeta,
           role: 'BUYER',
           audience: 'BUYER',
           leg: 'LISTING',
+          note: buyerNote,
         },
       },
     ]);
@@ -1575,34 +1595,38 @@ export class OperationalNotifyService {
     };
 
     if (params.confirmedBy === 'BUYER') {
+      const sellerNote = `خریدار دریافت کالای آگهی شما برای معاوضه «${listingTitle}» را تایید کرد.`;
       await this.notifyMany([
         {
           userId: params.sellerId,
           type: NotificationType.ORDER_STATUS_CHANGED,
           title: 'تایید دریافت کالای آگهی',
-          message: `خریدار دریافت کالای آگهی شما برای معاوضه «${listingTitle}» را تایید کرد.`,
+          message: sellerNote,
           meta: {
             ...baseMeta,
             role: 'SELLER',
             audience: 'SELLER',
             leg: 'LISTING',
+            note: sellerNote,
           },
         },
       ]);
       return;
     }
 
+    const buyerNote = `فروشنده دریافت کالای پیشنهادی شما برای معاوضه «${listingTitle}» را تایید کرد.`;
     await this.notifyMany([
       {
         userId: params.buyerId,
         type: NotificationType.ORDER_STATUS_CHANGED,
         title: 'تایید دریافت کالای پیشنهادی',
-        message: `فروشنده دریافت کالای پیشنهادی شما برای معاوضه «${listingTitle}» را تایید کرد.`,
+        message: buyerNote,
         meta: {
           ...baseMeta,
           role: 'BUYER',
           audience: 'BUYER',
           leg: 'OFFER',
+          note: buyerNote,
         },
       },
     ]);

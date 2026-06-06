@@ -22,6 +22,22 @@ describe('applySmsTemplatePlaceholders', () => {
     expect(out).toBe('در حال بررسی در هاب');
   });
 
+  it('falls back {{note}} to message when meta.note is absent', () => {
+    const out = applySmsTemplatePlaceholders('{{firstName}}: {{note}}', {
+      firstName: 'علی',
+      message: 'کالای آگهی از انبار برای شما ارسال شد.',
+    });
+    expect(out).toBe('علی: کالای آگهی از انبار برای شما ارسال شد.');
+  });
+
+  it('prefers meta.note over message fallback', () => {
+    const out = applySmsTemplatePlaceholders('{{note}}', {
+      message: 'متن کامل با کد رهگیری',
+      meta: { note: 'کالای آگهی از انبار برای شما ارسال شد.' },
+    });
+    expect(out).toBe('کالای آگهی از انبار برای شما ارسال شد.');
+  });
+
   it('maps financial settlement meta to Persian label', () => {
     const out = applySmsTemplatePlaceholders('وضعیت: {{status}}', {
       meta: {

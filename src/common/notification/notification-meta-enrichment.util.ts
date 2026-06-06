@@ -61,6 +61,7 @@ export async function enrichNotificationMeta(
     const order = await prisma.order.findUnique({
       where: { id: out.orderId },
       select: {
+        type: true,
         listingId: true,
         buyerId: true,
         sellerId: true,
@@ -77,6 +78,8 @@ export async function enrichNotificationMeta(
       if (!out.listingTitle && order.listing?.title) {
         out.listingTitle = order.listing.title;
       }
+      out.orderType = order.type;
+      out.isExchange = order.type === 'EXCHANGE';
       out.buyerId = order.buyerId;
       out.sellerId = order.sellerId;
       out.buyerName = formatUserName(order.buyer);

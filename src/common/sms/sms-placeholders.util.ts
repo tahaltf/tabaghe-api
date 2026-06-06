@@ -45,10 +45,15 @@ export function applySmsTemplatePlaceholders(
   s = s.replace(/\{\{\s*adminFirstName\s*\}\}/gi, adminFn);
   s = s.replace(/\{\{\s*title\s*\}\}/gi, title);
   s = s.replace(/\{\{\s*message\s*\}\}/gi, message);
-  s = s.replace(
-    /\{\{\s*note\s*\}\}/gi,
-    String(meta['note'] ?? meta['statusNote'] ?? ''),
-  );
+  const noteText =
+    (typeof meta['note'] === 'string' && meta['note'].trim()
+      ? meta['note'].trim()
+      : undefined) ??
+    (typeof meta['statusNote'] === 'string' && meta['statusNote'].trim()
+      ? meta['statusNote'].trim()
+      : undefined) ??
+    (message.trim() || undefined);
+  s = s.replace(/\{\{\s*note\s*\}\}/gi, noteText ?? '');
   s = s.replace(
     /\{\{\s*trackingCode\s*\}\}/gi,
     String(meta['trackingCode'] ?? ''),
