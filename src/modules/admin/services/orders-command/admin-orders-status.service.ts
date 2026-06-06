@@ -362,6 +362,7 @@ export class AdminOrdersStatusService {
           existing.id,
           OrderStatus.CANCELLED,
           normalizedNote ?? 'لغو سفارش و بازگشت وجه انجام شد',
+          { orderType: existing.type },
         );
 
         return updatedOrder;
@@ -432,6 +433,7 @@ export class AdminOrdersStatusService {
         id,
         status,
         note,
+        { orderType: existing.type },
       );
     }
     return order;

@@ -5,10 +5,13 @@ import { formatTicketMessageBody } from '../../../../common/ticket-message.util'
 import { TRADE_REPUTATION_PENALTY_DELTA } from '../../../orders/order-reputation.service';
 import { STATUS_LABELS } from '../admin-orders.constants';
 import { ORDER_STATUS_FINANCIAL_SETTLEMENT_LABEL_FA } from '../../../../common/order/order-status-labels.util';
+import { resolveOrderNotificationPhase } from '../../../../common/notification/order-notification-phase.util';
 
 export type AdminOrderNotifyOptions = {
   statusLabel?: string;
   metaExtras?: Record<string, unknown>;
+  /** نوع سفارش — برای تعیین phaseKey رویداد (نه status خام) */
+  orderType?: string;
   /** عنوان اعلان؛ در غیر این صورت «وضعیت سفارش تغییر کرد» */
   title?: string;
   /** متن یکسان خریدار و فروشنده؛ در صورت تنظیم، قالب پیش‌فرض با note استفاده نمی‌شود */
@@ -139,6 +142,7 @@ export class AdminOrdersNotifyService {
       note,
       metaExtras: options?.metaExtras,
       statusLabel: options?.statusLabel,
+      orderType: options?.orderType,
     });
   }
 
@@ -153,15 +157,22 @@ export class AdminOrdersNotifyService {
     note?: string;
     statusLabel?: string;
     metaExtras?: Record<string, unknown>;
+    orderType?: string;
   }): Promise<void> {
     const statusLabel =
       params.statusLabel?.trim() ||
       (params.metaExtras?.resolution === 'FINANCIAL_SETTLEMENT_THEN_SHIP'
         ? ORDER_STATUS_FINANCIAL_SETTLEMENT_LABEL_FA
         : undefined);
-    const statusPhaseKey =
-      typeof params.status === 'string' && params.status.trim()
-        ? params.status.trim().toUpperCase()
+    const hasExplicitPhase =
+      typeof params.metaExtras?.phaseKey === 'string' &&
+      params.metaExtras.phaseKey.trim().length > 0;
+    const hasExplicitPhaseAlias =
+      typeof params.metaExtras?.phase === 'string' &&
+      params.metaExtras.phase.trim().length > 0;
+    const autoPhaseKey =
+      !hasExplicitPhase && !hasExplicitPhaseAlias && params.orderType
+        ? resolveOrderNotificationPhase(params.status, params.orderType)
         : undefined;
     const metaBase = {
       orderId: params.orderId,
@@ -175,11 +186,7 @@ export class AdminOrdersNotifyService {
             orderStatusLabel: statusLabel,
           }
         : {}),
-      ...(!params.metaExtras?.phaseKey &&
-      !params.metaExtras?.phase &&
-      statusPhaseKey
-        ? { phase: statusPhaseKey, phaseKey: statusPhaseKey }
-        : {}),
+      ...(autoPhaseKey ? { phase: autoPhaseKey, phaseKey: autoPhaseKey } : {}),
     };
     await Promise.all([
       this.notifications.create({

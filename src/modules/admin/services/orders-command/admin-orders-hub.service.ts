@@ -225,13 +225,7 @@ export class AdminOrdersHubService {
       (existing.type === 'EXCHANGE'
         ? 'مرسوله خروجی مربوط به شما از هاب ارسال شد و کد رهگیری ثبت گردید.'
         : 'مرسوله از هاب به مقصد شما ارسال شد و کد رهگیری ثبت گردید.');
-    const sellerNote =
-      dto.note ??
-      (existing.type === 'EXCHANGE'
-        ? 'مرسوله خروجی مربوط به شما از هاب ارسال شد و کد رهگیری ثبت گردید.'
-        : 'مرسوله از هاب برای خریدار ارسال شد و کد رهگیری ثبت گردید.');
 
-    const notifications: Prisma.NotificationCreateManyInput[] = [];
     if (existing.type === 'EXCHANGE') {
       const buyerLegFirstShip = isFirstHubShipmentForLeg(
         existing.hubToBuyerTrackingCode,
@@ -268,65 +262,24 @@ export class AdminOrdersHubService {
         });
       }
     } else if (isDirectHubReturnFlow) {
-      const returnNote =
-        dto.note ??
-        'کالا از هاب به آدرس فروشنده مرجوع شد و کد رهگیری ثبت گردید.';
-      notifications.push(
-        {
-          userId: existing.sellerId,
-          type: NotificationType.ORDER_STATUS_CHANGED,
-          title: 'مرجوعی از هاب ثبت شد',
-          message: `مرسوله شما از هاب به آدرس شما مرجوع شد. ${returnNote}`,
-          meta: {
-            orderId: id,
-            status: nextStatus,
-            note: returnNote,
-            audience: 'SELLER',
-          } as Prisma.InputJsonValue,
-        },
-        {
-          userId: existing.buyerId,
-          type: NotificationType.ORDER_STATUS_CHANGED,
-          title: 'مرجوعی از هاب و بازگشت وجه',
-          message: `کالا از هاب به فروشنده مرجوع شد؛ مبلغ پرداختی به کیف پول شما بازگشت داده می‌شود. ${returnNote}`,
-          meta: {
-            orderId: id,
-            status: nextStatus,
-            note: returnNote,
-            audience: 'BUYER',
-          } as Prisma.InputJsonValue,
-        },
-      );
+      await this.operationalNotify.notifyDirectHubReturnShipped({
+        orderId: id,
+        buyerId: existing.buyerId,
+        sellerId: existing.sellerId,
+        listingId: existing.listingId,
+        note:
+          dto.note ??
+          'کالا از هاب به آدرس فروشنده مرجوع شد و کد رهگیری ثبت گردید.',
+      });
     } else {
-      notifications.push(
-        {
-          userId: existing.buyerId,
-          type: NotificationType.ORDER_STATUS_CHANGED,
-          title: 'وضعیت سفارش تغییر کرد',
-          message: `وضعیت سفارش به «ارسال به خریدار» تغییر یافت. توضیح: ${buyerNote}`,
-          meta: {
-            orderId: id,
-            status: OrderStatus.SHIPPED_TO_BUYER,
-            note: buyerNote,
-            audience: 'BUYER',
-          } as Prisma.InputJsonValue,
-        },
-        {
-          userId: existing.sellerId,
-          type: NotificationType.ORDER_STATUS_CHANGED,
-          title: 'وضعیت سفارش تغییر کرد',
-          message: `وضعیت سفارش به «ارسال به خریدار» تغییر یافت. توضیح: ${sellerNote}`,
-          meta: {
-            orderId: id,
-            status: OrderStatus.SHIPPED_TO_BUYER,
-            note: sellerNote,
-            audience: 'SELLER',
-          } as Prisma.InputJsonValue,
-        },
-      );
+      await this.operationalNotify.notifyShippedFromHubToBuyer({
+        orderId: id,
+        buyerId: existing.buyerId,
+        sellerId: existing.sellerId,
+        listingId: existing.listingId,
+        note: buyerNote,
+      });
     }
-
-    await this.dispatchHubNotifications(notifications);
 
     // در مرجوعی معاوضه، به‌محض اینکه هر دو کد رهگیری برگشت از هاب ثبت شد،
     // سرکِ پرداخت‌شده باید فوراً از بلوکه طرف مقابل آزاد و به پرداخت‌کننده برگردد

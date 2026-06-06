@@ -755,6 +755,7 @@ export class OperationalNotifyService {
       listingTitle,
       status: params.status,
       phase: params.phase,
+      phaseKey: params.phase ?? undefined,
       note: params.note,
     };
     await this.notifyMany([
@@ -824,6 +825,56 @@ export class OperationalNotifyService {
     ]);
   }
 
+  /** مرجوع از هاب — فروش مستقیم / مزایده */
+  async notifyDirectHubReturnShipped(params: {
+    orderId: string;
+    buyerId: string;
+    sellerId: string;
+    listingId: string;
+    note?: string;
+  }): Promise<void> {
+    const listingTitle = await this.listingTitle(params.listingId);
+    const noteSuffix = params.note?.trim()
+      ? ` ${params.note.trim()}`
+      : '';
+    await this.notifyMany([
+      {
+        userId: params.sellerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'مرجوعی از هاب ثبت شد',
+        message: `مرسوله شما از هاب به آدرس شما مرجوع شد.${noteSuffix}`,
+        meta: {
+          orderId: params.orderId,
+          listingId: params.listingId,
+          listingTitle,
+          status: OrderStatus.REJECTED_AT_HUB,
+          phase: 'hub_return_shipped',
+          phaseKey: 'hub_return_shipped',
+          role: 'SELLER',
+          audience: 'SELLER',
+          note: params.note,
+        },
+      },
+      {
+        userId: params.buyerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'مرجوعی از هاب و بازگشت وجه',
+        message: `کالا از هاب به فروشنده مرجوع شد؛ مبلغ پرداختی به کیف پول شما بازگشت داده می‌شود.${noteSuffix}`,
+        meta: {
+          orderId: params.orderId,
+          listingId: params.listingId,
+          listingTitle,
+          status: OrderStatus.CANCELLED,
+          phase: 'admin_cancel_refund',
+          phaseKey: 'admin_cancel_refund',
+          role: 'BUYER',
+          audience: 'BUYER',
+          note: params.note,
+        },
+      },
+    ]);
+  }
+
   /** کارشناسی هاب — نتیجه برای هر دو طرف */
   async notifyHubInspectionOutcome(params: {
     orderId: string;
@@ -856,14 +907,18 @@ export class OperationalNotifyService {
     buyerId: string;
     sellerId: string;
     listingId: string;
+    note?: string;
   }): Promise<void> {
     const listingTitle = await this.listingTitle(params.listingId);
+    const noteSuffix = params.note?.trim()
+      ? ` ${params.note.trim()}`
+      : '';
     await this.notifyMany([
       {
         userId: params.buyerId,
         type: NotificationType.ORDER_STATUS_CHANGED,
         title: 'کالا از انبار برای شما ارسال شد',
-        message: `کالای «${listingTitle}» از انبار طبقه برای شما ارسال شد. پس از دریافت، تأیید را ثبت کنید.`,
+        message: `کالای «${listingTitle}» از انبار طبقه برای شما ارسال شد. پس از دریافت، تأیید را ثبت کنید.${noteSuffix}`,
         meta: {
           orderId: params.orderId,
           listingId: params.listingId,
@@ -872,13 +927,14 @@ export class OperationalNotifyService {
           phase: 'shipped_from_hub_to_buyer',
           phaseKey: 'shipped_from_hub_to_buyer',
           role: 'BUYER',
+          note: params.note,
         },
       },
       {
         userId: params.sellerId,
         type: NotificationType.ORDER_STATUS_CHANGED,
         title: 'ارسال از انبار به خریدار',
-        message: `کالای «${listingTitle}» از انبار برای خریدار ارسال شد.`,
+        message: `کالای «${listingTitle}» از انبار برای خریدار ارسال شد.${noteSuffix}`,
         meta: {
           orderId: params.orderId,
           listingId: params.listingId,
@@ -887,6 +943,7 @@ export class OperationalNotifyService {
           phase: 'shipped_from_hub_to_buyer',
           phaseKey: 'shipped_from_hub_to_buyer',
           role: 'SELLER',
+          note: params.note,
         },
       },
     ]);

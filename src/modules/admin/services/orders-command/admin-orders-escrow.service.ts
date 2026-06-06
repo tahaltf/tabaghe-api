@@ -356,6 +356,7 @@ export class AdminOrdersEscrowService {
           order.id,
           OrderStatus.RETURN_REQUESTED,
           note ?? 'خریدار باید کالا را مرجوع و کد رهگیری را ثبت کند',
+          { orderType: order.type },
         );
         return updated;
       }
@@ -662,6 +663,7 @@ export class AdminOrdersEscrowService {
             order.id,
             OrderStatus.VERIFIED_AT_HUB,
             `بازپرداخت جزئی ${refundAmount.toLocaleString('fa-IR')} تومان اعمال شد و سفارش ادامه یافت.`,
+            { orderType: order.type },
           );
         }
         return updated;
@@ -696,6 +698,7 @@ export class AdminOrdersEscrowService {
           order.id,
           OrderStatus.RETURN_REQUESTED,
           'خریدار باید کالا را به آدرس اعلام‌شده مرجوع و کد رهگیری ثبت کند.',
+          { orderType: order.type },
         );
         return updated;
       }
@@ -798,6 +801,7 @@ export class AdminOrdersEscrowService {
           order.id,
           OrderStatus.CANCELLED,
           note ?? 'مرجوعی تایید شد و مبلغ به خریدار بازگشت.',
+          { orderType: order.type },
         );
         return tx.order.findUniqueOrThrow({ where: { id: order.id } });
       }
@@ -1024,6 +1028,7 @@ export class AdminOrdersEscrowService {
         order.id,
         OrderStatus.CANCELLED,
         note ?? 'لغو دستی سفارش و بازگشت وجه توسط ادمین انجام شد',
+        { orderType: order.type },
       );
       return updated;
     });
