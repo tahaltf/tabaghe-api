@@ -180,6 +180,12 @@ export function resolveNotificationRuleKeyCandidates(
   }
   if (phaseKey) {
     keys.push(`${type}@${phaseKey}`);
+    if (type === 'ACTION_DEADLINE_REMINDER') {
+      const normalizedPhase = phaseKey.replace(/_(BUYER|SELLER)$/i, '');
+      if (normalizedPhase !== phaseKey) {
+        keys.push(`${type}@${normalizedPhase}`);
+      }
+    }
   }
   if (recipientRole) {
     keys.push(buildNotificationRuleKey(type, recipientRole));

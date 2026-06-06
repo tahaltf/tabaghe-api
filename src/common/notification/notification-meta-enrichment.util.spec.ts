@@ -27,4 +27,18 @@ describe('resolveNotificationRuleKeyCandidates', () => {
       'ORDER_STATUS_CHANGED',
     ]);
   });
+
+  it('falls back to shared deadline template without role suffix', () => {
+    expect(
+      resolveNotificationRuleKeyCandidates('ACTION_DEADLINE_REMINDER', 'BUYER', {
+        phaseKey: 'exchange_payment_BUYER',
+      }),
+    ).toEqual([
+      'ACTION_DEADLINE_REMINDER@BUYER@exchange_payment_BUYER',
+      'ACTION_DEADLINE_REMINDER@exchange_payment_BUYER',
+      'ACTION_DEADLINE_REMINDER@exchange_payment',
+      'ACTION_DEADLINE_REMINDER@BUYER',
+      'ACTION_DEADLINE_REMINDER',
+    ]);
+  });
 });
