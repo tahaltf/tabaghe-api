@@ -475,36 +475,21 @@ export class OperationalNotifyService {
     const message = isFinancial
       ? buildExchangeFinancialSettlementTicketNotifyMessage(params.orderShortId)
       : `برای سفارش #${params.orderShortId} تیکت پشتیبانی ایجاد شد.`;
-    const phase = isFinancial
-      ? 'exchange_financial_settlement_ticket'
-      : 'exchange_hub_inspection_return_ticket';
 
-    await this.notifyMany([
+    await this.notificationService.notifyUserTickets([
       {
         userId: params.buyerId,
-        type: NotificationType.TICKET_REPLY,
+        ticketId: params.buyerTicketId,
+        orderId: params.orderId,
         title,
         message,
-        meta: {
-          orderId: params.orderId,
-          ticketId: params.buyerTicketId,
-          phase,
-          role: 'BUYER',
-          audience: 'BUYER',
-        },
       },
       {
         userId: params.sellerId,
-        type: NotificationType.TICKET_REPLY,
+        ticketId: params.sellerTicketId,
+        orderId: params.orderId,
         title,
         message,
-        meta: {
-          orderId: params.orderId,
-          ticketId: params.sellerTicketId,
-          phase,
-          role: 'SELLER',
-          audience: 'SELLER',
-        },
       },
     ]);
   }
@@ -1286,6 +1271,33 @@ export class OperationalNotifyService {
         },
       },
     ]);
+
+    const ticketNotifies: Array<
+      Parameters<NotificationService['notifyUserTicket']>[0]
+    > = [];
+    if (params.buyer.ticketId) {
+      ticketNotifies.push({
+        userId: params.buyerId,
+        ticketId: params.buyer.ticketId,
+        orderId: params.orderId ?? undefined,
+        listingId: params.listingId,
+        title: 'تیکت جدید ثبت شد',
+        message: params.buyer.message,
+      });
+    }
+    if (params.seller.ticketId) {
+      ticketNotifies.push({
+        userId: params.sellerId,
+        ticketId: params.seller.ticketId,
+        orderId: params.orderId ?? undefined,
+        listingId: params.listingId,
+        title: 'تیکت جدید ثبت شد',
+        message: params.seller.message,
+      });
+    }
+    if (ticketNotifies.length) {
+      await this.notificationService.notifyUserTickets(ticketNotifies);
+    }
   }
 
   /** لغو معاوضه به‌دلیل اتمام مهلت پرداخت */

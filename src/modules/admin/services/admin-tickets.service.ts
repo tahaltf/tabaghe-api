@@ -4,7 +4,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
-  NotificationType,
   Prisma,
   TicketStatus,
   UserRole,
@@ -148,13 +147,12 @@ export class AdminTicketsService {
     });
 
     try {
-      await this.notification.create({
+      await this.notification.notifyUserTicket({
         userId,
-        type: NotificationType.TICKET_REPLY,
+        ticketId: created.id,
+        subject: dto.subject.trim(),
         title: 'تیکت جدید از سمت پشتیبانی',
         message: `تیکت جدیدی با عنوان «${dto.subject.trim()}» برای شما ثبت شد.`,
-        meta: { ticketId: created.id },
-        forceSiteNotification: true,
       });
     } catch {
       // ignore notification errors
@@ -188,13 +186,12 @@ export class AdminTicketsService {
     ]);
 
     try {
-      await this.notification.create({
+      await this.notification.notifyUserTicket({
         userId: ticket.userId,
-        type: NotificationType.TICKET_REPLY,
+        ticketId: ticket.id,
+        subject: ticket.subject,
         title: 'پاسخ جدید پشتیبانی',
         message: `برای تیکت «${ticket.subject}» پاسخ جدید ثبت شد.`,
-        meta: { ticketId: ticket.id },
-        forceSiteNotification: true,
       });
     } catch {
       // ignore notification errors to avoid breaking reply flow

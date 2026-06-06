@@ -7,7 +7,6 @@ import {
   ExchangeOfferStatus,
   ListingStatus,
   ListingType,
-  NotificationType,
   OrderStatus,
   Prisma,
   UserRole,
@@ -153,7 +152,7 @@ export class AdminOrdersStatusService {
               },
             },
           },
-          select: { id: true },
+          select: { id: true, subject: true },
         });
 
         const buyerTicket = await tx.ticket.create({
@@ -168,49 +167,8 @@ export class AdminOrdersStatusService {
               },
             },
           },
-          select: { id: true },
+          select: { id: true, subject: true },
         });
-
-        await tx.notification.createMany({
-          data: [
-            {
-              userId: existing.sellerId,
-              type: NotificationType.TICKET_REPLY,
-              title: 'تیکت رسمی؛ رد کارشناسی طبقه',
-              message: hubRejectCopy.sellerTicketNotifyPreview,
-              meta: {
-                orderId: id,
-                ticketId: sellerTicket.id,
-                audience: 'SELLER',
-                role: 'SELLER',
-                phase: 'hub_inspection_rejected',
-                phaseKey: 'hub_inspection_rejected',
-              } as Prisma.InputJsonValue,
-            },
-            {
-              userId: existing.buyerId,
-              type: NotificationType.TICKET_REPLY,
-              title: 'تیکت رسمی؛ معذرت و توضیح رد کارشناسی',
-              message: hubRejectCopy.buyerTicketNotifyPreview,
-              meta: {
-                orderId: id,
-                ticketId: buyerTicket.id,
-                audience: 'BUYER',
-                role: 'BUYER',
-                phase: 'hub_inspection_rejected',
-                phaseKey: 'hub_inspection_rejected',
-              } as Prisma.InputJsonValue,
-            },
-          ],
-        });
-
-        await this.notify.notifyHubInspectionRejectedPartiesPush(
-          existing.buyerId,
-          existing.sellerId,
-          id,
-          hubRejectCopy.buyerPushSummary,
-          hubRejectCopy.sellerPushSummary,
-        );
 
         await this.listingCommand.rejectAfterTradeFailure(tx, {
           listingId: existing.listing.id,
@@ -221,6 +179,42 @@ export class AdminOrdersStatusService {
           orderId: id,
         });
 
+        return {
+          updatedOrder,
+          sellerTicket,
+          buyerTicket,
+          hubRejectCopy,
+        };
+      }).then(async ({ updatedOrder, sellerTicket, buyerTicket, hubRejectCopy }) => {
+        await Promise.all([
+          this.notify.notifyUserTickets([
+            {
+              userId: existing.sellerId,
+              ticketId: sellerTicket.id,
+              subject: sellerTicket.subject,
+              orderId: id,
+              listingId: existing.listingId,
+              title: 'تیکت رسمی؛ رد کارشناسی طبقه',
+              message: hubRejectCopy.sellerTicketNotifyPreview,
+            },
+            {
+              userId: existing.buyerId,
+              ticketId: buyerTicket.id,
+              subject: buyerTicket.subject,
+              orderId: id,
+              listingId: existing.listingId,
+              title: 'تیکت رسمی؛ معذرت و توضیح رد کارشناسی',
+              message: hubRejectCopy.buyerTicketNotifyPreview,
+            },
+          ]),
+          this.notify.notifyHubInspectionRejectedPartiesPush(
+            existing.buyerId,
+            existing.sellerId,
+            id,
+            hubRejectCopy.buyerPushSummary,
+            hubRejectCopy.sellerPushSummary,
+          ),
+        ]);
         return updatedOrder;
       });
     }
@@ -340,20 +334,7 @@ export class AdminOrdersStatusService {
               },
             },
           },
-          select: { id: true },
-        });
-
-        await tx.notification.create({
-          data: {
-            userId: existing.buyerId,
-            type: NotificationType.TICKET_REPLY,
-            title: 'تیکت لغو سفارش ثبت شد',
-            message: `برای سفارش #${existing.id.slice(-6)} تیکت ثبت شد و مبلغ به کیف پول شما برگشت.`,
-            meta: {
-              orderId: existing.id,
-              ticketId: buyerTicket.id,
-            } as Prisma.InputJsonValue,
-          },
+          select: { id: true, subject: true },
         });
 
         await this.notify.notifyParties(
@@ -365,6 +346,17 @@ export class AdminOrdersStatusService {
           { orderType: existing.type },
         );
 
+        return { updatedOrder, buyerTicket };
+      }).then(async ({ updatedOrder, buyerTicket }) => {
+        await this.notify.notifyUserTicket({
+          userId: existing.buyerId,
+          ticketId: buyerTicket.id,
+          subject: buyerTicket.subject,
+          orderId: existing.id,
+          listingId: existing.listingId,
+          title: 'تیکت لغو سفارش ثبت شد',
+          message: `برای سفارش #${existing.id.slice(-6)} تیکت ثبت شد و مبلغ به کیف پول شما برگشت.`,
+        });
         return updatedOrder;
       });
     }

@@ -7,7 +7,6 @@ import {
   ExchangeOfferStatus,
   ListingStatus,
   ListingType,
-  NotificationType,
   OrderStatus,
   Prisma,
   UserRole,
@@ -26,6 +25,7 @@ import {
   buildOrderTicketSubject,
   formatTicketMessageBody,
 } from '../../../../common/ticket-message.util';
+import { buildExchangeFinancialSettlementTicketNotifyMessage } from '../../../../common/order/exchange-financial-settlement-messaging.util';
 import { AdminOrdersNotifyService } from './admin-orders-notify.service';
 import { OperationalNotifyService } from '../../../notification/operational-notify.service';
 
@@ -548,41 +548,23 @@ export class AdminOrdersEscrowService {
         );
 
         if (order.type !== 'EXCHANGE') {
-          await tx.notification.createMany({
-            data: [
+          postTxNotifies.push(async () => {
+            await this.notify.notifyUserTickets([
               {
                 userId: order.buyerId,
-                type: NotificationType.TICKET_REPLY,
+                ticketId: buyerAgreementTicket.id,
+                orderId: order.id,
                 title: 'تیکت توافق مالی ثبت شد',
                 message: `برای سفارش #${order.id.slice(-6)} مبلغ ${refundAmount.toLocaleString('fa-IR')} تومان به کیف پول شما اضافه شد.`,
-                meta: {
-                  orderId: order.id,
-                  ticketId: buyerAgreementTicket.id,
-                  agreementAmount: refundAmount,
-                  settlementKind: 'partial_refund_agreement',
-                  role: 'BUYER',
-                  audience: 'BUYER',
-                  phase: 'financial_settlement_ticket',
-                  phaseKey: 'financial_settlement_ticket',
-                } as Prisma.InputJsonValue,
               },
               {
                 userId: order.sellerId,
-                type: NotificationType.TICKET_REPLY,
+                ticketId: sellerAgreementTicket.id,
+                orderId: order.id,
                 title: 'تیکت توافق مالی ثبت شد',
                 message: `برای سفارش #${order.id.slice(-6)} مبلغ ${refundAmount.toLocaleString('fa-IR')} تومان از سهم فروش شما کسر شد.`,
-                meta: {
-                  orderId: order.id,
-                  ticketId: sellerAgreementTicket.id,
-                  agreementAmount: refundAmount,
-                  settlementKind: 'partial_refund_agreement',
-                  role: 'SELLER',
-                  audience: 'SELLER',
-                  phase: 'financial_settlement_ticket',
-                  phaseKey: 'financial_settlement_ticket',
-                } as Prisma.InputJsonValue,
               },
-            ],
+            ]);
           });
         }
 
@@ -646,15 +628,26 @@ export class AdminOrdersEscrowService {
                 orderShortId,
               },
             );
-            await this.operationalNotify.notifyExchangeHubInspectionTickets({
-              orderId: order.id,
-              buyerId: order.buyerId,
-              sellerId: order.sellerId,
-              buyerTicketId: buyerAgreementTicket.id,
-              sellerTicketId: sellerAgreementTicket.id,
-              orderShortId,
-              kind: 'financial_settlement',
-            });
+            await this.notify.notifyUserTickets([
+              {
+                userId: order.buyerId,
+                ticketId: buyerAgreementTicket.id,
+                orderId: order.id,
+                title: 'تیکت کارشناسی معاوضه',
+                message: buildExchangeFinancialSettlementTicketNotifyMessage(
+                  orderShortId,
+                ),
+              },
+              {
+                userId: order.sellerId,
+                ticketId: sellerAgreementTicket.id,
+                orderId: order.id,
+                title: 'تیکت کارشناسی معاوضه',
+                message: buildExchangeFinancialSettlementTicketNotifyMessage(
+                  orderShortId,
+                ),
+              },
+            ]);
           });
         } else {
           await this.notify.notifyParties(
@@ -1003,23 +996,17 @@ export class AdminOrdersEscrowService {
             },
           },
         },
-        select: { id: true },
+        select: { id: true, subject: true },
       });
-      await tx.notification.create({
-        data: {
+      postTxNotifies.push(async () => {
+        await this.notify.notifyUserTicket({
           userId: order.buyerId,
-          type: NotificationType.TICKET_REPLY,
+          ticketId: buyerTicket.id,
+          subject: buyerTicket.subject,
+          orderId: order.id,
           title: 'تیکت لغو سفارش ثبت شد',
           message: `برای سفارش #${order.id.slice(-6)} تیکت ثبت شد و مبلغ به کیف پول شما برگشت.`,
-          meta: {
-            orderId: order.id,
-            ticketId: buyerTicket.id,
-            role: 'BUYER',
-            audience: 'BUYER',
-            phase: 'admin_cancel_ticket',
-            phaseKey: 'admin_cancel_ticket',
-          } as Prisma.InputJsonValue,
-        },
+        });
       });
 
       await this.notify.notifyParties(

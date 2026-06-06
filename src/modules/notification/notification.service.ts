@@ -160,6 +160,41 @@ export class NotificationService {
     return this.create({ ...params, forceSiteNotification: true });
   }
 
+  /**
+   * هر تیکت جدید (از طرف ادمین/سیستم) یا پاسخ پشتیبانی —
+   * همیشه از قانون واحد `TICKET_REPLY` در تنظیمات استفاده می‌کند.
+   */
+  notifyUserTicket(params: {
+    userId: string;
+    ticketId: string;
+    title: string;
+    message: string;
+    subject?: string;
+    orderId?: string;
+    listingId?: string;
+  }) {
+    return this.create({
+      userId: params.userId,
+      type: NotificationType.TICKET_REPLY,
+      title: params.title,
+      message: params.message,
+      meta: {
+        ticketId: params.ticketId,
+        ...(params.subject?.trim() ? { subject: params.subject.trim() } : {}),
+        ...(params.orderId ? { orderId: params.orderId } : {}),
+        ...(params.listingId ? { listingId: params.listingId } : {}),
+      },
+      forceSiteNotification: true,
+    });
+  }
+
+  async notifyUserTickets(
+    items: Array<Parameters<NotificationService['notifyUserTicket']>[0]>,
+  ): Promise<void> {
+    if (!items.length) return;
+    await Promise.all(items.map((item) => this.notifyUserTicket(item)));
+  }
+
   /** چند گیرنده — هر کدام از مسیر create (سایت + SMS + push) */
   async notifyMany(
     items: Array<{

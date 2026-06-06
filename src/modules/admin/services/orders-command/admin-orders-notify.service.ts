@@ -22,6 +22,18 @@ export type AdminOrderNotifyOptions = {
 export class AdminOrdersNotifyService {
   constructor(private readonly notifications: NotificationService) {}
 
+  notifyUserTicket(
+    params: Parameters<NotificationService['notifyUserTicket']>[0],
+  ) {
+    return this.notifications.notifyUserTicket(params);
+  }
+
+  notifyUserTickets(
+    items: Parameters<NotificationService['notifyUserTickets']>[0],
+  ) {
+    return this.notifications.notifyUserTickets(items);
+  }
+
   buildDirectHubInspectionRejectionMessaging(opts: {
     listingTitle: string;
     orderShortId: string;

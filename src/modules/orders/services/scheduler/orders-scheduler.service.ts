@@ -167,7 +167,7 @@ export class OrdersSchedulerService {
     });
   }
 
-  /** تیکت و اعلان برای لغو فروش مستقیم به‌دلیل عدم ارسال فروشنده در مهلت */
+  /** تیکت برای لغو فروش مستقیم به‌دلیل عدم ارسال فروشنده در مهلت */
   private async createShippingTimeoutCancelTickets(
     tx: Prisma.TransactionClient,
     params: {
@@ -178,7 +178,9 @@ export class OrdersSchedulerService {
       totalAmount: number;
       trustPenaltyPoints?: number;
     },
-  ): Promise<void> {
+  ): Promise<
+    Array<Parameters<NotificationService['notifyUserTicket']>[0]>
+  > {
     const shortId = params.orderId.slice(-6);
     const amountFa = Math.max(
       0,
@@ -216,7 +218,7 @@ export class OrdersSchedulerService {
           },
         },
       },
-      select: { id: true },
+      select: { id: true, subject: true },
     });
 
     const sellerTicket = await tx.ticket.create({
@@ -231,43 +233,27 @@ export class OrdersSchedulerService {
           },
         },
       },
-      select: { id: true },
+      select: { id: true, subject: true },
     });
 
-    await tx.notification.createMany({
-      data: [
-        {
-          userId: params.buyerId,
-          type: NotificationType.TICKET_REPLY,
-          title: 'سفارش لغو شد — بازگشت وجه',
-          message: `سفارش #${shortId} به‌دلیل عدم ارسال فروشنده لغو شد و مبلغ به کیف پول شما برگشت.`,
-          meta: {
-            orderId: params.orderId,
-            ticketId: buyerTicket.id,
-            reason: 'shipping-timeout-cancel',
-            role: 'BUYER',
-            audience: 'BUYER',
-            phase: 'shipping_timeout_cancel',
-            phaseKey: 'shipping_timeout_cancel',
-          } as Prisma.InputJsonValue,
-        },
-        {
-          userId: params.sellerId,
-          type: NotificationType.TICKET_REPLY,
-          title: 'سفارش لغو شد — کسر امتیاز',
-          message: `سفارش #${shortId} به‌دلیل عدم ارسال در مهلت لغو شد؛ وجه به خریدار برگشت و امتیاز شما کاهش یافت.`,
-          meta: {
-            orderId: params.orderId,
-            ticketId: sellerTicket.id,
-            reason: 'shipping-timeout-cancel',
-            role: 'SELLER',
-            audience: 'SELLER',
-            phase: 'shipping_timeout_cancel',
-            phaseKey: 'shipping_timeout_cancel',
-          } as Prisma.InputJsonValue,
-        },
-      ],
-    });
+    return [
+      {
+        userId: params.buyerId,
+        ticketId: buyerTicket.id,
+        subject: buyerTicket.subject,
+        orderId: params.orderId,
+        title: 'سفارش لغو شد — بازگشت وجه',
+        message: `سفارش #${shortId} به‌دلیل عدم ارسال فروشنده لغو شد و مبلغ به کیف پول شما برگشت.`,
+      },
+      {
+        userId: params.sellerId,
+        ticketId: sellerTicket.id,
+        subject: sellerTicket.subject,
+        orderId: params.orderId,
+        title: 'سفارش لغو شد — کسر امتیاز',
+        message: `سفارش #${shortId} به‌دلیل عدم ارسال در مهلت لغو شد؛ وجه به خریدار برگشت و امتیاز شما کاهش یافت.`,
+      },
+    ];
   }
 
   /**
@@ -835,6 +821,10 @@ export class OrdersSchedulerService {
       await this.operationalNotify
         .notifyExchangeOneSideNoShipmentCancel(deferred.params)
         .catch(() => undefined);
+    } else if (deferred?.kind === 'direct_shipping_timeout_tickets') {
+      await this.notificationService
+        .notifyUserTickets(deferred.ticketNotifies)
+        .catch(() => undefined);
     }
   }
 
@@ -856,6 +846,12 @@ export class OrdersSchedulerService {
         params: Parameters<
           OperationalNotifyService['notifyExchangeOneSideNoShipmentCancel']
         >[0];
+      }
+    | {
+        kind: 'direct_shipping_timeout_tickets';
+        ticketNotifies: Array<
+          Parameters<NotificationService['notifyUserTicket']>[0]
+        >;
       }
     | null
   > {
@@ -1104,7 +1100,7 @@ export class OrdersSchedulerService {
       isDirectShippingTimeoutCancel &&
       targetStatus === OrderStatus.CANCELLED
     ) {
-      await this.createShippingTimeoutCancelTickets(tx, {
+      const ticketNotifies = await this.createShippingTimeoutCancelTickets(tx, {
         orderId: order.id,
         buyerId: order.buyerId,
         sellerId: order.sellerId,
@@ -1112,6 +1108,7 @@ export class OrdersSchedulerService {
         totalAmount: Number(order.totalAmount || 0),
         trustPenaltyPoints: 15,
       });
+      return { kind: 'direct_shipping_timeout_tickets', ticketNotifies };
     }
     return null;
   }
