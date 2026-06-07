@@ -44,8 +44,12 @@ describe('OperationalNotifyService - exchange inbound hub notifications', () => 
         recipientRole: 'SELLER',
         meta: expect.objectContaining({
           phase: 'exchange_self_shipped',
+          phaseKey: 'exchange_self_shipped',
           status: OrderStatus.SHIPPED_TO_HUB,
           role: 'SELLER',
+          note: expect.stringContaining('ارسال کالای آگهی شما'),
+          sellerNote: 'ارسال شما به انبار ثبت شد',
+          buyerNote: 'طرف مقابل ارسال کرد — نوبت شما',
         }),
       }),
     );
@@ -56,7 +60,11 @@ describe('OperationalNotifyService - exchange inbound hub notifications', () => 
         recipientRole: 'BUYER',
         meta: expect.objectContaining({
           phase: 'exchange_peer_must_ship',
+          phaseKey: 'exchange_peer_must_ship',
           role: 'BUYER',
+          note: expect.stringContaining('فروشنده ارسال کالای آگهی'),
+          buyerNote: 'طرف مقابل ارسال کرد — نوبت شما',
+          sellerNote: 'ارسال شما به انبار ثبت شد',
         }),
       }),
     );
@@ -241,6 +249,66 @@ describe('OperationalNotifyService - exchange inbound hub notifications', () => 
         meta: expect.objectContaining({
           phaseKey: 'order_completed',
           status: OrderStatus.COMPLETED,
+        }),
+      }),
+    );
+  });
+
+  it('uses role-specific notes for direct hub outbound to buyer', async () => {
+    const { service, notificationService } = makeService();
+
+    await service.notifyShippedFromHubToBuyer({
+      orderId: 'ord-1',
+      buyerId: 'buyer-1',
+      sellerId: 'seller-1',
+      listingId: 'lst-1',
+      note: 'توضیح ادمین',
+    });
+
+    expect(notificationService.create).toHaveBeenCalledTimes(2);
+    expect(notificationService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'buyer-1',
+        recipientRole: 'BUYER',
+        meta: expect.objectContaining({
+          note: expect.stringContaining('به مقصد شما'),
+          buyerNote: expect.stringContaining('به مقصد شما'),
+          sellerNote: expect.stringContaining('برای خریدار'),
+        }),
+      }),
+    );
+    expect(notificationService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'seller-1',
+        recipientRole: 'SELLER',
+        meta: expect.objectContaining({
+          note: expect.stringContaining('برای خریدار'),
+          sellerNote: expect.stringContaining('برای خریدار'),
+        }),
+      }),
+    );
+  });
+
+  it('keeps role-specific outbound notes when admin note is set on exchange leg', async () => {
+    const { service, notificationService } = makeService();
+
+    await service.notifyExchangeHubOutboundShipped({
+      orderId: 'ord-1',
+      buyerId: 'buyer-1',
+      sellerId: 'seller-1',
+      listingId: 'lst-1',
+      leg: 'TO_BUYER',
+      status: OrderStatus.SHIPPED_TO_BUYER,
+      trackingCode: 'HB-123',
+      note: 'یادداشت ادمین',
+    });
+
+    expect(notificationService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'seller-1',
+        meta: expect.objectContaining({
+          sellerNote: 'کالای آگهی شما از انبار به خریدار ارسال شد و کد رهگیری ثبت گردید.',
+          buyerNote: 'کالای آگهی از انبار برای شما ارسال شد و کد رهگیری ثبت گردید.',
         }),
       }),
     );

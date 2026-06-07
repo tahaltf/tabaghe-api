@@ -10,6 +10,7 @@ import {
   ORDER_STATUS_FINANCIAL_SETTLEMENT_LABEL_FA,
   ORDER_STATUS_LABELS_FA,
 } from '../../common/order/order-status-labels.util';
+import { buildPartyOrderNotifyMeta } from '../../common/notification/notification-meta-enrichment.util';
 import { NotificationService } from './notification.service';
 
 type NotifyPayload = {
@@ -83,10 +84,12 @@ export class OperationalNotifyService {
           meta: {
             ...baseMeta,
             phase: listingPhase,
-            role: 'SELLER',
-            audience: 'SELLER',
+            phaseKey: listingPhase,
             leg: 'LISTING',
-            note: sellerListingNote,
+            ...buildPartyOrderNotifyMeta('SELLER', {
+              buyerNote: buyerListingPeerNote,
+              sellerNote: sellerListingNote,
+            }),
           },
         },
         {
@@ -97,10 +100,12 @@ export class OperationalNotifyService {
           meta: {
             ...baseMeta,
             phase: listingPhase,
-            role: 'BUYER',
-            audience: 'BUYER',
+            phaseKey: listingPhase,
             leg: 'LISTING',
-            note: buyerListingPeerNote,
+            ...buildPartyOrderNotifyMeta('BUYER', {
+              buyerNote: buyerListingPeerNote,
+              sellerNote: sellerListingNote,
+            }),
           },
         },
       ]);
@@ -114,10 +119,12 @@ export class OperationalNotifyService {
           meta: {
             ...baseMeta,
             phase: offerPhase,
-            role: 'BUYER',
-            audience: 'BUYER',
+            phaseKey: offerPhase,
             leg: 'OFFER',
-            note: buyerOfferNote,
+            ...buildPartyOrderNotifyMeta('BUYER', {
+              buyerNote: buyerOfferNote,
+              sellerNote: sellerOfferPeerNote,
+            }),
           },
         },
         {
@@ -128,10 +135,12 @@ export class OperationalNotifyService {
           meta: {
             ...baseMeta,
             phase: offerPhase,
-            role: 'SELLER',
-            audience: 'SELLER',
+            phaseKey: offerPhase,
             leg: 'OFFER',
-            note: sellerOfferPeerNote,
+            ...buildPartyOrderNotifyMeta('SELLER', {
+              buyerNote: buyerOfferNote,
+              sellerNote: sellerOfferPeerNote,
+            }),
           },
         },
       ]);
@@ -139,6 +148,17 @@ export class OperationalNotifyService {
 
     if (params.bothReceived) {
       const bothMessage = `هر دو کالای معاوضه «${listingTitle}» در انبار دریافت شدند. پس از شروع کارشناسی از همین مسیر مطلع می‌شوید.`;
+      const bothStatusFa = 'هر دو کالا در انبار';
+      const bothMeta = {
+        ...baseMeta,
+        phase: 'exchange_hub_both_received',
+        phaseKey: 'exchange_hub_both_received',
+        ...buildPartyOrderNotifyMeta('BUYER', {
+          buyerNote: bothStatusFa,
+          sellerNote: bothStatusFa,
+        }),
+        note: bothMessage,
+      };
       await this.notifyMany([
         {
           userId: params.buyerId,
@@ -146,10 +166,12 @@ export class OperationalNotifyService {
           title: 'هر دو کالا در انبار',
           message: bothMessage,
           meta: {
-            ...baseMeta,
-            role: 'BUYER',
-            audience: 'BUYER',
-            phase: 'exchange_hub_both_received',
+            ...bothMeta,
+            ...buildPartyOrderNotifyMeta('BUYER', {
+              buyerNote: bothStatusFa,
+              sellerNote: bothStatusFa,
+            }),
+            note: bothMessage,
           },
         },
         {
@@ -158,10 +180,12 @@ export class OperationalNotifyService {
           title: 'هر دو کالا در انبار',
           message: bothMessage,
           meta: {
-            ...baseMeta,
-            role: 'SELLER',
-            audience: 'SELLER',
-            phase: 'exchange_hub_both_received',
+            ...bothMeta,
+            ...buildPartyOrderNotifyMeta('SELLER', {
+              buyerNote: bothStatusFa,
+              sellerNote: bothStatusFa,
+            }),
+            note: bothMessage,
           },
         },
       ]);
@@ -192,6 +216,7 @@ export class OperationalNotifyService {
       statusFa: statusLabel,
       orderStatusLabel: statusLabel,
       phase: 'exchange_hub_inspection_started',
+      phaseKey: 'exchange_hub_inspection_started',
     };
     const inspectionNote = 'کارشناسی فنی کالاها در مرکز طبقه آغاز شد.';
     const message = `کارشناسی فنی معاوضه «${listingTitle}» در مرکز طبقه آغاز شد. پس از اعلام نتیجه از همین مسیر مطلع می‌شوید.${noteSuffix}`;
@@ -204,9 +229,11 @@ export class OperationalNotifyService {
         message,
         meta: {
           ...baseMeta,
-          role: 'BUYER',
-          audience: 'BUYER',
-          note: inspectionNote,
+          ...buildPartyOrderNotifyMeta('BUYER', {
+            buyerNote: inspectionNote,
+            sellerNote: inspectionNote,
+          }),
+          note: message,
         },
       },
       {
@@ -216,9 +243,11 @@ export class OperationalNotifyService {
         message,
         meta: {
           ...baseMeta,
-          role: 'SELLER',
-          audience: 'SELLER',
-          note: inspectionNote,
+          ...buildPartyOrderNotifyMeta('SELLER', {
+            buyerNote: inspectionNote,
+            sellerNote: inspectionNote,
+          }),
+          note: message,
         },
       },
     ]);
@@ -239,6 +268,7 @@ export class OperationalNotifyService {
     const message = isExchange
       ? `معاوضه «${listingTitle}» با موفقیت تکمیل شد. از همراهی شما در طبقه سپاسگزاریم.`
       : `سفارش «${listingTitle}» با موفقیت تکمیل شد.`;
+    const completedNote = 'معامله با موفقیت تکمیل شد';
     const baseMeta = {
       orderId: params.orderId,
       listingId: params.listingId,
@@ -249,7 +279,6 @@ export class OperationalNotifyService {
       orderStatusLabel: statusLabel,
       phase: 'order_completed',
       phaseKey: 'order_completed',
-      note: message,
     };
 
     await this.notifyMany([
@@ -258,14 +287,28 @@ export class OperationalNotifyService {
         type: NotificationType.ORDER_STATUS_CHANGED,
         title: 'معامله تکمیل شد',
         message,
-        meta: { ...baseMeta, role: 'BUYER', audience: 'BUYER' },
+        meta: {
+          ...baseMeta,
+          ...buildPartyOrderNotifyMeta('BUYER', {
+            buyerNote: completedNote,
+            sellerNote: completedNote,
+          }),
+          note: message,
+        },
       },
       {
         userId: params.sellerId,
         type: NotificationType.ORDER_STATUS_CHANGED,
         title: 'معامله تکمیل شد',
         message,
-        meta: { ...baseMeta, role: 'SELLER', audience: 'SELLER' },
+        meta: {
+          ...baseMeta,
+          ...buildPartyOrderNotifyMeta('SELLER', {
+            buyerNote: completedNote,
+            sellerNote: completedNote,
+          }),
+          note: message,
+        },
       },
     ]);
   }
@@ -294,8 +337,8 @@ export class OperationalNotifyService {
       statusFa: statusLabel,
       orderStatusLabel: statusLabel,
       phase: 'exchange_hub_inspection_verified',
+      phaseKey: 'exchange_hub_inspection_verified',
       resolution: 'SHIP_TO_DESTINATIONS',
-      note: detail,
     };
 
     await this.notifyMany([
@@ -304,14 +347,28 @@ export class OperationalNotifyService {
         type: NotificationType.ORDER_STATUS_CHANGED,
         title: 'تایید کارشناسی معاوضه',
         message,
-        meta: { ...baseMeta, role: 'BUYER', audience: 'BUYER' },
+        meta: {
+          ...baseMeta,
+          ...buildPartyOrderNotifyMeta('BUYER', {
+            buyerNote: detail,
+            sellerNote: detail,
+          }),
+          note: message,
+        },
       },
       {
         userId: params.sellerId,
         type: NotificationType.ORDER_STATUS_CHANGED,
         title: 'تایید کارشناسی معاوضه',
         message,
-        meta: { ...baseMeta, role: 'SELLER', audience: 'SELLER' },
+        meta: {
+          ...baseMeta,
+          ...buildPartyOrderNotifyMeta('SELLER', {
+            buyerNote: detail,
+            sellerNote: detail,
+          }),
+          note: message,
+        },
       },
     ]);
   }
@@ -340,8 +397,8 @@ export class OperationalNotifyService {
       statusFa: statusLabel,
       orderStatusLabel: statusLabel,
       phase: 'exchange_hub_inspection_rejected',
+      phaseKey: 'exchange_hub_inspection_rejected',
       resolution: 'RETURN_BOTH_TO_SENDERS',
-      note: detail,
     };
 
     await this.notifyMany([
@@ -350,14 +407,28 @@ export class OperationalNotifyService {
         type: NotificationType.ORDER_STATUS_CHANGED,
         title: 'رد کارشناسی معاوضه',
         message,
-        meta: { ...baseMeta, role: 'BUYER', audience: 'BUYER' },
+        meta: {
+          ...baseMeta,
+          ...buildPartyOrderNotifyMeta('BUYER', {
+            buyerNote: detail,
+            sellerNote: detail,
+          }),
+          note: message,
+        },
       },
       {
         userId: params.sellerId,
         type: NotificationType.ORDER_STATUS_CHANGED,
         title: 'رد کارشناسی معاوضه',
         message,
-        meta: { ...baseMeta, role: 'SELLER', audience: 'SELLER' },
+        meta: {
+          ...baseMeta,
+          ...buildPartyOrderNotifyMeta('SELLER', {
+            buyerNote: detail,
+            sellerNote: detail,
+          }),
+          note: message,
+        },
       },
     ]);
   }
@@ -385,9 +456,9 @@ export class OperationalNotifyService {
       statusFa: statusLabel,
       orderStatusLabel: statusLabel,
       phase: 'exchange_financial_settlement',
+      phaseKey: 'exchange_financial_settlement',
       resolution: 'FINANCIAL_SETTLEMENT_THEN_SHIP',
       settlementKind: 'exchange-financial-settlement',
-      note: message,
     };
 
     await this.notifyMany([
@@ -396,14 +467,28 @@ export class OperationalNotifyService {
         type: NotificationType.ORDER_STATUS_CHANGED,
         title: EXCHANGE_FINANCIAL_SETTLEMENT_NOTIFY_TITLE,
         message,
-        meta: { ...baseMeta, role: 'BUYER', audience: 'BUYER' },
+        meta: {
+          ...baseMeta,
+          ...buildPartyOrderNotifyMeta('BUYER', {
+            buyerNote: message,
+            sellerNote: message,
+          }),
+          note: message,
+        },
       },
       {
         userId: params.sellerId,
         type: NotificationType.ORDER_STATUS_CHANGED,
         title: EXCHANGE_FINANCIAL_SETTLEMENT_NOTIFY_TITLE,
         message,
-        meta: { ...baseMeta, role: 'SELLER', audience: 'SELLER' },
+        meta: {
+          ...baseMeta,
+          ...buildPartyOrderNotifyMeta('SELLER', {
+            buyerNote: message,
+            sellerNote: message,
+          }),
+          note: message,
+        },
       },
     ]);
   }
@@ -422,12 +507,15 @@ export class OperationalNotifyService {
     const debtorIsSeller = params.debtorUserId === params.sellerId;
     const debtorLabel = debtorIsSeller ? 'فروشنده' : 'خریدار';
     const peerUserId = debtorIsSeller ? params.buyerId : params.sellerId;
+    const debtorNote = `شارژ کیف پول ${shortfallFa} تومان برای ادامه معاوضه`;
+    const peerNote = `در انتظار شارژ کیف پول ${debtorLabel}`;
     const baseMeta = {
       orderId: params.orderId,
       listingId: params.listingId,
       listingTitle,
       status: OrderStatus.CHECKING_AT_HUB,
       phase: 'exchange_hub_awaiting_finance_topup',
+      phaseKey: 'exchange_hub_awaiting_finance_topup',
       awaitingFinanceSettlement: true,
       shortfall: params.shortfall,
     };
@@ -440,8 +528,10 @@ export class OperationalNotifyService {
         message: `برای اعمال توافق مالی کارشناسی معاوضه «${listingTitle}»، ${shortfallFa} تومان به کیف پول شما نیاز است. پس از شارژ، پشتیبانی دوباره تسویه را ثبت می‌کند.`,
         meta: {
           ...baseMeta,
-          role: debtorIsSeller ? 'SELLER' : 'BUYER',
-          audience: debtorIsSeller ? 'SELLER' : 'BUYER',
+          ...buildPartyOrderNotifyMeta(debtorIsSeller ? 'SELLER' : 'BUYER', {
+            buyerNote: debtorIsSeller ? peerNote : debtorNote,
+            sellerNote: debtorIsSeller ? debtorNote : peerNote,
+          }),
         },
       },
       {
@@ -451,8 +541,10 @@ export class OperationalNotifyService {
         message: `معامله «${listingTitle}» در انتظار شارژ کیف پول ${debtorLabel} برای تکمیل توافق مالی کارشناسی است.`,
         meta: {
           ...baseMeta,
-          role: debtorIsSeller ? 'BUYER' : 'SELLER',
-          audience: debtorIsSeller ? 'BUYER' : 'SELLER',
+          ...buildPartyOrderNotifyMeta(debtorIsSeller ? 'BUYER' : 'SELLER', {
+            buyerNote: debtorIsSeller ? peerNote : debtorNote,
+            sellerNote: debtorIsSeller ? debtorNote : peerNote,
+          }),
         },
       },
     ]);
@@ -532,10 +624,8 @@ export class OperationalNotifyService {
     if (params.isReturn) {
       if (params.leg === 'TO_BUYER') {
         const buyerNote =
-          params.note?.trim() ||
           'مرسوله مرجوعی شما از انبار ثبت شد و کد رهگیری ثبت گردید.';
         const sellerNote =
-          params.note?.trim() ||
           'مرسوله مرجوعی خریدار از انبار ثبت شد و کد رهگیری ثبت گردید.';
         await this.notifyMany([
           {
@@ -545,10 +635,8 @@ export class OperationalNotifyService {
             message: `مرسوله مرجوعی مربوط به شما برای معاوضه «${listingTitle}» از انبار ثبت شد.${trackingSuffix}${noteSuffix}`,
             meta: {
               ...baseMeta,
-              role: 'BUYER',
-              audience: 'BUYER',
               leg: 'TO_BUYER',
-              note: buyerNote,
+              ...buildPartyOrderNotifyMeta('BUYER', { buyerNote, sellerNote }),
             },
           },
           {
@@ -558,10 +646,8 @@ export class OperationalNotifyService {
             message: `مرسوله مرجوعی خریدار برای معاوضه «${listingTitle}» از انبار ثبت شد.${trackingSuffix}${noteSuffix}`,
             meta: {
               ...baseMeta,
-              role: 'SELLER',
-              audience: 'SELLER',
               leg: 'TO_BUYER',
-              note: sellerNote,
+              ...buildPartyOrderNotifyMeta('SELLER', { buyerNote, sellerNote }),
             },
           },
         ]);
@@ -569,10 +655,8 @@ export class OperationalNotifyService {
       }
 
       const sellerNote =
-        params.note?.trim() ||
         'مرسوله مرجوعی شما از انبار ثبت شد و کد رهگیری ثبت گردید.';
       const buyerNote =
-        params.note?.trim() ||
         'مرسوله مرجوعی فروشنده از انبار ثبت شد و کد رهگیری ثبت گردید.';
       await this.notifyMany([
         {
@@ -582,10 +666,8 @@ export class OperationalNotifyService {
           message: `مرسوله مرجوعی مربوط به شما برای معاوضه «${listingTitle}» از انبار ثبت شد.${trackingSuffix}${noteSuffix}`,
           meta: {
             ...baseMeta,
-            role: 'SELLER',
-            audience: 'SELLER',
             leg: 'TO_SELLER',
-            note: sellerNote,
+            ...buildPartyOrderNotifyMeta('SELLER', { buyerNote, sellerNote }),
           },
         },
         {
@@ -595,10 +677,8 @@ export class OperationalNotifyService {
           message: `مرسوله مرجوعی فروشنده برای معاوضه «${listingTitle}» از انبار ثبت شد.${trackingSuffix}${noteSuffix}`,
           meta: {
             ...baseMeta,
-            role: 'BUYER',
-            audience: 'BUYER',
             leg: 'TO_SELLER',
-            note: buyerNote,
+            ...buildPartyOrderNotifyMeta('BUYER', { buyerNote, sellerNote }),
           },
         },
       ]);
@@ -607,10 +687,8 @@ export class OperationalNotifyService {
 
     if (params.leg === 'TO_BUYER') {
       const buyerNote =
-        params.note?.trim() ||
         'کالای آگهی از انبار برای شما ارسال شد و کد رهگیری ثبت گردید.';
       const sellerNote =
-        params.note?.trim() ||
         'کالای آگهی شما از انبار به خریدار ارسال شد و کد رهگیری ثبت گردید.';
       await this.notifyMany([
         {
@@ -620,10 +698,8 @@ export class OperationalNotifyService {
           message: `کالای آگهی برای معاوضه «${listingTitle}» از انبار طبقه برای شما ارسال شد. پس از دریافت، تأیید را ثبت کنید.${trackingSuffix}${noteSuffix}`,
           meta: {
             ...baseMeta,
-            role: 'BUYER',
-            audience: 'BUYER',
             leg: 'TO_BUYER',
-            note: buyerNote,
+            ...buildPartyOrderNotifyMeta('BUYER', { buyerNote, sellerNote }),
           },
         },
         {
@@ -633,10 +709,8 @@ export class OperationalNotifyService {
           message: `کالای آگهی شما برای معاوضه «${listingTitle}» از انبار به خریدار ارسال شد.${trackingSuffix}${noteSuffix}`,
           meta: {
             ...baseMeta,
-            role: 'SELLER',
-            audience: 'SELLER',
             leg: 'TO_BUYER',
-            note: sellerNote,
+            ...buildPartyOrderNotifyMeta('SELLER', { buyerNote, sellerNote }),
           },
         },
       ]);
@@ -644,10 +718,8 @@ export class OperationalNotifyService {
     }
 
     const buyerNote =
-      params.note?.trim() ||
       'کالای پیشنهادی شما از انبار به فروشنده ارسال شد و کد رهگیری ثبت گردید.';
     const sellerNote =
-      params.note?.trim() ||
       'کالای پیشنهادی خریدار از انبار برای شما ارسال شد و کد رهگیری ثبت گردید.';
     await this.notifyMany([
       {
@@ -657,10 +729,8 @@ export class OperationalNotifyService {
         message: `کالای پیشنهادی شما برای معاوضه «${listingTitle}» از انبار به فروشنده ارسال شد.${trackingSuffix}${noteSuffix}`,
         meta: {
           ...baseMeta,
-          role: 'BUYER',
-          audience: 'BUYER',
           leg: 'TO_SELLER',
-          note: buyerNote,
+          ...buildPartyOrderNotifyMeta('BUYER', { buyerNote, sellerNote }),
         },
       },
       {
@@ -670,10 +740,8 @@ export class OperationalNotifyService {
         message: `کالای پیشنهادی خریدار برای معاوضه «${listingTitle}» از انبار برای شما ارسال شد. پس از دریافت، تأیید را ثبت کنید.${trackingSuffix}${noteSuffix}`,
         meta: {
           ...baseMeta,
-          role: 'SELLER',
-          audience: 'SELLER',
           leg: 'TO_SELLER',
-          note: sellerNote,
+          ...buildPartyOrderNotifyMeta('SELLER', { buyerNote, sellerNote }),
         },
       },
     ]);
@@ -697,6 +765,8 @@ export class OperationalNotifyService {
   }): Promise<void> {
     const title = await this.listingTitle(order.listingId);
     const isAuction = order.type === OrderType.AUCTION;
+    const buyerNote = isAuction ? 'پرداخت مزایده ثبت شد' : 'خرید شما ثبت شد';
+    const sellerNote = isAuction ? 'مزایده فروخته شد' : 'کالای شما فروخته شد';
     await this.notifyMany([
       {
         userId: order.buyerId,
@@ -709,10 +779,10 @@ export class OperationalNotifyService {
           orderId: order.id,
           listingId: order.listingId,
           listingTitle: title,
-          role: 'BUYER',
           status: OrderStatus.PAID,
           phase: 'purchase_completed',
           phaseKey: 'purchase_completed',
+          ...buildPartyOrderNotifyMeta('BUYER', { buyerNote, sellerNote }),
         },
       },
       {
@@ -726,10 +796,10 @@ export class OperationalNotifyService {
           orderId: order.id,
           listingId: order.listingId,
           listingTitle: title,
-          role: 'SELLER',
           status: 'SOLD',
           phase: 'sale_completed',
           phaseKey: 'sale_completed',
+          ...buildPartyOrderNotifyMeta('SELLER', { buyerNote, sellerNote }),
         },
       },
     ]);
@@ -984,6 +1054,12 @@ export class OperationalNotifyService {
   }): Promise<void> {
     const listingTitle = await this.listingTitle(params.listingId);
     const hub = params.toHub;
+    const sellerNote = hub
+      ? 'ارسال شما به انبار ثبت شد'
+      : 'ارسال شما به خریدار ثبت شد';
+    const buyerNote = hub
+      ? 'فروشنده کالا را به انبار ارسال کرد'
+      : 'فروشنده کالا را برای شما ارسال کرد';
     await this.notifyMany([
       {
         userId: params.sellerId,
@@ -999,7 +1075,7 @@ export class OperationalNotifyService {
           status: params.newStatus,
           phase: hub ? 'seller_shipped_to_hub' : 'seller_shipped_to_buyer',
           phaseKey: hub ? 'seller_shipped_to_hub' : 'seller_shipped_to_buyer',
-          role: 'SELLER',
+          ...buildPartyOrderNotifyMeta('SELLER', { buyerNote, sellerNote }),
         },
       },
       {
@@ -1016,7 +1092,7 @@ export class OperationalNotifyService {
           status: params.newStatus,
           phase: hub ? 'awaiting_hub_inspection' : 'awaiting_delivery_confirm',
           phaseKey: hub ? 'awaiting_hub_inspection' : 'awaiting_delivery_confirm',
-          role: 'BUYER',
+          ...buildPartyOrderNotifyMeta('BUYER', { buyerNote, sellerNote }),
         },
       },
     ]);
@@ -1031,9 +1107,13 @@ export class OperationalNotifyService {
     note?: string;
   }): Promise<void> {
     const listingTitle = await this.listingTitle(params.listingId);
-    const noteSuffix = params.note?.trim()
-      ? ` ${params.note.trim()}`
-      : '';
+    const adminNote = params.note?.trim();
+    const noteSuffix = adminNote ? ` ${adminNote}` : '';
+    const sellerNote = adminNote
+      ? `مرسوله شما از هاب به آدرس شما مرجوع شد. ${adminNote}`
+      : 'مرسوله شما از هاب به آدرس شما مرجوع شد.';
+    const buyerNote =
+      'کالا از هاب به فروشنده مرجوع شد؛ مبلغ پرداختی به کیف پول شما بازگشت داده می‌شود.';
     await this.notifyMany([
       {
         userId: params.sellerId,
@@ -1047,9 +1127,7 @@ export class OperationalNotifyService {
           status: OrderStatus.REJECTED_AT_HUB,
           phase: 'hub_return_shipped',
           phaseKey: 'hub_return_shipped',
-          role: 'SELLER',
-          audience: 'SELLER',
-          note: params.note,
+          ...buildPartyOrderNotifyMeta('SELLER', { buyerNote, sellerNote }),
         },
       },
       {
@@ -1064,9 +1142,7 @@ export class OperationalNotifyService {
           status: OrderStatus.CANCELLED,
           phase: 'admin_cancel_refund',
           phaseKey: 'admin_cancel_refund',
-          role: 'BUYER',
-          audience: 'BUYER',
-          note: params.note,
+          ...buildPartyOrderNotifyMeta('BUYER', { buyerNote, sellerNote }),
         },
       },
     ]);
@@ -1098,7 +1174,7 @@ export class OperationalNotifyService {
     });
   }
 
-  /** ارسال از هاب به خریدار */
+  /** ارسال از هاب به خریدار — فروش مستقیم / مزایده */
   async notifyShippedFromHubToBuyer(params: {
     orderId: string;
     buyerId: string;
@@ -1107,9 +1183,14 @@ export class OperationalNotifyService {
     note?: string;
   }): Promise<void> {
     const listingTitle = await this.listingTitle(params.listingId);
-    const noteSuffix = params.note?.trim()
-      ? ` ${params.note.trim()}`
-      : '';
+    const adminNote = params.note?.trim();
+    const noteSuffix = adminNote ? ` ${adminNote}` : '';
+    const buyerNote = adminNote
+      ? `مرسوله از هاب به مقصد شما ارسال شد. ${adminNote}`
+      : 'مرسوله از هاب به مقصد شما ارسال شد و کد رهگیری ثبت گردید.';
+    const sellerNote = adminNote
+      ? `کالا از انبار برای خریدار ارسال شد. ${adminNote}`
+      : 'کالا از انبار برای خریدار ارسال شد و کد رهگیری ثبت گردید.';
     await this.notifyMany([
       {
         userId: params.buyerId,
@@ -1123,8 +1204,7 @@ export class OperationalNotifyService {
           status: OrderStatus.SHIPPED_TO_BUYER,
           phase: 'shipped_from_hub_to_buyer',
           phaseKey: 'shipped_from_hub_to_buyer',
-          role: 'BUYER',
-          note: params.note,
+          ...buildPartyOrderNotifyMeta('BUYER', { buyerNote, sellerNote }),
         },
       },
       {
@@ -1139,8 +1219,7 @@ export class OperationalNotifyService {
           status: OrderStatus.SHIPPED_TO_BUYER,
           phase: 'shipped_from_hub_to_buyer',
           phaseKey: 'shipped_from_hub_to_buyer',
-          role: 'SELLER',
-          note: params.note,
+          ...buildPartyOrderNotifyMeta('SELLER', { buyerNote, sellerNote }),
         },
       },
     ]);
@@ -1155,6 +1234,15 @@ export class OperationalNotifyService {
   }): Promise<void> {
     const listingTitle = await this.listingTitle(order.listingId);
     const message = `پرداخت هر دو طرف برای معاوضه «${listingTitle}» تکمیل شد. لطفاً تا پایان مهلت، کالای خود را به انبار طبقه ارسال و کد رهگیری را ثبت کنید.`;
+    const shipNote = 'زمان ارسال کالا به انبار';
+    const baseMeta = {
+      orderId: order.id,
+      listingId: order.listingId,
+      listingTitle,
+      status: OrderStatus.AWAITING_SHIPMENT_TO_HUB,
+      phase: 'exchange_ready_to_ship',
+      phaseKey: 'exchange_ready_to_ship',
+    };
     await this.notifyMany([
       {
         userId: order.buyerId,
@@ -1162,13 +1250,12 @@ export class OperationalNotifyService {
         title: 'زمان ارسال معاوضه',
         message,
         meta: {
-          orderId: order.id,
-          listingId: order.listingId,
-          listingTitle,
-          status: OrderStatus.AWAITING_SHIPMENT_TO_HUB,
-          phase: 'exchange_ready_to_ship',
-          role: 'BUYER',
-          audience: 'BUYER',
+          ...baseMeta,
+          ...buildPartyOrderNotifyMeta('BUYER', {
+            buyerNote: shipNote,
+            sellerNote: shipNote,
+          }),
+          note: message,
         },
       },
       {
@@ -1177,13 +1264,12 @@ export class OperationalNotifyService {
         title: 'زمان ارسال معاوضه',
         message,
         meta: {
-          orderId: order.id,
-          listingId: order.listingId,
-          listingTitle,
-          status: OrderStatus.AWAITING_SHIPMENT_TO_HUB,
-          phase: 'exchange_ready_to_ship',
-          role: 'SELLER',
-          audience: 'SELLER',
+          ...baseMeta,
+          ...buildPartyOrderNotifyMeta('SELLER', {
+            buyerNote: shipNote,
+            sellerNote: shipNote,
+          }),
+          note: message,
         },
       },
     ]);
@@ -1197,6 +1283,8 @@ export class OperationalNotifyService {
     const peerUserId =
       payerUserId === order.buyerId ? order.sellerId : order.buyerId;
     const peerRole = peerUserId === order.buyerId ? 'BUYER' : 'SELLER';
+    const peerNote = 'طرف مقابل سهم خود را پرداخت کرد';
+    const payerNote = 'پرداخت شما ثبت شد';
     await this.notifyMany([
       {
         userId: peerUserId,
@@ -1209,9 +1297,12 @@ export class OperationalNotifyService {
           listingTitle,
           status: OrderStatus.AWAITING_PAYMENT,
           phase: 'exchange_peer_paid',
+          phaseKey: 'exchange_peer_paid',
           payerUserId,
-          role: peerRole,
-          audience: peerRole,
+          ...buildPartyOrderNotifyMeta(peerRole, {
+            buyerNote: peerRole === 'BUYER' ? peerNote : payerNote,
+            sellerNote: peerRole === 'SELLER' ? peerNote : payerNote,
+          }),
         },
       },
     ]);
@@ -1243,6 +1334,18 @@ export class OperationalNotifyService {
 
     if (sellerSent && buyerSent) {
       const message = `هر دو کالای معاوضه «${listingTitle}» به انبار طبقه ارسال شدند. پس از دریافت در انبار، کارشناسی آغاز می‌شود.`;
+      const bothStatusFa = 'هر دو کالا در راه انبار';
+      const bothMeta = {
+        orderId: order.id,
+        listingId: order.listingId,
+        listingTitle,
+        status: hubStatus,
+        phase: 'exchange_both_shipped',
+        phaseKey: 'exchange_both_shipped',
+        note: message,
+        buyerNote: bothStatusFa,
+        sellerNote: bothStatusFa,
+      };
       await this.notifyMany([
         {
           userId: order.buyerId,
@@ -1250,11 +1353,7 @@ export class OperationalNotifyService {
           title: 'هر دو کالا در راه انبار',
           message,
           meta: {
-            orderId: order.id,
-            listingId: order.listingId,
-            listingTitle,
-            status: hubStatus,
-            phase: 'exchange_both_shipped',
+            ...bothMeta,
             role: 'BUYER',
             audience: 'BUYER',
           },
@@ -1265,11 +1364,7 @@ export class OperationalNotifyService {
           title: 'هر دو کالا در راه انبار',
           message,
           meta: {
-            orderId: order.id,
-            listingId: order.listingId,
-            listingTitle,
-            status: hubStatus,
-            phase: 'exchange_both_shipped',
+            ...bothMeta,
             role: 'SELLER',
             audience: 'SELLER',
           },
@@ -1284,6 +1379,12 @@ export class OperationalNotifyService {
     const peerMessage = shipperIsSeller
       ? `فروشنده ارسال کالای آگهی را برای معاوضه «${listingTitle}» ثبت کرد. لطفاً تا پایان مهلت، کالای پیشنهادی خود را ارسال و کد رهگیری را ثبت کنید.`
       : `خریدار ارسال کالای پیشنهادی را برای معاوضه «${listingTitle}» ثبت کرد. لطفاً تا پایان مهلت، کالای آگهی خود را ارسال و کد رهگیری را ثبت کنید.`;
+    const selfStatusFa = 'ارسال شما به انبار ثبت شد';
+    const peerStatusFa = 'طرف مقابل ارسال کرد — نوبت شما';
+    const shipperBuyerNote = shipperIsSeller ? peerStatusFa : selfStatusFa;
+    const shipperSellerNote = shipperIsSeller ? selfStatusFa : peerStatusFa;
+    const peerBuyerNote = shipperIsSeller ? peerStatusFa : selfStatusFa;
+    const peerSellerNote = shipperIsSeller ? selfStatusFa : peerStatusFa;
 
     await this.notifyMany([
       {
@@ -1297,9 +1398,13 @@ export class OperationalNotifyService {
           listingTitle,
           status: hubStatus,
           phase: 'exchange_self_shipped',
+          phaseKey: 'exchange_self_shipped',
           leg: shipperLeg,
           role: shipperRole,
           audience: shipperRole,
+          note: selfMessage,
+          buyerNote: shipperBuyerNote,
+          sellerNote: shipperSellerNote,
         },
       },
       {
@@ -1313,10 +1418,14 @@ export class OperationalNotifyService {
           listingTitle,
           status: hubStatus,
           phase: 'exchange_peer_must_ship',
+          phaseKey: 'exchange_peer_must_ship',
           leg: peerLeg,
           shipperUserId,
           role: peerRole,
           audience: peerRole,
+          note: peerMessage,
+          buyerNote: peerBuyerNote,
+          sellerNote: peerSellerNote,
         },
       },
     ]);

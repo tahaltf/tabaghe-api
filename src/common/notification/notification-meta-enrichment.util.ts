@@ -198,6 +198,28 @@ function resolvePartyOrderStatusFa(
   return resolveOrderStatusLabelFromMeta(meta);
 }
 
+/** meta نقش‌محور برای SMS/اعلان — note و buyerNote/sellerNote برای هر گیرنده */
+export function buildPartyOrderNotifyMeta(
+  role: 'BUYER' | 'SELLER',
+  params: {
+    buyerNote: string;
+    sellerNote: string;
+    extra?: Record<string, unknown>;
+  },
+): Record<string, unknown> {
+  const buyerNote = params.buyerNote.trim();
+  const sellerNote = params.sellerNote.trim();
+  const note = role === 'BUYER' ? buyerNote : sellerNote;
+  return {
+    ...(params.extra ?? {}),
+    role,
+    audience: role,
+    note,
+    buyerNote,
+    sellerNote,
+  };
+}
+
 export function inferNotificationRecipientRole(
   meta?: Record<string, unknown>,
 ): string | undefined {

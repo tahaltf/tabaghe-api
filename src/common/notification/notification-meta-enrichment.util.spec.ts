@@ -1,4 +1,32 @@
-import { resolveNotificationRuleKeyCandidates } from './notification-meta-enrichment.util';
+import {
+  buildPartyOrderNotifyMeta,
+  resolveNotificationRuleKeyCandidates,
+} from './notification-meta-enrichment.util';
+
+describe('buildPartyOrderNotifyMeta', () => {
+  it('sets per-role note from buyerNote/sellerNote', () => {
+    expect(
+      buildPartyOrderNotifyMeta('BUYER', {
+        buyerNote: 'برای شما',
+        sellerNote: 'برای فروشنده',
+      }),
+    ).toMatchObject({
+      role: 'BUYER',
+      note: 'برای شما',
+      buyerNote: 'برای شما',
+      sellerNote: 'برای فروشنده',
+    });
+    expect(
+      buildPartyOrderNotifyMeta('SELLER', {
+        buyerNote: 'برای شما',
+        sellerNote: 'برای فروشنده',
+      }),
+    ).toMatchObject({
+      role: 'SELLER',
+      note: 'برای فروشنده',
+    });
+  });
+});
 
 describe('resolveNotificationRuleKeyCandidates', () => {
   it('prefers role+phaseKey before role-only and base type', () => {
