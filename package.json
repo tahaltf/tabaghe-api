@@ -20,6 +20,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "seed": "ts-node prisma/seed.ts",
+    "seed:test-users": "ts-node prisma/seed-test-users.ts",
     "seed:content": "node prisma/seed-content.js",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
