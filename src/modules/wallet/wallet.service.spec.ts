@@ -25,6 +25,7 @@ function createWalletService(prismaMock: unknown, notificationMock: unknown) {
     prismaMock as any,
     notificationMock as any,
     query,
+    { issue: jest.fn(), consume: jest.fn() } as any,
   );
   return new WalletService(query, block, escrow, refund, depositWithdraw);
 }

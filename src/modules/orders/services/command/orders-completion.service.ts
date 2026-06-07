@@ -14,7 +14,6 @@ import {
   ExchangeOfferStatus,
   ListingStatus,
   ListingType,
-  NotificationType,
   OrderStatus,
   OrderType,
   Prisma,
@@ -30,7 +29,6 @@ import { WalletService } from '../../../wallet/wallet.service';
 import { FeeCalculatorService } from '../../../fees/fee-calculator.service';
 import { AppSettingsService } from '../../../../shared/settings/app-settings.service';
 import { PaymentsService } from '../../../payments/payments.service';
-import { NotificationService } from '../../../notification/notification.service';
 import { OperationalNotifyService } from '../../../notification/operational-notify.service';
 import { ExchangeOrderNotifyService } from '../../../notification/exchange-order-notify.service';
 import { OrderReputationService } from '../../order-reputation.service';
@@ -83,7 +81,6 @@ export class OrdersCompletionService {
     private readonly prisma: PrismaService,
     private readonly walletService: WalletService,
     private readonly stateMachine: OrdersStateMachineService,
-    private readonly notificationService: NotificationService,
     private readonly operationalNotify: OperationalNotifyService,
     private readonly appSettings: AppSettingsService,
     private readonly orderReputation: OrderReputationService,
@@ -142,21 +139,15 @@ export class OrdersCompletionService {
       },
     });
 
-    await this.notificationService.create({
-      userId: updated.sellerId,
-      type: NotificationType.ORDER_STATUS_CHANGED,
-      title: 'مرجوعی ثبت شد — تایید دریافت',
-      message: `خریدار مرجوعی سفارش #${orderId.slice(-6)} را ارسال کرد. تا پایان مهلت، دریافت را تایید کنید؛ در غیر این صورت به‌صورت خودکار تایید و بازگشت وجه انجام می‌شود.`,
-      meta: {
+    await this.operationalNotify
+      .notifyReturnShipped({
         orderId,
-        status: OrderStatus.RETURN_SHIPPED,
+        buyerId: updated.buyerId,
+        sellerId: updated.sellerId,
+        listingId: updated.listingId,
         returnConfirmDeadline: returnConfirmDeadline.toISOString(),
-        role: 'SELLER',
-        audience: 'SELLER',
-        phase: 'return_shipped',
-        phaseKey: 'return_shipped',
-      },
-    });
+      })
+      .catch(() => undefined);
 
     return updated;
   }
@@ -238,7 +229,7 @@ export class OrdersCompletionService {
     confirmedBy: string,
   ) {
     const isAuto = confirmedBy === 'AUTO_TIMEOUT';
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const order = await tx.order.findUnique({
         where: { id: orderId },
         include: {
@@ -385,54 +376,34 @@ export class OrdersCompletionService {
         data: { status: ListingStatus.APPROVED },
       });
 
-      await tx.notification.createMany({
-        data: [
-          {
-            userId: order.buyerId,
-            type: NotificationType.ORDER_STATUS_CHANGED,
-            title: isAuto ? 'تایید خودکار مرجوعی و بازگشت وجه' : 'مرجوعی تایید شد و وجه بازگشت',
-            message: isAuto
-              ? `مهلت تایید دریافت مرجوعی سفارش #${order.id.slice(-6)} به پایان رسید؛ دریافت به‌صورت خودکار تایید و مبلغ به کیف پول شما برگشت.`
-              : `فروشنده دریافت مرجوعی سفارش #${order.id.slice(-6)} را تایید کرد و مبلغ به کیف پول شما برگشت.`,
-            meta: {
-              orderId: order.id,
-              status: OrderStatus.CANCELLED,
-              refundAmount: refundableToBuyer,
-              autoConfirmed: isAuto,
-              role: 'BUYER',
-              audience: 'BUYER',
-              phase: isAuto ? 'return_auto_confirmed' : 'return_confirmed',
-              phaseKey: isAuto ? 'return_auto_confirmed' : 'return_confirmed',
-            } as Prisma.InputJsonValue,
-          },
-          {
-            userId: order.sellerId,
-            type: NotificationType.ORDER_STATUS_CHANGED,
-            title: isAuto ? 'تایید خودکار دریافت مرجوعی' : 'مرجوعی تایید شد',
-            message: isAuto
-              ? `به‌دلیل عدم تایید در مهلت مقرر، دریافت مرجوعی سفارش #${order.id.slice(-6)} به‌صورت خودکار ثبت شد و بازگشت وجه به خریدار انجام شد.`
-              : `شما دریافت مرجوعی سفارش #${order.id.slice(-6)} را تایید کردید و پرونده بسته شد.`,
-            meta: {
-              orderId: order.id,
-              status: OrderStatus.CANCELLED,
-              autoConfirmed: isAuto,
-              role: 'SELLER',
-              audience: 'SELLER',
-              phase: isAuto ? 'return_auto_confirmed' : 'return_confirmed',
-              phaseKey: isAuto ? 'return_auto_confirmed' : 'return_confirmed',
-            } as Prisma.InputJsonValue,
-          },
-        ],
-      });
-
       return {
         success: true,
         message: isAuto
           ? 'مرجوعی به‌صورت خودکار تایید و بازگشت وجه انجام شد'
           : 'مرجوعی تایید شد و بازگشت وجه انجام شد',
         order: updated,
+        notify: {
+          orderId: order.id,
+          buyerId: order.buyerId,
+          sellerId: order.sellerId,
+          listingId: order.listingId,
+          isAuto,
+          refundAmount: refundableToBuyer,
+        },
       };
     });
+
+    if (result.notify) {
+      await this.operationalNotify
+        .notifyReturnConfirmed(result.notify)
+        .catch(() => undefined);
+    }
+
+    return {
+      success: result.success,
+      message: result.message,
+      order: result.order,
+    };
   }
 
 
@@ -944,40 +915,6 @@ export class OrdersCompletionService {
         select: { id: true },
       });
 
-      await tx.notification.createMany({
-        data: [
-          {
-            userId: buyerId,
-            type: NotificationType.ORDER_STATUS_CHANGED,
-            title: 'شکایت شما ثبت شد',
-            message: `شکایت سفارش #${order.id.slice(-6)} ثبت شد و برای پشتیبانی ارسال گردید.`,
-            meta: {
-              orderId: order.id,
-              ticketId: createdTicket.id,
-              status: OrderStatus.DISPUTED,
-              role: 'BUYER',
-              audience: 'BUYER',
-              phase: 'dispute_filed',
-              phaseKey: 'dispute_filed',
-            } as Prisma.InputJsonValue,
-          },
-          {
-            userId: order.sellerId,
-            type: NotificationType.ORDER_STATUS_CHANGED,
-            title: 'برای سفارش شما شکایت ثبت شد',
-            message: `خریدار برای سفارش #${order.id.slice(-6)} شکایت ثبت کرده است.`,
-            meta: {
-              orderId: order.id,
-              status: OrderStatus.DISPUTED,
-              role: 'SELLER',
-              audience: 'SELLER',
-              phase: 'dispute_filed',
-              phaseKey: 'dispute_filed',
-            } as Prisma.InputJsonValue,
-          },
-        ],
-      });
-
       await this.listingCommand.rejectAfterTradeFailure(tx, {
         listingId: order.listingId,
         sellerId: order.sellerId,
@@ -991,8 +928,27 @@ export class OrdersCompletionService {
         success: true,
         message: 'شکایت شما ثبت شد و مبلغ مسدود ماند.',
         ticketId: createdTicket.id,
+        notify: {
+          orderId: order.id,
+          buyerId,
+          sellerId: order.sellerId,
+          listingId: order.listingId,
+          ticketId: createdTicket.id,
+        },
       };
     });
+
+    if (result.notify) {
+      await this.operationalNotify
+        .notifyDisputeFiled(result.notify)
+        .catch(() => undefined);
+    }
+
+    return {
+      success: result.success,
+      message: result.message,
+      ticketId: result.ticketId,
+    };
   }
 
   /**

@@ -11,6 +11,7 @@ describe('OperationalNotifyService - exchange inbound hub notifications', () => 
     };
     const notificationService = {
       create: jest.fn().mockResolvedValue({ notification: { id: 'n1' }, dispatched: true }),
+      notifyUserTickets: jest.fn().mockResolvedValue(undefined),
     };
     const service = new OperationalNotifyService(
       prisma as never,

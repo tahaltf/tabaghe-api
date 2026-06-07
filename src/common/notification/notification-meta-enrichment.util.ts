@@ -62,9 +62,11 @@ export async function enrichNotificationMeta(
       where: { id: out.orderId },
       select: {
         type: true,
+        status: true,
         listingId: true,
         buyerId: true,
         sellerId: true,
+        exchangeOfferId: true,
         totalAmount: true,
         finalPrice: true,
         sellerRevenue: true,
@@ -78,18 +80,44 @@ export async function enrichNotificationMeta(
       if (!out.listingTitle && order.listing?.title) {
         out.listingTitle = order.listing.title;
       }
+      if (!out.status) out.status = order.status;
       out.orderType = order.type;
       out.isExchange = order.type === 'EXCHANGE';
       out.buyerId = order.buyerId;
       out.sellerId = order.sellerId;
       out.buyerName = formatUserName(order.buyer);
       out.sellerName = formatUserName(order.seller);
+      out.ownerName = formatUserName(order.seller);
       out.buyerPhone = order.buyer.phone;
       out.sellerPhone = order.seller.phone;
       out.totalAmount = Number(order.totalAmount);
       out.finalPrice = Number(order.finalPrice);
       out.sellerRevenue = Number(order.sellerRevenue);
       if (out.amount == null) out.amount = Number(order.totalAmount);
+
+      if (!out.offerTitle && order.exchangeOfferId) {
+        const offer = await prisma.exchangeOffer.findUnique({
+          where: { id: order.exchangeOfferId },
+          select: { title: true },
+        });
+        if (offer?.title) out.offerTitle = offer.title;
+      }
+    }
+  }
+
+  if (typeof out.offerId === 'string' && !out.offerTitle) {
+    const offer = await prisma.exchangeOffer.findUnique({
+      where: { id: out.offerId },
+      select: {
+        title: true,
+        listing: { select: { title: true } },
+      },
+    });
+    if (offer) {
+      out.offerTitle = offer.title;
+      if (!out.listingTitle && offer.listing?.title) {
+        out.listingTitle = offer.listing.title;
+      }
     }
   }
 
@@ -129,7 +157,45 @@ export async function enrichNotificationMeta(
     out.statusFa = statusLabel;
   }
 
+  if (!out.ownerName && typeof out.sellerName === 'string') {
+    out.ownerName = out.sellerName;
+  }
+
+  const sellerOrderStatusFa = resolvePartyOrderStatusFa(out, 'seller');
+  const buyerOrderStatusFa = resolvePartyOrderStatusFa(out, 'buyer');
+  if (sellerOrderStatusFa) {
+    out.sellerOrderStatusFa = sellerOrderStatusFa;
+    out.sellerOrderStatus = sellerOrderStatusFa;
+    out.ownerOrderStatusFa = sellerOrderStatusFa;
+  }
+  if (buyerOrderStatusFa) {
+    out.buyerOrderStatusFa = buyerOrderStatusFa;
+    out.buyerOrderStatus = buyerOrderStatusFa;
+  }
+
   return out;
+}
+
+function resolvePartyOrderStatusFa(
+  meta: Record<string, unknown>,
+  party: 'seller' | 'buyer',
+): string {
+  const roleKey = party === 'seller' ? 'SELLER' : 'BUYER';
+  const noteKey = party === 'seller' ? 'sellerNote' : 'buyerNote';
+  const statusKey = party === 'seller' ? 'sellerOrderStatusFa' : 'buyerOrderStatusFa';
+
+  const explicit = meta[statusKey];
+  if (typeof explicit === 'string' && explicit.trim()) return explicit.trim();
+
+  const partyNote = meta[noteKey];
+  if (typeof partyNote === 'string' && partyNote.trim()) return partyNote.trim();
+
+  const role = String(meta.role ?? '').trim().toUpperCase();
+  if (role === roleKey && typeof meta.note === 'string' && meta.note.trim()) {
+    return meta.note.trim();
+  }
+
+  return resolveOrderStatusLabelFromMeta(meta);
 }
 
 export function inferNotificationRecipientRole(

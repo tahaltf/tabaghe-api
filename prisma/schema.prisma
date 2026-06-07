@@ -218,6 +218,7 @@ enum OtpPurpose {
   LOGIN
   REGISTER
   ADMIN_LOGIN
+  WITHDRAW
 }
 
 enum LocationType {

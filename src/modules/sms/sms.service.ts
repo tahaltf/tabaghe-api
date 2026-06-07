@@ -15,6 +15,8 @@ import { AppSettingsService } from '../../shared/settings/app-settings.service';
 export const SMS_SETTING_KEYS = {
   OTP_TEMPLATE_ID: 'SMS_OTP_TEMPLATE_ID',
   OTP_CODE_PARAMETER_NAME: 'SMS_OTP_CODE_PARAMETER_NAME',
+  WITHDRAW_OTP_TEMPLATE_ID: 'SMS_WITHDRAW_OTP_TEMPLATE_ID',
+  WITHDRAW_OTP_CODE_PARAMETER_NAME: 'SMS_WITHDRAW_OTP_CODE_PARAMETER_NAME',
   ADMIN_LOGIN_ALERT_ENABLED: 'SMS_ADMIN_LOGIN_ALERT_ENABLED',
   ADMIN_LOGIN_ALERT_TEMPLATE_ID: 'SMS_ADMIN_LOGIN_ALERT_TEMPLATE_ID',
   ADMIN_LOGIN_ALERT_RECIPIENTS: 'SMS_ADMIN_LOGIN_ALERT_RECIPIENTS',
@@ -24,6 +26,8 @@ export const SMS_SETTING_KEYS = {
 
 const DEFAULT_OTP_TEMPLATE_ID = 591069;
 const DEFAULT_OTP_CODE_PARAMETER = 'CONTACTS';
+const DEFAULT_WITHDRAW_OTP_TEMPLATE_ID = 591069;
+const DEFAULT_WITHDRAW_OTP_CODE_PARAMETER = 'CONTACTS';
 const DEFAULT_ADMIN_LOGIN_TEMPLATE_ID = 176584;
 const DEFAULT_ADMIN_USER_PHONE_PARAMETER = 'PHONE';
 
@@ -137,6 +141,28 @@ export class SmsService {
       (
         await this.resolveSetting(SMS_SETTING_KEYS.OTP_CODE_PARAMETER_NAME)
       )?.trim() || DEFAULT_OTP_CODE_PARAMETER;
+
+    return this.sendByTemplate(phone, templateIdFinal, [
+      { name: paramName, value: code },
+    ]);
+  }
+
+  async sendWithdrawOtp(phone: string, code: string) {
+    const tidRaw = await this.resolveSetting(
+      SMS_SETTING_KEYS.WITHDRAW_OTP_TEMPLATE_ID,
+    );
+    const templateId = Number.parseInt(tidRaw ?? '', 10);
+    const templateIdFinal =
+      Number.isFinite(templateId) && templateId > 0
+        ? templateId
+        : DEFAULT_WITHDRAW_OTP_TEMPLATE_ID;
+
+    const paramName =
+      (
+        await this.resolveSetting(
+          SMS_SETTING_KEYS.WITHDRAW_OTP_CODE_PARAMETER_NAME,
+        )
+      )?.trim() || DEFAULT_WITHDRAW_OTP_CODE_PARAMETER;
 
     return this.sendByTemplate(phone, templateIdFinal, [
       { name: paramName, value: code },

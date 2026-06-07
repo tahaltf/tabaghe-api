@@ -132,6 +132,10 @@ export class WalletService {
     return this.depositWithdraw.requestWithdraw(...args);
   }
 
+  requestWithdrawOtp(...args: Parameters<WalletDepositWithdrawService['requestWithdrawOtp']>) {
+    return this.depositWithdraw.requestWithdrawOtp(...args);
+  }
+
   getWithdrawRequestsAdmin(...args: Parameters<WalletDepositWithdrawService['getWithdrawRequestsAdmin']>) {
     return this.depositWithdraw.getWithdrawRequestsAdmin(...args);
   }

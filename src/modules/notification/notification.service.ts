@@ -451,6 +451,14 @@ export class NotificationService {
             meta && typeof meta['sellerName'] === 'string'
               ? meta['sellerName']
               : undefined,
+          ownerName:
+            meta && typeof meta['ownerName'] === 'string'
+              ? meta['ownerName']
+              : undefined,
+          offerTitle:
+            meta && typeof meta['offerTitle'] === 'string'
+              ? meta['offerTitle']
+              : undefined,
           buyerPhone:
             meta && typeof meta['buyerPhone'] === 'string'
               ? meta['buyerPhone']
@@ -754,6 +762,10 @@ export class NotificationService {
         typeof meta['buyerName'] === 'string' ? meta['buyerName'] : undefined,
       sellerName:
         typeof meta['sellerName'] === 'string' ? meta['sellerName'] : undefined,
+      ownerName:
+        typeof meta['ownerName'] === 'string' ? meta['ownerName'] : undefined,
+      offerTitle:
+        typeof meta['offerTitle'] === 'string' ? meta['offerTitle'] : undefined,
       buyerPhone:
         typeof meta['buyerPhone'] === 'string' ? meta['buyerPhone'] : undefined,
       sellerPhone:

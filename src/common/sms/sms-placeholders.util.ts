@@ -17,6 +17,8 @@ export type SmsPlaceholderContext = {
   message?: string;
   buyerName?: string;
   sellerName?: string;
+  ownerName?: string;
+  offerTitle?: string;
   buyerPhone?: string;
   sellerPhone?: string;
   amountFormatted?: string;
@@ -28,16 +30,16 @@ export function applySmsTemplatePlaceholders(
   ctx: SmsPlaceholderContext,
 ): string {
   let s = String(raw ?? '');
-  const fn = String(ctx.firstName ?? 'کاربر');
-  const ln = String(ctx.lastName ?? '');
-  const listing = String(ctx.listingTitle ?? 'یک آگهی');
-  const adminFn = String(ctx.adminFirstName ?? 'ادمین');
-  const title = String(ctx.title ?? '');
-  const message = String(ctx.message ?? '');
   const meta =
     ctx.meta && typeof ctx.meta === 'object'
       ? (ctx.meta as Record<string, unknown>)
       : {};
+  const fn = String(ctx.firstName ?? 'کاربر');
+  const ln = String(ctx.lastName ?? '');
+  const listing = String(ctx.listingTitle ?? meta['listingTitle'] ?? 'یک آگهی');
+  const adminFn = String(ctx.adminFirstName ?? 'ادمین');
+  const title = String(ctx.title ?? '');
+  const message = String(ctx.message ?? '');
 
   s = s.replace(/\{\{\s*firstName\s*\}\}/gi, fn);
   s = s.replace(/\{\{\s*lastName\s*\}\}/gi, ln);
@@ -60,8 +62,38 @@ export function applySmsTemplatePlaceholders(
   );
   s = s.replace(/\{\{\s*buyerName\s*\}\}/gi, String(ctx.buyerName ?? meta['buyerName'] ?? ''));
   s = s.replace(/\{\{\s*sellerName\s*\}\}/gi, String(ctx.sellerName ?? meta['sellerName'] ?? ''));
+  s = s.replace(
+    /\{\{\s*ownerName\s*\}\}/gi,
+    String(ctx.ownerName ?? meta['ownerName'] ?? meta['sellerName'] ?? ''),
+  );
+  s = s.replace(
+    /\{\{\s*offerTitle\s*\}\}/gi,
+    String(ctx.offerTitle ?? meta['offerTitle'] ?? ''),
+  );
   s = s.replace(/\{\{\s*buyerPhone\s*\}\}/gi, String(ctx.buyerPhone ?? meta['buyerPhone'] ?? ''));
   s = s.replace(/\{\{\s*sellerPhone\s*\}\}/gi, String(ctx.sellerPhone ?? meta['sellerPhone'] ?? ''));
+  s = s.replace(
+    /\{\{\s*sellerOrderStatusFa\s*\}\}/gi,
+    String(
+      meta['sellerOrderStatusFa'] ??
+        meta['sellerOrderStatus'] ??
+        meta['ownerOrderStatusFa'] ??
+        '',
+    ),
+  );
+  s = s.replace(
+    /\{\{\s*buyerOrderStatusFa\s*\}\}/gi,
+    String(meta['buyerOrderStatusFa'] ?? meta['buyerOrderStatus'] ?? ''),
+  );
+  s = s.replace(
+    /\{\{\s*ownerOrderStatusFa\s*\}\}/gi,
+    String(
+      meta['ownerOrderStatusFa'] ??
+        meta['sellerOrderStatusFa'] ??
+        meta['sellerOrderStatus'] ??
+        '',
+    ),
+  );
   s = s.replace(
     /\{\{\s*amountFormatted\s*\}\}/gi,
     String(ctx.amountFormatted ?? meta['amountFormatted'] ?? meta['amount'] ?? ''),

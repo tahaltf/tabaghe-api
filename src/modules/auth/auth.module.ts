@@ -32,6 +32,6 @@ import { SmsService } from '../sms/sms.service';
     SmsService,
     GodadminBootstrapService,
   ],
-  exports: [AuthService, TokenService],
+  exports: [AuthService, TokenService, OtpService],
 })
 export class AuthModule {}

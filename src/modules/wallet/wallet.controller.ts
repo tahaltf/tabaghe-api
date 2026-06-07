@@ -77,6 +77,11 @@ export class WalletController {
     });
   }
 
+  @Post('withdraw/request-otp')
+  async requestWithdrawOtp(@Req() req: any) {
+    return this.walletService.requestWithdrawOtp(req.user.id);
+  }
+
   @Post('withdraw')
   async requestWithdraw(
     @Req() req: any,
@@ -86,6 +91,7 @@ export class WalletController {
       shaba: string;
       card: string;
       ownerName: string;
+      otpCode: string;
     },
   ) {
     return this.walletService.requestWithdraw(req.user.id, body);

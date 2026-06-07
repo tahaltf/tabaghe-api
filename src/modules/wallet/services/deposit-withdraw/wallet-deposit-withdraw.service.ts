@@ -9,11 +9,13 @@ import {
   WalletTransactionStatus,
   Prisma,
   NotificationType,
+  OtpPurpose,
 } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { NotificationService } from '../../../notification/notification.service';
 import { MANUAL_DEPOSIT_KIND } from '../../wallet.constants';
 import { WalletQueryService } from '../query/wallet-query.service';
+import { OtpService, OtpIssueResult } from '../../../auth/services/otp.service';
 
 @Injectable()
 export class WalletDepositWithdrawService {
@@ -21,6 +23,7 @@ export class WalletDepositWithdrawService {
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
     private readonly query: WalletQueryService,
+    private readonly otpService: OtpService,
   ) {}
 
   async deposit(userId: string, amount: number | string | Decimal) {
@@ -299,7 +302,52 @@ export class WalletDepositWithdrawService {
     }
   }
 
-  async requestWithdraw(userId: string, dto: any) {
+  async requestWithdrawOtp(userId: string): Promise<
+    OtpIssueResult & { maskedPhone: string }
+  > {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { phone: true },
+    });
+    if (!user?.phone?.trim()) {
+      throw new BadRequestException('شماره موبایل حساب کاربری یافت نشد.');
+    }
+
+    const otpResult = await this.otpService.issue(
+      user.phone,
+      OtpPurpose.WITHDRAW,
+    );
+    return {
+      ...otpResult,
+      maskedPhone: this.maskPhone(user.phone),
+    };
+  }
+
+  async requestWithdraw(
+    userId: string,
+    dto: {
+      amount: number;
+      shaba: string;
+      card: string;
+      ownerName: string;
+      otpCode: string;
+    },
+  ) {
+    const otpCode = String(dto.otpCode ?? '').trim();
+    if (!/^\d{4,6}$/.test(otpCode)) {
+      throw new BadRequestException('کد تایید نامعتبر است.');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { phone: true },
+    });
+    if (!user?.phone?.trim()) {
+      throw new BadRequestException('شماره موبایل حساب کاربری یافت نشد.');
+    }
+
+    await this.otpService.consume(user.phone, otpCode, OtpPurpose.WITHDRAW);
+
     const amountDec = new Decimal(dto.amount);
     const wallet = await this.query.getWalletByUserId(userId);
 
@@ -558,5 +606,11 @@ export class WalletDepositWithdrawService {
     }
 
     return { message: result.message };
+  }
+
+  private maskPhone(phone: string): string {
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length < 8) return '***';
+    return `${digits.slice(0, 4)}***${digits.slice(-3)}`;
   }
 }

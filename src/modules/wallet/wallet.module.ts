@@ -4,6 +4,7 @@ import { WalletController } from './wallet.controller';
 import { AdminWalletController } from './admin-wallet.controller';
 import { PrismaModule } from '../../infrastructure/prisma/prisma.module';
 import { NotificationModule } from '../notification/notification.module';
+import { AuthModule } from '../auth/auth.module';
 import { WalletSupportService } from './services/support/wallet-support.service';
 import { WalletQueryService } from './services/query/wallet-query.service';
 import { WalletBlockService } from './services/block/wallet-block.service';
@@ -12,7 +13,7 @@ import { WalletRefundService } from './services/refund/wallet-refund.service';
 import { WalletDepositWithdrawService } from './services/deposit-withdraw/wallet-deposit-withdraw.service';
 
 @Module({
-  imports: [PrismaModule, NotificationModule],
+  imports: [PrismaModule, NotificationModule, AuthModule],
   controllers: [WalletController, AdminWalletController],
   providers: [
     WalletSupportService,

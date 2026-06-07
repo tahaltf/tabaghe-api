@@ -49,7 +49,11 @@ export class OtpService {
     }
 
     try {
-      await this.smsService.sendOtp(phone, code);
+      if (purpose === OtpPurpose.WITHDRAW) {
+        await this.smsService.sendWithdrawOtp(phone, code);
+      } else {
+        await this.smsService.sendOtp(phone, code);
+      }
       return { sent: true };
     } catch (error) {
       const isProd =

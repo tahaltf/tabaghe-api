@@ -38,6 +38,28 @@ describe('applySmsTemplatePlaceholders', () => {
     expect(out).toBe('کالای آگهی از انبار برای شما ارسال شد.');
   });
 
+  it('maps trade context placeholders for SMS templates', () => {
+    const out = applySmsTemplatePlaceholders(
+      'آگهی: {{listingTitle}} | پیشنهاد: {{offerTitle}} | مالک: {{ownerName}} | خریدار: {{buyerName}} | فروشنده: {{sellerOrderStatusFa}} | خریدار: {{buyerOrderStatusFa}}',
+      {
+        meta: {
+          listingTitle: 'لپ‌تاپ',
+          offerTitle: 'گوشی',
+          ownerName: 'علی رضایی',
+          buyerName: 'سارا احمدی',
+          sellerOrderStatusFa: 'ارسال شد',
+          buyerOrderStatusFa: 'در انتظار دریافت',
+        },
+      },
+    );
+    expect(out).toContain('لپ‌تاپ');
+    expect(out).toContain('گوشی');
+    expect(out).toContain('علی رضایی');
+    expect(out).toContain('سارا احمدی');
+    expect(out).toContain('ارسال شد');
+    expect(out).toContain('در انتظار دریافت');
+  });
+
   it('maps financial settlement meta to Persian label', () => {
     const out = applySmsTemplatePlaceholders('وضعیت: {{status}}', {
       meta: {

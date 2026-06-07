@@ -750,6 +750,8 @@ export class OperationalNotifyService {
     sellerMessage?: string;
   }): Promise<void> {
     const listingTitle = await this.listingTitle(params.listingId);
+    const buyerNote = (params.buyerMessage ?? params.message)?.trim();
+    const sellerNote = (params.sellerMessage ?? params.message)?.trim();
     const baseMeta = {
       orderId: params.orderId,
       listingId: params.listingId,
@@ -758,6 +760,8 @@ export class OperationalNotifyService {
       phase: params.phase,
       phaseKey: params.phase ?? undefined,
       note: params.note,
+      buyerNote,
+      sellerNote,
     };
     await this.notifyMany([
       {
@@ -765,14 +769,206 @@ export class OperationalNotifyService {
         type: NotificationType.ORDER_STATUS_CHANGED,
         title: params.title,
         message: params.buyerMessage ?? params.message,
-        meta: { ...baseMeta, role: 'BUYER', audience: 'BUYER' },
+        meta: {
+          ...baseMeta,
+          role: 'BUYER',
+          audience: 'BUYER',
+          note: buyerNote ?? params.note,
+        },
       },
       {
         userId: params.sellerId,
         type: NotificationType.ORDER_STATUS_CHANGED,
         title: params.title,
         message: params.sellerMessage ?? params.message,
-        meta: { ...baseMeta, role: 'SELLER', audience: 'SELLER' },
+        meta: {
+          ...baseMeta,
+          role: 'SELLER',
+          audience: 'SELLER',
+          note: sellerNote ?? params.note,
+        },
+      },
+    ]);
+  }
+
+  /** ثبت مرجوعی توسط خریدار */
+  async notifyReturnShipped(params: {
+    orderId: string;
+    buyerId: string;
+    sellerId: string;
+    listingId: string;
+    returnConfirmDeadline: string;
+  }): Promise<void> {
+    const listingTitle = await this.listingTitle(params.listingId);
+    const shortId = params.orderId.slice(-6);
+    const buyerNote = 'مرجوعی شما ثبت شد و در مسیر بازگشت است.';
+    const sellerNote =
+      'خریدار مرجوعی را ارسال کرد. تا پایان مهلت دریافت را تایید کنید.';
+    await this.notifyMany([
+      {
+        userId: params.buyerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'مرجوعی شما ثبت شد',
+        message: `مرجوعی سفارش #${shortId} برای «${listingTitle}» ثبت شد. پس از تایید فروشنده، بازگشت وجه انجام می‌شود.`,
+        meta: {
+          orderId: params.orderId,
+          listingId: params.listingId,
+          listingTitle,
+          status: OrderStatus.RETURN_SHIPPED,
+          returnConfirmDeadline: params.returnConfirmDeadline,
+          role: 'BUYER',
+          audience: 'BUYER',
+          phase: 'return_shipped',
+          phaseKey: 'return_shipped',
+          note: buyerNote,
+          buyerNote,
+          sellerNote,
+        },
+      },
+      {
+        userId: params.sellerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'مرجوعی ثبت شد — تایید دریافت',
+        message: `خریدار مرجوعی سفارش #${shortId} برای «${listingTitle}» را ارسال کرد. تا پایان مهلت دریافت را تایید کنید؛ در غیر این صورت به‌صورت خودکار تایید و بازگشت وجه انجام می‌شود.`,
+        meta: {
+          orderId: params.orderId,
+          listingId: params.listingId,
+          listingTitle,
+          status: OrderStatus.RETURN_SHIPPED,
+          returnConfirmDeadline: params.returnConfirmDeadline,
+          role: 'SELLER',
+          audience: 'SELLER',
+          phase: 'return_shipped',
+          phaseKey: 'return_shipped',
+          note: sellerNote,
+          buyerNote,
+          sellerNote,
+        },
+      },
+    ]);
+  }
+
+  /** تایید دریافت مرجوعی (دستی یا خودکار) */
+  async notifyReturnConfirmed(params: {
+    orderId: string;
+    buyerId: string;
+    sellerId: string;
+    listingId: string;
+    isAuto: boolean;
+    refundAmount?: number;
+  }): Promise<void> {
+    const listingTitle = await this.listingTitle(params.listingId);
+    const shortId = params.orderId.slice(-6);
+    const buyerNote = params.isAuto
+      ? 'مرجوعی به‌صورت خودکار تایید شد و بازگشت وجه انجام شد.'
+      : 'مرجوعی تایید شد و بازگشت وجه به کیف پول شما انجام شد.';
+    const sellerNote = params.isAuto
+      ? 'به‌دلیل عدم تایید در مهلت، دریافت مرجوعی به‌صورت خودکار ثبت شد.'
+      : 'دریافت مرجوعی توسط شما تایید شد و پرونده بسته شد.';
+    const refundSuffix =
+      params.refundAmount != null && params.refundAmount > 0
+        ? ` مبلغ ${params.refundAmount.toLocaleString('fa-IR')} تومان به کیف پول خریدار بازگشت.`
+        : '';
+    await this.notifyMany([
+      {
+        userId: params.buyerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: params.isAuto ? 'تایید خودکار مرجوعی و بازگشت وجه' : 'مرجوعی تایید شد و وجه بازگشت',
+        message: params.isAuto
+          ? `به‌دلیل عدم تایید فروشنده در مهلت مقرر، مرجوعی سفارش #${shortId} برای «${listingTitle}» به‌صورت خودکار تایید شد.${refundSuffix}`
+          : `مرجوعی سفارش #${shortId} برای «${listingTitle}» تایید شد.${refundSuffix}`,
+        meta: {
+          orderId: params.orderId,
+          listingId: params.listingId,
+          listingTitle,
+          status: OrderStatus.CANCELLED,
+          autoConfirmed: params.isAuto,
+          refundAmount: params.refundAmount,
+          role: 'BUYER',
+          audience: 'BUYER',
+          phase: params.isAuto ? 'return_auto_confirmed' : 'return_confirmed',
+          phaseKey: params.isAuto ? 'return_auto_confirmed' : 'return_confirmed',
+          note: buyerNote,
+          buyerNote,
+          sellerNote,
+        },
+      },
+      {
+        userId: params.sellerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: params.isAuto ? 'تایید خودکار دریافت مرجوعی' : 'مرجوعی تایید شد',
+        message: params.isAuto
+          ? `به‌دلیل عدم تایید در مهلت مقرر، دریافت مرجوعی سفارش #${shortId} برای «${listingTitle}» به‌صورت خودکار ثبت شد و بازگشت وجه به خریدار انجام شد.`
+          : `شما دریافت مرجوعی سفارش #${shortId} برای «${listingTitle}» را تایید کردید و پرونده بسته شد.`,
+        meta: {
+          orderId: params.orderId,
+          listingId: params.listingId,
+          listingTitle,
+          status: OrderStatus.CANCELLED,
+          autoConfirmed: params.isAuto,
+          role: 'SELLER',
+          audience: 'SELLER',
+          phase: params.isAuto ? 'return_auto_confirmed' : 'return_confirmed',
+          phaseKey: params.isAuto ? 'return_auto_confirmed' : 'return_confirmed',
+          note: sellerNote,
+          buyerNote,
+          sellerNote,
+        },
+      },
+    ]);
+  }
+
+  /** ثبت شکایت خریدار */
+  async notifyDisputeFiled(params: {
+    orderId: string;
+    buyerId: string;
+    sellerId: string;
+    listingId: string;
+    ticketId: string;
+  }): Promise<void> {
+    const listingTitle = await this.listingTitle(params.listingId);
+    const shortId = params.orderId.slice(-6);
+    const buyerNote = 'شکایت شما ثبت شد و برای پشتیبانی ارسال گردید.';
+    const sellerNote = 'خریدار برای این سفارش شکایت ثبت کرده است.';
+    await this.notifyMany([
+      {
+        userId: params.buyerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'شکایت شما ثبت شد',
+        message: `شکایت سفارش #${shortId} برای «${listingTitle}» ثبت شد و برای پشتیبانی ارسال گردید.`,
+        meta: {
+          orderId: params.orderId,
+          listingId: params.listingId,
+          listingTitle,
+          ticketId: params.ticketId,
+          status: OrderStatus.DISPUTED,
+          role: 'BUYER',
+          audience: 'BUYER',
+          phase: 'dispute_filed',
+          phaseKey: 'dispute_filed',
+          note: buyerNote,
+          buyerNote,
+          sellerNote,
+        },
+      },
+      {
+        userId: params.sellerId,
+        type: NotificationType.ORDER_STATUS_CHANGED,
+        title: 'برای سفارش شما شکایت ثبت شد',
+        message: `خریدار برای سفارش #${shortId} مربوط به «${listingTitle}» شکایت ثبت کرده است.`,
+        meta: {
+          orderId: params.orderId,
+          listingId: params.listingId,
+          listingTitle,
+          status: OrderStatus.DISPUTED,
+          role: 'SELLER',
+          audience: 'SELLER',
+          phase: 'dispute_filed',
+          phaseKey: 'dispute_filed',
+          note: sellerNote,
+          buyerNote,
+          sellerNote,
+        },
       },
     ]);
   }
@@ -1247,6 +1443,8 @@ export class OperationalNotifyService {
     const status = params.status ?? OrderStatus.CANCELLED;
     const statusLabel =
       ORDER_STATUS_LABELS_FA[status as OrderStatus] ?? String(status);
+    const buyerNote = (params.buyer.note ?? params.buyer.message)?.trim();
+    const sellerNote = (params.seller.note ?? params.seller.message)?.trim();
     const baseMeta = {
       orderId: params.orderId ?? undefined,
       listingId: params.listingId,
@@ -1255,6 +1453,8 @@ export class OperationalNotifyService {
       statusLabel,
       phase: params.phase,
       phaseKey: params.phaseKey,
+      buyerNote,
+      sellerNote,
     };
 
     await this.notifyMany([
@@ -1268,7 +1468,7 @@ export class OperationalNotifyService {
           role: 'BUYER',
           audience: 'BUYER',
           leg: params.buyer.leg,
-          note: params.buyer.note ?? params.buyer.message,
+          note: buyerNote,
           ...(params.buyer.ticketId ? { ticketId: params.buyer.ticketId } : {}),
         },
       },
@@ -1282,7 +1482,7 @@ export class OperationalNotifyService {
           role: 'SELLER',
           audience: 'SELLER',
           leg: params.seller.leg,
-          note: params.seller.note ?? params.seller.message,
+          note: sellerNote,
           ...(params.seller.ticketId ? { ticketId: params.seller.ticketId } : {}),
         },
       },
