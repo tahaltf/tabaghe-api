@@ -833,7 +833,7 @@ export class OrdersCompletionService {
     reason: string,
     videoPath?: string,
   ) {
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const order = await tx.order.findUnique({
         where: { id: orderId },
         include: { listing: true },
