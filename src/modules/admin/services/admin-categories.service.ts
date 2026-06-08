@@ -81,7 +81,7 @@ export class AdminCategoriesService {
     }
     const feeDirect = dto.feePercentageDirect ?? dto.feePercentage ?? 5;
     const feeAuction = dto.feePercentageAuction ?? dto.feePercentage ?? 5;
-    const capDirect = dto.feeCapDirect ?? dto.feeCap ?? 500000;
+    const capDirect = dto.feeCapDirect ?? dto.feeCap ?? 10_000_000;
     const capAuction = dto.feeCapAuction ?? dto.feeCap ?? 500000;
     return this.prisma.category.create({
       data: {

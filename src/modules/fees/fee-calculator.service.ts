@@ -64,17 +64,19 @@ export class FeeCalculatorService {
         });
 
         if (category) {
+          const { percentage, cap } = this.resolveCategoryFeeParams(
+            category,
+            listingType,
+          );
+
           const percentageFee = targetAmount
-            .mul(new Decimal(category.feePercentage))
+            .mul(percentage)
             .div(new Decimal(100));
 
           let fee = percentageFee;
 
-          if (category.feeCap && new Decimal(category.feeCap).gt(0)) {
-            const cap = new Decimal(category.feeCap);
-            if (fee.gt(cap)) {
-              fee = cap;
-            }
+          if (cap && cap.gt(0) && fee.gt(cap)) {
+            fee = cap;
           }
 
           totalFee = fee.floor();
@@ -116,6 +118,34 @@ export class FeeCalculatorService {
     }
 
     return totalFee;
+  }
+
+  private resolveCategoryFeeParams(
+    category: {
+      feePercentage: number;
+      feeCap: Decimal | null;
+      feePercentageDirect: number;
+      feeCapDirect: Decimal | null;
+      feePercentageAuction: number;
+      feeCapAuction: Decimal | null;
+    },
+    listingType: ListingType,
+  ): { percentage: Decimal; cap: Decimal | null } {
+    if (listingType === ListingType.AUCTION) {
+      const percentage = category.feePercentageAuction ?? category.feePercentage;
+      const capValue = category.feeCapAuction ?? category.feeCap;
+      return {
+        percentage: new Decimal(percentage),
+        cap: capValue ? new Decimal(capValue) : null,
+      };
+    }
+
+    const percentage = category.feePercentageDirect ?? category.feePercentage;
+    const capValue = category.feeCapDirect ?? category.feeCap;
+    return {
+      percentage: new Decimal(percentage),
+      cap: capValue ? new Decimal(capValue) : null,
+    };
   }
 
   /**

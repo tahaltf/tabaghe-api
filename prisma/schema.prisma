@@ -770,7 +770,7 @@ model Category {
 
   // Direct-sale commission
   feePercentageDirect Float   @default(5.0)
-  feeCapDirect        Decimal @default(500000)
+  feeCapDirect        Decimal @default(10000000)
 
   // Auction commission (charged to seller when auction completes)
   feePercentageAuction Float   @default(5.0)
