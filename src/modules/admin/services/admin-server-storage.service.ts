@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { access } from 'fs/promises';
+import { join } from 'path';
 import { spawn } from 'child_process';
 import { AdminBackupService } from './admin-backup.service';
 
@@ -18,7 +19,7 @@ export interface DiskUsageInfo {
 }
 
 export interface PathUsageInfo {
-  id: 'backups' | 'uploads' | 'uploads_listings' | 'uploads_orders';
+  id: 'backups' | 'uploads' | 'uploads_listings' | 'uploads_orders' | 'logs';
   label: string;
   path: string;
   sizeBytes: number | null;
@@ -45,6 +46,7 @@ export interface DockerStorageInfo {
   containersTotal: number;
   containersActive: number;
   volumesSizeBytes: number;
+  buildCacheSizeBytes: number;
   buildCacheReclaimableBytes: number;
   images: DockerImageInfo[];
 }
@@ -118,6 +120,11 @@ export class AdminServerStorageService {
         'ویدیو/رسانه سفارش',
         `${this.uploadsRoot}/orders`,
       ),
+      await this.pathUsage(
+        'logs',
+        'لاگ‌های اپلیکیشن',
+        join(process.cwd(), 'logs'),
+      ),
     ];
 
     const docker = await this.readDockerStorage();
@@ -126,10 +133,17 @@ export class AdminServerStorageService {
         docker.reason ??
           'Docker در دسترس نیست — برای پاک‌سازی imageها socket را mount کنید',
       );
-    } else if (docker.imagesReclaimableBytes > 1024 * 1024 * 1024) {
-      warnings.push(
-        `حدود ${this.formatBytes(docker.imagesReclaimableBytes)} از imageهای Docker قابل آزادسازی است`,
-      );
+    } else {
+      if (docker.imagesReclaimableBytes > 1024 * 1024 * 1024) {
+        warnings.push(
+          `حدود ${this.formatBytes(docker.imagesReclaimableBytes)} از imageهای Docker قابل آزادسازی است`,
+        );
+      }
+      if (docker.buildCacheReclaimableBytes > 512 * 1024 * 1024) {
+        warnings.push(
+          `حدود ${this.formatBytes(docker.buildCacheReclaimableBytes)} از کش بیلد Docker قابل آزادسازی است`,
+        );
+      }
     }
 
     const backups = this.summarizeBackups(backupFiles);
@@ -168,6 +182,41 @@ export class AdminServerStorageService {
     if (code !== 0) {
       throw new ServiceUnavailableException(
         stderr.trim() || stdout.trim() || `docker prune exit ${code}`,
+      );
+    }
+
+    const output = (stdout + stderr).trim();
+    const reclaimedLabel =
+      output.match(/Total reclaimed space:\s*(.+)/i)?.[1]?.trim() ?? '0B';
+    const reclaimedBytes = this.parseDockerSize(reclaimedLabel);
+
+    return { reclaimedBytes, reclaimedLabel, output };
+  }
+
+  async pruneDockerBuildCache(confirmPhrase: string): Promise<DockerPruneResult> {
+    if (confirmPhrase !== 'PRUNE:DOCKER_BUILD_CACHE') {
+      throw new BadRequestException(
+        'برای تأیید عبارت PRUNE:DOCKER_BUILD_CACHE را وارد کنید',
+      );
+    }
+
+    const dockerOk = await this.isDockerAvailable();
+    if (!dockerOk) {
+      throw new ServiceUnavailableException(
+        'Docker در دسترس نیست. /var/run/docker.sock را به کانتینر backend mount کنید',
+      );
+    }
+
+    const { stdout, stderr, code } = await this.runCommand('docker', [
+      'builder',
+      'prune',
+      '-a',
+      '-f',
+    ]);
+
+    if (code !== 0) {
+      throw new ServiceUnavailableException(
+        stderr.trim() || stdout.trim() || `docker builder prune exit ${code}`,
       );
     }
 
@@ -285,6 +334,7 @@ export class AdminServerStorageService {
       containersTotal: 0,
       containersActive: 0,
       volumesSizeBytes: 0,
+      buildCacheSizeBytes: 0,
       buildCacheReclaimableBytes: 0,
       images: [],
     };
@@ -306,6 +356,7 @@ export class AdminServerStorageService {
     let containersTotal = 0;
     let containersActive = 0;
     let volumesSizeBytes = 0;
+    let buildCacheSizeBytes = 0;
     let buildCacheReclaimableBytes = 0;
 
     for (const line of dfResult.stdout.trim().split('\n').filter(Boolean)) {
@@ -336,6 +387,7 @@ export class AdminServerStorageService {
         } else if (type === 'local volumes') {
           volumesSizeBytes = size;
         } else if (type === 'build cache') {
+          buildCacheSizeBytes = size;
           buildCacheReclaimableBytes = reclaimable;
         }
       } catch {
@@ -375,6 +427,7 @@ export class AdminServerStorageService {
       containersTotal,
       containersActive,
       volumesSizeBytes,
+      buildCacheSizeBytes,
       buildCacheReclaimableBytes,
       images,
     };

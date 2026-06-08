@@ -5,6 +5,11 @@ export class PruneDockerImagesDto {
   confirmPhrase!: string;
 }
 
+export class PruneDockerBuildCacheDto {
+  @IsString()
+  confirmPhrase!: string;
+}
+
 export const BACKUP_PRUNE_MODES = [
   'retention',
   'keepLatest',

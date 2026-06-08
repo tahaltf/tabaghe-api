@@ -3,7 +3,10 @@ import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
-import { PruneDockerImagesDto } from '../dto/admin-server-storage.dto';
+import {
+  PruneDockerBuildCacheDto,
+  PruneDockerImagesDto,
+} from '../dto/admin-server-storage.dto';
 import { AdminServerStorageService } from '../services/admin-server-storage.service';
 
 @Controller('admin/server-storage')
@@ -20,5 +23,10 @@ export class AdminServerStorageController {
   @Post('docker/prune-images')
   pruneDockerImages(@Body() dto: PruneDockerImagesDto) {
     return this.storage.pruneDockerImages(dto.confirmPhrase);
+  }
+
+  @Post('docker/prune-build-cache')
+  pruneDockerBuildCache(@Body() dto: PruneDockerBuildCacheDto) {
+    return this.storage.pruneDockerBuildCache(dto.confirmPhrase);
   }
 }
