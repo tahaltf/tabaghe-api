@@ -7,14 +7,13 @@ import { JwtStrategy } from './jwt.strategy';
 import { OtpService } from './services/otp.service';
 import { TokenService } from './services/token.service';
 import { GodadminBootstrapService } from './services/godadmin-bootstrap.service';
+import { RegistrationPlanService } from './services/registration-plan.service';
 import { NotificationModule } from '../notification/notification.module';
 import { SmsService } from '../sms/sms.service';
-import { PlansModule } from '../plans/plans.module';
 
 @Module({
   imports: [
     NotificationModule,
-    PlansModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -33,6 +32,7 @@ import { PlansModule } from '../plans/plans.module';
     JwtStrategy,
     SmsService,
     GodadminBootstrapService,
+    RegistrationPlanService,
   ],
   exports: [AuthService, TokenService, OtpService],
 })

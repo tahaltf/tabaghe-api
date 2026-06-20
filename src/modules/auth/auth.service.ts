@@ -12,7 +12,7 @@ import { OtpIssueResult, OtpService } from './services/otp.service';
 import { TokenService } from './services/token.service';
 import { SmsService } from '../sms/sms.service';
 import { NotificationService } from '../notification/notification.service';
-import { PlansService } from '../plans/plans.service';
+import { RegistrationPlanService } from './services/registration-plan.service';
 
 const ADMIN_DEFAULT_PASSWORD = '@Ab123456789@';
 
@@ -33,7 +33,7 @@ export class AuthService {
     private readonly tokenService: TokenService,
     private readonly smsService: SmsService,
     private readonly notifications: NotificationService,
-    private readonly plansService: PlansService,
+    private readonly registrationPlan: RegistrationPlanService,
   ) {}
 
   async requestOtp(phone: string): Promise<OtpIssueResult> {
@@ -51,7 +51,7 @@ export class AuthService {
     const session = this.buildSession(user);
     this.notifyAdminAboutLogin(user.phone);
     if (isNewUser) {
-      void this.plansService.assignRegistrationDefaultPlan(user.id);
+      void this.registrationPlan.assignDefaultPlan(user.id);
       void this.notifications
         .notifyAdminPersonnel({
           type: NotificationType.ADMIN_ALERT_NEW_USER,
