@@ -10,6 +10,7 @@ import {
   resolveNotificationRuleKeyCandidates,
 } from '../../common/notification/notification-meta-enrichment.util';
 import { isUserOperationalSmsEnabled } from '../../common/notification/user-sms-notification.util';
+import { isOrderStatusNotificationEnabled } from '../../common/notification/notification-order-status-filter.util';
 import { resolveNotificationPath } from '../../common/notification/notification-navigation.util';
 import webpush = require('web-push');
 import { getFrontendAppOrigin } from '../../common/pwa-brand-icon.util';
@@ -19,6 +20,7 @@ type SmsRule = {
   siteNotificationEnabled?: boolean;
   smsEnabled?: boolean;
   siteNotificationText?: string;
+  enabledOrderStatuses?: string[];
   smsTemplateConfig?: {
     templateId: number;
     parameters?: Array<{ name: string; value: string }>;
@@ -72,6 +74,12 @@ export class NotificationService {
       resolvedRecipientRole,
       enrichedMetaBase,
     );
+    if (
+      type === NotificationType.ORDER_STATUS_CHANGED &&
+      !isOrderStatusNotificationEnabled(rule, enrichedMetaBase)
+    ) {
+      return { notification: null, dispatched: false };
+    }
     const siteEnabled =
       forceSiteNotification === true
         ? true
