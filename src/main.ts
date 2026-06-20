@@ -13,6 +13,9 @@ import { json, urlencoded } from 'express';
 import helmet from 'helmet';
 import { join } from 'path';
 import { createServer } from 'node:net';
+import { CampaignPrefixService } from './modules/tracking/campaign-prefix.service';
+import { PrismaService } from './infrastructure/prisma/prisma.service';
+import { normalizeCampaignUrlPrefix } from './common/campaign/campaign-url.util';
 
 /** ترجمهٔ پیام‌های پیش‌فرض class-validator برای نمایش به کاربر نهایی */
 function translateValidationConstraintMessage(raw: string): string {
@@ -234,6 +237,12 @@ async function bootstrap() {
   );
 
   // ۲. نسخه‌گذاری مسیرها (Best Practice برای توسعه‌های آینده و اپ موبایل)
+  const campaignPrefixService = app.get(CampaignPrefixService);
+  await campaignPrefixService.refresh();
+  const campaignRouteExcludes = campaignPrefixService
+    .getRoutePrefixes()
+    .map((p) => ({ path: `${p}/:slug`, method: RequestMethod.GET }));
+
   app.setGlobalPrefix('api', {
     exclude: [
       { path: 'sitemap.xml', method: RequestMethod.GET },
@@ -245,7 +254,7 @@ async function bootstrap() {
       { path: 'pwa/icon', method: RequestMethod.GET },
       { path: 'pwa/favicon.png', method: RequestMethod.GET },
       { path: 'favicon.ico', method: RequestMethod.GET },
-      { path: 'ref/:slug', method: RequestMethod.GET },
+      ...campaignRouteExcludes,
     ],
   });
   app.enableVersioning({

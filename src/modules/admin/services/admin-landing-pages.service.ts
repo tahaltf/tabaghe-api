@@ -5,6 +5,7 @@ import {
   AdminCreateLandingPageDto,
   AdminUpdateLandingPageDto,
 } from '../dto/admin-landing-page.dto';
+import { coerceLandingSections } from '../../../common/landing/landing-sections.util';
 
 export type LandingPageRecord = {
   id: string;
@@ -47,7 +48,7 @@ export class AdminLandingPagesService {
         title: dto.title.trim(),
         description: dto.description?.trim() || null,
         isPublished: dto.isPublished ?? false,
-        sections: (dto.sections ?? []) as Prisma.InputJsonValue,
+        sections: coerceLandingSections(dto.sections ?? []) as Prisma.InputJsonValue,
         meta: (dto.meta ?? null) as Prisma.InputJsonValue,
         createdById: createdById ?? null,
       },
@@ -72,7 +73,7 @@ export class AdminLandingPagesService {
     const sections =
       dto.sections === undefined
         ? current.sections
-        : (dto.sections as Prisma.InputJsonValue);
+        : (coerceLandingSections(dto.sections) as Prisma.InputJsonValue);
     const meta =
       dto.meta === undefined
         ? current.meta
@@ -130,7 +131,7 @@ export class AdminLandingPagesService {
       title: row.title,
       description: row.description,
       isPublished: row.isPublished,
-      sections: Array.isArray(row.sections) ? row.sections : [],
+      sections: coerceLandingSections(row.sections),
       meta:
         row.meta && typeof row.meta === 'object' && !Array.isArray(row.meta)
           ? (row.meta as Record<string, unknown>)

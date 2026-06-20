@@ -5,13 +5,29 @@ import {
 } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
 import { TrackingService } from './tracking.service';
+import { CampaignPrefixService } from './campaign-prefix.service';
 
 @Injectable()
 export class TrackingRedirectMiddleware implements NestMiddleware {
-  constructor(private readonly tracking: TrackingService) {}
+  constructor(
+    private readonly tracking: TrackingService,
+    private readonly prefixService: CampaignPrefixService,
+  ) {}
 
   async use(req: Request, res: Response, next: NextFunction) {
-    const slug = String(req.params['slug'] ?? '').trim().toLowerCase();
+    const segments = req.path.replace(/^\//, '').split('/').filter(Boolean);
+    if (segments.length !== 2) {
+      next();
+      return;
+    }
+
+    const [prefix, slugRaw] = segments;
+    if (!this.prefixService.isAllowedPrefix(prefix)) {
+      next();
+      return;
+    }
+
+    const slug = String(slugRaw ?? '').trim().toLowerCase();
     if (!slug) {
       next();
       return;

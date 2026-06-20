@@ -12,6 +12,8 @@ import {
   DEFAULT_TERMS_CONDITIONS_FA,
 } from '../../common/content';
 import { getPwaAppName, getPwaAppShortName } from '../../common/pwa-brand-icon.util';
+import { coerceLandingSections } from '../../common/landing/landing-sections.util';
+import { normalizeLandingUrlPrefix } from '../../common/landing/landing-url.util';
 
 @Injectable()
 export class CommonContentService {
@@ -52,6 +54,8 @@ export class CommonContentService {
       'PWA_APP_ICON',
       'PWA_APP_FAVICON',
       'FOOTER_TAGLINE',
+      'LANDING_PAGES_URL_PREFIX',
+      'CAMPAIGN_LINK_URL_PREFIX',
     ];
 
     const rows = await this.prisma.systemSetting.findMany({
@@ -206,6 +210,20 @@ export class CommonContentService {
       footerTagline:
         map.FOOTER_TAGLINE?.trim() || DEFAULT_FOOTER_TAGLINE_FA,
       listingTypesEnabled: parseListingTypesEnabledFromMap(map),
+      landingPagesUrlPrefix: (() => {
+        const raw = map.LANDING_PAGES_URL_PREFIX?.trim()
+          .toLowerCase()
+          .replace(/^\/+|\/+$/g, '');
+        if (!raw) return 'p';
+        return /^[a-z0-9-]+$/.test(raw) ? raw : 'p';
+      })(),
+      campaignLinkUrlPrefix: (() => {
+        const raw = map.CAMPAIGN_LINK_URL_PREFIX?.trim()
+          .toLowerCase()
+          .replace(/^\/+|\/+$/g, '');
+        if (!raw) return 'ref';
+        return /^[a-z0-9-]+$/.test(raw) ? raw : 'ref';
+      })(),
     };
   }
 
@@ -318,7 +336,7 @@ export class CommonContentService {
       slug: page.slug,
       title: page.title,
       description: page.description,
-      sections: Array.isArray(page.sections) ? page.sections : [],
+      sections: coerceLandingSections(page.sections),
       meta:
         page.meta && typeof page.meta === 'object' && !Array.isArray(page.meta)
           ? page.meta

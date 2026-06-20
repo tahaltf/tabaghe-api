@@ -10,6 +10,7 @@ import { TrackingService } from './tracking.service';
 import { AdminCampaignLinksService } from './admin-campaign-links.service';
 import { AdminCampaignLinksController } from './admin-campaign-links.controller';
 import { TrackingRedirectMiddleware } from './tracking-redirect.middleware';
+import { CampaignPrefixService } from './campaign-prefix.service';
 
 @Module({
   imports: [PrismaModule, AuthModule],
@@ -18,13 +19,14 @@ import { TrackingRedirectMiddleware } from './tracking-redirect.middleware';
     TrackingService,
     AdminCampaignLinksService,
     TrackingRedirectMiddleware,
+    CampaignPrefixService,
   ],
-  exports: [TrackingService],
+  exports: [TrackingService, CampaignPrefixService],
 })
 export class TrackingModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer.apply(TrackingRedirectMiddleware).forRoutes({
-      path: 'ref/:slug',
+      path: '*',
       method: RequestMethod.GET,
     });
   }
