@@ -124,4 +124,84 @@ export class CommonEngagementService {
     return { ok: true };
   }
 
+  parseContactsFromText(raw: string): string[] {
+    return String(raw ?? '')
+      .split(/[\r\n,;\t]+/)
+      .map((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return '';
+        if (trimmed.includes(',')) {
+          return trimmed.split(',')[0]?.trim() ?? '';
+        }
+        return trimmed;
+      })
+      .filter(Boolean);
+  }
+
+  async addCustomerClubContact(
+    rawContact: string,
+  ): Promise<'added' | 'duplicate' | 'invalid'> {
+    const contact = String(rawContact ?? '').trim();
+    if (!contact) return 'invalid';
+
+    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const phone = this.normalizeIranMobile(contact);
+    const email = !phone && emailRe.test(contact) ? contact.toLowerCase() : null;
+
+    if (!phone && !email) return 'invalid';
+
+    const key = phone
+      ? `CUSTOMER_CLUB_PHONE_${phone}`
+      : `CUSTOMER_CLUB_EMAIL_${email}`;
+
+    const existing = await this.prisma.systemSetting.findUnique({
+      where: { key },
+      select: { key: true },
+    });
+    if (existing) return 'duplicate';
+
+    await this.prisma.systemSetting.create({
+      data: {
+        key,
+        value: JSON.stringify({
+          phone: phone ?? null,
+          email: email ?? null,
+          createdAt: new Date().toISOString(),
+        }),
+        description: 'Customer club subscription',
+      },
+    });
+
+    return 'added';
+  }
+
+  async importCustomerClubContacts(rawContacts: string[]): Promise<{
+    added: number;
+    skippedDuplicate: number;
+    invalid: string[];
+  }> {
+    const unique = new Set<string>();
+    const invalid: string[] = [];
+    let added = 0;
+    let skippedDuplicate = 0;
+
+    for (const raw of rawContacts) {
+      const contact = String(raw ?? '').trim();
+      if (!contact) continue;
+      const dedupeKey = contact.toLowerCase();
+      if (unique.has(dedupeKey)) {
+        skippedDuplicate += 1;
+        continue;
+      }
+      unique.add(dedupeKey);
+
+      const result = await this.addCustomerClubContact(contact);
+      if (result === 'added') added += 1;
+      else if (result === 'duplicate') skippedDuplicate += 1;
+      else invalid.push(contact);
+    }
+
+    return { added, skippedDuplicate, invalid };
+  }
+
 }

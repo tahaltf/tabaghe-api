@@ -245,6 +245,7 @@ async function bootstrap() {
       { path: 'pwa/icon', method: RequestMethod.GET },
       { path: 'pwa/favicon.png', method: RequestMethod.GET },
       { path: 'favicon.ico', method: RequestMethod.GET },
+      { path: 'ref/:slug', method: RequestMethod.GET },
     ],
   });
   app.enableVersioning({

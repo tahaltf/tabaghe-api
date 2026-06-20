@@ -16,6 +16,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CompleteProfileDto } from './dto/complete-profile.dto';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { appendJsonLog } from '../../common/logging/app-log.util';
+import { NotificationService } from '../notification/notification.service';
 
 const MY_PROFILE_SELECT = {
   id: true,
@@ -85,7 +86,10 @@ const TERMINAL_ORDER_STATUSES_FOR_BADGE: OrderStatus[] = [
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationService,
+  ) {}
 
   async getMe(userId: string): Promise<MyProfile> {
     const user = await this.prisma.user.findUnique({
@@ -422,7 +426,7 @@ export class UsersService {
     }
 
     try {
-      return await this.prisma.user.update({
+      const updated = await this.prisma.user.update({
         where: { id: userId },
         data: {
           firstName: dto.firstName,
@@ -436,6 +440,15 @@ export class UsersService {
         },
         select: MY_PROFILE_SELECT,
       });
+      void this.notifications
+        .notifyAdminPersonnel({
+          type: NotificationType.ADMIN_ALERT_KYC_SUBMISSION,
+          title: 'درخواست احراز هویت جدید',
+          message: `${dto.firstName} ${dto.lastName} مدارک احراز هویت را برای بررسی ارسال کرد.`,
+          meta: { userId },
+        })
+        .catch(() => undefined);
+      return updated;
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
@@ -474,11 +487,25 @@ export class UsersService {
     }
 
     try {
-      return await this.prisma.user.update({
+      const updated = await this.prisma.user.update({
         where: { id: userId },
         data,
         select: MY_PROFILE_SELECT,
       });
+      if (nationalCardImageFilename) {
+        const userName =
+          `${updated.firstName ?? ''} ${updated.lastName ?? ''}`.trim() ||
+          updated.phone;
+        void this.notifications
+          .notifyAdminPersonnel({
+            type: NotificationType.ADMIN_ALERT_KYC_SUBMISSION,
+            title: 'درخواست احراز هویت جدید',
+            message: `${userName} مدارک احراز هویت را برای بررسی ارسال کرد.`,
+            meta: { userId },
+          })
+          .catch(() => undefined);
+      }
+      return updated;
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&

@@ -227,7 +227,8 @@ export class NotificationService {
     meta?: Record<string, unknown>;
   }): Promise<void> {
     const { type, title, message, meta } = params;
-    const rule = await this.getRuleForType(type);
+    const enrichedMeta = await enrichNotificationMeta(this.prisma, meta);
+    const rule = await this.getRuleForType(type, undefined, enrichedMeta);
     const siteEnabled = !(rule && rule.siteNotificationEnabled === false);
     const smsEnabled = this.isSmsRuleActive(rule);
 
@@ -236,9 +237,23 @@ export class NotificationService {
     }
 
     const resolvedTitle = title?.trim();
-    const resolvedMessage = rule?.siteNotificationText?.trim() || message;
-    const metaValue =
-      meta === undefined ? undefined : (meta as Prisma.InputJsonValue);
+    const templateText = rule?.siteNotificationText?.trim() ?? '';
+    const fallbackMessage = message?.trim() || '';
+    const resolvedMessage = templateText
+      ? applySmsTemplatePlaceholders(templateText, {
+          listingTitle:
+            typeof enrichedMeta.listingTitle === 'string'
+              ? enrichedMeta.listingTitle
+              : undefined,
+          meta: enrichedMeta,
+        })
+      : fallbackMessage;
+
+    const metaValue = {
+      ...enrichedMeta,
+      title: resolvedTitle,
+      message: resolvedMessage,
+    } as Prisma.InputJsonValue;
 
     const admins = await this.prisma.user.findMany({
       where: { role: { in: [UserRole.ADMIN, UserRole.GODADMIN] } },
@@ -257,7 +272,7 @@ export class NotificationService {
         })),
       });
       const adminMeta = {
-        ...(meta ?? {}),
+        ...enrichedMeta,
         title: resolvedTitle,
         message: resolvedMessage,
       };
@@ -279,7 +294,7 @@ export class NotificationService {
     }
 
     if (smsEnabled) {
-      this.processSmsForGodadmins(type, meta).catch((err) => {
+      this.processSmsForGodadmins(type, enrichedMeta).catch((err) => {
         this.logger.error('Failed to process admin SMS notification', err);
       });
     }
@@ -295,7 +310,10 @@ export class NotificationService {
     type: NotificationType,
     meta?: Record<string, unknown>,
   ) {
-    const rule = await this.getRuleForType(type);
+    const enrichedMeta = meta
+      ? await enrichNotificationMeta(this.prisma, meta)
+      : undefined;
+    const rule = await this.getRuleForType(type, undefined, enrichedMeta);
     if (!this.isSmsRuleActive(rule)) return;
 
     const godadmins = await this.prisma.user.findMany({
@@ -304,8 +322,8 @@ export class NotificationService {
     });
     if (godadmins.length === 0) return;
 
-    const metaForSms: Record<string, unknown> | undefined = meta
-      ? { ...meta }
+    const metaForSms: Record<string, unknown> | undefined = enrichedMeta
+      ? { ...enrichedMeta }
       : undefined;
 
     const subjectUserId =

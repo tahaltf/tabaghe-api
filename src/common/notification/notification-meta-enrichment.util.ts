@@ -1,4 +1,6 @@
+import { ListingType } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { listingTypePersianLabel } from '../system-settings/listing-type-enabled';
 import { resolveOrderStatusLabelFromMeta } from '../order/order-status-labels.util';
 
 function formatUserName(
@@ -36,6 +38,7 @@ export async function enrichNotificationMeta(
       where: { id: out.listingId },
       select: {
         title: true,
+        type: true,
         authorId: true,
         author: { select: { id: true, firstName: true, lastName: true, phone: true } },
         direct: { select: { price: true } },
@@ -44,6 +47,10 @@ export async function enrichNotificationMeta(
     });
     if (listing) {
       if (!out.listingTitle) out.listingTitle = listing.title;
+      if (!out.listingType) out.listingType = listing.type;
+      if (!out.listingTypeFa) {
+        out.listingTypeFa = listingTypePersianLabel(listing.type as ListingType);
+      }
       if (!out.sellerId) out.sellerId = listing.authorId;
       if (!out.sellerName) out.sellerName = formatUserName(listing.author);
       if (!out.sellerPhone) out.sellerPhone = listing.author.phone;
@@ -265,6 +272,11 @@ export function resolveNotificationRuleKeyCandidates(
   meta?: Record<string, unknown>,
 ): string[] {
   const keys: string[] = [];
+  const listingType =
+    typeof meta?.listingType === 'string' ? meta.listingType.trim().toUpperCase() : '';
+  if (listingType) {
+    keys.push(`${type}@${listingType}`);
+  }
   const phaseKey = readMetaPhaseKey(meta);
   if (phaseKey && recipientRole) {
     keys.push(`${type}@${recipientRole}@${phaseKey}`);

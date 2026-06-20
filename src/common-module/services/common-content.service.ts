@@ -308,4 +308,23 @@ export class CommonContentService {
     };
   }
 
+  async getLandingPageBySlug(slug: string) {
+    const page = await this.prisma.landingPage.findFirst({
+      where: { slug, isPublished: true },
+    });
+    if (!page) return null;
+    return {
+      id: page.id,
+      slug: page.slug,
+      title: page.title,
+      description: page.description,
+      sections: Array.isArray(page.sections) ? page.sections : [],
+      meta:
+        page.meta && typeof page.meta === 'object' && !Array.isArray(page.meta)
+          ? page.meta
+          : null,
+      updatedAt: page.updatedAt,
+    };
+  }
+
 }

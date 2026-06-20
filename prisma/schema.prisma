@@ -190,6 +190,7 @@ enum NotificationType {
   WALLET_REFUND
   ADMIN_ALERT_WALLET_DEPOSIT
   ADMIN_ALERT_WALLET_WITHDRAW
+  ADMIN_ALERT_KYC_SUBMISSION
 }
 
 enum RepairRequestStatus {
@@ -298,6 +299,8 @@ model User {
   repairRequests      RepairRequest[]
   tickets             Ticket[]
   ratingHistory       UserRatingHistory[]
+  campaignLinks       CampaignLink[]
+  landingPages        LandingPage[]
 
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
@@ -1011,4 +1014,56 @@ model BlogPost {
   updatedAt   DateTime @updatedAt
 
   @@index([isPublished, createdAt])
+}
+
+model LandingPage {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  description String?
+  isPublished Boolean  @default(false)
+  sections    Json     @default("[]")
+  meta        Json?
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isPublished, slug])
+}
+
+////////////////////
+/// CAMPAIGN LINK TRACKING
+////////////////////
+
+model CampaignLink {
+  id          String     @id @default(cuid())
+  slug        String     @unique
+  name        String
+  targetUrl   String
+  description String?
+  isActive    Boolean    @default(true)
+
+  createdById String?
+  createdBy   User?      @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  clickLogs   ClickLog[]
+
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([isActive, slug])
+}
+
+model ClickLog {
+  id             String       @id @default(cuid())
+  campaignLinkId String
+  campaignLink   CampaignLink @relation(fields: [campaignLinkId], references: [id], onDelete: Cascade)
+
+  ipAddress   String?
+  userAgent   String?
+  queryParams Json?
+  clickedAt   DateTime @default(now())
+
+  @@index([campaignLinkId, clickedAt])
 }

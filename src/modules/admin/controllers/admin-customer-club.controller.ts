@@ -1,10 +1,28 @@
-import { Controller, Get, Query, UseGuards, Header } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Query,
+  Body,
+  UseGuards,
+  Header,
+  UploadedFile,
+  UseInterceptors,
+  BadRequestException,
+} from '@nestjs/common';
+import { readFileSync } from 'fs';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { RawResponse } from '../../../common/decorators/raw-response.decorator';
+import { CommonEngagementService } from '../../../common-module/services/common-engagement.service';
+import {
+  AdminAddCustomerClubDto,
+  AdminImportCustomerClubDto,
+} from '../dto/admin-customer-club.dto';
 
 type ClubItem = {
   id: string;
@@ -42,11 +60,20 @@ function parseClubValue(value: string | null | undefined): {
   }
 }
 
+const CUSTOMER_CLUB_SAMPLE_PHONES = [
+  '9123456789',
+  '9121112233',
+  '9356677889',
+];
+
 @Controller('admin/customer-club')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
 export class AdminCustomerClubController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly engagement: CommonEngagementService,
+  ) {}
 
   private toItem(row: {
     id: string;
@@ -125,6 +152,73 @@ export class AdminCustomerClubController {
     };
   }
 
+  @Post()
+  async addOne(@Body() dto: AdminAddCustomerClubDto) {
+    const contact =
+      dto.contact?.trim() || dto.phone?.trim() || dto.email?.trim() || '';
+    if (!contact) {
+      throw new BadRequestException('شماره یا ایمیل را وارد کنید');
+    }
+    const result = await this.engagement.addCustomerClubContact(contact);
+    if (result === 'invalid') {
+      throw new BadRequestException('فرمت شماره یا ایمیل نامعتبر است');
+    }
+    if (result === 'duplicate') {
+      return { ok: true, status: 'duplicate' as const };
+    }
+    return { ok: true, status: 'added' as const };
+  }
+
+  @Post('import')
+  async importText(@Body() dto: AdminImportCustomerClubDto) {
+    const text = dto.text?.trim() ?? '';
+    if (!text) {
+      throw new BadRequestException('متن یا فایل خالی است');
+    }
+    const contacts = this.engagement.parseContactsFromText(text);
+    if (!contacts.length) {
+      throw new BadRequestException('هیچ شماره یا ایمیل معتبری یافت نشد');
+    }
+    return this.engagement.importCustomerClubContacts(contacts);
+  }
+
+  @Post('import-file')
+  @UseInterceptors(FileInterceptor('file'))
+  async importFile(@UploadedFile() file?: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('فایل انتخاب نشده است');
+    }
+    const text = file.buffer?.length
+      ? file.buffer.toString('utf8')
+      : file.path
+        ? readFileSync(file.path, 'utf8')
+        : '';
+    if (!text.trim()) {
+      throw new BadRequestException('فایل خالی است');
+    }
+    const contacts = this.engagement.parseContactsFromText(text);
+    if (!contacts.length) {
+      throw new BadRequestException('فایل خالی است یا فرمت نامعتبر دارد');
+    }
+    return this.engagement.importCustomerClubContacts(contacts);
+  }
+
+  @Get('sample.txt')
+  @RawResponse()
+  @Header('Content-Type', 'text/plain; charset=utf-8')
+  @Header(
+    'Content-Disposition',
+    'attachment; filename="customer-club-sample.txt"',
+  )
+  sampleTxt(): string {
+    return [
+      '# هر خط یک شماره موبایل (با یا بدون صفر اول) یا ایمیل',
+      '# مثال:',
+      ...CUSTOMER_CLUB_SAMPLE_PHONES,
+      '# user@example.com',
+    ].join('\n');
+  }
+
   @Get('export.txt')
   @RawResponse()
   @Header('Content-Type', 'text/plain; charset=utf-8')
@@ -154,4 +248,3 @@ export class AdminCustomerClubController {
     return [...unique].join('\n');
   }
 }
-

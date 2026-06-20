@@ -82,6 +82,10 @@ export class CommonService {
     return this.content.getBlogPostBySlug(...args);
   }
 
+  getLandingPageBySlug(...args: Parameters<CommonContentService['getLandingPageBySlug']>) {
+    return this.content.getLandingPageBySlug(...args);
+  }
+
   subscribeCustomerClub(...args: Parameters<CommonEngagementService['subscribeCustomerClub']>) {
     return this.engagement.subscribeCustomerClub(...args);
   }

@@ -123,11 +123,12 @@ export class ListingCommandService {
       .notifyAdminPersonnel({
         type: NotificationType.ADMIN_ALERT_NEW_LISTING,
         title: 'آگهی جدید در انتظار تایید',
-        message: `آگهی «${listing.title}» ثبت شد و در انتظار بررسی است.`,
+        message: `آگهی «${listing.title}» (${listingTypePersianLabel(listing.type)}) ثبت شد و در انتظار بررسی است.`,
         meta: {
           listingId: listing.id,
           userId,
           listingTitle: listing.title,
+          listingType: listing.type,
         },
       })
       .catch(() => undefined);
@@ -216,17 +217,22 @@ export class ListingCommandService {
       },
     });
 
-    if (wasRejected) {
+    if (updated.status === ListingStatus.PENDING) {
       void this.notifications
         .notifyAdminPersonnel({
           type: NotificationType.ADMIN_ALERT_NEW_LISTING,
-          title: 'آگهی اصلاح‌شده در انتظار تایید',
-          message: `آگهی «${updated.title}» پس از رد/اصلاح توسط فروشنده دوباره برای بررسی ارسال شد.`,
+          title: wasRejected
+            ? 'آگهی اصلاح‌شده در انتظار تایید'
+            : 'آگهی ویرایش‌شده در انتظار تایید',
+          message: wasRejected
+            ? `آگهی «${updated.title}» (${listingTypePersianLabel(updated.type)}) پس از رد/اصلاح توسط فروشنده دوباره برای بررسی ارسال شد.`
+            : `آگهی «${updated.title}» (${listingTypePersianLabel(updated.type)}) ویرایش شد و در انتظار بررسی است.`,
           meta: {
             listingId: updated.id,
             userId,
             listingTitle: updated.title,
-            resubmittedAfterReject: true,
+            listingType: updated.type,
+            resubmittedAfterReject: wasRejected,
           },
         })
         .catch(() => undefined);

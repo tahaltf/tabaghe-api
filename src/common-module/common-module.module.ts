@@ -22,6 +22,6 @@ import { CommonPwaService } from './services/common-pwa.service';
     CommonService,
     PwaIconService,
   ],
-  exports: [PwaIconService, CommonService],
+  exports: [PwaIconService, CommonService, CommonEngagementService],
 })
 export class CommonModuleModule {}

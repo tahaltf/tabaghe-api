@@ -49,6 +49,7 @@ import { ReviewsModule } from './modules/reviews/reviews.module'; // 👈 بای
 import { AdminModule } from './modules/admin/admin.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { SitemapModule } from './modules/sitemap/sitemap.module';
+import { TrackingModule } from './modules/tracking/tracking.module';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -101,6 +102,7 @@ import { AppService } from './app.service';
     AdminModule,
     PaymentsModule,
     SitemapModule,
+    TrackingModule,
   ],
   controllers: [AppController],
   providers: [

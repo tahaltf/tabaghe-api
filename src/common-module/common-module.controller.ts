@@ -136,6 +136,15 @@ export class CommonController {
     return this.commonService.getBlogPostBySlug(slug);
   }
 
+  @Get('landing-pages/:slug')
+  async landingPage(@Param('slug') slug: string) {
+    const page = await this.commonService.getLandingPageBySlug(slug);
+    if (!page) {
+      throw new NotFoundException();
+    }
+    return page;
+  }
+
   @Post('contact-us')
   async submitContact(
     @Body()

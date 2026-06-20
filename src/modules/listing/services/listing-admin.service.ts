@@ -149,7 +149,7 @@ export class ListingAdminService {
       type: NotificationType.LISTING_APPROVED,
       title: 'آگهی شما تایید شد',
       message: `آگهی «${updated.title}» توسط ادمین تایید و منتشر شد.`,
-      meta: { listingId: updated.id },
+      meta: { listingId: updated.id, listingType: updated.type },
     });
 
     return updated;
@@ -191,7 +191,7 @@ export class ListingAdminService {
         type: NotificationType.LISTING_REJECTED,
         title: 'آگهی شما رد شد',
         message: `آگهی «${updated.title}» رد شد. دلیل رد: ${dto.rejectionReason}. طبق قوانین طبقه، ${TRADE_REPUTATION_PENALTY_DELTA} واحد از امتیاز اعتماد شما کسر شد.`,
-        meta: { listingId: updated.id, reason: dto.rejectionReason },
+        meta: { listingId: updated.id, listingType: updated.type, reason: dto.rejectionReason },
       });
 
       return updated;
@@ -199,6 +199,12 @@ export class ListingAdminService {
   }
 
   async setStatus(listingId: string, status: ListingStatus): Promise<Listing> {
+    const before = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      select: { id: true, status: true, title: true, authorId: true, type: true },
+    });
+    if (!before) throw new NotFoundException('آگهی یافت نشد');
+
     const data: Prisma.ListingUpdateInput = {
       status,
     };
@@ -209,9 +215,24 @@ export class ListingAdminService {
       data.expiresAt = expiryFields.expiresAt as Date;
       data.expiryReminderSentAt = null;
     }
-    return this.prisma.listing.update({
+    const updated = await this.prisma.listing.update({
       where: { id: listingId },
       data,
     });
+
+    if (
+      status === ListingStatus.APPROVED &&
+      before.status !== ListingStatus.APPROVED
+    ) {
+      await this.notificationService.create({
+        userId: before.authorId,
+        type: NotificationType.LISTING_APPROVED,
+        title: 'آگهی شما تایید شد',
+        message: `آگهی «${before.title}» توسط ادمین تایید و منتشر شد.`,
+        meta: { listingId: updated.id, listingType: before.type },
+      });
+    }
+
+    return updated;
   }
 }

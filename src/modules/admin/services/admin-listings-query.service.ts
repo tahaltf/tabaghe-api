@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { ListingStatus, Prisma } from '@prisma/client';
+import { ListingStatus, NotificationType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import {
   buildPaginationMeta,
@@ -8,6 +8,7 @@ import {
 import { AdminListingListQueryDto } from '../dto/admin-query.dto';
 import { ListingExpiryService } from '../../listing/services/listing-expiry.service';
 import { AdminUserPlanLookupService } from './admin-user-plan-lookup.service';
+import { NotificationService } from '../../notification/notification.service';
 import type { AdminUserPlanInfo } from './admin-user-plan-lookup.service';
 
 const LISTING_LIST_INCLUDE = {
@@ -58,6 +59,7 @@ export class AdminListingsQueryService {
     private readonly prisma: PrismaService,
     private readonly listingExpiry: ListingExpiryService,
     private readonly userPlanLookup: AdminUserPlanLookupService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   private async attachAuthorPlans<
@@ -189,6 +191,12 @@ export class AdminListingsQueryService {
   }
 
   async setStatus(id: string, status: ListingStatus) {
+    const before = await this.prisma.listing.findUnique({
+      where: { id },
+      select: { id: true, status: true, title: true, authorId: true, type: true },
+    });
+    if (!before) throw new NotFoundException('آگهی یافت نشد');
+
     const data: Prisma.ListingUpdateInput = { status };
     if (status === ListingStatus.APPROVED) {
       const approvedAt = new Date();
@@ -197,10 +205,25 @@ export class AdminListingsQueryService {
       data.expiresAt = expiryFields.expiresAt as Date;
       data.expiryReminderSentAt = null;
     }
-    return this.prisma.listing.update({
+    const updated = await this.prisma.listing.update({
       where: { id },
       data,
     });
+
+    if (
+      status === ListingStatus.APPROVED &&
+      before.status !== ListingStatus.APPROVED
+    ) {
+      await this.notificationService.create({
+        userId: before.authorId,
+        type: NotificationType.LISTING_APPROVED,
+        title: 'آگهی شما تایید شد',
+        message: `آگهی «${before.title}» توسط ادمین تایید و منتشر شد.`,
+        meta: { listingId: updated.id, listingType: before.type },
+      });
+    }
+
+    return updated;
   }
 
   /**

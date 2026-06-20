@@ -26,6 +26,7 @@ import { AdminPlatformWalletController } from './controllers/admin-platform-wall
 import { AdminContactMessagesController } from './controllers/admin-contact-messages.controller';
 import { AdminCustomerClubController } from './controllers/admin-customer-club.controller';
 import { AdminBlogController } from './controllers/admin-blog.controller';
+import { AdminLandingPagesController } from './controllers/admin-landing-pages.controller';
 import { AdminBadgesController } from './controllers/admin-badges.controller';
 import { AdminVaultController } from './controllers/admin-vault.controller';
 import { AdminBackupController } from './controllers/admin-backup.controller';
@@ -61,6 +62,7 @@ import { AdminLogsService } from './services/admin-logs.service';
 import { AdminPlatformWalletService } from './services/admin-platform-wallet.service';
 import { SmsService } from '../sms/sms.service';
 import { AdminBlogService } from './services/admin-blog.service';
+import { AdminLandingPagesService } from './services/admin-landing-pages.service';
 import { AdminBadgesService } from './services/admin-badges.service';
 import { AdminVaultService } from './services/admin-vault.service';
 import { AdminListingDeleteService } from './services/admin-listing-delete.service';
@@ -109,6 +111,7 @@ import { CommonModuleModule } from '../../common-module/common-module.module';
     AdminContactMessagesController,
     AdminCustomerClubController,
     AdminBlogController,
+    AdminLandingPagesController,
     AdminBadgesController,
     AdminVaultController,
     AdminBackupController,
@@ -143,6 +146,7 @@ import { CommonModuleModule } from '../../common-module/common-module.module';
     AdminLogsService,
     AdminPlatformWalletService,
     AdminBlogService,
+    AdminLandingPagesService,
     AdminBadgesService,
     AdminVaultService,
     AdminListingDeleteService,
