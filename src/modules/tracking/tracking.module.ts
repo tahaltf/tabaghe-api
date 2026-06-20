@@ -25,9 +25,9 @@ import { CampaignPrefixService } from './campaign-prefix.service';
 })
 export class TrackingModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(TrackingRedirectMiddleware).forRoutes({
-      path: '*',
-      method: RequestMethod.GET,
-    });
+    consumer.apply(TrackingRedirectMiddleware).forRoutes(
+      { path: '*', method: RequestMethod.GET },
+      { path: '*', method: RequestMethod.HEAD },
+    );
   }
 }
