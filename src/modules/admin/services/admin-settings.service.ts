@@ -119,6 +119,8 @@ export const SETTING_KEYS = {
     'ACTION_DEADLINE_REMINDER_ORDER_SELLER_SHIPMENT_MINUTES',
   ACTION_DEADLINE_REMINDER_AUCTION_PAYMENT_MINUTES:
     'ACTION_DEADLINE_REMINDER_AUCTION_PAYMENT_MINUTES',
+  /** شناسه پلن فعال‌شونده برای کاربران تازه‌ثبت‌نام (خالی = فقط سهمیه رایگان) */
+  DEFAULT_REGISTRATION_PLAN_ID: 'DEFAULT_REGISTRATION_PLAN_ID',
 } as const;
 
 /**
@@ -174,6 +176,8 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   ORDER_COMPLETED_VIDEO_RETENTION_DAYS:
     'تعداد روز نگهداری ویدیوهای سفارش تکمیل‌شده قبل از حذف خودکار',
   OTP_TTL_MINUTES: 'مدت اعتبار کد OTP (دقیقه)',
+  DEFAULT_REGISTRATION_PLAN_ID:
+    'شناسه پلن فعال‌شونده برای کاربران تازه‌ثبت‌نام (خالی = فقط سهمیه رایگان)',
   OTP_RESEND_COOLDOWN_SECONDS:
     'حداقل فاصله بین دو درخواست OTP برای یک شماره (ثانیه)',
   TRADE_REPUTATION_SUCCESS_DELTA:

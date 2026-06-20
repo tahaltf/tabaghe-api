@@ -9,10 +9,12 @@ import { TokenService } from './services/token.service';
 import { GodadminBootstrapService } from './services/godadmin-bootstrap.service';
 import { NotificationModule } from '../notification/notification.module';
 import { SmsService } from '../sms/sms.service';
+import { PlansModule } from '../plans/plans.module';
 
 @Module({
   imports: [
     NotificationModule,
+    PlansModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
