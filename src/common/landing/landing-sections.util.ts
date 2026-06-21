@@ -11,6 +11,8 @@ const VALID_SECTION_TYPES = new Set([
   'faq',
   'testimonials',
   'banner',
+  'logos',
+  'video',
 ]);
 
 function unwrapSectionsRaw(raw: unknown): unknown[] {
