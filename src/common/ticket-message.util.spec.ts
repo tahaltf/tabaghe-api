@@ -17,6 +17,7 @@ describe('ticket-message.util', () => {
     expect(subject).toContain('[ORDER:abc123def456]');
   });
 
+
   it('normalizeTicketMessage preserves user text as typed', () => {
     expect(normalizeTicketMessage('سلام،\nمتن پیام.')).toBe('سلام،\nمتن پیام.');
     expect(normalizeTicketMessage('  متن  ')).toBe('متن');
