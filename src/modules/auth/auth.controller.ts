@@ -1,4 +1,5 @@
 import { Body, Controller, Post, HttpCode, HttpStatus } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service'; // تغییر نام از Auth به AuthService
 import { RequestOtpDto, VerifyOtpDto } from './dto/otp.dto';
 import { RefreshDto } from './dto/refresh.dto';
@@ -16,12 +17,14 @@ export class AuthController {
    */
   @Post('request')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   async request(@Body() dto: RequestOtpDto) {
     return this.authService.requestOtp(dto.phone);
   }
 
   @Post('verify')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async verify(@Body() dto: VerifyOtpDto) {
     return this.authService.verifyOtp(dto.phone, dto.code);
   }
@@ -29,6 +32,7 @@ export class AuthController {
   /** مرحله ۱ ورود ادمین — پس از تایید رمز، OTP به موبایل ادمین ارسال می‌شود */
   @Post('login-password')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   async loginWithPassword(@Body() dto: PasswordLoginDto) {
     return this.authService.requestAdminPasswordLogin(
       dto.username,
@@ -39,6 +43,7 @@ export class AuthController {
   /** مرحله ۲ ورود ادمین — تایید کد پیامکی */
   @Post('admin/verify-otp')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async verifyAdminLoginOtp(@Body() dto: AdminVerifyOtpDto) {
     return this.authService.verifyAdminLoginOtp(
       dto.challengeToken,

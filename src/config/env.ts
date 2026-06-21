@@ -22,6 +22,10 @@ const PLACEHOLDER_VALUES = new Set([
   'your-merchant-id',
   'super-secret-access',
   'super-secret-refresh',
+  'fallback_access_secret_key',
+  'fallback_refresh_secret_key',
+  'dev-only-access-secret-not-for-production',
+  'dev-only-refresh-secret-not-for-production',
 ]);
 
 function isPlaceholderEnvValue(key: string, value: string): boolean {

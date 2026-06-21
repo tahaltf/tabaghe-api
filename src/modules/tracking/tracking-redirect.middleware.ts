@@ -34,8 +34,11 @@ export class TrackingRedirectMiddleware implements NestMiddleware {
     }
 
     try {
-      const redirectUrl = await this.tracking.handleRedirect(slug, req);
-      res.redirect(302, redirectUrl);
+      const result = await this.tracking.handleRedirect(slug, req);
+      if (result.setCookie) {
+        res.setHeader('Set-Cookie', result.setCookie);
+      }
+      res.redirect(302, result.url);
     } catch (err) {
       if (err instanceof NotFoundException) {
         res.status(404).send('لینک یافت نشد');

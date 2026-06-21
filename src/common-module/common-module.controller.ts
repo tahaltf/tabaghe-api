@@ -8,12 +8,15 @@ import {
   Req,
   Res,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { CommonService } from './common-module.service';
 import { PwaIconService } from './pwa-icon.service';
 import { buildClientNetworkHint } from './client-network-hint.util';
+import { CacheControl } from '../common/decorators/cache-control.decorator';
 
 @Controller('common')
+@CacheControl('public, max-age=120, stale-while-revalidate=300')
 export class CommonController {
   constructor(
     private readonly commonService: CommonService,
@@ -146,6 +149,7 @@ export class CommonController {
   }
 
   @Post('contact-us')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   async submitContact(
     @Body()
     body: {
@@ -160,6 +164,7 @@ export class CommonController {
   }
 
   @Post('customer-club')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   async subscribeCustomerClub(@Body() body: { contact: string }) {
     return this.commonService.subscribeCustomerClub(body.contact);
   }

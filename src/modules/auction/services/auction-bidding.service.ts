@@ -43,6 +43,10 @@ export class AuctionBiddingService {
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        SELECT "listingId" FROM "ListingAuction" WHERE "listingId" = ${listingId} FOR UPDATE
+      `;
+
       const auction = await tx.listingAuction.findUnique({
         where: { listingId },
         include: { listing: { select: { authorId: true } } },

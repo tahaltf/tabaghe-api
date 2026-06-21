@@ -2,9 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
-
-const GODADMIN_PHONE = '09190949469';
-const GODADMIN_DEFAULT_PASSWORD = '@Ab123456789@';
+import { GODADMIN_PHONE } from '../../../shared/test-users';
 
 @Injectable()
 export class GodadminBootstrapService implements OnModuleInit {
@@ -13,21 +11,31 @@ export class GodadminBootstrapService implements OnModuleInit {
   constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit(): Promise<void> {
+    const bootstrapPassword = process.env.GODADMIN_BOOTSTRAP_PASSWORD?.trim();
     const existing = await this.prisma.user.findUnique({
       where: { phone: GODADMIN_PHONE },
       select: { id: true, passwordHash: true },
     });
 
     if (!existing) {
-      const passwordHash = await bcrypt.hash(GODADMIN_DEFAULT_PASSWORD, 10);
-      await this.prisma.user.create({
-        data: {
-          phone: GODADMIN_PHONE,
-          role: UserRole.GODADMIN,
-          isActive: true,
-          passwordHash,
-        },
-      });
+      const data: {
+        phone: string;
+        role: UserRole;
+        isActive: boolean;
+        passwordHash?: string;
+      } = {
+        phone: GODADMIN_PHONE,
+        role: UserRole.GODADMIN,
+        isActive: true,
+      };
+      if (bootstrapPassword) {
+        data.passwordHash = await bcrypt.hash(bootstrapPassword, 10);
+      } else if (process.env.NODE_ENV !== 'production') {
+        this.logger.warn(
+          `GODADMIN created without password; set GODADMIN_BOOTSTRAP_PASSWORD or use dev seed.`,
+        );
+      }
+      await this.prisma.user.create({ data });
       this.logger.log(`Default GODADMIN created for ${GODADMIN_PHONE}.`);
       return;
     }
@@ -36,18 +44,13 @@ export class GodadminBootstrapService implements OnModuleInit {
       role?: UserRole;
       isActive?: boolean;
       passwordHash?: string;
-    } = {};
+    } = {
+      role: UserRole.GODADMIN,
+      isActive: true,
+    };
 
-    // Ensure this reserved phone always remains GODADMIN and active.
-    updateData.role = UserRole.GODADMIN;
-    updateData.isActive = true;
-
-    // Do not override password when it already exists.
-    if (!existing.passwordHash) {
-      updateData.passwordHash = await bcrypt.hash(
-        GODADMIN_DEFAULT_PASSWORD,
-        10,
-      );
+    if (!existing.passwordHash && bootstrapPassword) {
+      updateData.passwordHash = await bcrypt.hash(bootstrapPassword, 10);
     }
 
     await this.prisma.user.update({

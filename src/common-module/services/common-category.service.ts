@@ -3,6 +3,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { TtlCacheService } from '../../infrastructure/cache/ttl-cache.service';
 
 import { ListingStatus, LocationType } from '@prisma/client';
 import { findLocationBySlug } from '../location-slug.util';
@@ -10,25 +11,32 @@ import { filterCategoriesVisibleOnSite, isCategoryVisibleOnSite } from '../../co
 
 @Injectable()
 export class CommonCategoryService {
-  constructor(private readonly prisma: PrismaService) {}
+  private static readonly CACHE_TTL_SECONDS = 90;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cache: TtlCacheService,
+  ) {}
 
   // دریافت دسته‌بندی‌ها — درخت کامل (هر عمق) + تعداد آگهی تأییدشده در هر شاخه
   async getCategories() {
-    const rows = await this.prisma.category.findMany({
-      orderBy: { title: 'asc' },
-      select: {
-        id: true,
-        title: true,
-        slug: true,
-        icon: true,
-        parentId: true,
-        isActive: true,
-      },
+    return this.cache.getOrSet('common:categories', CommonCategoryService.CACHE_TTL_SECONDS, async () => {
+      const rows = await this.prisma.category.findMany({
+        orderBy: { title: 'asc' },
+        select: {
+          id: true,
+          title: true,
+          slug: true,
+          icon: true,
+          parentId: true,
+          isActive: true,
+        },
+      });
+      const visible = filterCategoriesVisibleOnSite(rows);
+      const rollup = await this.getApprovedListingRollupCounts();
+      const tree = this.buildCategoryTree(visible, null);
+      return this.attachListingCounts(tree, rollup);
     });
-    const visible = filterCategoriesVisibleOnSite(rows);
-    const rollup = await this.getApprovedListingRollupCounts();
-    const tree = this.buildCategoryTree(visible, null);
-    return this.attachListingCounts(tree, rollup);
   }
 
   /** فقط دسته‌های ریشه‌ای که در خود یا زیرشاخه‌شان آگهی دارند (صفحه اصلی) */
@@ -272,26 +280,27 @@ export class CommonCategoryService {
   }
 
   async fetchTopLocationsForCategory(categoryIds: string[]) {
-    const rows = await this.prisma.listing.findMany({
+    const grouped = await this.prisma.listing.groupBy({
+      by: ['cityId'],
       where: {
         status: ListingStatus.APPROVED,
         deletedAt: null,
         categoryId: { in: categoryIds },
+        cityId: { not: null },
       },
-      select: { cityId: true },
+      _count: { _all: true },
     });
 
-    const counts = new Map<string, number>();
-    for (const row of rows) {
-      if (!row.cityId) continue;
-      counts.set(row.cityId, (counts.get(row.cityId) ?? 0) + 1);
-    }
-
-    const topCityIds = [...counts.entries()]
-      .sort((a, b) => b[1] - a[1])
+    const topCityIds = grouped
+      .filter((row) => row.cityId)
+      .sort((a, b) => b._count._all - a._count._all)
       .slice(0, 12)
-      .map(([id]) => id);
+      .map((row) => row.cityId as string);
     if (!topCityIds.length) return [];
+
+    const counts = new Map(
+      grouped.map((row) => [row.cityId as string, row._count._all]),
+    );
 
     const cities = await this.prisma.location.findMany({
       where: { id: { in: topCityIds }, type: LocationType.CITY },

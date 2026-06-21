@@ -445,6 +445,8 @@ model Listing {
   updatedAt       DateTime       @updatedAt
 
   @@index([status, type])
+  @@index([status, categoryId, createdAt])
+  @@index([status, type, createdAt])
   @@index([authorId])
   @@index([provinceId, cityId])
   @@index([createdAt])
@@ -1043,6 +1045,9 @@ model CampaignLink {
   targetUrl   String
   description String?
   isActive    Boolean    @default(true)
+  /** Links in the same group share traffic for A/B — entry slug still unique */
+  splitGroup  String?
+  splitWeight Int        @default(100)
 
   createdById String?
   createdBy   User?      @relation(fields: [createdById], references: [id], onDelete: SetNull)
@@ -1053,6 +1058,7 @@ model CampaignLink {
   updatedAt   DateTime   @updatedAt
 
   @@index([isActive, slug])
+  @@index([splitGroup, isActive])
 }
 
 model ClickLog {

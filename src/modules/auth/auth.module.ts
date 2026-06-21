@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { resolveJwtAccessSecret } from '../../config/jwt-secrets.util';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
@@ -10,6 +11,7 @@ import { GodadminBootstrapService } from './services/godadmin-bootstrap.service'
 import { RegistrationPlanService } from './services/registration-plan.service';
 import { NotificationModule } from '../notification/notification.module';
 import { SmsService } from '../sms/sms.service';
+import { SmsTemplateBootstrapService } from '../sms/sms-template-bootstrap.service';
 
 @Module({
   imports: [
@@ -18,8 +20,7 @@ import { SmsService } from '../sms/sms.service';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret:
-          config.get<string>('JWT_SECRET') ?? 'fallback_access_secret_key',
+        secret: resolveJwtAccessSecret(config),
         signOptions: { expiresIn: '7d' },
       }),
     }),
@@ -31,6 +32,7 @@ import { SmsService } from '../sms/sms.service';
     TokenService,
     JwtStrategy,
     SmsService,
+    SmsTemplateBootstrapService,
     GodadminBootstrapService,
     RegistrationPlanService,
   ],

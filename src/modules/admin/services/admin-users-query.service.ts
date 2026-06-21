@@ -91,6 +91,14 @@ export interface AdminUserActivityItem {
 }
 const ADMIN_DEFAULT_PASSWORD = '@Ab123456789@';
 
+/** @deprecated Dev-only fallback; production admin creation requires explicit password. */
+function resolveNewAdminPassword(input?: string | null): string {
+  const trimmed = input?.trim();
+  if (trimmed) return trimmed;
+  if (process.env.NODE_ENV !== 'production') return ADMIN_DEFAULT_PASSWORD;
+  throw new BadRequestException('رمز عبور برای ایجاد ادمین الزامی است.');
+}
+
 @Injectable()
 export class AdminUsersQueryService {
   constructor(
@@ -408,13 +416,16 @@ export class AdminUsersQueryService {
     const shouldSetDefaultAdminPassword =
       nextRole === UserRole.ADMIN && !user.passwordHash;
 
+    if (shouldSetDefaultAdminPassword) {
+      throw new BadRequestException(
+        'قبل از ارتقا به ادمین، رمز عبور کاربر را تنظیم کنید.',
+      );
+    }
+
     return this.prisma.user.update({
       where: { id: userId },
       data: {
         role: nextRole,
-        ...(shouldSetDefaultAdminPassword
-          ? { passwordHash: await bcrypt.hash(ADMIN_DEFAULT_PASSWORD, 10) }
-          : {}),
       },
       select: { id: true, role: true },
     });
@@ -571,7 +582,7 @@ export class AdminUsersQueryService {
       );
     }
 
-    const rawPassword = input.password?.trim() || ADMIN_DEFAULT_PASSWORD;
+    const rawPassword = resolveNewAdminPassword(input.password);
     const passwordHash = await bcrypt.hash(rawPassword, 10);
     const created = await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({

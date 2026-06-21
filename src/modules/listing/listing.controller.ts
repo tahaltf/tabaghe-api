@@ -17,6 +17,7 @@ import { IsNumber, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 import { listingImagesMulterOptions } from '../../common/upload/listing-images-upload.config';
+import { CacheControl } from '../../common/decorators/cache-control.decorator';
 import { AuthenticatedUser } from '../../shared/contracts/auth';
 import { AuctionService } from '../auction/auction.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -48,8 +49,28 @@ export class ListingController {
   ) {}
 
   @Get()
+  @CacheControl('public, max-age=30, stale-while-revalidate=60')
   findAll(@Query() query: ListListingsDto) {
     return this.queryService.findAll(query);
+  }
+
+  @Get('suggest')
+  @CacheControl('public, max-age=30, stale-while-revalidate=60')
+  suggest(@Query('q') q?: string, @Query('limit') limit?: string) {
+    const parsed = limit ? Number(limit) : 8;
+    return this.queryService.suggest(
+      q ?? '',
+      Number.isFinite(parsed) ? parsed : 8,
+    );
+  }
+
+  @Get('home-feed')
+  @CacheControl('public, max-age=30, stale-while-revalidate=60')
+  getHomeFeed(@Query('limit') limit?: string) {
+    const parsed = limit ? Number(limit) : 10;
+    return this.queryService.getHomeFeed(
+      Number.isFinite(parsed) ? parsed : 10,
+    );
   }
 
   @UseGuards(JwtAuthGuard)

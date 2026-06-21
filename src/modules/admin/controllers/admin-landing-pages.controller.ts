@@ -49,6 +49,11 @@ export class AdminLandingPagesController {
     return this.service.create(dto, userId);
   }
 
+  @Post('seed-seller')
+  seedSeller(@Body() body?: { force?: boolean }) {
+    return this.service.seedSellerLanding(body?.force ?? false);
+  }
+
   @Get(':id')
   getOne(@Param('id') id: string) {
     return this.service.getById(id);

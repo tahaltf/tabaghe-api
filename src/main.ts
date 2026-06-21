@@ -16,6 +16,8 @@ import { createServer } from 'node:net';
 import { CampaignPrefixService } from './modules/tracking/campaign-prefix.service';
 import { PrismaService } from './infrastructure/prisma/prisma.service';
 import { normalizeCampaignUrlPrefix } from './common/campaign/campaign-url.util';
+import { buildCorsOrigins } from './config/cors-origins.util';
+import { RedisIoAdapter } from './infrastructure/websocket/redis-io.adapter';
 
 /** ترجمهٔ پیام‌های پیش‌فرض class-validator برای نمایش به کاربر نهایی */
 function translateValidationConstraintMessage(raw: string): string {
@@ -157,43 +159,6 @@ function flattenValidationErrors(errors: ValidationError[]): string[] {
   return out;
 }
 
-function normalizeCorsOrigin(origin: string): string | null {
-  const trimmed = origin.trim();
-  if (!trimmed) return null;
-
-  try {
-    return new URL(trimmed).origin;
-  } catch {
-    return trimmed.replace(/\/+$/, '');
-  }
-}
-
-function getTabaghehFrontendOrigins(frontendAppUrl: string): string[] {
-  const frontendOrigin = normalizeCorsOrigin(frontendAppUrl);
-  const origins = [
-    frontendOrigin,
-    'http://localhost:4200',
-    'https://tabagheh.com',
-    'https://www.tabagheh.com',
-  ];
-
-  return origins.filter((origin): origin is string => Boolean(origin));
-}
-
-function buildCorsOrigins(frontendAppUrl: string): string[] {
-  const configuredOrigins = (process.env.FRONTEND_ORIGINS || '')
-    .split(',')
-    .map(normalizeCorsOrigin)
-    .filter((origin): origin is string => Boolean(origin));
-
-  return [
-    ...new Set([
-      ...configuredOrigins,
-      ...getTabaghehFrontendOrigins(frontendAppUrl),
-    ]),
-  ];
-}
-
 async function isPortFree(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const tester = createServer();
@@ -224,6 +189,13 @@ async function resolveAvailablePort(
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  const redisUrl = process.env.REDIS_URL?.trim();
+  if (redisUrl) {
+    const redisIo = new RedisIoAdapter(app);
+    redisIo.connectToRedis(redisUrl);
+    app.useWebSocketAdapter(redisIo);
+  }
 
   if (process.env.NODE_ENV === 'production') {
     validateProductionEnv();
@@ -282,8 +254,8 @@ async function bootstrap() {
   });
 
   // ۴. محدودیت حجم درخواست برای آپلود تصاویر و مدارک
-  app.use(json({ limit: '50mb' }));
-  app.use(urlencoded({ extended: true, limit: '50mb' }));
+  app.use(json({ limit: '20mb' }));
+  app.use(urlencoded({ extended: true, limit: '20mb' }));
 
   // ۵. پایپ اعتبارسنجی گلوبال (قلب تپنده امنیت DTOهای ما)
   app.useGlobalPipes(

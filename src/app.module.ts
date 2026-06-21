@@ -3,6 +3,7 @@ import { MiddlewareConsumer, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ServeStaticModule } from '@nestjs/serve-static';
@@ -21,11 +22,14 @@ function loadEnvFilePaths(): string[] {
 
 // Infrastructure
 import { PrismaModule } from './infrastructure/prisma/prisma.module';
+import { AppCacheModule } from './infrastructure/cache/cache.module';
+import { RedisService } from './infrastructure/cache/redis.service';
 
 // Common / Shared
 import { RequestLoggerMiddleware } from './common/middleware/request-logger.middleware';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { ResponseEnvelopeInterceptor } from './common/interceptors/response-envelope.interceptor';
+import { CacheControlInterceptor } from './common/interceptors/cache-control.interceptor';
 import { CommonModuleModule } from './common-module/common-module.module'; // بعداً اسم این پوشه رو به common تغییر میدیم
 import { SettingsModule } from './shared/settings/settings.module';
 
@@ -68,12 +72,20 @@ import { AppService } from './app.service';
     }),
     ScheduleModule.forRoot(),
     EventEmitterModule.forRoot(),
-    ThrottlerModule.forRoot([
-      {
-        ttl: 60_000,
-        limit: 100,
+    AppCacheModule,
+    ThrottlerModule.forRootAsync({
+      imports: [AppCacheModule],
+      inject: [RedisService],
+      useFactory: (redis: RedisService) => {
+        const client = redis.getClient();
+        return {
+          throttlers: [{ ttl: 60_000, limit: 100 }],
+          ...(client
+            ? { storage: new ThrottlerStorageRedisService(client) }
+            : {}),
+        };
       },
-    ]),
+    }),
 
     // 2. Infrastructure
     PrismaModule,
@@ -118,6 +130,10 @@ import { AppService } from './app.service';
     {
       provide: APP_INTERCEPTOR,
       useClass: ResponseEnvelopeInterceptor,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: CacheControlInterceptor,
     },
   ],
 })

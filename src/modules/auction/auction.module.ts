@@ -17,9 +17,17 @@ import { AuctionSupportService } from './services/auction-support.service';
 import { AuctionBiddingService } from './services/auction-bidding.service';
 import { AuctionSettlementService } from './services/auction-settlement.service';
 import { AuctionQueryService } from './services/auction-query.service';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
-  imports: [PrismaModule, WalletModule, NotificationModule, FeesModule, OrderReputationModule],
+  imports: [
+    PrismaModule,
+    WalletModule,
+    NotificationModule,
+    FeesModule,
+    OrderReputationModule,
+    AuthModule,
+  ],
   controllers: [
     AuctionController,
     AdminAuctionController,

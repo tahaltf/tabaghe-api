@@ -8,11 +8,13 @@ import {
   UserRole,
 } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { CategoryTreeCacheService } from '../../../common/category/category-tree-cache.service';
 import {
   buildPaginationMeta,
   PaginatedResult,
 } from '../../../shared/contracts/pagination';
 import { ListListingsDto } from '../dto/list-listings.dto';
+import type { HomeFeedResponse } from '../../../shared/contracts/home-feed';
 
 /**
  * لیست آگهی‌ها فقط فیلدهای مورد نیاز کارت را برمیگرداند تا حجم payload
@@ -124,7 +126,10 @@ export type ListingDetail = Prisma.ListingGetPayload<{
 
 @Injectable()
 export class ListingQueryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly categoryTree: CategoryTreeCacheService,
+  ) {}
 
   async findAll(
     query: ListListingsDto,
@@ -162,6 +167,73 @@ export class ListingQueryService {
     return {
       items,
       pagination: buildPaginationMeta(page, pageSize, total),
+    };
+  }
+
+  /** Lightweight autocomplete for search boxes — title only. */
+  async suggest(
+    query: string,
+    limit = 8,
+  ): Promise<Array<{ id: string; title: string }>> {
+    const q = query.trim();
+    if (q.length < 2) return [];
+    const take = Math.min(15, Math.max(1, limit));
+    return this.prisma.listing.findMany({
+      where: {
+        status: ListingStatus.APPROVED,
+        title: { contains: q, mode: 'insensitive' },
+      },
+      select: { id: true, title: true },
+      orderBy: [{ isFeatured: 'desc' }, { createdAt: 'desc' }],
+      take,
+    });
+  }
+
+  async getHomeFeed(limit = 10): Promise<HomeFeedResponse> {
+    const safeLimit = Math.min(20, Math.max(1, limit));
+    const where = await this.buildPublicWhere({} as ListListingsDto);
+    const orderBy: Prisma.ListingOrderByWithRelationInput[] = [
+      { isFeatured: 'desc' },
+      { featuredAt: 'desc' },
+      { createdAt: 'desc' },
+    ];
+
+    const [auction, direct, exchange, auctions, total] = await Promise.all([
+      this.prisma.listing.findMany({
+        where: { ...where, type: ListingType.AUCTION },
+        include: LIST_ITEM_INCLUDE,
+        orderBy,
+        take: safeLimit,
+      }),
+      this.prisma.listing.findMany({
+        where: { ...where, type: ListingType.DIRECT },
+        include: LIST_ITEM_INCLUDE,
+        orderBy,
+        take: safeLimit,
+      }),
+      this.prisma.listing.findMany({
+        where: {
+          ...where,
+          OR: [
+            { type: ListingType.EXCHANGE },
+            { direct: { allowExchange: true } },
+          ],
+        },
+        include: LIST_ITEM_INCLUDE,
+        orderBy,
+        take: safeLimit,
+      }),
+      this.prisma.listing.count({
+        where: { ...where, type: ListingType.AUCTION },
+      }),
+      this.prisma.listing.count({ where }),
+    ]);
+
+    return {
+      auction,
+      direct,
+      exchange,
+      stats: { total, auctions },
     };
   }
 
@@ -249,27 +321,40 @@ export class ListingQueryService {
       this.prisma.listing.count({ where }),
     ]);
 
-    const items = await Promise.all(
-      rows.map(async (item) => {
-        const allowsExchange =
+    const exchangeListingIds = rows
+      .filter(
+        (item) =>
           item.type === ListingType.EXCHANGE ||
-          Boolean(item.direct?.allowExchange);
-        if (!allowsExchange) {
-          return { ...item, pendingExchangeOffersCount: 0 };
-        }
-        const pendingExchangeOffersCount =
-          await this.prisma.exchangeOffer.count({
-            where: {
-              listingId: item.id,
-              status: ExchangeOfferStatus.PENDING,
-              ...(item.exchangeOffersSince
-                ? { createdAt: { gte: item.exchangeOffersSince } }
-                : {}),
-            },
-          });
-        return { ...item, pendingExchangeOffersCount };
-      }),
-    );
+          Boolean(item.direct?.allowExchange),
+      )
+      .map((item) => item.id);
+
+    const pendingCounts = new Map<string, number>();
+    if (exchangeListingIds.length) {
+      const offers = await this.prisma.exchangeOffer.findMany({
+        where: {
+          listingId: { in: exchangeListingIds },
+          status: ExchangeOfferStatus.PENDING,
+        },
+        select: { listingId: true, createdAt: true },
+      });
+      const sinceByListing = new Map(
+        rows.map((row) => [row.id, row.exchangeOffersSince] as const),
+      );
+      for (const offer of offers) {
+        const since = sinceByListing.get(offer.listingId);
+        if (since && offer.createdAt < since) continue;
+        pendingCounts.set(
+          offer.listingId,
+          (pendingCounts.get(offer.listingId) ?? 0) + 1,
+        );
+      }
+    }
+
+    const items = rows.map((item) => ({
+      ...item,
+      pendingExchangeOffersCount: pendingCounts.get(item.id) ?? 0,
+    }));
 
     return { items, pagination: buildPaginationMeta(page, pageSize, total) };
   }
@@ -327,28 +412,7 @@ export class ListingQueryService {
   private async resolveCategoryDescendantIds(
     categoryId: string,
   ): Promise<string[]> {
-    const rows = await this.prisma.category.findMany({
-      select: { id: true, parentId: true },
-    });
-    const byParent = new Map<string | null, string[]>();
-    for (const row of rows) {
-      const key = row.parentId;
-      const list = byParent.get(key) ?? [];
-      list.push(row.id);
-      byParent.set(key, list);
-    }
-    const ids = new Set<string>([categoryId]);
-    const queue = [categoryId];
-    while (queue.length) {
-      const current = queue.shift()!;
-      for (const childId of byParent.get(current) ?? []) {
-        if (!ids.has(childId)) {
-          ids.add(childId);
-          queue.push(childId);
-        }
-      }
-    }
-    return [...ids];
+    return this.categoryTree.resolveDescendantIds(categoryId);
   }
 
   private async buildPublicWhere(

@@ -2,6 +2,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { TtlCacheService } from '../../infrastructure/cache/ttl-cache.service';
 
 import { parseListingTypesEnabledFromMap } from '../../common/system-settings/listing-type-enabled';
 import {
@@ -17,9 +18,22 @@ import { normalizeLandingUrlPrefix } from '../../common/landing/landing-url.util
 
 @Injectable()
 export class CommonContentService {
-  constructor(private readonly prisma: PrismaService) {}
+  private static readonly SITE_SETTINGS_CACHE_TTL_SECONDS = 60;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cache: TtlCacheService,
+  ) {}
 
   async getPublicSiteSettings() {
+    return this.cache.getOrSet(
+      'common:site-settings',
+      CommonContentService.SITE_SETTINGS_CACHE_TTL_SECONDS,
+      () => this.loadPublicSiteSettings(),
+    );
+  }
+
+  private async loadPublicSiteSettings() {
     const PUBLIC_KEYS = [
       'HOMEPAGE_BANNER',
       'MEDIA_FALLBACK_LOGO',

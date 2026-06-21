@@ -13,8 +13,7 @@ import { TokenService } from './services/token.service';
 import { SmsService } from '../sms/sms.service';
 import { NotificationService } from '../notification/notification.service';
 import { RegistrationPlanService } from './services/registration-plan.service';
-
-const ADMIN_DEFAULT_PASSWORD = '@Ab123456789@';
+import { resolveAdminBootstrapPassword } from '../../config/bootstrap-password.util';
 
 export interface AdminPasswordLoginChallengeResponse {
   challengeToken: string;
@@ -150,13 +149,16 @@ export class AuthService {
     let isValid = false;
     if (user.passwordHash) {
       isValid = await bcrypt.compare(password, user.passwordHash);
-    } else if (password === ADMIN_DEFAULT_PASSWORD) {
-      isValid = true;
-      const hashed = await bcrypt.hash(ADMIN_DEFAULT_PASSWORD, 10);
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: { passwordHash: hashed },
-      });
+    } else {
+      const bootstrapPassword = resolveAdminBootstrapPassword();
+      if (bootstrapPassword && password === bootstrapPassword) {
+        isValid = true;
+        const hashed = await bcrypt.hash(bootstrapPassword, 10);
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { passwordHash: hashed },
+        });
+      }
     }
 
     if (!isValid) {

@@ -40,6 +40,18 @@ export class CreateCampaignLinkDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  splitGroup?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  splitWeight?: number;
 }
 
 export class UpdateCampaignLinkDto {
@@ -72,6 +84,18 @@ export class UpdateCampaignLinkDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  splitGroup?: string | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  splitWeight?: number;
 }
 
 export class CampaignLinkStatsQueryDto {

@@ -53,6 +53,8 @@ export class AdminCampaignLinksService {
         targetUrl: dto.targetUrl.trim(),
         description: dto.description?.trim() || null,
         isActive: dto.isActive ?? true,
+        splitGroup: dto.splitGroup?.trim() || null,
+        splitWeight: dto.splitWeight ?? 100,
         createdById: createdById ?? null,
       },
       include: { _count: { select: { clickLogs: true } } },
@@ -78,6 +80,10 @@ export class AdminCampaignLinksService {
           ? { description: dto.description?.trim() || null }
           : {}),
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+        ...(dto.splitGroup !== undefined
+          ? { splitGroup: dto.splitGroup?.trim() || null }
+          : {}),
+        ...(dto.splitWeight !== undefined ? { splitWeight: dto.splitWeight } : {}),
       },
       include: { _count: { select: { clickLogs: true } } },
     });

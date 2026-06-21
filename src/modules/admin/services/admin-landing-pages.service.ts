@@ -6,6 +6,14 @@ import {
   AdminUpdateLandingPageDto,
 } from '../dto/admin-landing-page.dto';
 import { coerceLandingSections } from '../../../common/landing/landing-sections.util';
+import {
+  loadSellerLandingSeedSections,
+  sellerLandingSeedDescription,
+  sellerLandingSeedMeta,
+  sellerLandingSeedTitle,
+  SELLER_LANDING_SLUG,
+  SELLER_LANDING_SECTION_COUNT,
+} from '../../../common/landing/seller-landing.seed';
 
 export type LandingPageRecord = {
   id: string;
@@ -112,6 +120,69 @@ export class AdminLandingPagesService {
       },
       createdById,
     );
+  }
+
+  /**
+   * Creates or upgrades `/seller` landing from seed JSON.
+   * Used by admin endpoint, CLI script, and dev bootstrap.
+   */
+  async seedSellerLanding(force = false): Promise<{
+    action: 'created' | 'updated' | 'skipped';
+    slug: string;
+    sectionCount: number;
+    isPublished: boolean;
+  }> {
+    const sections = loadSellerLandingSeedSections();
+    const meta = sellerLandingSeedMeta();
+    const existing = await this.prisma.landingPage.findUnique({
+      where: { slug: SELLER_LANDING_SLUG },
+    });
+
+    if (!existing) {
+      const created = await this.prisma.landingPage.create({
+        data: {
+          slug: SELLER_LANDING_SLUG,
+          title: sellerLandingSeedTitle(),
+          description: sellerLandingSeedDescription(),
+          isPublished: true,
+          sections: sections as Prisma.InputJsonValue,
+          meta: meta as Prisma.InputJsonValue,
+        },
+      });
+      return {
+        action: 'created',
+        slug: created.slug,
+        sectionCount: sections.length,
+        isPublished: created.isPublished,
+      };
+    }
+
+    const currentCount = coerceLandingSections(existing.sections).length;
+    if (!force && currentCount >= SELLER_LANDING_SECTION_COUNT) {
+      return {
+        action: 'skipped',
+        slug: existing.slug,
+        sectionCount: currentCount,
+        isPublished: existing.isPublished,
+      };
+    }
+
+    const updated = await this.prisma.landingPage.update({
+      where: { id: existing.id },
+      data: {
+        title: sellerLandingSeedTitle(),
+        description: sellerLandingSeedDescription(),
+        sections: sections as Prisma.InputJsonValue,
+        meta: meta as Prisma.InputJsonValue,
+        isPublished: existing.isPublished || true,
+      },
+    });
+    return {
+      action: 'updated',
+      slug: updated.slug,
+      sectionCount: sections.length,
+      isPublished: updated.isPublished,
+    };
   }
 
   private toRecord(row: {

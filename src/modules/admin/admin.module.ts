@@ -63,6 +63,7 @@ import { AdminPlatformWalletService } from './services/admin-platform-wallet.ser
 import { SmsService } from '../sms/sms.service';
 import { AdminBlogService } from './services/admin-blog.service';
 import { AdminLandingPagesService } from './services/admin-landing-pages.service';
+import { SellerLandingBootstrapService } from './services/seller-landing-bootstrap.service';
 import { AdminBadgesService } from './services/admin-badges.service';
 import { AdminVaultService } from './services/admin-vault.service';
 import { AdminListingDeleteService } from './services/admin-listing-delete.service';
@@ -147,6 +148,7 @@ import { CommonModuleModule } from '../../common-module/common-module.module';
     AdminPlatformWalletService,
     AdminBlogService,
     AdminLandingPagesService,
+    SellerLandingBootstrapService,
     AdminBadgesService,
     AdminVaultService,
     AdminListingDeleteService,

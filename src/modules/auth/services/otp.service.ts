@@ -41,7 +41,13 @@ export class OtpService {
       }),
     ]);
 
-    this.logger.log(`OTP issued for ${phone}: ${code}`);
+    const isProd =
+      this.configService.get<string>('NODE_ENV') === 'production';
+    if (isProd) {
+      this.logger.log(`OTP issued for ${phone}`);
+    } else {
+      this.logger.debug(`OTP issued for ${phone} (dev only)`);
+    }
 
     if (isTestOtpPhone(phone)) {
       return { sent: true };
@@ -55,8 +61,6 @@ export class OtpService {
       }
       return { sent: true };
     } catch (error) {
-      const isProd =
-        this.configService.get<string>('NODE_ENV') === 'production';
       if (isProd) throw error;
       this.logger.warn(
         `SMS provider failed in dev, code available in logs. err=${

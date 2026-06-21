@@ -7,20 +7,28 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import type { Request } from 'express';
 import {
+  buildAbSetCookie,
   buildRedirectUrl,
   extractClientIp,
   normalizeQueryParams,
+  parseAbCookie,
+  pickSplitVariant,
 } from './tracking.util';
+
+export interface CampaignRedirectResult {
+  url: string;
+  setCookie?: string;
+}
 
 @Injectable()
 export class TrackingService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async handleRedirect(slug: string, req: Request): Promise<string> {
-    const link = await this.prisma.campaignLink.findFirst({
+  async handleRedirect(slug: string, req: Request): Promise<CampaignRedirectResult> {
+    const entry = await this.prisma.campaignLink.findFirst({
       where: { slug, isActive: true },
     });
-    if (!link) {
+    if (!entry) {
       throw new NotFoundException('لینک یافت نشد');
     }
 
@@ -29,19 +37,50 @@ export class TrackingService {
       process.env.FRONTEND_APP_URL || 'https://tabagheh.com'
     ).trim();
 
+    let targetUrl = entry.targetUrl;
+    let logLinkId = entry.id;
+    let setCookie: string | undefined;
+
+    if (entry.splitGroup?.trim()) {
+      const group = entry.splitGroup.trim();
+      const variants = await this.prisma.campaignLink.findMany({
+        where: { splitGroup: group, isActive: true },
+        select: { id: true, targetUrl: true, splitWeight: true },
+      });
+      if (variants.length > 1) {
+        const stickyId = parseAbCookie(req.headers.cookie, group);
+        const picked = pickSplitVariant(variants, stickyId);
+        targetUrl = picked.targetUrl;
+        logLinkId = picked.id;
+        if (stickyId !== picked.id) {
+          setCookie = buildAbSetCookie(group, picked.id);
+        }
+      }
+    }
+
+    const trackingMeta: Record<string, string> = { ...queryParams };
+    if (entry.splitGroup?.trim()) {
+      trackingMeta['abGroup'] = entry.splitGroup.trim();
+      if (logLinkId !== entry.id) {
+        trackingMeta['abEntrySlug'] = entry.slug;
+        trackingMeta['abVariantId'] = logLinkId;
+      }
+    }
+
     await this.prisma.clickLog.create({
       data: {
-        campaignLinkId: link.id,
+        campaignLinkId: logLinkId,
         ipAddress: extractClientIp(req),
         userAgent: req.headers['user-agent']?.slice(0, 500) ?? null,
         queryParams:
-          Object.keys(queryParams).length > 0
-            ? (queryParams as Prisma.InputJsonValue)
+          Object.keys(trackingMeta).length > 0
+            ? (trackingMeta as Prisma.InputJsonValue)
             : Prisma.JsonNull,
       },
     });
 
-    return buildRedirectUrl(link.targetUrl, queryParams, frontendAppUrl);
+    const url = buildRedirectUrl(targetUrl, queryParams, frontendAppUrl);
+    return { url, setCookie };
   }
 
   async getHourlyClickStats(campaignLinkId: string, days = 7) {

@@ -11,8 +11,10 @@ import { Server, Socket } from 'socket.io';
 import { ChatsService } from './chats.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { websocketCorsOptions } from '../../config/cors-origins.util';
+import { resolveJwtAccessSecret } from '../../config/jwt-secrets.util';
 
-@WebSocketGateway({ cors: { origin: '*' }, namespace: '/chat' })
+@WebSocketGateway({ cors: websocketCorsOptions(), namespace: '/chat' })
 export class ChatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
@@ -32,7 +34,7 @@ export class ChatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       if (!token) return client.disconnect();
 
       const payload = this.jwtService.verify(token, {
-        secret: this.configService.get<string>('JWT_SECRET'),
+        secret: resolveJwtAccessSecret(this.configService),
       });
 
       const userId = payload.sub;
