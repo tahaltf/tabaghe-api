@@ -4,6 +4,7 @@ import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import {
   AdminCreateLandingPageDto,
   AdminUpdateLandingPageDto,
+  LandingSectionPayloadDto,
 } from '../dto/admin-landing-page.dto';
 import { coerceLandingSections } from '../../../common/landing/landing-sections.util';
 import {
@@ -21,7 +22,7 @@ export type LandingPageRecord = {
   title: string;
   description: string | null;
   isPublished: boolean;
-  sections: unknown[];
+  sections: LandingSectionPayloadDto[];
   meta: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
@@ -202,7 +203,7 @@ export class AdminLandingPagesService {
       title: row.title,
       description: row.description,
       isPublished: row.isPublished,
-      sections: coerceLandingSections(row.sections),
+      sections: coerceLandingSections(row.sections) as LandingSectionPayloadDto[],
       meta:
         row.meta && typeof row.meta === 'object' && !Array.isArray(row.meta)
           ? (row.meta as Record<string, unknown>)

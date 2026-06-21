@@ -10,7 +10,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-class LandingSectionPayloadDto {
+export class LandingSectionPayloadDto {
   @IsString()
   id!: string;
 
