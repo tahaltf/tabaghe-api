@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
@@ -6,7 +7,23 @@ import {
   IsString,
   MaxLength,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
+
+class LandingSectionPayloadDto {
+  @IsString()
+  id!: string;
+
+  @IsString()
+  type!: string;
+
+  @IsObject()
+  props!: Record<string, unknown>;
+
+  @IsOptional()
+  @IsObject()
+  style?: Record<string, unknown>;
+}
 
 export class AdminCreateLandingPageDto {
   @IsString()
@@ -31,7 +48,9 @@ export class AdminCreateLandingPageDto {
 
   @IsOptional()
   @IsArray()
-  sections?: unknown[];
+  @ValidateNested({ each: true })
+  @Type(() => LandingSectionPayloadDto)
+  sections?: LandingSectionPayloadDto[];
 
   @IsOptional()
   @IsObject()
@@ -62,7 +81,9 @@ export class AdminUpdateLandingPageDto {
 
   @IsOptional()
   @IsArray()
-  sections?: unknown[];
+  @ValidateNested({ each: true })
+  @Type(() => LandingSectionPayloadDto)
+  sections?: LandingSectionPayloadDto[];
 
   @IsOptional()
   @IsObject()
