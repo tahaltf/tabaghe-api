@@ -186,12 +186,12 @@ export class CommonLocationService {
 
     const counts = await this.prisma.listing.groupBy({
       by: ['cityId'],
-      where: { status: ListingStatus.APPROVED, deletedAt: null, cityId: { not: null } },
+      where: { status: ListingStatus.APPROVED, deletedAt: null },
       _count: { _all: true },
     });
     const provinceAgg = await this.prisma.listing.groupBy({
       by: ['provinceId'],
-      where: { status: ListingStatus.APPROVED, deletedAt: null, provinceId: { not: null } },
+      where: { status: ListingStatus.APPROVED, deletedAt: null },
       _count: { _all: true },
     });
 

@@ -356,7 +356,6 @@ export class CommonCategoryService {
         status: ListingStatus.APPROVED,
         deletedAt: null,
         categoryId: { in: categoryIds },
-        cityId: { not: null },
       },
       _count: { _all: true },
     });

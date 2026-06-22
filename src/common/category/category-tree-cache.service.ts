@@ -48,6 +48,10 @@ export class CategoryTreeCacheService {
         return { entries: [...map.entries()] };
       },
     );
+    if (!Array.isArray(payload?.entries)) {
+      await this.cache.delete(CACHE_KEY);
+      return this.getChildrenByParent();
+    }
     return new Map(payload.entries);
   }
 }
