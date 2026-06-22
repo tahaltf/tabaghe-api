@@ -8,6 +8,7 @@ import { TtlCacheService } from '../../infrastructure/cache/ttl-cache.service';
 import { ListingStatus, LocationType } from '@prisma/client';
 import { findLocationBySlug } from '../location-slug.util';
 import { filterCategoriesVisibleOnSite, isCategoryVisibleOnSite } from '../../common/category-visibility.util';
+import { CategoryTreeCacheService } from '../../common/category/category-tree-cache.service';
 
 @Injectable()
 export class CommonCategoryService {
@@ -16,6 +17,7 @@ export class CommonCategoryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cache: TtlCacheService,
+    private readonly categoryTree: CategoryTreeCacheService,
   ) {}
 
   // دریافت دسته‌بندی‌ها — درخت کامل (هر عمق) + تعداد آگهی تأییدشده در هر شاخه
@@ -102,12 +104,8 @@ export class CommonCategoryService {
     };
   }
 
-  categoryIdsForLanding(category: {
-    id: string;
-    children: Array<{ id: string }>;
-  }): string[] {
-    const childIds = category.children.map((c) => c.id);
-    return [category.id, ...childIds];
+  async categoryIdsForLanding(categoryId: string): Promise<string[]> {
+    return this.categoryTree.resolveDescendantIds(categoryId);
   }
 
   listingWhereForCategoryLocation(
@@ -153,7 +151,7 @@ export class CommonCategoryService {
     } | null,
   ) {
     const rollup = await this.getApprovedListingRollupCounts();
-    const categoryIds = this.categoryIdsForLanding(category);
+    const categoryIds = await this.categoryIdsForLanding(category.id);
     const listingWhere = this.listingWhereForCategoryLocation(
       categoryIds,
       location,
@@ -168,7 +166,7 @@ export class CommonCategoryService {
       listingCount: rollup.get(child.id) ?? 0,
     }));
 
-    const recentListings = await this.prisma.listing.findMany({
+    const recentListingsRaw = await this.prisma.listing.findMany({
       where: listingWhere,
       select: {
         id: true,
@@ -191,10 +189,11 @@ export class CommonCategoryService {
       orderBy: { createdAt: 'desc' },
       take: 24,
     });
+    const recentListings = this.serializeRecentListings(recentListingsRaw);
 
     const topLocations = location
       ? []
-      : await this.fetchSeoLocationsForCategory(categoryIds);
+      : await this.fetchTopLocationsForCategory(categoryIds, 30);
 
     const locationLabel = location
       ? location.type === LocationType.PROVINCE
@@ -307,49 +306,50 @@ export class CommonCategoryService {
     return `صفحه خرید و فروش ${category.title} در بازار امن طبقه؛ مزایده، معاوضه و خرید مستقیم با کارشناسی و تسویه امن.`;
   }
 
-  async fetchSeoLocationsForCategory(categoryIds: string[]) {
-    const grouped = await this.prisma.listing.groupBy({
-      by: ['cityId'],
-      where: {
-        status: ListingStatus.APPROVED,
-        deletedAt: null,
-        categoryId: { in: categoryIds },
-        cityId: { not: null },
-      },
-      _count: { _all: true },
-    });
-    const countByCity = new Map(
-      grouped.map((row) => [row.cityId as string, row._count._all]),
-    );
-
-    const cities = await this.prisma.location.findMany({
-      where: { type: LocationType.CITY },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        parent: { select: { name: true } },
-      },
-      orderBy: { name: 'asc' },
-    });
-
-    return cities
-      .map((city) => ({
-        id: city.id,
-        name: city.name,
-        slug: city.slug,
-        provinceName: city.parent?.name ?? null,
-        listingCount: countByCity.get(city.id) ?? 0,
-      }))
-      .sort(
-        (a, b) =>
-          b.listingCount - a.listingCount ||
-          a.name.localeCompare(b.name, 'fa'),
-      )
-      .slice(0, 30);
+  private serializeRecentListings(
+    items: Array<{
+      id: string;
+      title: string;
+      type: string;
+      thumbnail: string | null;
+      createdAt: Date;
+      category: { id: string; title: string; slug: string };
+      city: { id: string; name: string; slug: string } | null;
+      direct: { price: unknown } | null;
+      auction: {
+        basePrice: unknown;
+        highestBidAmount: unknown;
+        endDatetime: Date;
+        status: string;
+      } | null;
+    }>,
+  ) {
+    return items.map((item) => ({
+      id: item.id,
+      title: item.title,
+      type: item.type,
+      thumbnail: item.thumbnail,
+      createdAt: item.createdAt,
+      category: item.category,
+      city: item.city,
+      direct: item.direct
+        ? { price: Number(item.direct.price) }
+        : null,
+      auction: item.auction
+        ? {
+            basePrice: Number(item.auction.basePrice),
+            highestBidAmount:
+              item.auction.highestBidAmount != null
+                ? Number(item.auction.highestBidAmount)
+                : null,
+            endDatetime: item.auction.endDatetime,
+            status: item.auction.status,
+          }
+        : null,
+    }));
   }
 
-  async fetchTopLocationsForCategory(categoryIds: string[]) {
+  async fetchTopLocationsForCategory(categoryIds: string[], limit = 12) {
     const grouped = await this.prisma.listing.groupBy({
       by: ['cityId'],
       where: {
@@ -361,10 +361,11 @@ export class CommonCategoryService {
       _count: { _all: true },
     });
 
+    const safeLimit = Math.min(30, Math.max(1, limit));
     const topCityIds = grouped
       .filter((row) => row.cityId)
       .sort((a, b) => b._count._all - a._count._all)
-      .slice(0, 12)
+      .slice(0, safeLimit)
       .map((row) => row.cityId as string);
     if (!topCityIds.length) return [];
 
@@ -456,12 +457,15 @@ export class CommonCategoryService {
       childrenByParent.set(key, list);
     }
     const rollup = new Map<string, number>();
-    const compute = (id: string): number => {
+    const compute = (id: string, visiting = new Set<string>()): number => {
       if (rollup.has(id)) return rollup.get(id)!;
+      if (visiting.has(id)) return direct.get(id) ?? 0;
+      visiting.add(id);
       let total = direct.get(id) ?? 0;
       for (const childId of childrenByParent.get(id) ?? []) {
-        total += compute(childId);
+        total += compute(childId, visiting);
       }
+      visiting.delete(id);
       rollup.set(id, total);
       return total;
     };
