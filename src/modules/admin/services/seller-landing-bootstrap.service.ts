@@ -21,9 +21,14 @@ export class SellerLandingBootstrapService implements OnModuleInit {
     try {
       const force =
         this.configService.get<string>('SELLER_LANDING_FORCE_SEED') === 'true';
-      const result = await this.landingPages.seedSellerLanding(force);
+      const sellerResult = await this.landingPages.seedSellerLanding(force);
       this.logger.log(
-        `Seller landing seed: ${result.action} slug=${result.slug} sections=${result.sectionCount}`,
+        `Seller landing seed: ${sellerResult.action} slug=${sellerResult.slug} sections=${sellerResult.sectionCount}`,
+      );
+
+      const inviteResult = await this.landingPages.seedInviteLanding(force);
+      this.logger.log(
+        `Invite landing seed: ${inviteResult.action} slug=${inviteResult.slug} sections=${inviteResult.sectionCount}`,
       );
     } catch (error) {
       this.logger.warn(

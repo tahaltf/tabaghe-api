@@ -54,6 +54,11 @@ export class AdminLandingPagesController {
     return this.service.seedSellerLanding(body?.force ?? false);
   }
 
+  @Post('seed-invite')
+  seedInvite(@Body() body?: { force?: boolean }) {
+    return this.service.seedInviteLanding(body?.force ?? false);
+  }
+
   @Get(':id')
   getOne(@Param('id') id: string) {
     return this.service.getById(id);

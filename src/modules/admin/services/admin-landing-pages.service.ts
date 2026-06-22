@@ -15,6 +15,14 @@ import {
   SELLER_LANDING_SLUG,
   SELLER_LANDING_SECTION_COUNT,
 } from '../../../common/landing/seller-landing.seed';
+import {
+  INVITE_LANDING_SECTION_COUNT,
+  INVITE_LANDING_SLUG,
+  inviteLandingSeedDescription,
+  inviteLandingSeedMeta,
+  inviteLandingSeedTitle,
+  loadInviteLandingSeedSections,
+} from '../../../common/landing/invite-landing.seed';
 
 export type LandingPageRecord = {
   id: string;
@@ -173,6 +181,68 @@ export class AdminLandingPagesService {
       data: {
         title: sellerLandingSeedTitle(),
         description: sellerLandingSeedDescription(),
+        sections: sections as Prisma.InputJsonValue,
+        meta: meta as Prisma.InputJsonValue,
+        isPublished: existing.isPublished || true,
+      },
+    });
+    return {
+      action: 'updated',
+      slug: updated.slug,
+      sectionCount: sections.length,
+      isPublished: updated.isPublished,
+    };
+  }
+
+  /**
+   * Creates or upgrades `/invite` promo landing from seed JSON.
+   */
+  async seedInviteLanding(force = false): Promise<{
+    action: 'created' | 'updated' | 'skipped';
+    slug: string;
+    sectionCount: number;
+    isPublished: boolean;
+  }> {
+    const sections = loadInviteLandingSeedSections();
+    const meta = inviteLandingSeedMeta();
+    const existing = await this.prisma.landingPage.findUnique({
+      where: { slug: INVITE_LANDING_SLUG },
+    });
+
+    if (!existing) {
+      const created = await this.prisma.landingPage.create({
+        data: {
+          slug: INVITE_LANDING_SLUG,
+          title: inviteLandingSeedTitle(),
+          description: inviteLandingSeedDescription(),
+          isPublished: true,
+          sections: sections as Prisma.InputJsonValue,
+          meta: meta as Prisma.InputJsonValue,
+        },
+      });
+      return {
+        action: 'created',
+        slug: created.slug,
+        sectionCount: sections.length,
+        isPublished: created.isPublished,
+      };
+    }
+
+    const currentCount = coerceLandingSections(existing.sections).length;
+    if (!force && currentCount >= INVITE_LANDING_SECTION_COUNT) {
+      return {
+        action: 'skipped',
+        slug: existing.slug,
+        sectionCount: currentCount,
+        isPublished: existing.isPublished,
+      };
+    }
+
+    const updated = await this.prisma.landingPage.update({
+      where: { id: existing.id },
+      data: {
+        title: inviteLandingSeedTitle(),
+        description: inviteLandingSeedDescription(),
         sections: sections as Prisma.InputJsonValue,
         meta: meta as Prisma.InputJsonValue,
         isPublished: existing.isPublished || true,
