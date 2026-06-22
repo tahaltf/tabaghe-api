@@ -8,7 +8,7 @@ import {
   Req,
   Res,
 } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { CommonService } from './common-module.service';
 import { PwaIconService } from './pwa-icon.service';
@@ -42,6 +42,7 @@ export class CommonController {
     return this.commonService.getCities(provinceId);
   }
 
+  @SkipThrottle()
   @Get('locations/seo-index')
   async locationSeoIndex() {
     return this.commonService.getLocationSeoIndex();
@@ -75,6 +76,7 @@ export class CommonController {
     return this.commonService.getHomeCategories();
   }
 
+  @SkipThrottle()
   @Get('categories/seo-index')
   async categorySeoIndex() {
     return this.commonService.getCategorySeoIndex();
@@ -109,6 +111,7 @@ export class CommonController {
     return this.commonService.getRepairCategories();
   }
 
+  @SkipThrottle()
   @Get('site-settings')
   async siteSettings() {
     return this.commonService.getPublicSiteSettings();
