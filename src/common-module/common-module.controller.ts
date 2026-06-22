@@ -42,6 +42,20 @@ export class CommonController {
     return this.commonService.getCities(provinceId);
   }
 
+  @Get('locations/seo-index')
+  async locationSeoIndex() {
+    return this.commonService.getLocationSeoIndex();
+  }
+
+  @Get('locations/slug/:slug/landing')
+  async locationLanding(@Param('slug') slug: string) {
+    const data = await this.commonService.getLocationLandingBySlug(slug);
+    if (!data) {
+      return { found: false };
+    }
+    return { found: true, ...data };
+  }
+
   @Get('locations/slug/:slug')
   async locationBySlug(@Param('slug') slug: string) {
     const location = await this.commonService.getLocationBySlug(slug);

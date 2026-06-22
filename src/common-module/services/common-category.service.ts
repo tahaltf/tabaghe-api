@@ -194,17 +194,18 @@ export class CommonCategoryService {
 
     const topLocations = location
       ? []
-      : await this.fetchTopLocationsForCategory(categoryIds);
+      : await this.fetchSeoLocationsForCategory(categoryIds);
 
     const locationLabel = location
       ? location.type === LocationType.PROVINCE
-        ? `استان ${location.name}`
+        ? location.name
         : location.name
       : null;
 
     const seoTitle = this.buildCategoryLocationSeoTitle(
       category,
       locationLabel,
+      location?.type ?? null,
     );
     const seoDescription = this.buildCategoryLocationSeoDescription(
       category,
@@ -240,6 +241,7 @@ export class CommonCategoryService {
         title: seoTitle,
         description: seoDescription,
         canonicalPath,
+        intro: this.buildCategorySeoIntro(category, locationLabel, location?.type ?? null),
       },
     };
   }
@@ -250,15 +252,18 @@ export class CommonCategoryService {
       parent: { title: string } | null;
     },
     locationLabel: string | null,
+    locationType?: LocationType | null,
   ): string {
     if (locationLabel) {
-      return category.parent
-        ? `خرید و فروش ${category.title} در ${locationLabel} | ${category.parent.title} | طبقه`
-        : `خرید و فروش ${category.title} در ${locationLabel} | طبقه`;
+      const inLabel =
+        locationType === LocationType.PROVINCE
+          ? `استان ${locationLabel.replace(/^استان\s+/, '')}`
+          : locationLabel;
+      return `آگهی ${category.title} در ${inLabel} | طبقه`;
     }
     return category.parent
-      ? `خرید و فروش ${category.title} | ${category.parent.title} | طبقه`
-      : `خرید و فروش ${category.title} | طبقه`;
+      ? `فروش ${category.title} | ${category.parent.title} | طبقه`
+      : `فروش ${category.title} | طبقه`;
   }
 
   buildCategoryLocationSeoDescription(
@@ -269,14 +274,79 @@ export class CommonCategoryService {
     locationLabel: string | null,
     listingCount: number,
   ): string {
+    const countSuffix =
+      listingCount > 0
+        ? `${listingCount} آگهی فعال در طبقه.`
+        : 'ثبت آگهی رایگان در بازار امن طبقه.';
+
     if (locationLabel) {
       return category.parent
-        ? `آگهی‌های خرید، فروش، مزایده و معاوضه ${category.title} در ${locationLabel} (دسته ${category.parent.title}) — ${listingCount} آگهی فعال در طبقه.`
-        : `آگهی‌های خرید، فروش، مزایده و معاوضه ${category.title} در ${locationLabel} — ${listingCount} آگهی فعال در طبقه.`;
+        ? `خرید، فروش، مزایده و معاوضه ${category.title} در ${locationLabel} (دسته ${category.parent.title}) — ${countSuffix}`
+        : `خرید، فروش، مزایده و معاوضه ${category.title} در ${locationLabel} — ${countSuffix}`;
     }
     return category.parent
-      ? `آگهی‌های خرید، فروش، مزایده و معاوضه ${category.title} در دسته ${category.parent.title} — ${listingCount} آگهی فعال در بازار امن طبقه.`
-      : `آگهی‌های خرید، فروش، مزایده و معاوضه ${category.title} — ${listingCount} آگهی فعال در بازار امن طبقه.`;
+      ? `خرید، فروش، مزایده و معاوضه ${category.title} در دسته ${category.parent.title} — ${countSuffix}`
+      : `خرید، فروش، مزایده و معاوضه ${category.title} — ${countSuffix}`;
+  }
+
+  buildCategorySeoIntro(
+    category: { title: string; parent: { title: string } | null },
+    locationLabel: string | null,
+    locationType: LocationType | null,
+  ): string {
+    if (locationLabel) {
+      const place =
+        locationType === LocationType.PROVINCE
+          ? `استان ${locationLabel.replace(/^استان\s+/, '')}`
+          : locationLabel;
+      return `صفحه اختصاصی آگهی ${category.title} در ${place}؛ خرید، فروش، مزایده و معاوضه با امنیت میانجی در طبقه.`;
+    }
+    if (category.parent) {
+      return `در دسته ${category.parent.title}، آگهی‌های ${category.title} را ببینید یا اولین آگهی خود را در این حوزه ثبت کنید.`;
+    }
+    return `صفحه خرید و فروش ${category.title} در بازار امن طبقه؛ مزایده، معاوضه و خرید مستقیم با کارشناسی و تسویه امن.`;
+  }
+
+  async fetchSeoLocationsForCategory(categoryIds: string[]) {
+    const grouped = await this.prisma.listing.groupBy({
+      by: ['cityId'],
+      where: {
+        status: ListingStatus.APPROVED,
+        deletedAt: null,
+        categoryId: { in: categoryIds },
+        cityId: { not: null },
+      },
+      _count: { _all: true },
+    });
+    const countByCity = new Map(
+      grouped.map((row) => [row.cityId as string, row._count._all]),
+    );
+
+    const cities = await this.prisma.location.findMany({
+      where: { type: LocationType.CITY },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        parent: { select: { name: true } },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    return cities
+      .map((city) => ({
+        id: city.id,
+        name: city.name,
+        slug: city.slug,
+        provinceName: city.parent?.name ?? null,
+        listingCount: countByCity.get(city.id) ?? 0,
+      }))
+      .sort(
+        (a, b) =>
+          b.listingCount - a.listingCount ||
+          a.name.localeCompare(b.name, 'fa'),
+      )
+      .slice(0, 30);
   }
 
   async fetchTopLocationsForCategory(categoryIds: string[]) {
@@ -350,22 +420,22 @@ export class CommonCategoryService {
       parentTitle: string | null,
     ) => {
       for (const node of nodes) {
-        if ((node.listingCount ?? 0) > 0) {
-          flat.push({
-            id: node.id,
-            title: node.title,
-            slug: node.slug,
-            parentTitle,
-            listingCount: node.listingCount ?? 0,
-          });
-        }
+        flat.push({
+          id: node.id,
+          title: node.title,
+          slug: node.slug,
+          parentTitle,
+          listingCount: node.listingCount ?? 0,
+        });
         if (node.children?.length) {
           walk(node.children, node.title);
         }
       }
     };
     walk(tree, null);
-    return flat.sort((a, b) => b.listingCount - a.listingCount);
+    return flat.sort(
+      (a, b) => b.listingCount - a.listingCount || a.title.localeCompare(b.title, 'fa'),
+    );
   }
 
   async getApprovedListingRollupCounts(): Promise<Map<string, number>> {

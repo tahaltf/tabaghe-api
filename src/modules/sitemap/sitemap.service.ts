@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ListingStatus } from '@prisma/client';
+import { ListingStatus, LocationType } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { isCategoryVisibleOnSite } from '../../common/category-visibility.util';
 
@@ -17,6 +17,25 @@ export interface SitemapUrlEntry {
     | 'never';
   priority?: number;
 }
+
+export type SitemapPartId =
+  | 'static'
+  | 'categories'
+  | 'category-locations'
+  | 'locations'
+  | 'listings'
+  | 'blog';
+
+const SITEMAP_PARTS: SitemapPartId[] = [
+  'static',
+  'categories',
+  'category-locations',
+  'locations',
+  'listings',
+  'blog',
+];
+
+const MAX_URLS_PER_SITEMAP = 45_000;
 
 @Injectable()
 export class SitemapService {
@@ -36,30 +55,55 @@ export class SitemapService {
     return this.siteOrigin;
   }
 
-  async buildUrlEntries(): Promise<SitemapUrlEntry[]> {
-    const staticPages = this.getStaticPages();
-    const [
-      listings,
-      blogPosts,
-      categories,
-      categoryLocations,
-      listingLocationHubs,
-    ] = await Promise.all([
-      this.fetchListingEntries(),
-      this.fetchBlogEntries(),
-      this.fetchCategoryEntries(),
-      this.fetchCategoryLocationEntries(),
-      this.fetchListingLocationHubEntries(),
-    ]);
+  listSitemapPartIds(): SitemapPartId[] {
+    return [...SITEMAP_PARTS];
+  }
+
+  async buildSitemapIndexXml(): Promise<string> {
+    const now = new Date().toISOString();
+    const nodes = SITEMAP_PARTS.map((part) => {
+      const loc = `${this.siteOrigin}/sitemap-${part}.xml`;
+      return `  <sitemap>\n    <loc>${this.escapeXml(loc)}</loc>\n    <lastmod>${this.escapeXml(now)}</lastmod>\n  </sitemap>`;
+    }).join('\n');
 
     return [
-      ...staticPages,
-      ...categories,
-      ...categoryLocations,
-      ...listingLocationHubs,
-      ...listings,
-      ...blogPosts,
-    ];
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+      nodes,
+      '</sitemapindex>',
+    ].join('\n');
+  }
+
+  async buildPartXml(part: SitemapPartId): Promise<string> {
+    const entries = await this.buildPartEntries(part);
+    return this.buildSitemapXml(entries);
+  }
+
+  /** @deprecated Use buildSitemapIndexXml + buildPartXml */
+  async buildUrlEntries(): Promise<SitemapUrlEntry[]> {
+    const chunks = await Promise.all(
+      SITEMAP_PARTS.map((part) => this.buildPartEntries(part)),
+    );
+    return chunks.flat();
+  }
+
+  async buildPartEntries(part: SitemapPartId): Promise<SitemapUrlEntry[]> {
+    switch (part) {
+      case 'static':
+        return this.getStaticPages();
+      case 'categories':
+        return this.fetchCategoryEntries();
+      case 'category-locations':
+        return this.fetchAllCategoryLocationEntries();
+      case 'locations':
+        return this.fetchAllLocationHubEntries();
+      case 'listings':
+        return this.fetchListingEntries();
+      case 'blog':
+        return this.fetchBlogEntries();
+      default:
+        return [];
+    }
   }
 
   buildSitemapXml(entries: SitemapUrlEntry[]): string {
@@ -120,6 +164,7 @@ export class SitemapService {
       { path: '/', priority: 1.0, changefreq: 'daily' },
       { path: '/listings', priority: 0.9, changefreq: 'hourly' },
       { path: '/categories', priority: 0.85, changefreq: 'weekly' },
+      { path: '/locations', priority: 0.82, changefreq: 'weekly' },
       { path: '/blog', priority: 0.8, changefreq: 'daily' },
       { path: '/plans', priority: 0.7, changefreq: 'weekly' },
       { path: '/about', priority: 0.5, changefreq: 'monthly' },
@@ -137,149 +182,118 @@ export class SitemapService {
     }));
   }
 
-  private async fetchListingLocationHubEntries(): Promise<SitemapUrlEntry[]> {
-    const rows = await this.prisma.listing.findMany({
-      where: {
-        status: ListingStatus.APPROVED,
-        deletedAt: null,
-      },
+  private async fetchAllLocationHubEntries(): Promise<SitemapUrlEntry[]> {
+    const locations = await this.prisma.location.findMany({
+      select: { id: true, slug: true, type: true, createdAt: true },
+      orderBy: { name: 'asc' },
+    });
+
+    const listingAgg = await this.prisma.listing.findMany({
+      where: { status: ListingStatus.APPROVED, deletedAt: null },
       select: {
         updatedAt: true,
-        city: { select: { slug: true } },
-        province: { select: { slug: true } },
-      },
-    });
-
-    const cityMap = new Map<string, Date>();
-    const provinceMap = new Map<string, Date>();
-
-    for (const row of rows) {
-      if (row.city?.slug) {
-        const prev = cityMap.get(row.city.slug);
-        if (!prev || row.updatedAt > prev) {
-          cityMap.set(row.city.slug, row.updatedAt);
-        }
-      }
-      if (row.province?.slug) {
-        const prev = provinceMap.get(row.province.slug);
-        if (!prev || row.updatedAt > prev) {
-          provinceMap.set(row.province.slug, row.updatedAt);
-        }
-      }
-    }
-
-    const now = new Date().toISOString();
-    const cityEntries = [...cityMap.entries()].map(([slug, lastmod]) => ({
-      loc: `${this.siteOrigin}/listings/city/${slug}`,
-      lastmod: lastmod.toISOString() || now,
-      changefreq: 'daily' as const,
-      priority: 0.68,
-    }));
-    const provinceEntries = [...provinceMap.entries()].map(([slug, lastmod]) => ({
-      loc: `${this.siteOrigin}/listings/province/${slug}`,
-      lastmod: lastmod.toISOString() || now,
-      changefreq: 'daily' as const,
-      priority: 0.66,
-    }));
-
-    return [...cityEntries, ...provinceEntries];
-  }
-
-  private async fetchCategoryLocationEntries(): Promise<SitemapUrlEntry[]> {
-    const visibilityRows = await this.prisma.category.findMany({
-      select: { id: true, parentId: true, isActive: true },
-    });
-    const categoryById = new Map(visibilityRows.map((r) => [r.id, r]));
-
-    const rows = await this.prisma.listing.findMany({
-      where: {
-        status: ListingStatus.APPROVED,
-        deletedAt: null,
-      },
-      select: {
-        categoryId: true,
         cityId: true,
         provinceId: true,
-        updatedAt: true,
-        category: { select: { slug: true } },
-        city: { select: { slug: true } },
-        province: { select: { slug: true } },
       },
     });
 
-    const visibleRows = rows.filter((row) =>
-      isCategoryVisibleOnSite(row.categoryId, categoryById),
-    );
-
-    const comboMap = new Map<
-      string,
-      { categorySlug: string; locationSlug: string; lastmod: Date }
-    >();
-
-    for (const row of visibleRows) {
-      const categorySlug = row.category?.slug;
-      if (!categorySlug) continue;
-
-      if (row.city?.slug) {
-        const key = `${categorySlug}::${row.city.slug}`;
-        const prev = comboMap.get(key);
-        if (!prev || row.updatedAt > prev.lastmod) {
-          comboMap.set(key, {
-            categorySlug,
-            locationSlug: row.city.slug,
-            lastmod: row.updatedAt,
-          });
+    const cityLastmod = new Map<string, Date>();
+    const provinceLastmod = new Map<string, Date>();
+    for (const row of listingAgg) {
+      if (row.cityId) {
+        const prev = cityLastmod.get(row.cityId);
+        if (!prev || row.updatedAt > prev) {
+          cityLastmod.set(row.cityId, row.updatedAt);
         }
       }
-
-      if (row.province?.slug) {
-        const key = `${categorySlug}::${row.province.slug}`;
-        const prev = comboMap.get(key);
-        if (!prev || row.updatedAt > prev.lastmod) {
-          comboMap.set(key, {
-            categorySlug,
-            locationSlug: row.province.slug,
-            lastmod: row.updatedAt,
-          });
+      if (row.provinceId) {
+        const prev = provinceLastmod.get(row.provinceId);
+        if (!prev || row.updatedAt > prev) {
+          provinceLastmod.set(row.provinceId, row.updatedAt);
         }
       }
     }
 
-    const now = new Date().toISOString();
-    return [...comboMap.values()].map((entry) => ({
-      loc: `${this.siteOrigin}/category/${entry.categorySlug}/${entry.locationSlug}`,
-      lastmod: entry.lastmod.toISOString() || now,
-      changefreq: 'weekly' as const,
-      priority: 0.72,
-    }));
+    const entries: SitemapUrlEntry[] = [];
+    for (const loc of locations) {
+      const fallback = loc.createdAt.toISOString();
+      if (loc.type === LocationType.CITY) {
+        entries.push({
+          loc: `${this.siteOrigin}/listings/city/${loc.slug}`,
+          lastmod: (cityLastmod.get(loc.id) ?? loc.createdAt).toISOString(),
+          changefreq: 'daily',
+          priority: 0.68,
+        });
+      } else if (loc.type === LocationType.PROVINCE) {
+        entries.push({
+          loc: `${this.siteOrigin}/listings/province/${loc.slug}`,
+          lastmod: (provinceLastmod.get(loc.id) ?? loc.createdAt).toISOString(),
+          changefreq: 'daily',
+          priority: 0.66,
+        });
+      }
+    }
+
+    return entries;
+  }
+
+  private async fetchAllCategoryLocationEntries(): Promise<SitemapUrlEntry[]> {
+    const [categories, locations] = await Promise.all([
+      this.prisma.category.findMany({
+        select: { slug: true, id: true, parentId: true, isActive: true, createdAt: true },
+        orderBy: { title: 'asc' },
+      }),
+      this.prisma.location.findMany({
+        select: { slug: true, type: true, createdAt: true },
+        orderBy: { name: 'asc' },
+      }),
+    ]);
+
+    const categoryById = new Map(categories.map((r) => [r.id, r]));
+    const visibleCategories = categories.filter((c) =>
+      isCategoryVisibleOnSite(c.id, categoryById),
+    );
+
+    const entries: SitemapUrlEntry[] = [];
+    for (const cat of visibleCategories) {
+      const catLastmod = cat.createdAt.toISOString();
+      for (const loc of locations) {
+        entries.push({
+          loc: `${this.siteOrigin}/category/${cat.slug}/${loc.slug}`,
+          lastmod: catLastmod,
+          changefreq: 'weekly',
+          priority: loc.type === LocationType.CITY ? 0.72 : 0.7,
+        });
+        if (entries.length >= MAX_URLS_PER_SITEMAP) {
+          return entries;
+        }
+      }
+    }
+    return entries;
   }
 
   private async fetchCategoryEntries(): Promise<SitemapUrlEntry[]> {
     const allCategories = await this.prisma.category.findMany({
-      select: { slug: true, id: true, parentId: true, isActive: true },
+      select: {
+        slug: true,
+        id: true,
+        parentId: true,
+        isActive: true,
+        createdAt: true,
+      },
       orderBy: { title: 'asc' },
     });
     const categoryById = new Map(allCategories.map((r) => [r.id, r]));
     const rows = allCategories.filter((c) =>
       isCategoryVisibleOnSite(c.id, categoryById),
     );
-    const withListings = await this.prisma.listing.groupBy({
-      by: ['categoryId'],
-      where: { status: ListingStatus.APPROVED, deletedAt: null },
-      _count: { _all: true },
-    });
-    const countByCategory = new Map(
-      withListings.map((g) => [g.categoryId, g._count._all]),
-    );
-    const now = new Date().toISOString();
-    return rows
-      .filter((c) => (countByCategory.get(c.id) ?? 0) > 0)
-      .map((c) => ({
-        loc: `${this.siteOrigin}/category/${c.slug}`,
-        lastmod: now,
-        changefreq: 'weekly' as const,
-        priority: 0.75,
-      }));
+
+    return rows.map((c) => ({
+      loc: `${this.siteOrigin}/category/${c.slug}`,
+      lastmod: c.createdAt.toISOString(),
+      changefreq: 'weekly' as const,
+      priority: 0.75,
+    }));
   }
 
   private async fetchListingEntries(): Promise<SitemapUrlEntry[]> {
@@ -293,6 +307,7 @@ export class SitemapService {
         updatedAt: true,
       },
       orderBy: { updatedAt: 'desc' },
+      take: MAX_URLS_PER_SITEMAP,
     });
 
     return listings.map((listing) => ({

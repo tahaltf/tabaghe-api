@@ -30,6 +30,14 @@ export class CommonService {
     return this.location.getLocationBySlug(...args);
   }
 
+  getLocationLandingBySlug(...args: Parameters<CommonLocationService['getLocationLandingBySlug']>) {
+    return this.location.getLocationLandingBySlug(...args);
+  }
+
+  getLocationSeoIndex(...args: Parameters<CommonLocationService['getLocationSeoIndex']>) {
+    return this.location.getLocationSeoIndex(...args);
+  }
+
   getCategories(...args: Parameters<CommonCategoryService['getCategories']>) {
     return this.category.getCategories(...args);
   }

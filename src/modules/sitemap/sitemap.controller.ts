@@ -1,6 +1,16 @@
-import { Controller, Get, Header, VERSION_NEUTRAL } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Header,
+  NotFoundException,
+  Param,
+  VERSION_NEUTRAL,
+} from '@nestjs/common';
 import { RawResponse } from '../../common/decorators/raw-response.decorator';
-import { SitemapService } from './sitemap.service';
+import {
+  SitemapPartId,
+  SitemapService,
+} from './sitemap.service';
 
 @Controller({ version: VERSION_NEUTRAL })
 export class SitemapController {
@@ -10,9 +20,20 @@ export class SitemapController {
   @RawResponse()
   @Header('Content-Type', 'application/xml; charset=utf-8')
   @Header('Cache-Control', 'public, max-age=3600')
-  async getSitemap(): Promise<string> {
-    const entries = await this.sitemap.buildUrlEntries();
-    return this.sitemap.buildSitemapXml(entries);
+  async getSitemapIndex(): Promise<string> {
+    return this.sitemap.buildSitemapIndexXml();
+  }
+
+  @Get('sitemap-:part.xml')
+  @RawResponse()
+  @Header('Content-Type', 'application/xml; charset=utf-8')
+  @Header('Cache-Control', 'public, max-age=3600')
+  async getSitemapPart(@Param('part') part: string): Promise<string> {
+    const allowed = this.sitemap.listSitemapPartIds();
+    if (!allowed.includes(part as SitemapPartId)) {
+      throw new NotFoundException();
+    }
+    return this.sitemap.buildPartXml(part as SitemapPartId);
   }
 
   @Get('robots.txt')

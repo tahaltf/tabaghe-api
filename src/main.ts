@@ -218,6 +218,7 @@ async function bootstrap() {
   app.setGlobalPrefix('api', {
     exclude: [
       { path: 'sitemap.xml', method: RequestMethod.GET },
+      { path: 'sitemap-:part.xml', method: RequestMethod.GET },
       { path: 'robots.txt', method: RequestMethod.GET },
       { path: 'manifest.webmanifest', method: RequestMethod.GET },
       { path: 'pwa/apple-touch-icon.png', method: RequestMethod.GET },

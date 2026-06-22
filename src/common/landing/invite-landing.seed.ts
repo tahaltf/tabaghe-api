@@ -6,7 +6,7 @@ export const INVITE_LANDING_SLUG = 'invite';
 export const INVITE_LANDING_SECTION_COUNT = 10;
 
 const INVITE_LANDING_META = {
-  seoTitle: 'طبقه | پنت‌هاوس رایگان',
+  seoTitle: 'طبقه | دعوت ویژه فروشندگان — پنت‌هاوس رایگان',
   seoDescription: 'پنت‌هاوس ۷۹۹ هزار تومانی را رایگان بگیر و فروش حرفه‌ای را در طبقه شروع کن.',
   showHeader: false,
   showFooter: false,

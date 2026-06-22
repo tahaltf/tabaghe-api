@@ -15,6 +15,13 @@ import {
 import { getPwaAppName, getPwaAppShortName } from '../../common/pwa-brand-icon.util';
 import { coerceLandingSections } from '../../common/landing/landing-sections.util';
 import { normalizeLandingUrlPrefix } from '../../common/landing/landing-url.util';
+import {
+  INVITE_LANDING_SLUG,
+  inviteLandingSeedDescription,
+  inviteLandingSeedMeta,
+  inviteLandingSeedTitle,
+  loadInviteLandingSeedSections,
+} from '../../common/landing/invite-landing.seed';
 
 @Injectable()
 export class CommonContentService {
@@ -344,19 +351,34 @@ export class CommonContentService {
     const page = await this.prisma.landingPage.findFirst({
       where: { slug, isPublished: true },
     });
-    if (!page) return null;
-    return {
-      id: page.id,
-      slug: page.slug,
-      title: page.title,
-      description: page.description,
-      sections: coerceLandingSections(page.sections),
-      meta:
-        page.meta && typeof page.meta === 'object' && !Array.isArray(page.meta)
-          ? page.meta
-          : null,
-      updatedAt: page.updatedAt,
-    };
+    if (page) {
+      return {
+        id: page.id,
+        slug: page.slug,
+        title: page.title,
+        description: page.description,
+        sections: coerceLandingSections(page.sections),
+        meta:
+          page.meta && typeof page.meta === 'object' && !Array.isArray(page.meta)
+            ? page.meta
+            : null,
+        updatedAt: page.updatedAt,
+      };
+    }
+
+    if (slug === INVITE_LANDING_SLUG) {
+      return {
+        id: 'fallback-invite',
+        slug: INVITE_LANDING_SLUG,
+        title: inviteLandingSeedTitle(),
+        description: inviteLandingSeedDescription(),
+        sections: loadInviteLandingSeedSections(),
+        meta: inviteLandingSeedMeta(),
+        updatedAt: new Date(),
+      };
+    }
+
+    return null;
   }
 
 }
