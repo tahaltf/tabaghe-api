@@ -34,6 +34,7 @@ import { AdminPlatformContentController } from './controllers/admin-platform-con
 import { AdminServerStorageController } from './controllers/admin-server-storage.controller';
 import { AdminServerMonitorController } from './controllers/admin-server-monitor.controller';
 import { AdminSystemJobsController } from './controllers/admin-system-jobs.controller';
+import { AdminCrawlerController } from './controllers/admin-crawler.controller';
 
 // Services
 import { AdminDashboardService } from './services/admin-dashboard.service';
@@ -71,6 +72,7 @@ import { AdminBackupService } from './services/admin-backup.service';
 import { AdminPlatformContentService } from './services/admin-platform-content.service';
 import { AdminServerStorageService } from './services/admin-server-storage.service';
 import { AdminServerMonitorService } from './services/admin-server-monitor.service';
+import { AdminCrawlerService } from './services/admin-crawler.service';
 import { AdminBackupScheduler } from './services/admin-backup.scheduler';
 import { AdminSystemJobsService } from './services/admin-system-jobs.service';
 import { OrdersModule } from '../orders/orders.module';
@@ -120,6 +122,7 @@ import { CommonModuleModule } from '../../common-module/common-module.module';
     AdminServerStorageController,
     AdminServerMonitorController,
     AdminSystemJobsController,
+    AdminCrawlerController,
   ],
   providers: [
     AdminDashboardService,
@@ -156,6 +159,7 @@ import { CommonModuleModule } from '../../common-module/common-module.module';
     AdminPlatformContentService,
     AdminServerStorageService,
     AdminServerMonitorService,
+    AdminCrawlerService,
     AdminBackupScheduler,
     AdminSystemJobsService,
     SmsService,

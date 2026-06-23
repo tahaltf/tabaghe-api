@@ -11,6 +11,7 @@ export const ADMIN_ROUTE_PERMISSIONS = {
     '/admin/backup',
     '/admin/system-jobs',
     '/admin/server-monitor',
+    '/admin/crawler',
   ],
   adminAndGodadmin: [
     '/admin',
