@@ -9,13 +9,12 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { Response } from 'express';
-import { existsSync } from 'fs';
-import { join } from 'path';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../../shared/contracts/auth';
 import { WordPressApiTokenService } from '../services/api-token.service';
 import { WordPressConnectionService } from '../services/connection.service';
+import { WordPressPluginPackageService } from '../services/plugin-package.service';
 import { CreateWordPressTokenDto } from '../dto/create-wordpress-token.dto';
 
 @Controller('integrations/wordpress')
@@ -24,6 +23,7 @@ export class WordPressUserController {
   constructor(
     private readonly tokenService: WordPressApiTokenService,
     private readonly connectionService: WordPressConnectionService,
+    private readonly pluginPackageService: WordPressPluginPackageService,
   ) {}
 
   @Post('tokens')
@@ -53,14 +53,19 @@ export class WordPressUserController {
   }
 
   @Get('plugin-download')
-  pluginDownload(@Res() res: Response) {
-    const zipPath = join(process.cwd(), 'uploads', 'downloads', 'tabaghe-sync.zip');
-    if (!existsSync(zipPath)) {
+  async pluginDownload(@Res() res: Response) {
+    try {
+      await this.pluginPackageService.ensurePackageReady();
+    } catch {
       return res.status(404).json({
         success: false,
         message: 'فایل افزونه هنوز آماده نشده است',
       });
     }
-    return res.download(zipPath, 'tabaghe-sync.zip');
+
+    return res.download(
+      this.pluginPackageService.getZipPath(),
+      'tabaghe-sync.zip',
+    );
   }
 }

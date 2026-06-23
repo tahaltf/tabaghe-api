@@ -14,23 +14,11 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { AdminCrawlerService } from '../services/admin-crawler.service';
-
-class CrawlerPhoneDto {
-  phone!: string;
-}
-
-class CrawlerCodeDto {
-  code!: string;
-}
-
-class CrawlerSettingsDto {
-  login_phone!: string;
-  city!: string;
-  category!: string;
-  marketplace_only?: boolean;
-  custom_list_url?: string;
-  batch_size?: number;
-}
+import {
+  CrawlerCodeDto,
+  CrawlerPhoneDto,
+  CrawlerSettingsDto,
+} from '../dto/admin-crawler.dto';
 
 @Controller('admin/crawler')
 @UseGuards(JwtAuthGuard, RolesGuard)
