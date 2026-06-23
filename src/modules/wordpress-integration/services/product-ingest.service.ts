@@ -39,6 +39,10 @@ import { RemoteImageService } from './remote-image.service';
 
 import { WordPressConnectionService } from './connection.service';
 
+import { buildWordPressListingDescription } from '../utils/wordpress-description.util';
+
+import { WordPressCategoriesService } from './wordpress-categories.service';
+
 
 
 interface ListingDefaults {
@@ -70,6 +74,8 @@ export class WordPressProductIngestService {
     private readonly connectionService: WordPressConnectionService,
 
     private readonly listingCommands: ListingCommandService,
+
+    private readonly categoriesService: WordPressCategoriesService,
 
   ) {}
 
@@ -129,7 +135,9 @@ export class WordPressProductIngestService {
 
     const defaults = await this.resolveDefaults(userId);
 
-    const syncInput = await this.buildSyncInput(userId, dto, defaults);
+    const categoryId = await this.resolveCategoryId(dto, defaults);
+
+    const syncInput = await this.buildSyncInput(userId, dto, defaults, categoryId);
 
 
 
@@ -183,7 +191,7 @@ export class WordPressProductIngestService {
 
 
 
-    await this.connectionService.touchSync(userId);
+    await this.connectionService.recordProductActivity(userId, dto.siteUrl);
 
 
 
@@ -283,7 +291,9 @@ export class WordPressProductIngestService {
 
     const defaults = await this.resolveDefaults(userId);
 
-    const syncInput = await this.buildSyncInput(userId, dto, defaults);
+    const categoryId = await this.resolveCategoryId(dto, defaults);
+
+    const syncInput = await this.buildSyncInput(userId, dto, defaults, categoryId);
 
     const { listing, archived } =
 
@@ -299,7 +309,7 @@ export class WordPressProductIngestService {
 
 
 
-    await this.connectionService.touchSync(userId);
+    await this.connectionService.recordProductActivity(userId, dto.siteUrl);
 
 
 
@@ -328,6 +338,8 @@ export class WordPressProductIngestService {
     dto: WordPressProductDto,
 
     defaults: ListingDefaults,
+
+    categoryId: string,
 
   ): Promise<WordPressSyncUpdateInput> {
 
@@ -361,11 +373,13 @@ export class WordPressProductIngestService {
 
 
 
+    const description = buildWordPressListingDescription(dto);
+
     return {
 
       title: dto.title.trim(),
 
-      description: dto.description,
+      description,
 
       shortDescription: dto.shortDescription ?? null,
 
@@ -377,7 +391,7 @@ export class WordPressProductIngestService {
 
       price,
 
-      categoryId: defaults.categoryId,
+      categoryId,
 
       provinceId: defaults.provinceId,
 
@@ -433,31 +447,47 @@ export class WordPressProductIngestService {
 
 
 
+  private async resolveCategoryId(
+
+    dto: WordPressProductDto,
+
+    defaults: ListingDefaults,
+
+  ): Promise<string> {
+
+    const categoryId = dto.categoryId?.trim();
+
+    if (!categoryId) {
+
+      return defaults.categoryId;
+
+    }
+
+
+
+    await this.categoriesService.assertCategoryAllowed(categoryId);
+
+    return categoryId;
+
+  }
+
+
+
   private async resolveDefaults(userId: string): Promise<ListingDefaults> {
 
     if (this.defaultsCache) return this.defaultsCache;
 
 
 
-    const category =
+    const category = await this.prisma.category.findFirst({
 
-      (await this.prisma.category.findFirst({
+      where: { parentId: null, isActive: true },
 
-        where: { slug: 'mobile-tablet', isActive: true },
+      orderBy: { title: 'asc' },
 
-        select: { id: true },
+      select: { id: true },
 
-      })) ??
-
-      (await this.prisma.category.findFirst({
-
-        where: { parentId: null, isActive: true },
-
-        orderBy: { createdAt: 'asc' },
-
-        select: { id: true },
-
-      }));
+    });
 
 
 

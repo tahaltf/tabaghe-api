@@ -10,6 +10,7 @@ import { WordPressProductIngestService } from './services/product-ingest.service
 import { WordPressStoreSyncService } from './services/store-sync.service';
 import { RemoteImageService } from './services/remote-image.service';
 import { WordPressPluginPackageService } from './services/plugin-package.service';
+import { WordPressCategoriesService } from './services/wordpress-categories.service';
 import { ApiTokenGuard } from './guards/api-token.guard';
 
 @Module({
@@ -26,6 +27,7 @@ import { ApiTokenGuard } from './guards/api-token.guard';
     WordPressStoreSyncService,
     RemoteImageService,
     WordPressPluginPackageService,
+    WordPressCategoriesService,
     ApiTokenGuard,
   ],
   exports: [WordPressApiTokenService, WordPressConnectionService],

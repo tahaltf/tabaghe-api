@@ -72,6 +72,11 @@ export class WordPressProductDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(64)
+  categoryId?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(50000)
   shortDescription?: string;
 

@@ -1,7 +1,8 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiTokenGuard, WordPressRequest } from '../guards/api-token.guard';
 import { WordPressConnectionService } from '../services/connection.service';
 import { WordPressProductIngestService } from '../services/product-ingest.service';
+import { WordPressCategoriesService } from '../services/wordpress-categories.service';
 import { WordPressPingDto } from '../dto/wordpress-ping.dto';
 import {
   WordPressProductBulkDto,
@@ -14,7 +15,13 @@ export class WordPressIngestController {
   constructor(
     private readonly connectionService: WordPressConnectionService,
     private readonly ingestService: WordPressProductIngestService,
+    private readonly categoriesService: WordPressCategoriesService,
   ) {}
+
+  @Get('categories')
+  listCategories() {
+    return this.categoriesService.listForPlugin();
+  }
 
   @Post('ping')
   ping(@Req() req: WordPressRequest, @Body() dto: WordPressPingDto) {

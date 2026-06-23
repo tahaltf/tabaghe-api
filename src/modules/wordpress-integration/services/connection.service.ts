@@ -42,11 +42,24 @@ export class WordPressConnectionService {
       create: {
         userId,
         lastSyncAt: new Date(),
-        lastPingAt: new Date(),
       },
       update: {
         lastSyncAt: new Date(),
-        lastPingAt: new Date(),
+      },
+    });
+  }
+
+  async recordProductActivity(userId: string, siteUrl: string): Promise<void> {
+    await this.prisma.wordPressConnection.upsert({
+      where: { userId },
+      create: {
+        userId,
+        siteUrl,
+        lastSyncAt: new Date(),
+      },
+      update: {
+        siteUrl,
+        lastSyncAt: new Date(),
       },
     });
   }
