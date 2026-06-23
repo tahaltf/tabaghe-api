@@ -9,4 +9,9 @@ export class WordPressPingDto {
   @IsString()
   @MaxLength(32)
   pluginVersion?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  catalogSecret?: string;
 }

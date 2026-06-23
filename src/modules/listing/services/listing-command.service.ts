@@ -8,6 +8,7 @@ import {
   ExchangeOfferStatus,
   ExchangePayer,
   Listing,
+  ListingImportSource,
   ListingStatus,
   ListingType,
   NotificationType,
@@ -31,6 +32,29 @@ import { isCategoryVisibleOnSite } from '../../../common/category-visibility.uti
 /** حداقل امتیاز (rating) برای ثبت یا ارسال مجدد آگهی */
 export const MIN_LISTING_AUTHOR_RATING = 1;
 
+export type CreateListingOptions = {
+  importSource?: ListingImportSource;
+  externalSiteUrl?: string;
+  externalProductId?: string;
+  shortDescription?: string | null;
+  attributes?: Prisma.InputJsonValue;
+  adminNotificationMessage?: string;
+  adminNotificationMeta?: Record<string, unknown>;
+};
+
+export type WordPressSyncUpdateInput = {
+  title: string;
+  description: string;
+  shortDescription?: string | null;
+  attributes?: Prisma.InputJsonValue;
+  gallery: string[];
+  thumbnail: string | null;
+  price: number;
+  categoryId: string;
+  provinceId: string;
+  cityId: string;
+};
+
 @Injectable()
 export class ListingCommandService {
   constructor(
@@ -39,7 +63,11 @@ export class ListingCommandService {
     private readonly notifications: NotificationService,
   ) {}
 
-  async create(userId: string, dto: CreateListingDto): Promise<Listing> {
+  async create(
+    userId: string,
+    dto: CreateListingDto,
+    options?: CreateListingOptions,
+  ): Promise<Listing> {
     await this.assertListingTypeEnabledForCreate(dto.type);
     this.validateListingPayload(dto, false);
     await this.assertCategoriesVisibleOnSite([
@@ -75,6 +103,11 @@ export class ListingCommandService {
               : null,
           thumbnail: dto.thumbnail,
           gallery: dto.gallery ?? [],
+          importSource: options?.importSource,
+          externalSiteUrl: options?.externalSiteUrl,
+          externalProductId: options?.externalProductId,
+          shortDescription: options?.shortDescription ?? null,
+          attributes: options?.attributes,
           author: { connect: { id: userId } },
           category: { connect: { id: dto.categoryId } },
           province: { connect: { id: dto.provinceId } },
@@ -123,17 +156,191 @@ export class ListingCommandService {
       .notifyAdminPersonnel({
         type: NotificationType.ADMIN_ALERT_NEW_LISTING,
         title: 'آگهی جدید در انتظار تایید',
-        message: `آگهی «${listing.title}» (${listingTypePersianLabel(listing.type)}) ثبت شد و در انتظار بررسی است.`,
+        message:
+          options?.adminNotificationMessage ??
+          `آگهی «${listing.title}» (${listingTypePersianLabel(listing.type)}) ثبت شد و در انتظار بررسی است.`,
         meta: {
           listingId: listing.id,
           userId,
           listingTitle: listing.title,
           listingType: listing.type,
+          ...(options?.adminNotificationMeta ?? {}),
         },
       })
       .catch(() => undefined);
 
     return listing;
+  }
+
+  async syncWordPressListing(
+    userId: string,
+    listingId: string,
+    input: WordPressSyncUpdateInput,
+  ): Promise<Listing> {
+    const listing = await this.ensureListingCanBeModified(listingId, userId);
+
+    const author = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { rating: true },
+    });
+    if (!author) {
+      throw new NotFoundException('کاربر یافت نشد');
+    }
+    this.assertAuthorCanPublishListing(author.rating);
+
+    if (Number(input.price) <= 0) {
+      throw new BadRequestException(
+        'برای ثبت آگهی، این موارد را تکمیل کنید: قیمت فروش (باید بیشتر از صفر باشد)',
+      );
+    }
+
+    await this.assertCategoriesVisibleOnSite([input.categoryId]);
+
+    const wasRejected = listing.status === ListingStatus.REJECTED;
+    const wasPending = listing.status === ListingStatus.PENDING;
+    const shouldRestoreApproved =
+      listing.status === ListingStatus.ARCHIVED &&
+      listing.importSource === ListingImportSource.WORDPRESS;
+
+    const data: Prisma.ListingUpdateInput = {
+      title: input.title.trim(),
+      description: input.description,
+      shortDescription: input.shortDescription ?? null,
+      attributes: input.attributes,
+      gallery: input.gallery,
+      thumbnail: input.thumbnail,
+      category: { connect: { id: input.categoryId } },
+      province: { connect: { id: input.provinceId } },
+      city: { connect: { id: input.cityId } },
+      direct: {
+        upsert: {
+          create: {
+            price: input.price,
+            allowExchange: false,
+            shippingMethods: [],
+          },
+          update: {
+            price: input.price,
+          },
+        },
+      },
+    };
+
+    let notifyPendingReview = false;
+
+    if (wasRejected || wasPending) {
+      data.status = ListingStatus.PENDING;
+      data.rejectionReason = null;
+      data.rejectedAt = null;
+      data.expiresAt = null;
+      data.expiryReminderSentAt = null;
+      if (wasRejected) {
+        data.exchangeOffersSince = new Date();
+      }
+      notifyPendingReview = true;
+    } else if (shouldRestoreApproved) {
+      data.status = ListingStatus.APPROVED;
+    }
+
+    const updated = await this.prisma.listing.update({
+      where: { id: listingId },
+      data,
+      include: { direct: true },
+    });
+
+    if (notifyPendingReview) {
+      void this.notifications
+        .notifyAdminPersonnel({
+          type: NotificationType.ADMIN_ALERT_NEW_LISTING,
+          title: wasRejected
+            ? 'آگهی اصلاح‌شده در انتظار تایید'
+            : 'آگهی ویرایش‌شده در انتظار تایید',
+          message: wasRejected
+            ? `آگهی «${updated.title}» (${listingTypePersianLabel(updated.type)}) پس از رد/اصلاح توسط فروشنده از وردپرس دوباره برای بررسی ارسال شد.`
+            : `آگهی «${updated.title}» (${listingTypePersianLabel(updated.type)}) از وردپرس ویرایش شد و در انتظار بررسی است.`,
+          meta: {
+            listingId: updated.id,
+            userId,
+            listingTitle: updated.title,
+            listingType: updated.type,
+            importSource: ListingImportSource.WORDPRESS,
+            resubmittedAfterReject: wasRejected,
+          },
+        })
+        .catch(() => undefined);
+    }
+
+    return updated;
+  }
+
+  async archiveWordPressUnavailableListing(
+    userId: string,
+    listingId: string,
+    input: WordPressSyncUpdateInput,
+  ): Promise<{ listing: Listing; archived: boolean }> {
+    const listing = await this.ensureListingCanBeModified(listingId, userId);
+
+    const author = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { rating: true },
+    });
+    if (!author) {
+      throw new NotFoundException('کاربر یافت نشد');
+    }
+    this.assertAuthorCanPublishListing(author.rating);
+
+    const shouldArchive = listing.status === ListingStatus.APPROVED;
+
+    const updated = await this.prisma.listing.update({
+      where: { id: listingId },
+      data: {
+        title: input.title.trim(),
+        description: input.description,
+        shortDescription: input.shortDescription ?? null,
+        attributes: input.attributes,
+        gallery: input.gallery,
+        thumbnail: input.thumbnail,
+        ...(shouldArchive ? { status: ListingStatus.ARCHIVED } : {}),
+        direct: {
+          upsert: {
+            create: {
+              price: input.price,
+              allowExchange: false,
+              shippingMethods: [],
+            },
+            update: { price: input.price },
+          },
+        },
+      },
+      include: { direct: true },
+    });
+
+    return { listing: updated, archived: shouldArchive };
+  }
+
+  async archiveWordPressRemovedListing(
+    userId: string,
+    listingId: string,
+  ): Promise<{ listing: Listing; archived: boolean }> {
+    const listing = await this.ensureListingCanBeModified(listingId, userId);
+    if (listing.importSource !== ListingImportSource.WORDPRESS) {
+      throw new BadRequestException('این آگهی از وردپرس وارد نشده است');
+    }
+
+    const archivable = new Set<ListingStatus>([
+      ListingStatus.APPROVED,
+      ListingStatus.PENDING,
+      ListingStatus.REJECTED,
+    ]);
+    const shouldArchive = archivable.has(listing.status);
+
+    const updated = await this.prisma.listing.update({
+      where: { id: listingId },
+      data: shouldArchive ? { status: ListingStatus.ARCHIVED } : {},
+      include: { direct: true },
+    });
+
+    return { listing: updated, archived: shouldArchive };
   }
 
   async update(

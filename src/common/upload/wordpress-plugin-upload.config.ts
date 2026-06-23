@@ -4,7 +4,7 @@ import { diskStorage } from 'multer';
 import { join } from 'path';
 import type { MulterOptions } from '@nestjs/platform-express/multer/interfaces/multer-options.interface';
 
-export const WORDPRESS_PLUGIN_ZIP_NAME = 'tabaghe-sync.zip';
+export const WORDPRESS_PLUGIN_ZIP_NAME = 'tabagheh-sync.zip';
 const MAX_PLUGIN_ZIP_BYTES = 50 * 1024 * 1024;
 
 export function resolveWordPressPluginUploadDir(): string {

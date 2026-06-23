@@ -15,6 +15,7 @@ import { AuthenticatedUser } from '../../../shared/contracts/auth';
 import { WordPressApiTokenService } from '../services/api-token.service';
 import { WordPressConnectionService } from '../services/connection.service';
 import { WordPressPluginPackageService } from '../services/plugin-package.service';
+import { WordPressStoreSyncService } from '../services/store-sync.service';
 import { CreateWordPressTokenDto } from '../dto/create-wordpress-token.dto';
 
 @Controller('integrations/wordpress')
@@ -24,6 +25,7 @@ export class WordPressUserController {
     private readonly tokenService: WordPressApiTokenService,
     private readonly connectionService: WordPressConnectionService,
     private readonly pluginPackageService: WordPressPluginPackageService,
+    private readonly storeSyncService: WordPressStoreSyncService,
   ) {}
 
   @Post('tokens')
@@ -52,6 +54,16 @@ export class WordPressUserController {
     return this.connectionService.getStatus(user.id);
   }
 
+  @Get('listings')
+  listImportedListings(@CurrentUser() user: AuthenticatedUser) {
+    return this.storeSyncService.listImportedListings(user.id);
+  }
+
+  @Post('sync-store')
+  syncFromStore(@CurrentUser() user: AuthenticatedUser) {
+    return this.storeSyncService.syncFromStore(user.id);
+  }
+
   @Get('plugin-download')
   async pluginDownload(@Res() res: Response) {
     try {
@@ -65,7 +77,7 @@ export class WordPressUserController {
 
     return res.download(
       this.pluginPackageService.getZipPath(),
-      'tabaghe-sync.zip',
+      'tabagheh-sync.zip',
     );
   }
 }

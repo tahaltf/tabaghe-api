@@ -1115,6 +1115,7 @@ model WordPressConnection {
   user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   siteUrl       String?
   pluginVersion String?
+  catalogSecret String?
   lastPingAt    DateTime?
   lastSyncAt    DateTime?
   createdAt     DateTime  @default(now())

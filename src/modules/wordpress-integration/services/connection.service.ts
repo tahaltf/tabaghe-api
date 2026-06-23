@@ -10,6 +10,7 @@ export interface WordPressConnectionStatus {
   lastSyncAt: Date | null;
   siteUrl: string | null;
   pluginVersion: string | null;
+  catalogReady: boolean;
 }
 
 @Injectable()
@@ -23,11 +24,13 @@ export class WordPressConnectionService {
         userId,
         siteUrl: dto.siteUrl,
         pluginVersion: dto.pluginVersion ?? null,
+        catalogSecret: dto.catalogSecret ?? null,
         lastPingAt: new Date(),
       },
       update: {
         siteUrl: dto.siteUrl,
         pluginVersion: dto.pluginVersion ?? null,
+        ...(dto.catalogSecret ? { catalogSecret: dto.catalogSecret } : {}),
         lastPingAt: new Date(),
       },
     });
@@ -59,6 +62,7 @@ export class WordPressConnectionService {
         lastSyncAt: null,
         siteUrl: null,
         pluginVersion: null,
+        catalogReady: false,
       };
     }
 
@@ -72,6 +76,7 @@ export class WordPressConnectionService {
       lastSyncAt: row.lastSyncAt,
       siteUrl: row.siteUrl,
       pluginVersion: row.pluginVersion,
+      catalogReady: Boolean(row.catalogSecret && row.siteUrl),
     };
   }
 }
