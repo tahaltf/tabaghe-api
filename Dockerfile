@@ -5,13 +5,13 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
-COPY tabaghe-api/package*.json ./
+COPY package*.json ./
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --legacy-peer-deps
 
-COPY tabaghe-api/ .
+COPY . .
 
 # اجرای بیلد نهایی و ساخت کلاینت پریسما
 ARG DATABASE_URL="postgresql://temp:temp@localhost:5432/temp"
@@ -48,7 +48,7 @@ ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 ENV NODE_ENV=production
 
-COPY tabaghe-api/package*.json ./
+COPY package*.json ./
 # 🟢 حالا این دستور بدون تلاش برای دانلود کروم و بدون خطا اجرا می‌شود
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --only=production --legacy-peer-deps
