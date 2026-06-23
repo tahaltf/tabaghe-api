@@ -1,94 +1,55 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { createWriteStream, existsSync, mkdirSync } from 'fs';
+import { Injectable } from '@nestjs/common';
+import { existsSync, statSync } from 'fs';
 import { join } from 'path';
-import archiver from 'archiver';
+import {
+  WORDPRESS_PLUGIN_ZIP_NAME,
+  resolveWordPressPluginUploadDir,
+} from '../../../common/upload/wordpress-plugin-upload.config';
 
-const PLUGIN_FOLDER_NAME = 'tabaghe-sync';
-const PLUGIN_MAIN_FILE = 'tabaghe-sync.php';
-const ZIP_FILE_NAME = 'tabaghe-sync.zip';
+export interface WordPressPluginPackageStatus {
+  ready: boolean;
+  fileName: string;
+  sizeBytes: number | null;
+  updatedAt: string | null;
+}
 
 @Injectable()
-export class WordPressPluginPackageService implements OnModuleInit {
-  private readonly logger = new Logger(WordPressPluginPackageService.name);
+export class WordPressPluginPackageService {
   private readonly zipPath = join(
-    process.cwd(),
-    'uploads',
-    'downloads',
-    ZIP_FILE_NAME,
+    resolveWordPressPluginUploadDir(),
+    WORDPRESS_PLUGIN_ZIP_NAME,
   );
-  private buildPromise: Promise<void> | null = null;
-
-  async onModuleInit(): Promise<void> {
-    try {
-      await this.ensurePackageReady();
-    } catch (err) {
-      this.logger.warn(
-        `WordPress plugin ZIP not ready at startup: ${String((err as Error)?.message ?? err)}`,
-      );
-    }
-  }
 
   getZipPath(): string {
     return this.zipPath;
   }
 
+  isReady(): boolean {
+    return existsSync(this.zipPath);
+  }
+
   async ensurePackageReady(): Promise<void> {
-    if (existsSync(this.zipPath)) {
-      return;
+    if (!this.isReady()) {
+      throw new Error('WordPress plugin ZIP not uploaded');
     }
-
-    if (!this.buildPromise) {
-      this.buildPromise = this.buildZip().finally(() => {
-        this.buildPromise = null;
-      });
-    }
-
-    await this.buildPromise;
   }
 
-  private resolvePluginSourceDir(): string | null {
-    const candidates = [
-      join(process.cwd(), 'assets', 'tabaghe-wordpress-plugin'),
-      join(process.cwd(), '..', 'tabaghe-wordpress-plugin'),
-      join(process.cwd(), 'tabaghe-wordpress-plugin'),
-    ];
-
-    for (const dir of candidates) {
-      if (existsSync(join(dir, PLUGIN_MAIN_FILE))) {
-        return dir;
-      }
+  getStatus(): WordPressPluginPackageStatus {
+    if (!this.isReady()) {
+      return {
+        ready: false,
+        fileName: WORDPRESS_PLUGIN_ZIP_NAME,
+        sizeBytes: null,
+        updatedAt: null,
+      };
     }
 
-    return null;
-  }
-
-  private async buildZip(): Promise<void> {
-    const sourceDir = this.resolvePluginSourceDir();
-    if (!sourceDir) {
-      throw new Error('WordPress plugin source directory not found');
-    }
-
-    mkdirSync(join(process.cwd(), 'uploads', 'downloads'), { recursive: true });
-    await this.createZipFromDirectory(sourceDir, this.zipPath, PLUGIN_FOLDER_NAME);
-    this.logger.log(`Built WordPress plugin package at ${this.zipPath}`);
-  }
-
-  private createZipFromDirectory(
-    sourceDir: string,
-    zipPath: string,
-    folderName: string,
-  ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const output = createWriteStream(zipPath);
-      const archive = archiver('zip', { zlib: { level: 9 } });
-
-      output.on('close', () => resolve());
-      archive.on('error', reject);
-      output.on('error', reject);
-
-      archive.pipe(output);
-      archive.directory(sourceDir, folderName);
-      void archive.finalize();
-    });
+    const stat = statSync(this.zipPath);
+    return {
+      ready: true,
+      fileName: WORDPRESS_PLUGIN_ZIP_NAME,
+      sizeBytes: stat.size,
+      updatedAt: stat.mtime.toISOString(),
+    };
   }
 }

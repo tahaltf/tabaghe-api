@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { NotificationModule } from '../notification/notification.module';
+import { AdminWordPressPluginController } from './controllers/admin-wordpress-plugin.controller';
 import { WordPressUserController } from './controllers/wordpress-user.controller';
 import { WordPressIngestController } from './controllers/wordpress-ingest.controller';
 import { WordPressApiTokenService } from './services/api-token.service';
@@ -11,7 +12,11 @@ import { ApiTokenGuard } from './guards/api-token.guard';
 
 @Module({
   imports: [NotificationModule],
-  controllers: [WordPressUserController, WordPressIngestController],
+  controllers: [
+    WordPressUserController,
+    WordPressIngestController,
+    AdminWordPressPluginController,
+  ],
   providers: [
     WordPressApiTokenService,
     WordPressConnectionService,

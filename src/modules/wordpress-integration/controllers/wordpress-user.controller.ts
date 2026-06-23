@@ -59,7 +59,7 @@ export class WordPressUserController {
     } catch {
       return res.status(404).json({
         success: false,
-        message: 'فایل افزونه هنوز آماده نشده است',
+        message: 'فایل افزونه هنوز آپلود نشده است. از پنل ادمین آپلود کنید.',
       });
     }
 

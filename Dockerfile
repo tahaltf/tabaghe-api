@@ -57,8 +57,6 @@ RUN --mount=type=cache,target=/root/.npm \
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/assets ./assets
-COPY tabaghe-wordpress-plugin ./assets/tabaghe-wordpress-plugin
-
 # تایید ساختار فایل‌ها جهت اطمینان در لاگ
 RUN ls -R dist
 
