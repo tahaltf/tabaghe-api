@@ -7,6 +7,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { normalizeMultilineText } from '../../../common/multiline-text.util';
 import { QuotaService } from '../../quota/quota.service';
 import { RejectListingDto } from '../dto/reject-listing.dto';
 import { AdminListingCorrectionsDto } from '../dto/admin-listing-corrections.dto';
@@ -91,7 +92,8 @@ export class ListingAdminService {
       listingData.title = title;
     }
     if (dto.description !== undefined) {
-      listingData.description = dto.description.trim() || null;
+      listingData.description =
+        normalizeMultilineText(dto.description).trim() || null;
     }
 
     const exchangeData: Prisma.ListingExchangeUpdateInput = {};
@@ -100,7 +102,7 @@ export class ListingAdminService {
     }
     if (dto.desiredDescription !== undefined) {
       exchangeData.desiredDescription =
-        dto.desiredDescription.trim() || null;
+        normalizeMultilineText(dto.desiredDescription).trim() || null;
     }
     const patchExchange = Object.keys(exchangeData).length > 0;
 

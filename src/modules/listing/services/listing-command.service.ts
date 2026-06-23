@@ -16,6 +16,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { normalizeMultilineText } from '../../../common/multiline-text.util';
 import { NotificationService } from '../../notification/notification.service';
 import { QuotaService } from '../../quota/quota.service';
 import { CreateListingDto } from '../dto/create-listing.dto';
@@ -92,7 +93,7 @@ export class ListingCommandService {
           type: dto.type,
           status: ListingStatus.PENDING,
           condition: dto.condition,
-          description: dto.description ?? '',
+          description: normalizeMultilineText(dto.description ?? ''),
           shippingPayer: dto.shippingPayer,
           exchangePayer: dto.exchangePayer ?? ExchangePayer.NONE,
           // فقط مقدار صریح true؛ هر چیز دیگر (undefined، "false"، 0، …) = false
@@ -127,7 +128,9 @@ export class ListingCommandService {
                 create: {
                   desiredCategoryId: dto.exchange?.desiredCategoryId ?? '',
                   desiredTitle: dto.exchange?.desiredTitle ?? '',
-                  desiredDescription: dto.exchange?.desiredDescription,
+                  desiredDescription: dto.exchange?.desiredDescription != null
+                    ? normalizeMultilineText(dto.exchange.desiredDescription)
+                    : dto.exchange?.desiredDescription,
                   ownValue: dto.exchange?.ownValue ?? 0,
                   extraPaymentAmount: dto.exchange?.extraPaymentAmount ?? 0,
                 },
@@ -204,7 +207,7 @@ export class ListingCommandService {
 
     const data: Prisma.ListingUpdateInput = {
       title: input.title.trim(),
-      description: input.description,
+      description: normalizeMultilineText(input.description),
       shortDescription: input.shortDescription ?? null,
       attributes: input.attributes,
       gallery: input.gallery,
@@ -295,7 +298,7 @@ export class ListingCommandService {
       where: { id: listingId },
       data: {
         title: input.title.trim(),
-        description: input.description,
+        description: normalizeMultilineText(input.description),
         shortDescription: input.shortDescription ?? null,
         attributes: input.attributes,
         gallery: input.gallery,
@@ -383,7 +386,9 @@ export class ListingCommandService {
       where: { id: listingId },
       data: {
         title: dto.title,
-        description: dto.description,
+        description: dto.description !== undefined
+          ? normalizeMultilineText(dto.description)
+          : dto.description,
         condition: dto.condition,
         shippingPayer: dto.shippingPayer,
         exchangePayer: dto.exchangePayer ?? listing.exchangePayer,
