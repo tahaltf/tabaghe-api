@@ -54,6 +54,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { SitemapModule } from './modules/sitemap/sitemap.module';
 import { TrackingModule } from './modules/tracking/tracking.module';
+import { WordPressIntegrationModule } from './modules/wordpress-integration/wordpress-integration.module';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -115,6 +116,7 @@ import { AppService } from './app.service';
     PaymentsModule,
     SitemapModule,
     TrackingModule,
+    WordPressIntegrationModule,
   ],
   controllers: [AppController],
   providers: [

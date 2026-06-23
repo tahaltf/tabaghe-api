@@ -44,6 +44,11 @@ enum ListingStatus {
   DELETED_BY_USER   // حذف شده توسط کاربر
 }
 
+enum ListingImportSource {
+  MANUAL
+  WORDPRESS
+}
+
 enum OrderStatus {
   PENDING
   AWAITING_PAYMENT
@@ -301,6 +306,8 @@ model User {
   ratingHistory       UserRatingHistory[]
   campaignLinks       CampaignLink[]
   landingPages        LandingPage[]
+  wordpressApiTokens  WordPressApiToken[]
+  wordpressConnection WordPressConnection?
 
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
@@ -435,6 +442,13 @@ model Listing {
   sellerRequiresVerification Boolean @default(false)
   /** مهلت تست / گارانتی فروشنده به روز؛ null = بدون گارانتی */
   testPeriodDays  Int?
+
+  importSource       ListingImportSource @default(MANUAL)
+  externalProductId  String?
+  externalSiteUrl    String?
+  shortDescription   String?
+  attributes         Json?
+
   direct          ListingDirect?
   exchange        ListingExchange?
   auction         ListingAuction?
@@ -452,6 +466,8 @@ model Listing {
   @@index([createdAt])
   @@index([status, expiresAt])
   @@index([isFeatured, createdAt])
+  @@index([importSource, status])
+  @@unique([authorId, externalSiteUrl, externalProductId])
 }
 
 model ListingDirect {
@@ -1072,4 +1088,35 @@ model ClickLog {
   clickedAt   DateTime @default(now())
 
   @@index([campaignLinkId, clickedAt])
+}
+
+////////////////////
+/// WORDPRESS INTEGRATION
+////////////////////
+
+model WordPressApiToken {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String    @default("default")
+  tokenHash   String
+  tokenPrefix String
+  createdAt   DateTime  @default(now())
+  revokedAt   DateTime?
+  lastUsedAt  DateTime?
+
+  @@index([userId, revokedAt])
+  @@index([tokenPrefix])
+}
+
+model WordPressConnection {
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  siteUrl       String?
+  pluginVersion String?
+  lastPingAt    DateTime?
+  lastSyncAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }

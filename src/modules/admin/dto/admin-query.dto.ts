@@ -9,6 +9,7 @@ import {
   Min,
 } from 'class-validator';
 import {
+  ListingImportSource,
   ListingStatus,
   ListingType,
   OrderStatus,
@@ -77,6 +78,10 @@ export class AdminListingListQueryDto extends AdminListQueryDto {
   @IsOptional()
   @IsString()
   provinceId?: string;
+
+  @IsOptional()
+  @IsEnum(ListingImportSource)
+  importSource?: ListingImportSource;
 }
 
 export class AdminSetListingStatusDto {

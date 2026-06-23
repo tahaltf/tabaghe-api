@@ -88,6 +88,7 @@ export class AdminListingsQueryService {
     if (query.type) where.type = query.type;
     if (query.categoryId) where.categoryId = query.categoryId;
     if (query.provinceId) where.provinceId = query.provinceId;
+    if (query.importSource) where.importSource = query.importSource;
     if (query.search) {
       const s = query.search.trim();
       where.OR = [
