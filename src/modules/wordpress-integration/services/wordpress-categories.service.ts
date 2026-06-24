@@ -21,7 +21,7 @@ export interface WordPressCategoryOption {
 export class WordPressCategoriesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async listForPlugin(): Promise<WordPressCategoryOption[]> {
+  async listForPlugin(search?: string): Promise<WordPressCategoryOption[]> {
     const rows = await this.prisma.category.findMany({
       where: { isActive: true },
       orderBy: { title: 'asc' },
@@ -36,7 +36,22 @@ export class WordPressCategoriesService {
 
     const visible = filterCategoriesVisibleOnSite(rows);
     const selectable = filterCategoriesSelectableForListing(visible);
-    return this.buildSelectableOptions(selectable, visible);
+    const options = this.buildSelectableOptions(selectable, visible);
+    return this.filterBySearch(options, search);
+  }
+
+  private filterBySearch(
+    options: WordPressCategoryOption[],
+    search?: string,
+  ): WordPressCategoryOption[] {
+    const q = search?.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter(
+      (row) =>
+        row.label.toLowerCase().includes(q) ||
+        row.title.toLowerCase().includes(q) ||
+        row.slug.toLowerCase().includes(q),
+    );
   }
 
   async assertCategoryAllowed(categoryId: string): Promise<void> {

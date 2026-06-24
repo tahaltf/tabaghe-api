@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTokenGuard, WordPressRequest } from '../guards/api-token.guard';
 import { WordPressConnectionService } from '../services/connection.service';
 import { WordPressProductIngestService } from '../services/product-ingest.service';
@@ -19,8 +19,8 @@ export class WordPressIngestController {
   ) {}
 
   @Get('categories')
-  listCategories() {
-    return this.categoriesService.listForPlugin();
+  listCategories(@Query('search') search?: string) {
+    return this.categoriesService.listForPlugin(search);
   }
 
   @Post('ping')
