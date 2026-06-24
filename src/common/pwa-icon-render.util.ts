@@ -34,12 +34,31 @@ async function resizeLogo(
   return pipeline.png(PNG_OUT).toBuffer();
 }
 
+async function isReadyMadeSquareIcon(
+  sourcePath: string,
+  targetSide: number,
+): Promise<boolean> {
+  const meta = await openSource(sourcePath, targetSide).metadata();
+  const w = meta.width ?? 0;
+  const h = meta.height ?? 0;
+  return w === h && w >= targetSide;
+}
+
 /** PNG مربعی با پس‌زمینه سفید برای iOS / Add to Home Screen */
 export async function renderPwaIconPng(
   sourcePath: string,
   size: number,
 ): Promise<Buffer> {
   const side = Math.max(48, Math.min(1024, Math.floor(size)));
+  if (await isReadyMadeSquareIcon(sourcePath, side)) {
+    return openSource(sourcePath, side)
+      .resize(side, side, {
+        fit: 'cover',
+        kernel: sharp.kernel.lanczos3,
+      })
+      .png(PNG_OUT)
+      .toBuffer();
+  }
   const padding = Math.round(side * 0.08);
   const inner = side - padding * 2;
   const transparent = { r: 255, g: 255, b: 255, alpha: 0 };
