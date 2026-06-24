@@ -81,6 +81,11 @@ export class AdminCrawlerController {
     return this.crawler.submitCrawlOtp(body.code);
   }
 
+  @Post('captcha-resolved')
+  captchaResolved() {
+    return this.crawler.submitCaptchaResolved();
+  }
+
   @Get('records')
   getRecords(@Query('filter') filter = 'all') {
     return this.crawler.getRecords(filter);

@@ -6,6 +6,12 @@ import { TtlCacheService } from '../../infrastructure/cache/ttl-cache.service';
 
 import { parseListingTypesEnabledFromMap } from '../../common/system-settings/listing-type-enabled';
 import {
+  buildAcceptAttribute,
+  formatTicketAttachmentLabels,
+  parseTicketAttachmentMaxSizeMb,
+  parseTicketAttachmentMimeTypes,
+} from '../../common/upload/ticket-attachment-settings.util';
+import {
   DEFAULT_ABOUT_US_FA,
   DEFAULT_FAQ_ITEMS,
   DEFAULT_FOOTER_TAGLINE_FA,
@@ -77,6 +83,8 @@ export class CommonContentService {
       'FOOTER_TAGLINE',
       'LANDING_PAGES_URL_PREFIX',
       'CAMPAIGN_LINK_URL_PREFIX',
+      'TICKET_ATTACHMENT_ALLOWED_MIME_TYPES',
+      'TICKET_ATTACHMENT_MAX_SIZE_MB',
     ];
 
     const rows = await this.prisma.systemSetting.findMany({
@@ -244,6 +252,20 @@ export class CommonContentService {
           .replace(/^\/+|\/+$/g, '');
         if (!raw) return 'ref';
         return /^[a-z0-9-]+$/.test(raw) ? raw : 'ref';
+      })(),
+      ticketAttachmentSettings: (() => {
+        const allowedMimeTypes = parseTicketAttachmentMimeTypes(
+          map.TICKET_ATTACHMENT_ALLOWED_MIME_TYPES,
+        );
+        const maxSizeMb = parseTicketAttachmentMaxSizeMb(
+          map.TICKET_ATTACHMENT_MAX_SIZE_MB,
+        );
+        return {
+          allowedMimeTypes,
+          maxSizeMb,
+          accept: buildAcceptAttribute(allowedMimeTypes),
+          labels: formatTicketAttachmentLabels(allowedMimeTypes),
+        };
       })(),
     };
   }

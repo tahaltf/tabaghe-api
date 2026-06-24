@@ -16,6 +16,9 @@ const VALID_SECTION_TYPES = new Set([
   'promo-hero',
   'compare',
   'footer',
+  'columns',
+  'section-header',
+  'rich-text',
 ]);
 
 function unwrapSectionsRaw(raw: unknown): unknown[] {

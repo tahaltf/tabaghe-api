@@ -28,6 +28,7 @@ import { CreateListingDto } from './dto/create-listing.dto';
 import { DeleteListingDto } from './dto/delete-listing.dto';
 import { ListListingsDto } from './dto/list-listings.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
+import { resolveGalleryFromOrder } from './utils/resolve-gallery-order.util';
 import { ListingCommandService } from './services/listing-command.service';
 import { ListingQueryService } from './services/listing-query.service';
 import { ListingSavedService } from './services/listing-saved.service';
@@ -167,10 +168,18 @@ export class ListingController {
     @UploadedFiles() files: Array<Express.Multer.File>,
   ) {
     const fileNames = files?.map((f) => f.filename) ?? [];
+    let gallery = fileNames;
+    let thumbnail = fileNames[0] ?? dto.thumbnail;
+    if (dto.galleryOrder?.length && fileNames.length > 0) {
+      const resolved = resolveGalleryFromOrder(dto.galleryOrder, fileNames);
+      gallery = resolved.gallery;
+      thumbnail = resolved.thumbnail ?? thumbnail;
+    }
+    const { galleryOrder: _galleryOrder, ...restDto } = dto;
     const finalDto: CreateListingDto = {
-      ...dto,
-      gallery: fileNames,
-      thumbnail: fileNames[0] ?? dto.thumbnail,
+      ...restDto,
+      gallery,
+      thumbnail,
     };
     return this.commandService.create(user.id, finalDto);
   }
@@ -184,11 +193,20 @@ export class ListingController {
     @Body() dto: UpdateListingDto,
     @UploadedFiles() files?: Array<Express.Multer.File>,
   ) {
-    const payload: UpdateListingDto = { ...dto };
+    const { galleryOrder, ...restDto } = dto;
+    const payload: UpdateListingDto = { ...restDto };
     if (files?.length) {
       const fileNames = files.map((f) => f.filename);
-      payload.gallery = fileNames;
-      payload.thumbnail = fileNames[0];
+      if (galleryOrder?.length) {
+        const resolved = resolveGalleryFromOrder(galleryOrder, fileNames);
+        payload.gallery = resolved.gallery;
+        payload.thumbnail = resolved.thumbnail ?? undefined;
+      } else {
+        payload.gallery = fileNames;
+        payload.thumbnail = dto.thumbnail ?? fileNames[0];
+      }
+    } else if (dto.gallery?.length) {
+      payload.thumbnail = dto.thumbnail ?? dto.gallery[0];
     }
     return this.commandService.update(user.id, id, payload);
   }

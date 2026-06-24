@@ -23,6 +23,7 @@ import {
 import { normalizeTicketMessage } from '../../../common/ticket-message.util';
 import { AdminUserPlanLookupService } from './admin-user-plan-lookup.service';
 import type { AdminUserPlanInfo } from './admin-user-plan-lookup.service';
+import { TicketAttachmentSettingsService } from '../../support/ticket-attachment-settings.service';
 
 const TICKET_INCLUDE = {
   user: { select: { id: true, phone: true, firstName: true, lastName: true } },
@@ -56,6 +57,7 @@ export class AdminTicketsService {
     private readonly prisma: PrismaService,
     private readonly notification: NotificationService,
     private readonly userPlanLookup: AdminUserPlanLookupService,
+    private readonly ticketAttachments: TicketAttachmentSettingsService,
   ) {}
 
   private async attachUserPlans<
@@ -124,12 +126,21 @@ export class AdminTicketsService {
   async createForUser(
     userId: string,
     dto: AdminCreateTicketDto,
+    file?: Express.Multer.File,
   ): Promise<AdminTicketDetail> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { id: true },
     });
     if (!user) throw new NotFoundException('کاربر یافت نشد');
+
+    const message = normalizeTicketMessage(dto.message);
+    const attachments = await this.ticketAttachments.validateAndBuildAttachment(
+      file,
+    );
+    if (!message && !attachments?.length) {
+      throw new BadRequestException('متن پیام یا فایل پیوست الزامی است');
+    }
 
     const created = await this.prisma.ticket.create({
       data: {
@@ -139,7 +150,8 @@ export class AdminTicketsService {
         messages: {
           create: {
             senderRole: UserRole.ADMIN,
-            message: normalizeTicketMessage(dto.message),
+            message,
+            attachments: attachments ?? undefined,
           },
         },
       },
@@ -164,19 +176,30 @@ export class AdminTicketsService {
   async reply(
     id: string,
     dto: AdminReplyTicketDto,
+    file?: Express.Multer.File,
   ): Promise<AdminTicketDetail> {
     const ticket = await this.prisma.ticket.findUnique({ where: { id } });
     if (!ticket) throw new NotFoundException('تیکت یافت نشد');
     if (ticket.status === TicketStatus.CLOSED) {
       throw new BadRequestException('این تیکت بسته شده است');
     }
+
+    const message = normalizeTicketMessage(dto.message);
+    const attachments = await this.ticketAttachments.validateAndBuildAttachment(
+      file,
+    );
+    if (!message && !attachments?.length) {
+      throw new BadRequestException('متن پیام یا فایل پیوست الزامی است');
+    }
+
     const now = new Date();
     await this.prisma.$transaction([
       this.prisma.ticketMessage.create({
         data: {
           ticketId: id,
           senderRole: UserRole.ADMIN,
-          message: normalizeTicketMessage(dto.message),
+          message,
+          attachments: attachments ?? undefined,
         },
       }),
       this.prisma.ticket.update({

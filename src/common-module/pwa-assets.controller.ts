@@ -49,7 +49,7 @@ export class PwaAssetsController {
   /** favicon تب مرورگر — لوگوی تم تاریک (سفید)، پس‌زمینه شفاف */
   @Get('pwa/favicon.png')
   async favicon(@Res() res: Response): Promise<void> {
-    const buf = await this.pwaIconService.getFaviconPngBuffer(32);
+    const buf = await this.pwaIconService.getFaviconPngBuffer(48);
     res.setHeader('Content-Type', 'image/png');
     res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate');
     res.send(buf);
@@ -57,7 +57,7 @@ export class PwaAssetsController {
 
   @Get('favicon.ico')
   async faviconIco(@Res() res: Response): Promise<void> {
-    const buf = await this.pwaIconService.getFaviconPngBuffer(32);
+    const buf = await this.pwaIconService.getFaviconPngBuffer(48);
     res.setHeader('Content-Type', 'image/png');
     res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate');
     res.send(buf);

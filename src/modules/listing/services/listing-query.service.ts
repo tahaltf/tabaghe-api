@@ -62,6 +62,7 @@ const LIST_ITEM_INCLUDE = {
       lastName: true,
       avatar: true,
       isVerified: true,
+      isApproved: true,
     },
   },
 } satisfies Prisma.ListingInclude;
@@ -111,6 +112,7 @@ const DETAIL_INCLUDE = {
       lastName: true,
       avatar: true,
       isVerified: true,
+      isApproved: true,
       rating: true,
       isOnline: true,
     },

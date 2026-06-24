@@ -26,6 +26,7 @@ import { AdminSetUserPasswordDto } from '../dto/admin-user-password.dto';
 import { AdminSetUserActivationDto } from '../dto/admin-user-activation.dto';
 import { AdminSetUserRatingDto } from '../dto/admin-user-rating.dto';
 import { AdminSetUserTrustScoreDto } from '../dto/admin-user-trust-score.dto';
+import { AdminSetUserApprovedDto } from '../dto/admin-user-approved.dto';
 import { AdminCreateUserDto } from '../dto/admin-create-user.dto';
 import { AuthenticatedUser } from '../../../shared/contracts/auth';
 
@@ -91,6 +92,15 @@ export class AdminUsersQueryController {
     @Body() dto: AdminSetUserActivationDto,
   ) {
     return this.service.setUserActivation(actor, id, dto.isActive);
+  }
+
+  @Patch(':id/approved')
+  setApproved(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: AdminSetUserApprovedDto,
+  ) {
+    return this.service.setUserApproved(actor, id, dto.isApproved);
   }
 
   @Patch(':id/rating')

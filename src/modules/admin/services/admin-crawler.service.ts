@@ -51,6 +51,14 @@ export class AdminCrawlerService {
   }
 
   async logout() {
+    try {
+      await this.proxyPost('/api/crawler/stop', {});
+    } catch (err) {
+      this.logger.warn(
+        'Crawler stop before Divar logout failed',
+        err instanceof Error ? err.message : String(err),
+      );
+    }
     return this.proxyPost('/api/auth/logout', {});
   }
 
@@ -64,6 +72,10 @@ export class AdminCrawlerService {
 
   async submitCrawlOtp(code: string) {
     return this.proxyPost('/api/crawler/otp', { code });
+  }
+
+  async submitCaptchaResolved() {
+    return this.proxyPost('/api/crawler/captcha-resolved', {});
   }
 
   async getRecords(filter = 'all') {

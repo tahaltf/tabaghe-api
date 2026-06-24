@@ -1,18 +1,40 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { NotificationType } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { NotificationService } from '../notification/notification.service';
 import { normalizeTicketMessage } from '../../common/ticket-message.util';
+import { TicketAttachmentSettingsService } from './ticket-attachment-settings.service';
 
 @Injectable()
 export class SupportService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notification: NotificationService,
+    private readonly ticketAttachments: TicketAttachmentSettingsService,
   ) {}
 
-  async createTicket(userId: string, dto: CreateTicketDto) {
+  getAttachmentSettings() {
+    return this.ticketAttachments.getPublicConfig();
+  }
+
+  async createTicket(
+    userId: string,
+    dto: CreateTicketDto,
+    file?: Express.Multer.File,
+  ) {
+    const message = normalizeTicketMessage(dto.message);
+    const attachments = await this.ticketAttachments.validateAndBuildAttachment(
+      file,
+    );
+    if (!message && !attachments?.length) {
+      throw new BadRequestException('متن پیام یا فایل پیوست الزامی است');
+    }
+
     const ticket = await this.prisma.ticket.create({
       data: {
         userId,
@@ -20,8 +42,9 @@ export class SupportService {
         repairRequestId: dto.repairRequestId,
         messages: {
           create: {
-            message: normalizeTicketMessage(dto.message),
+            message,
             senderRole: 'USER',
+            attachments: attachments ?? undefined,
           },
         },
       },
@@ -88,19 +111,33 @@ export class SupportService {
       },
     });
   }
-  async sendMessage(ticketId: string, userId: string, message: string) {
-    // ابتدا مطمئن می‌شویم تیکت متعلق به همین کاربر است
+
+  async sendMessage(
+    ticketId: string,
+    userId: string,
+    message: string,
+    file?: Express.Multer.File,
+  ) {
     const ticket = await this.prisma.ticket.findFirst({
       where: { id: ticketId, userId },
     });
 
     if (!ticket) throw new NotFoundException('تیکت یافت نشد');
 
+    const normalizedMessage = normalizeTicketMessage(message);
+    const attachments = await this.ticketAttachments.validateAndBuildAttachment(
+      file,
+    );
+    if (!normalizedMessage && !attachments?.length) {
+      throw new BadRequestException('متن پیام یا فایل پیوست الزامی است');
+    }
+
     const created = await this.prisma.ticketMessage.create({
       data: {
         ticketId,
-        message: normalizeTicketMessage(message),
+        message: normalizedMessage,
         senderRole: 'USER',
+        attachments: attachments ?? undefined,
       },
     });
     await this.prisma.ticket.update({

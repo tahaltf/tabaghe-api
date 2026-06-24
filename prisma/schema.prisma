@@ -296,6 +296,8 @@ model User {
   thirdBids           ListingAuction[] @relation("ThirdBidder")
 
   isVerified          Boolean          @default(false)
+  /** کاربر مورد تایید ادمین — روی آگهی‌های او نشان «مورد تایید» نمایش داده می‌شود */
+  isApproved          Boolean          @default(false)
   rating              Float            @default(5)
   reviewCount         Int              @default(0)
   isOnline            Boolean          @default(false)
@@ -747,12 +749,13 @@ model Ticket {
 }
 
 model TicketMessage {
-  id         String   @id @default(cuid())
-  ticketId   String
-  ticket     Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  senderRole UserRole
-  message    String
-  createdAt  DateTime @default(now())
+  id          String   @id @default(cuid())
+  ticketId    String
+  ticket      Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  senderRole  UserRole
+  message     String
+  attachments Json?
+  createdAt   DateTime @default(now())
 
   @@index([ticketId, createdAt])
 }

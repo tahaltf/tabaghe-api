@@ -6,8 +6,12 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import type { Express } from 'express';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -19,6 +23,7 @@ import {
   AdminReplyTicketDto,
   AdminUpdateTicketDto,
 } from '../dto/admin-ticket.dto';
+import { ticketAttachmentMulterOptions } from '../../../common/upload/ticket-attachment-upload.config';
 
 @Controller('admin/tickets')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -37,16 +42,23 @@ export class AdminTicketsController {
   }
 
   @Post('user/:userId')
+  @UseInterceptors(FileInterceptor('attachment', ticketAttachmentMulterOptions))
   createForUser(
     @Param('userId') userId: string,
     @Body() dto: AdminCreateTicketDto,
+    @UploadedFile() file?: Express.Multer.File,
   ) {
-    return this.service.createForUser(userId, dto);
+    return this.service.createForUser(userId, dto, file);
   }
 
   @Post(':id/reply')
-  reply(@Param('id') id: string, @Body() dto: AdminReplyTicketDto) {
-    return this.service.reply(id, dto);
+  @UseInterceptors(FileInterceptor('attachment', ticketAttachmentMulterOptions))
+  reply(
+    @Param('id') id: string,
+    @Body() dto: AdminReplyTicketDto,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    return this.service.reply(id, dto, file);
   }
 
   @Patch(':id/status')

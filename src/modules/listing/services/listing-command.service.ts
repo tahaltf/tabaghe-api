@@ -28,7 +28,10 @@ import {
   listingTypePersianLabel,
   parseListingTypesEnabledFromMap,
 } from '../../../common/system-settings/listing-type-enabled';
-import { isCategoryVisibleOnSite } from '../../../common/category-visibility.util';
+import {
+  isCategorySelectableForListing,
+  isCategoryVisibleOnSite,
+} from '../../../common/category-visibility.util';
 
 /** حداقل امتیاز (rating) برای ثبت یا ارسال مجدد آگهی */
 export const MIN_LISTING_AUTHOR_RATING = 1;
@@ -591,6 +594,11 @@ export class ListingCommandService {
       if (!isCategoryVisibleOnSite(id, byId)) {
         throw new BadRequestException(
           'دسته‌بندی انتخاب‌شده در حال حاضر غیرفعال است.',
+        );
+      }
+      if (!isCategorySelectableForListing(id, byId)) {
+        throw new BadRequestException(
+          'دسته‌بندی انتخاب‌شده باید زیردستهٔ نهایی باشد؛ دسته‌های والد قابل انتخاب نیستند.',
         );
       }
     }

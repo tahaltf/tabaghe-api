@@ -170,6 +170,31 @@ const transformExchange = ({ value }: { value: unknown }) =>
 const transformAuction = ({ value }: { value: unknown }) =>
   toNested(AuctionPayloadDto, value);
 
+const parseJsonValue = ({ value }: { value: unknown }) => {
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  }
+  return value;
+};
+
+class GalleryOrderSlotDto {
+  @IsString()
+  type!: 'existing' | 'new';
+
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  fileIndex?: number;
+}
+
 export class CreateListingDto {
   @IsEnum(ListingType)
   type!: ListingType;
@@ -225,9 +250,18 @@ export class CreateListingDto {
   thumbnail?: string;
 
   @IsOptional()
+  @Transform(parseJsonValue)
   @IsArray()
   @IsString({ each: true })
   gallery?: string[];
+
+  /** ترتیب نهایی گالری هنگام ترکیب تصاویر قبلی و آپلود جدید (multipart) */
+  @IsOptional()
+  @Transform(parseJsonValue)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => GalleryOrderSlotDto)
+  galleryOrder?: GalleryOrderSlotDto[];
 
   @IsOptional()
   @Transform(transformDirect)

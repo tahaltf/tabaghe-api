@@ -125,6 +125,8 @@ export const SETTING_KEYS = {
   LANDING_PAGES_URL_PREFIX: 'LANDING_PAGES_URL_PREFIX',
   /** پیشوند URL لینک‌های ردیابی کمپین (مثلاً ref → /ref/my-slug) */
   CAMPAIGN_LINK_URL_PREFIX: 'CAMPAIGN_LINK_URL_PREFIX',
+  TICKET_ATTACHMENT_ALLOWED_MIME_TYPES: 'TICKET_ATTACHMENT_ALLOWED_MIME_TYPES',
+  TICKET_ATTACHMENT_MAX_SIZE_MB: 'TICKET_ATTACHMENT_MAX_SIZE_MB',
 } as const;
 
 /**
@@ -214,6 +216,9 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   PLATFORM_ADDRESSES: 'لیست آدرس‌های هاب طبقه با کد پستی (JSON)',
   SUPPORT_PHONE: 'شماره پشتیبانی',
   SUPPORT_EMAIL: 'ایمیل پشتیبانی',
+  TICKET_ATTACHMENT_ALLOWED_MIME_TYPES:
+    'فرمت‌های مجاز پیوست تیکت پشتیبانی (JSON آرایه MIME type)',
+  TICKET_ATTACHMENT_MAX_SIZE_MB: 'حداکثر حجم پیوست تیکت پشتیبانی (مگابایت)',
   BANK_CARD_NUMBER: 'شماره کارت بانکی واریز',
   BANK_ACCOUNT_HOLDER: 'نام دارنده حساب بانکی',
   BANK_SHABA: 'شماره شبا جهت واریز',

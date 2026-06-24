@@ -8,10 +8,10 @@ import {
 import { TicketStatus } from '@prisma/client';
 
 export class AdminReplyTicketDto {
+  @IsOptional()
   @IsString()
-  @MinLength(1)
   @MaxLength(2000)
-  message!: string;
+  message?: string;
 }
 
 export class AdminUpdateTicketDto {
@@ -26,8 +26,8 @@ export class AdminCreateTicketDto {
   @MaxLength(200)
   subject!: string;
 
+  @IsOptional()
   @IsString()
-  @MinLength(3)
   @MaxLength(2000)
-  message!: string;
+  message?: string;
 }
