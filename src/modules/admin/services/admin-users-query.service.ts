@@ -21,6 +21,7 @@ import {
   PaginatedResult,
 } from '../../../shared/contracts/pagination';
 import { AdminUserListQueryDto } from '../dto/admin-query.dto';
+import { AdminUpdateUserProfileDto } from '../dto/admin-update-user-profile.dto';
 import { AuthenticatedUser } from '../../../shared/contracts/auth';
 
 const USER_LIST_SELECT = {
@@ -387,6 +388,94 @@ export class AdminUsersQueryService {
       data: { status: 'CANCELLED' },
     });
     return { cancelled: result.count };
+  }
+
+  async updateUserProfile(
+    actor: AuthenticatedUser,
+    userId: string,
+    dto: AdminUpdateUserProfileDto,
+    nationalCardImageFilename?: string,
+  ): Promise<AdminUserDetail> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true },
+    });
+    if (!user) throw new NotFoundException('کاربر یافت نشد');
+    this.assertCanManageTarget(actor, user.role);
+
+    const data: Prisma.UserUpdateInput = {};
+
+    if (dto.firstName !== undefined) {
+      data.firstName = dto.firstName.trim() || null;
+    }
+    if (dto.lastName !== undefined) {
+      data.lastName = dto.lastName.trim() || null;
+    }
+    if (dto.bio !== undefined) {
+      data.bio = dto.bio.trim() || null;
+    }
+    if (dto.email !== undefined) {
+      data.email = dto.email.trim() || null;
+    }
+    if (dto.nationalCode !== undefined) {
+      const code = dto.nationalCode.trim();
+      if (!code) {
+        data.nationalCode = null;
+      } else {
+        const duplicate = await this.prisma.user.findFirst({
+          where: { nationalCode: code, NOT: { id: userId } },
+          select: { id: true },
+        });
+        if (duplicate) {
+          throw new BadRequestException('این کدملی در سامانه ثبت شده است.');
+        }
+        data.nationalCode = code;
+      }
+    }
+    if (dto.shabaNumber !== undefined) {
+      const raw = dto.shabaNumber.trim();
+      data.shabaNumber = raw ? raw.replace(/^IR/i, '').trim() : null;
+    }
+    if (dto.clearAvatar) {
+      data.avatar = null;
+    } else if (dto.avatar !== undefined) {
+      const avatar = dto.avatar.trim();
+      data.avatar = avatar || null;
+    }
+    if (dto.clearNationalCardImage) {
+      data.nationalCardImage = null;
+    } else if (nationalCardImageFilename) {
+      data.nationalCardImage = nationalCardImageFilename;
+    }
+
+    if (!Object.keys(data).length) {
+      return this.detail(actor, userId);
+    }
+
+    try {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data,
+      });
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        const targetFields = Array.isArray(err.meta?.target)
+          ? err.meta?.target.map((x) => String(x))
+          : [];
+        if (targetFields.includes('email')) {
+          throw new BadRequestException('این ایمیل قبلاً ثبت شده است.');
+        }
+        if (targetFields.includes('nationalCode')) {
+          throw new BadRequestException('این کدملی در سامانه ثبت شده است.');
+        }
+      }
+      throw err;
+    }
+
+    return this.detail(actor, userId);
   }
 
   async detail(

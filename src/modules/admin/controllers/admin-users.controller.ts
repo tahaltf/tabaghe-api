@@ -11,8 +11,13 @@ import {
   ParseIntPipe,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import type { Express } from 'express';
+import { nationalCardMulterOptions } from '../../../common/upload/national-card-upload.config';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -28,6 +33,7 @@ import { AdminSetUserRatingDto } from '../dto/admin-user-rating.dto';
 import { AdminSetUserTrustScoreDto } from '../dto/admin-user-trust-score.dto';
 import { AdminSetUserApprovedDto } from '../dto/admin-user-approved.dto';
 import { AdminCreateUserDto } from '../dto/admin-create-user.dto';
+import { AdminUpdateUserProfileDto } from '../dto/admin-update-user-profile.dto';
 import { AuthenticatedUser } from '../../../shared/contracts/auth';
 
 @Controller('admin/users')
@@ -74,6 +80,19 @@ export class AdminUsersQueryController {
   @Patch(':id/toggle-role')
   toggleRole(@CurrentUser() actor: AuthenticatedUser, @Param('id') id: string) {
     return this.service.toggleRole(actor, id);
+  }
+
+  @Patch(':id/profile')
+  @UseInterceptors(
+    FileInterceptor('nationalCardImage', nationalCardMulterOptions),
+  )
+  updateProfile(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: AdminUpdateUserProfileDto,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    return this.service.updateUserProfile(actor, id, dto, file?.filename);
   }
 
   @Patch(':id/password')
