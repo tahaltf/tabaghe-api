@@ -170,7 +170,7 @@ const transformExchange = ({ value }: { value: unknown }) =>
 const transformAuction = ({ value }: { value: unknown }) =>
   toNested(AuctionPayloadDto, value);
 
-const parseJsonValue = ({ value }: { value: unknown }) => {
+export const parseJsonValue = ({ value }: { value: unknown }) => {
   if (typeof value === 'string') {
     try {
       return JSON.parse(value);
@@ -181,7 +181,7 @@ const parseJsonValue = ({ value }: { value: unknown }) => {
   return value;
 };
 
-class GalleryOrderSlotDto {
+export class GalleryOrderSlotDto {
   @IsString()
   type!: 'existing' | 'new';
 
@@ -194,6 +194,31 @@ class GalleryOrderSlotDto {
   @IsInt()
   fileIndex?: number;
 }
+
+function toNestedArray<T extends object>(
+  Cls: new () => T,
+  value: unknown,
+): T[] | unknown {
+  let raw = value;
+  if (typeof raw === 'string') {
+    try {
+      raw = JSON.parse(raw);
+    } catch {
+      return value;
+    }
+  }
+  if (Array.isArray(raw)) {
+    return raw.map((item) =>
+      plainToInstance(Cls, item as object, {
+        enableImplicitConversion: true,
+      }),
+    );
+  }
+  return raw;
+}
+
+export const transformGalleryOrder = ({ value }: { value: unknown }) =>
+  toNestedArray(GalleryOrderSlotDto, value);
 
 export class CreateListingDto {
   @IsEnum(ListingType)
@@ -257,7 +282,7 @@ export class CreateListingDto {
 
   /** ترتیب نهایی گالری هنگام ترکیب تصاویر قبلی و آپلود جدید (multipart) */
   @IsOptional()
-  @Transform(parseJsonValue)
+  @Transform(transformGalleryOrder)
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => GalleryOrderSlotDto)
