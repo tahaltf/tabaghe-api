@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsBoolean,
   IsInt,
   IsNotEmpty,
@@ -7,6 +8,7 @@ import {
   Length,
   Matches,
   Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 
@@ -50,8 +52,32 @@ export class CrawlerSettingsDto {
   custom_list_url?: string;
 
   @IsOptional()
+  @IsString()
+  search_query?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  search_city_wide?: boolean;
+
+  @IsOptional()
   @IsInt()
   @Min(1)
   @Max(100)
   batch_size?: number;
+
+  @IsOptional()
+  @IsArray()
+  price_sources?: Array<{ id: string; label?: string; enabled?: boolean }>;
+}
+
+export class CrawlerPriceSearchDto {
+  @IsString()
+  @IsNotEmpty({ message: 'متن جستجو الزامی است' })
+  @MaxLength(2000)
+  query!: string;
+}
+
+export class CrawlerPriceSourcesDto {
+  @IsArray()
+  sources!: Array<{ id: string; label?: string; enabled?: boolean }>;
 }

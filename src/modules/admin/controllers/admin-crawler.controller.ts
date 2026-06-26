@@ -17,6 +17,8 @@ import { AdminCrawlerService } from '../services/admin-crawler.service';
 import {
   CrawlerCodeDto,
   CrawlerPhoneDto,
+  CrawlerPriceSearchDto,
+  CrawlerPriceSourcesDto,
   CrawlerSettingsDto,
 } from '../dto/admin-crawler.dto';
 
@@ -99,5 +101,20 @@ export class AdminCrawlerController {
   @Get('export/phones')
   exportPhones(@Res() res: Response) {
     return this.crawler.streamPhonesExport(res);
+  }
+
+  @Get('price/sources')
+  getPriceSources() {
+    return this.crawler.getPriceSources();
+  }
+
+  @Put('price/sources')
+  savePriceSources(@Body() body: CrawlerPriceSourcesDto) {
+    return this.crawler.savePriceSources(body.sources);
+  }
+
+  @Post('price/search')
+  searchPrices(@Body() body: CrawlerPriceSearchDto) {
+    return this.crawler.searchPrices(body.query);
   }
 }

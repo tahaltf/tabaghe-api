@@ -1,5 +1,6 @@
 import {
   BadGatewayException,
+  ConflictException,
   Injectable,
   Logger,
   ServiceUnavailableException,
@@ -29,7 +30,10 @@ export class AdminCrawlerService {
     category: string;
     marketplace_only?: boolean;
     custom_list_url?: string;
+    search_query?: string;
+    search_city_wide?: boolean;
     batch_size?: number;
+    price_sources?: Array<{ id: string; label?: string; enabled?: boolean }>;
   }) {
     return this.proxyPut('/api/settings', body);
   }
@@ -86,6 +90,18 @@ export class AdminCrawlerService {
     return this.proxyGet('/api/phones');
   }
 
+  async getPriceSources() {
+    return this.proxyGet('/api/price/sources');
+  }
+
+  async savePriceSources(sources: Array<{ id: string; label?: string; enabled?: boolean }>) {
+    return this.proxyPut('/api/price/sources', { sources });
+  }
+
+  async searchPrices(query: string) {
+    return this.proxyPost('/api/price/search', { query }, 120_000);
+  }
+
   async streamPhonesExport(res: Response) {
     try {
       const response = await axios.get(`${this.baseUrl}/api/export/phones.txt`, {
@@ -120,10 +136,10 @@ export class AdminCrawlerService {
     }
   }
 
-  private async proxyPost<T>(path: string, body: unknown): Promise<T> {
+  private async proxyPost<T>(path: string, body: unknown, timeout = 120_000): Promise<T> {
     try {
       const response = await axios.post<T>(`${this.baseUrl}${path}`, body, {
-        timeout: 120_000,
+        timeout,
         validateStatus: () => true,
       });
       if (response.status >= 400) {
@@ -155,6 +171,9 @@ export class AdminCrawlerService {
     const message = detail || `Crawler service error (${status})`;
     if (status === 503 || status === 502) {
       return new ServiceUnavailableException(message);
+    }
+    if (status === 409) {
+      return new ConflictException(message);
     }
     const err = new BadGatewayException(message);
     (err as any).status = status;
