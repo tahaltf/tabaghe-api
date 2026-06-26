@@ -28,6 +28,7 @@ export class CommonController {
    * برای nginx می‌توان هدر `X-Tabaghe-Client-Country` را با geoip2 پر کرد.
    */
   @Get('client-network')
+  @CacheControl('private, no-store')
   clientNetwork(@Req() req: Request) {
     return buildClientNetworkHint(req);
   }

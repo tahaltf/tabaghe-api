@@ -189,6 +189,7 @@ async function resolveAvailablePort(
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  app.set('trust proxy', true);
 
   const redisUrl = process.env.REDIS_URL?.trim();
   if (redisUrl) {
