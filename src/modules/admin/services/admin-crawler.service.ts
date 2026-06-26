@@ -199,7 +199,7 @@ export class AdminCrawlerService {
     if (ax?.code === 'ECONNREFUSED' || ax?.code === 'ENOTFOUND') {
       this.logger.warn(`Crawler service unreachable at ${this.baseUrl}`);
       return new ServiceUnavailableException(
-        'سرویس خزشگر در دسترس نیست — مطمئن شوید crawler روی سرور در حال اجراست',
+        `سرویس خزشگر در دسترس نیست (${this.baseUrl}) — کانتینر crawler را بررسی کنید: docker compose ps crawler && docker compose logs --tail=50 crawler`,
       );
     }
     if (ax?.response) {
