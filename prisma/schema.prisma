@@ -271,7 +271,7 @@ model User {
   avatar              String?
   bio                 String?
   notifyEmail         Boolean        @default(true)
-  notifySms           Boolean        @default(false)
+  notifySms           Boolean        @default(true)
   notifyPush          Boolean        @default(true)
   lastLoginAt         DateTime?
 
