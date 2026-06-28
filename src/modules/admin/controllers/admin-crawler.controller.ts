@@ -110,11 +110,16 @@ export class AdminCrawlerController {
 
   @Put('price/sources')
   savePriceSources(@Body() body: CrawlerPriceSourcesDto) {
-    return this.crawler.savePriceSources(body.sources);
+    return this.crawler.savePriceSources(body.sources, body.price_search_city);
   }
 
   @Post('price/search')
   searchPrices(@Body() body: CrawlerPriceSearchDto) {
-    return this.crawler.searchPrices(body.query);
+    return this.crawler.searchPrices(body.query, body.city);
+  }
+
+  @Post('price/preview')
+  previewPriceQuery(@Body() body: CrawlerPriceSearchDto) {
+    return this.crawler.previewPriceQuery(body.query);
   }
 }

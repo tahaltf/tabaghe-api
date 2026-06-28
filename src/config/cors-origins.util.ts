@@ -11,12 +11,19 @@ function normalizeCorsOrigin(origin: string): string | null {
 
 function getTabaghehFrontendOrigins(frontendAppUrl: string): string[] {
   const frontendOrigin = normalizeCorsOrigin(frontendAppUrl);
-  const origins = [
-    frontendOrigin,
-    'http://localhost:4200',
-    'https://tabagheh.com',
-    'https://www.tabagheh.com',
-  ];
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  const origins: Array<string | null> = [frontendOrigin];
+
+  if (!isProduction) {
+    origins.push('http://localhost:4200');
+  }
+
+  if (frontendOrigin === 'https://tabagheh.com') {
+    origins.push('https://www.tabagheh.com');
+  } else if (frontendOrigin === 'https://www.tabagheh.com') {
+    origins.push('https://tabagheh.com');
+  }
 
   return origins.filter((origin): origin is string => Boolean(origin));
 }

@@ -18,6 +18,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Express } from 'express';
 import { nationalCardMulterOptions } from '../../../common/upload/national-card-upload.config';
+import { validateUploadedFileSignature } from '../../../common/upload/validate-uploaded-file.util';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -92,6 +93,7 @@ export class AdminUsersQueryController {
     @Body() dto: AdminUpdateUserProfileDto,
     @UploadedFile() file?: Express.Multer.File,
   ) {
+    validateUploadedFileSignature(file, ['jpeg', 'png', 'webp'], 'تصویر کارت ملی');
     return this.service.updateUserProfile(actor, id, dto, file?.filename);
   }
 

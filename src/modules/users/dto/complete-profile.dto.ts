@@ -1,4 +1,11 @@
-import { IsNotEmpty, IsString, Length, Matches } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Length,
+  Matches,
+  ValidateIf,
+} from 'class-validator';
 
 export class CompleteProfileDto {
   @IsString()
@@ -14,8 +21,9 @@ export class CompleteProfileDto {
   @Matches(/^\d{10}$/, { message: 'کد ملی فقط باید شامل اعداد باشد' })
   nationalCode!: string;
 
+  @IsOptional()
+  @ValidateIf((o) => o.shabaNumber !== '' && o.shabaNumber != null)
   @IsString()
-  @IsNotEmpty({ message: 'شماره شبا الزامی است' })
   @Matches(/^(IR)?\d{24}$/i, { message: 'شماره شبا باید ۲۴ رقم باشد' })
-  shabaNumber!: string;
+  shabaNumber?: string;
 }

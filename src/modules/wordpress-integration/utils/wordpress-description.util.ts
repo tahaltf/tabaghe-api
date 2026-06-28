@@ -1,3 +1,4 @@
+import { sanitizeRichHtml } from '../../../common/sanitize/html-sanitizer.util';
 import { WordPressProductAttributeDto, WordPressProductDto } from '../dto/wordpress-product.dto';
 
 function escapeHtml(text: string): string {
@@ -57,7 +58,7 @@ export function buildWordPressListingDescription(dto: WordPressProductDto): stri
 
   const combined = parts.join('\n').trim();
   if (combined) {
-    return combined;
+    return sanitizeRichHtml(combined);
   }
 
   return `<p>${escapeHtml(dto.title.trim())}</p>`;

@@ -55,6 +55,7 @@ import { PaymentsModule } from './modules/payments/payments.module';
 import { SitemapModule } from './modules/sitemap/sitemap.module';
 import { TrackingModule } from './modules/tracking/tracking.module';
 import { WordPressIntegrationModule } from './modules/wordpress-integration/wordpress-integration.module';
+import { FilesModule } from './modules/files/files.module';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -99,6 +100,7 @@ import { AppService } from './app.service';
     HealthModule, // کنترلر Health باید داخل این ماژول رجیستر شده باشد
     UsersModule,
     AuthModule,
+    FilesModule,
     WalletModule, // کنترلر Wallet فقط باید داخل این ماژول رجیستر شده باشد
     ListingModule,
     PlansModule,

@@ -19,6 +19,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AuthenticatedUser } from '../../shared/contracts/auth';
 import { nationalCardMulterOptions } from '../../common/upload/national-card-upload.config';
+import { validateUploadedFileSignature } from '../../common/upload/validate-uploaded-file.util';
 import { CompleteProfileDto } from './dto/complete-profile.dto';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import {
@@ -110,6 +111,7 @@ export class UsersController {
     @UploadedFile() file: Express.Multer.File | undefined,
     @Body() dto: CompleteProfileDto,
   ): Promise<MyProfile> {
+    validateUploadedFileSignature(file, ['jpeg', 'png', 'webp'], 'تصویر کارت ملی');
     return this.usersService.completeProfile(user.id, dto, file?.filename);
   }
 
@@ -122,6 +124,7 @@ export class UsersController {
     @Body() dto: UpdateSettingsDto,
     @UploadedFile() file?: Express.Multer.File,
   ): Promise<MyProfile> {
+    validateUploadedFileSignature(file, ['jpeg', 'png', 'webp'], 'تصویر کارت ملی');
     return this.usersService.updateSettings(user.id, dto, file?.filename);
   }
 

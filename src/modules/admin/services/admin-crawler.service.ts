@@ -94,12 +94,33 @@ export class AdminCrawlerService {
     return this.proxyGet('/api/price/sources');
   }
 
-  async savePriceSources(sources: Array<{ id: string; label?: string; enabled?: boolean }>) {
-    return this.proxyPut('/api/price/sources', { sources });
+  async savePriceSources(
+    sources: Array<{ id: string; label?: string; enabled?: boolean }>,
+    priceSearchCity?: string,
+  ) {
+    const body: Record<string, unknown> = { sources };
+    if (priceSearchCity) {
+      body.price_search_city = priceSearchCity;
+    }
+    return this.proxyPut('/api/price/sources', body);
   }
 
-  async searchPrices(query: string) {
-    return this.proxyPost('/api/price/search', { query }, 120_000);
+  async searchPrices(query: string, city?: string) {
+    const body: Record<string, string> = { query };
+    if (city) {
+      body.city = city;
+    }
+    return this.proxyPost('/api/price/search', body, 120_000);
+  }
+
+  async previewPriceQuery(query: string) {
+    return this.proxyPost<{
+      ok: boolean;
+      original: string;
+      corrected: string;
+      search_query: string;
+      spelling_corrections: string[];
+    }>('/api/price/preview', { query });
   }
 
   async streamPhonesExport(res: Response) {

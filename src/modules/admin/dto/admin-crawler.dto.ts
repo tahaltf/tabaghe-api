@@ -10,7 +10,9 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 const IRANIAN_MOBILE = /^09\d{9}$/;
 
@@ -75,9 +77,33 @@ export class CrawlerPriceSearchDto {
   @IsNotEmpty({ message: 'متن جستجو الزامی است' })
   @MaxLength(2000)
   query!: string;
+
+  @IsOptional()
+  @IsString()
+  city?: string;
+}
+
+export class CrawlerPriceSourceItemDto {
+  @IsString()
+  @IsNotEmpty()
+  id!: string;
+
+  @IsOptional()
+  @IsString()
+  label?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
 }
 
 export class CrawlerPriceSourcesDto {
   @IsArray()
-  sources!: Array<{ id: string; label?: string; enabled?: boolean }>;
+  @ValidateNested({ each: true })
+  @Type(() => CrawlerPriceSourceItemDto)
+  sources!: CrawlerPriceSourceItemDto[];
+
+  @IsOptional()
+  @IsString()
+  price_search_city?: string;
 }

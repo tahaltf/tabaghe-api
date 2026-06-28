@@ -30,6 +30,10 @@ export class GodadminBootstrapService implements OnModuleInit {
       };
       if (bootstrapPassword) {
         data.passwordHash = await bcrypt.hash(bootstrapPassword, 10);
+      } else if (process.env.NODE_ENV === 'production') {
+        throw new Error(
+          'GODADMIN_BOOTSTRAP_PASSWORD is required in production before creating GODADMIN.',
+        );
       } else if (process.env.NODE_ENV !== 'production') {
         this.logger.warn(
           `GODADMIN created without password; set GODADMIN_BOOTSTRAP_PASSWORD or use dev seed.`,

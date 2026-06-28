@@ -416,9 +416,13 @@ export class UsersService {
       throw new BadRequestException('این کد ملی قبلاً در سیستم ثبت شده است.');
     }
 
-    const cleanShaba = dto.shabaNumber.replace(/^IR/i, '').trim();
-    if (cleanShaba.length !== 24) {
-      throw new BadRequestException('شماره شبا باید ۲۴ رقم باشد.');
+    const rawShaba = (dto.shabaNumber ?? '').replace(/^IR/i, '').trim();
+    let shabaNumber: string | null = null;
+    if (rawShaba) {
+      if (rawShaba.length !== 24) {
+        throw new BadRequestException('شماره شبا باید ۲۴ رقم باشد.');
+      }
+      shabaNumber = rawShaba;
     }
 
     if (!nationalCardImageFilename && !currentUser.nationalCardImage) {
@@ -432,7 +436,7 @@ export class UsersService {
           firstName: dto.firstName,
           lastName: dto.lastName,
           nationalCode: dto.nationalCode,
-          shabaNumber: cleanShaba,
+          shabaNumber,
           ...(nationalCardImageFilename
             ? { nationalCardImage: nationalCardImageFilename }
             : {}),

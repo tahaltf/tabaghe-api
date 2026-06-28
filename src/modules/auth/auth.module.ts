@@ -21,7 +21,7 @@ import { SmsTemplateBootstrapService } from '../sms/sms-template-bootstrap.servi
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         secret: resolveJwtAccessSecret(config),
-        signOptions: { expiresIn: '7d' },
+        signOptions: { expiresIn: '15m' },
       }),
     }),
   ],

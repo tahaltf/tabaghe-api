@@ -7,7 +7,7 @@ import {
 } from '../../../config/jwt-secrets.util';
 import { JwtPayload, TokenPair } from '../../../shared/contracts/auth';
 
-const ACCESS_TOKEN_TTL = '7d';
+const ACCESS_TOKEN_TTL = '15m';
 const REFRESH_TOKEN_TTL = '30d';
 const ADMIN_LOGIN_CHALLENGE_TTL = '10m';
 

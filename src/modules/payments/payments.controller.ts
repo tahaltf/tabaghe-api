@@ -16,6 +16,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../shared/contracts/auth';
 import { AppSettingsService } from '../../shared/settings/app-settings.service';
+import { resolveSafeReturnUrl } from '../../common/security/safe-return-url.util';
 
 @Controller('payments')
 export class PaymentsController {
@@ -129,15 +130,8 @@ export class PaymentsController {
   }
 
   private resolveReturnTarget(query: Record<string, unknown>): URL {
-    const candidate = String(query.returnUrl ?? '').trim();
-    if (candidate && /^https?:\/\//i.test(candidate)) {
-      try {
-        return new URL(candidate);
-      } catch {
-        return new URL(this.appSettings.getPaymentReturnUrl());
-      }
-    }
-    return new URL(this.appSettings.getPaymentReturnUrl());
+    const fallback = this.appSettings.getPaymentReturnUrl();
+    return resolveSafeReturnUrl(String(query.returnUrl ?? ''), fallback);
   }
 }
 

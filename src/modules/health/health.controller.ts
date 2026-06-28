@@ -1,8 +1,12 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, UseGuards } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { RawResponse } from '../../common/decorators/raw-response.decorator';
 import { buildSmsWebOtpTemplateGuide } from '../../common/sms/web-otp-template.util';
 import { SELLER_LANDING_SECTION_COUNT } from '../../common/landing/seller-landing.seed';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 
 @Controller('health')
 export class HealthController {
@@ -21,6 +25,8 @@ export class HealthController {
   }
 
   @Get('ops-checklist')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.GODADMIN)
   @RawResponse()
   opsChecklist() {
     const sms = buildSmsWebOtpTemplateGuide();
