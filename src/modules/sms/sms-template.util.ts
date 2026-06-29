@@ -1,9 +1,18 @@
 import { SmsProviderName, SmsTemplateRef } from './gateways/sms-provider.interface';
+import { resolveEffectiveSmsProvider } from './sms-provider.util';
 
 export type SmsTemplateConfigLike = {
   templateId?: number;
   templateName?: string;
+  smsProvider?: string;
 };
+
+export function resolveSmsProviderForConfig(
+  config: SmsTemplateConfigLike | undefined,
+  defaultProvider: SmsProviderName,
+): SmsProviderName {
+  return resolveEffectiveSmsProvider(config?.smsProvider, defaultProvider);
+}
 
 export function resolveSmsTemplateRef(
   config: SmsTemplateConfigLike | undefined,
@@ -25,7 +34,8 @@ export function resolveSmsTemplateRef(
 
 export function hasSmsTemplateConfigured(
   config: SmsTemplateConfigLike | undefined,
-  provider: SmsProviderName,
+  defaultProvider: SmsProviderName,
 ): boolean {
+  const provider = resolveSmsProviderForConfig(config, defaultProvider);
   return resolveSmsTemplateRef(config, provider) !== undefined;
 }

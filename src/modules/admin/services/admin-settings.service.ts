@@ -87,14 +87,18 @@ export const SETTING_KEYS = {
   PLATFORM_LATITUDE: 'PLATFORM_LATITUDE',
   PLATFORM_LONGITUDE: 'PLATFORM_LONGITUDE',
   SMS_NOTIFICATION_RULES: 'SMS_NOTIFICATION_RULES',
+  ACTIVE_SMS_PROVIDER: 'ACTIVE_SMS_PROVIDER',
+  SMS_OTP_SMS_PROVIDER: 'SMS_OTP_SMS_PROVIDER',
   SMS_OTP_TEMPLATE_ID: 'SMS_OTP_TEMPLATE_ID',
   SMS_OTP_TEMPLATE_NAME: 'SMS_OTP_TEMPLATE_NAME',
   SMS_OTP_CODE_PARAMETER_NAME: 'SMS_OTP_CODE_PARAMETER_NAME',
   SMS_WITHDRAW_OTP_TEMPLATE_ID: 'SMS_WITHDRAW_OTP_TEMPLATE_ID',
+  SMS_WITHDRAW_OTP_SMS_PROVIDER: 'SMS_WITHDRAW_OTP_SMS_PROVIDER',
   SMS_WITHDRAW_OTP_TEMPLATE_NAME: 'SMS_WITHDRAW_OTP_TEMPLATE_NAME',
   SMS_WITHDRAW_OTP_CODE_PARAMETER_NAME: 'SMS_WITHDRAW_OTP_CODE_PARAMETER_NAME',
   SMS_ADMIN_LOGIN_ALERT_ENABLED: 'SMS_ADMIN_LOGIN_ALERT_ENABLED',
   SMS_ADMIN_LOGIN_ALERT_TEMPLATE_ID: 'SMS_ADMIN_LOGIN_ALERT_TEMPLATE_ID',
+  SMS_ADMIN_LOGIN_ALERT_SMS_PROVIDER: 'SMS_ADMIN_LOGIN_ALERT_SMS_PROVIDER',
   SMS_ADMIN_LOGIN_ALERT_TEMPLATE_NAME: 'SMS_ADMIN_LOGIN_ALERT_TEMPLATE_NAME',
   SMS_ADMIN_LOGIN_ALERT_RECIPIENTS: 'SMS_ADMIN_LOGIN_ALERT_RECIPIENTS',
   SMS_ADMIN_LOGIN_ALERT_USER_PHONE_PARAMETER:
@@ -243,12 +247,18 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   PLATFORM_LATITUDE: 'مختصات جغرافیایی عرض (Latitude) مرکز طبقه',
   PLATFORM_LONGITUDE: 'مختصات جغرافیایی طول (Longitude) مرکز طبقه',
   SMS_NOTIFICATION_RULES: 'پالیسی نوتیف/پیامک به ازای نوع رویداد (JSON)',
+  ACTIVE_SMS_PROVIDER:
+    'پرووایدر پیش‌فرض ارسال SMS: smsir یا kavenegar',
+  SMS_OTP_SMS_PROVIDER:
+    'پرووایدر SMS ورود (OTP): خالی/default = پیش‌فرض سراسری',
   SMS_OTP_TEMPLATE_ID: 'شناسه قالب پیامک ورود (OTP) در sms.ir',
   SMS_OTP_TEMPLATE_NAME: 'نام الگوی پیامک ورود (OTP) در کاوه‌نگار',
   SMS_OTP_CODE_PARAMETER_NAME:
     'نام پارامتر قالب OTP که مقدار کد در آن قرار می‌گیرد (مثلاً CONTACTS)',
   SMS_WITHDRAW_OTP_TEMPLATE_ID:
     'شناسه قالب پیامک OTP تأیید برداشت کیف پول در sms.ir',
+  SMS_WITHDRAW_OTP_SMS_PROVIDER:
+    'پرووایدر SMS OTP برداشت: خالی/default = پیش‌فرض سراسری',
   SMS_WITHDRAW_OTP_TEMPLATE_NAME:
     'نام الگوی پیامک OTP تأیید برداشت کیف پول در کاوه‌نگار',
   SMS_WITHDRAW_OTP_CODE_PARAMETER_NAME:
@@ -257,6 +267,8 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
     'ارسال پیامک به ادمین پس از ورود کاربر (true/false، پیش‌فرض true)',
   SMS_ADMIN_LOGIN_ALERT_TEMPLATE_ID:
     'شناسه قالب پیامک «ورود کاربر» برای اطلاع ادمین در sms.ir',
+  SMS_ADMIN_LOGIN_ALERT_SMS_PROVIDER:
+    'پرووایدر SMS هشدار ورود ادمین: خالی/default = پیش‌فرض سراسری',
   SMS_ADMIN_LOGIN_ALERT_TEMPLATE_NAME:
     'نام الگوی پیامک «ورود کاربر» برای اطلاع ادمین در کاوه‌نگار',
   SMS_ADMIN_LOGIN_ALERT_RECIPIENTS:
@@ -415,11 +427,14 @@ export class AdminSettingsService {
       }
       result[key] = byKey.get(key)?.value ?? '';
     }
-    result.ACTIVE_SMS_PROVIDER = this.appSettings.getActiveSmsProvider();
+    result.ACTIVE_SMS_PROVIDER =
+      byKey.get(SETTING_KEYS.ACTIVE_SMS_PROVIDER)?.value?.trim() ||
+      this.appSettings.getActiveSmsProvider();
     return result;
   }
 
   async upsert(dto: UpsertSettingDto, actor?: AuthenticatedUser) {
+    this.assertValidSettingValue(dto.key, dto.value);
     const existing = await this.prisma.systemSetting.findUnique({
       where: { key: dto.key },
       select: { value: true },
@@ -441,6 +456,9 @@ export class AdminSettingsService {
 
   async upsertMany(dto: BulkUpsertSettingsDto, actor?: AuthenticatedUser) {
     const items = this.expandLegacySyncItems(dto.items);
+    for (const item of items) {
+      this.assertValidSettingValue(item.key, item.value);
+    }
     const keys = items.map((i) => i.key);
     const existingRows = await this.prisma.systemSetting.findMany({
       where: { key: { in: keys } },
@@ -472,6 +490,30 @@ export class AdminSettingsService {
     }
 
     return result;
+  }
+
+  private assertValidSettingValue(key: string, value: string): void {
+    const normalized = value.trim().toLowerCase();
+    if (key === SETTING_KEYS.ACTIVE_SMS_PROVIDER) {
+      if (normalized !== 'smsir' && normalized !== 'kavenegar') {
+        throw new BadRequestException(
+          'پرووایدر SMS باید smsir یا kavenegar باشد',
+        );
+      }
+      return;
+    }
+    if (
+      key === SETTING_KEYS.SMS_OTP_SMS_PROVIDER ||
+      key === SETTING_KEYS.SMS_WITHDRAW_OTP_SMS_PROVIDER ||
+      key === SETTING_KEYS.SMS_ADMIN_LOGIN_ALERT_SMS_PROVIDER
+    ) {
+      if (!normalized || normalized === 'default') return;
+      if (normalized !== 'smsir' && normalized !== 'kavenegar') {
+        throw new BadRequestException(
+          'پرووایدر SMS باید خالی، default، smsir یا kavenegar باشد',
+        );
+      }
+    }
   }
 
   private expandLegacySyncItems(

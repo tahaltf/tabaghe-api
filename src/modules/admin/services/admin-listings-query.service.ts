@@ -99,14 +99,8 @@ export class AdminListingsQueryService {
     }
 
     const dir: 'asc' | 'desc' = query.sortDir === 'asc' ? 'asc' : 'desc';
-    const secondary: Prisma.ListingOrderByWithRelationInput =
+    const orderBy: Prisma.ListingOrderByWithRelationInput =
       query.sortBy === 'updatedAt' ? { updatedAt: dir } : { createdAt: dir };
-    // آگهی‌های ویژه همیشه بالاتر، سپس مرتب‌سازی انتخابی
-    const orderBy: Prisma.ListingOrderByWithRelationInput[] = [
-      { isFeatured: 'desc' },
-      { featuredAt: 'desc' },
-      secondary,
-    ];
 
     const [rawItems, total] = await Promise.all([
       this.prisma.listing.findMany({

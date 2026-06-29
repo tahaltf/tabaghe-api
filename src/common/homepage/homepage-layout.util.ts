@@ -300,25 +300,44 @@ function coerceSection(raw: unknown, index: number): HomeSection | null {
         feedRaw === 'direct'
           ? feedRaw
           : 'direct';
-      const categorySlug = asString(props['categorySlug']) || undefined;
+      const defSlider = DEFAULT_HOMEPAGE_LAYOUT.sections.find(
+        (s): s is Extract<HomeSection, { type: 'listings-slider' }> =>
+          s.id === id && s.type === 'listings-slider',
+      ) ?? DEFAULT_HOMEPAGE_LAYOUT.sections.find(
+        (s): s is Extract<HomeSection, { type: 'listings-slider' }> =>
+          s.type === 'listings-slider' && s.props.feed === feed,
+      );
+      const defProps = defSlider?.props;
+      const categorySlug =
+        asString(props['categorySlug']).trim() ||
+        asString(defProps?.categorySlug).trim() ||
+        undefined;
       if (feed === 'category' && !categorySlug) return null;
       return {
         id,
         type,
         enabled,
-        style,
+        style: style ?? defSlider?.style,
         props: {
-          variant: pickVariant(props['variant'], 'carousel-cards'),
+          variant: pickVariant(props['variant'], defProps?.variant ?? 'carousel-cards'),
           feed,
           categorySlug,
-          limit: Math.min(30, Math.max(1, asNumber(props['limit'], 10))),
-          eyebrow: asString(props['eyebrow']) || undefined,
-          title: asString(props['title']) || undefined,
-          titleAccent: asString(props['titleAccent']) || undefined,
-          subtitle: asString(props['subtitle']) || undefined,
-          showViewAll: asBool(props['showViewAll'], true),
-          viewAllLink: asString(props['viewAllLink']) || undefined,
-          theme: (asString(props['theme'], 'accent') || 'accent') as HomeSection extends {
+          limit: Math.min(30, Math.max(1, asNumber(props['limit'], defProps?.limit ?? 10))),
+          eyebrow:
+            asString(props['eyebrow']).trim() || asString(defProps?.eyebrow).trim() || undefined,
+          title: asString(props['title'], defProps?.title ?? ''),
+          titleAccent:
+            asString(props['titleAccent']).trim() ||
+            asString(defProps?.titleAccent).trim() ||
+            undefined,
+          subtitle:
+            asString(props['subtitle']).trim() || asString(defProps?.subtitle).trim() || undefined,
+          showViewAll: asBool(props['showViewAll'], defProps?.showViewAll ?? true),
+          viewAllLink:
+            asString(props['viewAllLink']).trim() ||
+            asString(defProps?.viewAllLink).trim() ||
+            undefined,
+          theme: (asString(props['theme'], defProps?.theme ?? 'accent') || 'accent') as HomeSection extends {
             type: 'listings-slider';
           }
             ? HomeSection['props']['theme']
@@ -326,19 +345,32 @@ function coerceSection(raw: unknown, index: number): HomeSection | null {
         },
       };
     }
-    case 'locations':
+    case 'locations': {
+      const def = DEFAULT_HOMEPAGE_LAYOUT.sections.find(
+        (s): s is Extract<HomeSection, { type: 'locations' }> =>
+          s.id === id && s.type === 'locations',
+      ) ?? DEFAULT_HOMEPAGE_LAYOUT.sections.find(
+        (s): s is Extract<HomeSection, { type: 'locations' }> => s.type === 'locations',
+      );
+      const defProps = def?.props;
       return {
         id,
         type,
         enabled,
         style,
         props: {
-          eyebrow: asString(props['eyebrow']) || undefined,
-          title: asString(props['title']) || undefined,
-          titleAccent: asString(props['titleAccent']) || undefined,
-          subtitle: asString(props['subtitle']) || undefined,
+          eyebrow:
+            asString(props['eyebrow']).trim() || asString(defProps?.eyebrow).trim() || undefined,
+          title: asString(props['title']).trim() || asString(defProps?.title).trim() || undefined,
+          titleAccent:
+            asString(props['titleAccent']).trim() ||
+            asString(defProps?.titleAccent).trim() ||
+            undefined,
+          subtitle:
+            asString(props['subtitle']).trim() || asString(defProps?.subtitle).trim() || undefined,
         },
       };
+    }
     case 'banner':
       return {
         id,

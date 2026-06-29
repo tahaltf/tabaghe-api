@@ -3,8 +3,10 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NotificationType, Prisma, UserRole } from '@prisma/client';
 import { SmsService } from '../sms/sms.service';
+import { SmsProviderName } from '../sms/gateways/sms-provider.interface';
 import {
   hasSmsTemplateConfigured,
+  resolveSmsProviderForConfig,
   resolveSmsTemplateRef,
 } from '../sms/sms-template.util';
 import { applySmsTemplatePlaceholders } from '../../common/sms/sms-placeholders.util';
@@ -23,6 +25,7 @@ import { isVapidConfigured, resolveVapidKeys, validateVapidKeyPair } from '../..
 type SmsTemplateConfig = {
   templateId?: number;
   templateName?: string;
+  smsProvider?: string;
   parameters?: Array<{ name: string; value: string }>;
 };
 
@@ -53,12 +56,12 @@ function resolveSiteTemplateText(
 function resolveSmsTemplateConfig(
   rule: SmsRule | null,
   meta: Record<string, unknown> | undefined,
-  provider: ReturnType<SmsService['getActiveProviderName']>,
+  defaultProvider: SmsProviderName,
 ): SmsTemplateConfig | undefined {
   if (!rule) return undefined;
   if (isBatchNotificationMeta(meta)) {
     const batch = rule.batchSmsTemplateConfig;
-    if (hasSmsTemplateConfigured(batch, provider)) {
+    if (hasSmsTemplateConfigured(batch, defaultProvider)) {
       return batch;
     }
     return rule.smsTemplateConfig;
@@ -120,8 +123,8 @@ export class NotificationService {
       forceSiteNotification === true
         ? true
         : !(rule && rule.siteNotificationEnabled === false);
-    const smsProvider = this.smsService.getActiveProviderName();
-    const smsFromRule = this.isSmsRuleActive(rule, enrichedMetaBase);
+    const smsProvider = await this.smsService.getActiveProviderName();
+    const smsFromRule = await this.isSmsRuleActive(rule, enrichedMetaBase);
     const smsFromOverride = hasSmsTemplateConfigured(
       smsOverride,
       smsProvider,
@@ -277,7 +280,7 @@ export class NotificationService {
     const enrichedMeta = await enrichNotificationMeta(this.prisma, meta);
     const rule = await this.getRuleForType(type, undefined, enrichedMeta);
     const siteEnabled = !(rule && rule.siteNotificationEnabled === false);
-    const smsEnabled = this.isSmsRuleActive(rule, enrichedMeta);
+    const smsEnabled = await this.isSmsRuleActive(rule, enrichedMeta);
 
     if (!siteEnabled && !smsEnabled) {
       return;
@@ -347,14 +350,14 @@ export class NotificationService {
     }
   }
 
-  private isSmsRuleActive(
+  private async isSmsRuleActive(
     rule: SmsRule | null,
     meta?: Record<string, unknown>,
-  ): boolean {
+  ): Promise<boolean> {
     if (!rule || rule.smsEnabled !== true) return false;
-    const provider = this.smsService.getActiveProviderName();
-    const config = resolveSmsTemplateConfig(rule, meta, provider);
-    return hasSmsTemplateConfigured(config, provider);
+    const defaultProvider = await this.smsService.getActiveProviderName();
+    const config = resolveSmsTemplateConfig(rule, meta, defaultProvider);
+    return hasSmsTemplateConfigured(config, defaultProvider);
   }
 
   private async processSmsForGodadmins(
@@ -365,7 +368,7 @@ export class NotificationService {
       ? await enrichNotificationMeta(this.prisma, meta)
       : undefined;
     const rule = await this.getRuleForType(type, undefined, enrichedMeta);
-    if (!this.isSmsRuleActive(rule, enrichedMeta)) return;
+    if (!(await this.isSmsRuleActive(rule, enrichedMeta))) return;
 
     const godadmins = await this.prisma.user.findMany({
       where: { role: UserRole.GODADMIN },
@@ -416,8 +419,9 @@ export class NotificationService {
 
     const templateFirstName = String(subjectFirstName ?? 'کاربر');
 
-    const smsProvider = this.smsService.getActiveProviderName();
-    const smsConfig = resolveSmsTemplateConfig(rule!, enrichedMeta, smsProvider);
+    const defaultProvider = await this.smsService.getActiveProviderName();
+    const smsConfig = resolveSmsTemplateConfig(rule!, enrichedMeta, defaultProvider);
+    const smsProvider = resolveSmsProviderForConfig(smsConfig, defaultProvider);
     const templateRef = resolveSmsTemplateRef(smsConfig, smsProvider);
     const configured = Array.isArray(smsConfig?.parameters)
       ? smsConfig!.parameters
@@ -442,6 +446,7 @@ export class NotificationService {
             ga.phone,
             templateRef,
             paramsWithRecipient,
+            smsProvider,
           );
           this.logger.log(`پیامک ${type} برای GODADMIN ${ga.phone} ارسال شد.`);
         } catch (error: unknown) {
@@ -470,7 +475,7 @@ export class NotificationService {
         inferNotificationRecipientRole(meta) ?? undefined,
         meta,
       ));
-    if (!this.isSmsRuleActive(rule, meta)) {
+    if (!(await this.isSmsRuleActive(rule, meta))) {
       this.logger.debug(`SMS skipped for ${type}: rule disabled or no template`);
       return;
     }
@@ -512,8 +517,9 @@ export class NotificationService {
       }
     }
 
-    const smsProvider = this.smsService.getActiveProviderName();
-    const smsConfig = resolveSmsTemplateConfig(rule!, meta, smsProvider);
+    const defaultProvider = await this.smsService.getActiveProviderName();
+    const smsConfig = resolveSmsTemplateConfig(rule!, meta, defaultProvider);
+    const smsProvider = resolveSmsProviderForConfig(smsConfig, defaultProvider);
     const templateRef = resolveSmsTemplateRef(smsConfig, smsProvider);
     const configured = Array.isArray(smsConfig?.parameters)
       ? smsConfig!.parameters
@@ -572,7 +578,12 @@ export class NotificationService {
       return;
     }
     try {
-      await this.smsService.sendByTemplate(user.phone, templateRef, parameters);
+      await this.smsService.sendByTemplate(
+        user.phone,
+        templateRef,
+        parameters,
+        smsProvider,
+      );
       this.logger.log(`پیامک ${type} برای شماره ${user.phone} ارسال شد.`);
     } catch (error: unknown) {
       const err = error as { response?: { data?: unknown }; message?: string };
@@ -601,7 +612,8 @@ export class NotificationService {
       return;
     }
 
-    const smsProvider = this.smsService.getActiveProviderName();
+    const defaultProvider = await this.smsService.getActiveProviderName();
+    const smsProvider = resolveSmsProviderForConfig(config, defaultProvider);
     const templateRef = resolveSmsTemplateRef(config, smsProvider);
     if (!templateRef) return;
 
@@ -625,7 +637,12 @@ export class NotificationService {
     if (parameters.length === 0) return;
 
     try {
-      await this.smsService.sendByTemplate(user.phone, templateRef, parameters);
+      await this.smsService.sendByTemplate(
+        user.phone,
+        templateRef,
+        parameters,
+        smsProvider,
+      );
       this.logger.log(`پیامک سفارشی برای شماره ${user.phone} ارسال شد.`);
     } catch (error: unknown) {
       const err = error as { response?: { data?: unknown }; message?: string };
@@ -702,9 +719,9 @@ export class NotificationService {
     }
     if (recipients.length === 0) return { created: 0 };
 
-    const smsProvider = this.smsService.getActiveProviderName();
+    const smsProvider = await this.smsService.getActiveProviderName();
     const rule = await this.getRuleForType(NotificationType.ADMIN_ANNOUNCEMENT);
-    const smsFromRules = this.isSmsRuleActive(rule);
+    const smsFromRules = await this.isSmsRuleActive(rule);
     const smsOverride =
       alsoSendSms &&
       hasSmsTemplateConfigured(smsTemplateConfig, smsProvider) &&
@@ -784,7 +801,7 @@ export class NotificationService {
       this.logger.error('Failed to process push for admin announcement', err);
     });
 
-    const smsProvider = this.smsService.getActiveProviderName();
+    const smsProvider = await this.smsService.getActiveProviderName();
     if (
       smsOverride &&
       hasSmsTemplateConfigured(smsOverride, smsProvider) &&

@@ -10,9 +10,11 @@ import { KavenegarProvider } from './gateways/kavenegar.provider';
 import { SmsIrProvider } from './gateways/smsir.provider';
 import {
   SmsProvider,
+  SmsProviderName,
   SmsTemplateParameter,
   SmsTemplateRef,
 } from './gateways/sms-provider.interface';
+import { resolveEffectiveSmsProvider } from './sms-provider.util';
 
 /**
  * کلیدهای `SystemSetting` (و در نبود مقدار، متغیر هم‌نام `.env`) برای قالب‌های SMS.
@@ -20,14 +22,18 @@ import {
  * برای کاوه‌نگار: نام الگو (Lookup) در کلیدهای `*_TEMPLATE_NAME`.
  */
 export const SMS_SETTING_KEYS = {
+  ACTIVE_SMS_PROVIDER: 'ACTIVE_SMS_PROVIDER',
+  OTP_SMS_PROVIDER: 'SMS_OTP_SMS_PROVIDER',
   OTP_TEMPLATE_ID: 'SMS_OTP_TEMPLATE_ID',
   OTP_TEMPLATE_NAME: 'SMS_OTP_TEMPLATE_NAME',
   OTP_CODE_PARAMETER_NAME: 'SMS_OTP_CODE_PARAMETER_NAME',
   WITHDRAW_OTP_TEMPLATE_ID: 'SMS_WITHDRAW_OTP_TEMPLATE_ID',
+  WITHDRAW_OTP_SMS_PROVIDER: 'SMS_WITHDRAW_OTP_SMS_PROVIDER',
   WITHDRAW_OTP_TEMPLATE_NAME: 'SMS_WITHDRAW_OTP_TEMPLATE_NAME',
   WITHDRAW_OTP_CODE_PARAMETER_NAME: 'SMS_WITHDRAW_OTP_CODE_PARAMETER_NAME',
   ADMIN_LOGIN_ALERT_ENABLED: 'SMS_ADMIN_LOGIN_ALERT_ENABLED',
   ADMIN_LOGIN_ALERT_TEMPLATE_ID: 'SMS_ADMIN_LOGIN_ALERT_TEMPLATE_ID',
+  ADMIN_LOGIN_ALERT_SMS_PROVIDER: 'SMS_ADMIN_LOGIN_ALERT_SMS_PROVIDER',
   ADMIN_LOGIN_ALERT_TEMPLATE_NAME: 'SMS_ADMIN_LOGIN_ALERT_TEMPLATE_NAME',
   ADMIN_LOGIN_ALERT_RECIPIENTS: 'SMS_ADMIN_LOGIN_ALERT_RECIPIENTS',
   ADMIN_LOGIN_ALERT_USER_PHONE_PARAMETER:
@@ -53,14 +59,34 @@ export class SmsService {
     private readonly kavenegarProvider: KavenegarProvider,
   ) {}
 
-  getActiveProviderName() {
+  async getActiveProviderName(): Promise<SmsProviderName> {
+    return this.resolveActiveSmsProvider();
+  }
+
+  private async resolveActiveSmsProvider(): Promise<SmsProviderName> {
+    const raw = await this.resolveSetting(SMS_SETTING_KEYS.ACTIVE_SMS_PROVIDER);
+    const configured = raw?.trim().toLowerCase();
+    if (configured === 'kavenegar') return 'kavenegar';
+    if (configured === 'smsir') return 'smsir';
     return this.appSettings.getActiveSmsProvider();
   }
 
-  private getProvider(): SmsProvider {
-    const active = this.appSettings.getActiveSmsProvider();
+  private getProviderByName(active: SmsProviderName): SmsProvider {
     if (active === 'kavenegar') return this.kavenegarProvider;
     return this.smsIrProvider;
+  }
+
+  private async resolveProviderOverride(
+    settingKey: string,
+  ): Promise<SmsProviderName> {
+    const global = await this.resolveActiveSmsProvider();
+    const raw = await this.resolveSetting(settingKey);
+    return resolveEffectiveSmsProvider(raw, global);
+  }
+
+  private async getProvider(provider?: SmsProviderName): Promise<SmsProvider> {
+    const active = provider ?? (await this.resolveActiveSmsProvider());
+    return this.getProviderByName(active);
   }
 
   private async resolveSetting(key: string): Promise<string | undefined> {
@@ -101,6 +127,7 @@ export class SmsService {
     phone: string,
     template: SmsTemplateRef | number,
     parameters: SmsTemplateParameter[],
+    provider?: SmsProviderName,
   ) {
     const mobile = this.normalizeIranMobile(phone);
     if (!mobile) {
@@ -113,11 +140,17 @@ export class SmsService {
     const templateRef: SmsTemplateRef =
       typeof template === 'number' ? { templateId: template } : template;
 
-    return this.getProvider().sendByTemplate(mobile, templateRef, parameters);
+    return (await this.getProvider(provider)).sendByTemplate(
+      mobile,
+      templateRef,
+      parameters,
+    );
   }
 
-  private async resolveOtpTemplate(): Promise<SmsTemplateRef> {
-    if (this.appSettings.getActiveSmsProvider() === 'kavenegar') {
+  private async resolveOtpTemplate(
+    provider: SmsProviderName,
+  ): Promise<SmsTemplateRef> {
+    if (provider === 'kavenegar') {
       const name =
         (await this.resolveSetting(SMS_SETTING_KEYS.OTP_TEMPLATE_NAME))?.trim() ||
         '';
@@ -133,8 +166,10 @@ export class SmsService {
     return { templateId: templateIdFinal };
   }
 
-  private async resolveWithdrawOtpTemplate(): Promise<SmsTemplateRef> {
-    if (this.appSettings.getActiveSmsProvider() === 'kavenegar') {
+  private async resolveWithdrawOtpTemplate(
+    provider: SmsProviderName,
+  ): Promise<SmsTemplateRef> {
+    if (provider === 'kavenegar') {
       const name =
         (
           await this.resolveSetting(SMS_SETTING_KEYS.WITHDRAW_OTP_TEMPLATE_NAME)
@@ -153,8 +188,10 @@ export class SmsService {
     return { templateId: templateIdFinal };
   }
 
-  private async resolveAdminLoginAlertTemplate(): Promise<SmsTemplateRef> {
-    if (this.appSettings.getActiveSmsProvider() === 'kavenegar') {
+  private async resolveAdminLoginAlertTemplate(
+    provider: SmsProviderName,
+  ): Promise<SmsTemplateRef> {
+    if (provider === 'kavenegar') {
       const name =
         (
           await this.resolveSetting(
@@ -176,20 +213,29 @@ export class SmsService {
   }
 
   async sendOtp(phone: string, code: string) {
-    const template = await this.resolveOtpTemplate();
+    const provider = await this.resolveProviderOverride(
+      SMS_SETTING_KEYS.OTP_SMS_PROVIDER,
+    );
+    const template = await this.resolveOtpTemplate(provider);
 
     const paramName =
       (
         await this.resolveSetting(SMS_SETTING_KEYS.OTP_CODE_PARAMETER_NAME)
       )?.trim() || DEFAULT_OTP_CODE_PARAMETER;
 
-    return this.sendByTemplate(phone, template, [
-      { name: paramName, value: code },
-    ]);
+    return this.sendByTemplate(
+      phone,
+      template,
+      [{ name: paramName, value: code }],
+      provider,
+    );
   }
 
   async sendWithdrawOtp(phone: string, code: string) {
-    const template = await this.resolveWithdrawOtpTemplate();
+    const provider = await this.resolveProviderOverride(
+      SMS_SETTING_KEYS.WITHDRAW_OTP_SMS_PROVIDER,
+    );
+    const template = await this.resolveWithdrawOtpTemplate(provider);
 
     const paramName =
       (
@@ -198,9 +244,12 @@ export class SmsService {
         )
       )?.trim() || DEFAULT_WITHDRAW_OTP_CODE_PARAMETER;
 
-    return this.sendByTemplate(phone, template, [
-      { name: paramName, value: code },
-    ]);
+    return this.sendByTemplate(
+      phone,
+      template,
+      [{ name: paramName, value: code }],
+      provider,
+    );
   }
 
   /**
@@ -220,7 +269,10 @@ export class SmsService {
       return;
     }
 
-    const template = await this.resolveAdminLoginAlertTemplate();
+    const provider = await this.resolveProviderOverride(
+      SMS_SETTING_KEYS.ADMIN_LOGIN_ALERT_SMS_PROVIDER,
+    );
+    const template = await this.resolveAdminLoginAlertTemplate(provider);
 
     const paramName =
       (
@@ -244,9 +296,12 @@ export class SmsService {
 
     await Promise.all(
       recipients.map((mobile) =>
-        this.sendByTemplate(mobile, template, [
-          { name: paramName, value: phoneValue },
-        ]),
+        this.sendByTemplate(
+          mobile,
+          template,
+          [{ name: paramName, value: phoneValue }],
+          provider,
+        ),
       ),
     );
   }

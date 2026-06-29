@@ -34,7 +34,7 @@ export class AdminSmsService {
       alsoCreateSiteNotification,
     } = params;
 
-    const templateRef = this.resolveTemplateRef(templateId, templateName);
+    const templateRef = await this.resolveTemplateRef(templateId, templateName);
     if (!templateRef) {
       throw new BadRequestException('قالب پیامک برای پرووایدر فعال تنظیم نشده است');
     }
@@ -100,11 +100,11 @@ export class AdminSmsService {
     return { total: users.length, sent, failed, skippedOptOut, siteCreated };
   }
 
-  private resolveTemplateRef(
+  private async resolveTemplateRef(
     templateId?: number,
     templateName?: string,
-  ): SmsTemplateRef | undefined {
-    const provider = this.sms.getActiveProviderName();
+  ): Promise<SmsTemplateRef | undefined> {
+    const provider = await this.sms.getActiveProviderName();
     if (provider === 'kavenegar') {
       const name = templateName?.trim();
       return name ? { templateName: name } : undefined;
