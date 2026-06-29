@@ -258,11 +258,9 @@ export class CommonCategoryService {
         locationType === LocationType.PROVINCE
           ? `استان ${locationLabel.replace(/^استان\s+/, '')}`
           : locationLabel;
-      return `${category.title} در ${inLabel} | طبقه`;
+      return `خرید و فروش ${category.title} در ${inLabel} | طبقه`;
     }
-    return category.parent
-      ? `${category.title} | ${category.parent.title} | طبقه`
-      : `${category.title} | طبقه`;
+    return `خرید و فروش ${category.title} | طبقه`;
   }
 
   buildCategoryLocationSeoDescription(

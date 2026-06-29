@@ -61,7 +61,7 @@ import { AdminFaqService } from './services/admin-faq.service';
 import { AdminSmsService } from './services/admin-sms.service';
 import { AdminLogsService } from './services/admin-logs.service';
 import { AdminPlatformWalletService } from './services/admin-platform-wallet.service';
-import { SmsService } from '../sms/sms.service';
+import { SmsModule } from '../sms/sms.module';
 import { AdminBlogService } from './services/admin-blog.service';
 import { AdminLandingPagesService } from './services/admin-landing-pages.service';
 import { SellerLandingBootstrapService } from './services/seller-landing-bootstrap.service';
@@ -88,6 +88,7 @@ import { CommonModuleModule } from '../../common-module/common-module.module';
     AuthModule,
     CommonModuleModule,
     NotificationModule,
+    SmsModule,
     FeesModule,
     OrdersModule,
     WalletModule,
@@ -164,7 +165,6 @@ import { CommonModuleModule } from '../../common-module/common-module.module';
     AdminCrawlerService,
     AdminBackupScheduler,
     AdminSystemJobsService,
-    SmsService,
     UserRatingHistoryService,
   ],
 })

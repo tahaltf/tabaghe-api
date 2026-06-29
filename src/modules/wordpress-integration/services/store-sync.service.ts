@@ -111,6 +111,7 @@ export class WordPressStoreSyncService {
     let archived = 0;
     let failed = 0;
     const errors: string[] = [];
+    const batch = this.ingestService.createBatchIngestContext();
 
     for (const listing of imported) {
       const externalId = listing.externalProductId;
@@ -142,7 +143,7 @@ export class WordPressStoreSyncService {
       }
 
       try {
-        await this.ingestService.ingestOne(userId, payload);
+        await this.ingestService.ingestOne(userId, payload, batch.opts);
         updated++;
       } catch (err) {
         failed++;
@@ -151,6 +152,8 @@ export class WordPressStoreSyncService {
         );
       }
     }
+
+    await batch.flush();
 
     await this.connectionService.touchSync(userId);
 

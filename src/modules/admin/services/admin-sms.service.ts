@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { NotificationType } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { NotificationService } from '../../notification/notification.service';
 import { SmsService } from '../../sms/sms.service';
+import { SmsTemplateRef } from '../../sms/gateways/sms-provider.interface';
 import { applySmsTemplatePlaceholders } from '../../../common/sms/sms-placeholders.util';
 import { isUserOperationalSmsEnabled } from '../../../common/notification/user-sms-notification.util';
 
@@ -15,7 +16,8 @@ export class AdminSmsService {
   ) {}
 
   async broadcast(params: {
-    templateId: number;
+    templateId?: number;
+    templateName?: string;
     parameterName: string;
     parameterValue: string;
     userIds?: string[];
@@ -24,12 +26,19 @@ export class AdminSmsService {
   }) {
     const {
       templateId,
+      templateName,
       parameterName,
       parameterValue,
       userIds,
       siteTitle,
       alsoCreateSiteNotification,
     } = params;
+
+    const templateRef = this.resolveTemplateRef(templateId, templateName);
+    if (!templateRef) {
+      throw new BadRequestException('قالب پیامک برای پرووایدر فعال تنظیم نشده است');
+    }
+
     const users = await this.prisma.user.findMany({
       where:
         userIds === undefined
@@ -57,7 +66,7 @@ export class AdminSmsService {
     for (const user of users) {
       if (user.phone && isUserOperationalSmsEnabled(user.notifySms)) {
         try {
-          await this.sms.sendByTemplate(user.phone, templateId, [
+          await this.sms.sendByTemplate(user.phone, templateRef, [
             {
               name: parameterName,
               value: applySmsTemplatePlaceholders(parameterValue, {
@@ -89,5 +98,21 @@ export class AdminSmsService {
     }
 
     return { total: users.length, sent, failed, skippedOptOut, siteCreated };
+  }
+
+  private resolveTemplateRef(
+    templateId?: number,
+    templateName?: string,
+  ): SmsTemplateRef | undefined {
+    const provider = this.sms.getActiveProviderName();
+    if (provider === 'kavenegar') {
+      const name = templateName?.trim();
+      return name ? { templateName: name } : undefined;
+    }
+    const id = Number(templateId);
+    if (Number.isFinite(id) && id > 0) {
+      return { templateId: id };
+    }
+    return undefined;
   }
 }

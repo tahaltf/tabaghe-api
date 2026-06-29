@@ -184,6 +184,25 @@ export class AdminSettingsController {
     return this.service.removeInspectionCertificateStamp();
   }
 
+  @Get('homepage-layout')
+  homepageLayout() {
+    return this.service.getHomepageLayout();
+  }
+
+  @Put('homepage-layout')
+  upsertHomepageLayout(
+    @Body() body: { layout: unknown },
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    const layout = body?.layout ?? body;
+    return this.service.upsertHomepageLayout(layout as never, actor);
+  }
+
+  @Delete('homepage-layout')
+  resetHomepageLayout(@CurrentUser() actor: AuthenticatedUser) {
+    return this.service.resetHomepageLayout(actor);
+  }
+
   @Delete(':key')
   remove(@Param('key') key: string) {
     return this.service.remove(key);

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { SmsProviderName } from '../../modules/sms/gateways/sms-provider.interface';
 
 export type PaymentGatewayName = 'zibal';
 
@@ -7,8 +8,26 @@ export type PaymentGatewayName = 'zibal';
 export class AppSettingsService {
   constructor(private readonly configService: ConfigService) {}
 
-  getSmsApiKey(): string {
+  getActiveSmsProvider(): SmsProviderName {
+    const configured = this.configService
+      .get<string>('ACTIVE_SMS_PROVIDER')
+      ?.trim()
+      .toLowerCase();
+    if (configured === 'kavenegar') return 'kavenegar';
+    return 'smsir';
+  }
+
+  getSmsIrApiKey(): string {
     return this.configService.get<string>('SMS_IR_API_KEY') ?? '';
+  }
+
+  /** @deprecated Use getSmsIrApiKey() */
+  getSmsApiKey(): string {
+    return this.getSmsIrApiKey();
+  }
+
+  getKavenegarApiKey(): string {
+    return this.configService.get<string>('KAVENEGAR_API_KEY') ?? '';
   }
 
   getApiUrl(): string {

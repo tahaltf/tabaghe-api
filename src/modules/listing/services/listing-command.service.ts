@@ -32,6 +32,7 @@ import {
   isCategorySelectableForListing,
   isCategoryVisibleOnSite,
 } from '../../../common/category-visibility.util';
+import type { ListingAlertItem } from '../../../common/notification/listing-notification-batch.service';
 
 /** حداقل امتیاز (rating) برای ثبت یا ارسال مجدد آگهی */
 export const MIN_LISTING_AUTHOR_RATING = 1;
@@ -44,6 +45,13 @@ export type CreateListingOptions = {
   attributes?: Prisma.InputJsonValue;
   adminNotificationMessage?: string;
   adminNotificationMeta?: Record<string, unknown>;
+  skipAdminNotification?: boolean;
+  onAdminAlert?: (item: ListingAlertItem) => void;
+};
+
+export type WordPressSyncOptions = {
+  skipAdminNotification?: boolean;
+  onAdminAlert?: (item: ListingAlertItem) => void;
 };
 
 export type WordPressSyncUpdateInput = {
@@ -158,30 +166,71 @@ export class ListingCommandService {
       return listing;
     });
 
+    void this.dispatchAdminNewListingAlert(
+      userId,
+      listing,
+      options,
+      false,
+    );
+
+    return listing;
+  }
+
+  private dispatchAdminNewListingAlert(
+    userId: string,
+    listing: Listing,
+    options: CreateListingOptions | undefined,
+    resubmittedAfterReject: boolean,
+    customMessage?: string,
+    customTitle?: string,
+  ): void {
+    const alertItem: ListingAlertItem = {
+      listingId: listing.id,
+      listingTitle: listing.title,
+      listingType: listing.type,
+      userId,
+      importSource: options?.importSource ?? listing.importSource ?? undefined,
+      resubmittedAfterReject,
+      adminNotificationMessage:
+        customMessage ??
+        options?.adminNotificationMessage ??
+        (resubmittedAfterReject
+          ? `آگهی «${listing.title}» (${listingTypePersianLabel(listing.type)}) پس از رد/اصلاح توسط فروشنده دوباره برای بررسی ارسال شد.`
+          : `آگهی «${listing.title}» (${listingTypePersianLabel(listing.type)}) ثبت شد و در انتظار بررسی است.`),
+      adminNotificationTitle:
+        customTitle ??
+        (resubmittedAfterReject
+          ? 'آگهی اصلاح‌شده در انتظار تایید'
+          : 'آگهی جدید در انتظار تایید'),
+    };
+
+    if (options?.skipAdminNotification) {
+      options.onAdminAlert?.(alertItem);
+      return;
+    }
+
     void this.notifications
       .notifyAdminPersonnel({
         type: NotificationType.ADMIN_ALERT_NEW_LISTING,
-        title: 'آگهی جدید در انتظار تایید',
-        message:
-          options?.adminNotificationMessage ??
-          `آگهی «${listing.title}» (${listingTypePersianLabel(listing.type)}) ثبت شد و در انتظار بررسی است.`,
+        title: alertItem.adminNotificationTitle!,
+        message: alertItem.adminNotificationMessage!,
         meta: {
           listingId: listing.id,
           userId,
           listingTitle: listing.title,
           listingType: listing.type,
           ...(options?.adminNotificationMeta ?? {}),
+          ...(resubmittedAfterReject ? { resubmittedAfterReject: true } : {}),
         },
       })
       .catch(() => undefined);
-
-    return listing;
   }
 
   async syncWordPressListing(
     userId: string,
     listingId: string,
     input: WordPressSyncUpdateInput,
+    options?: WordPressSyncOptions,
   ): Promise<Listing> {
     const listing = await this.ensureListingCanBeModified(listingId, userId);
 
@@ -255,25 +304,22 @@ export class ListingCommandService {
     });
 
     if (notifyPendingReview) {
-      void this.notifications
-        .notifyAdminPersonnel({
-          type: NotificationType.ADMIN_ALERT_NEW_LISTING,
-          title: wasRejected
-            ? 'آگهی اصلاح‌شده در انتظار تایید'
-            : 'آگهی ویرایش‌شده در انتظار تایید',
-          message: wasRejected
-            ? `آگهی «${updated.title}» (${listingTypePersianLabel(updated.type)}) پس از رد/اصلاح توسط فروشنده از وردپرس دوباره برای بررسی ارسال شد.`
-            : `آگهی «${updated.title}» (${listingTypePersianLabel(updated.type)}) از وردپرس ویرایش شد و در انتظار بررسی است.`,
-          meta: {
-            listingId: updated.id,
-            userId,
-            listingTitle: updated.title,
-            listingType: updated.type,
-            importSource: ListingImportSource.WORDPRESS,
-            resubmittedAfterReject: wasRejected,
-          },
-        })
-        .catch(() => undefined);
+      this.dispatchAdminNewListingAlert(
+        userId,
+        updated,
+        {
+          skipAdminNotification: options?.skipAdminNotification,
+          onAdminAlert: options?.onAdminAlert,
+          importSource: ListingImportSource.WORDPRESS,
+        },
+        wasRejected,
+        wasRejected
+          ? `آگهی «${updated.title}» (${listingTypePersianLabel(updated.type)}) پس از رد/اصلاح توسط فروشنده از وردپرس دوباره برای بررسی ارسال شد.`
+          : `آگهی «${updated.title}» (${listingTypePersianLabel(updated.type)}) از وردپرس ویرایش شد و در انتظار بررسی است.`,
+        wasRejected
+          ? 'آگهی اصلاح‌شده در انتظار تایید'
+          : 'آگهی ویرایش‌شده در انتظار تایید',
+      );
     }
 
     return updated;

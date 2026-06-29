@@ -17,9 +17,17 @@ import { LISTING_TYPE_ENABLED_SETTING_KEYS } from '../../../common/system-settin
 import { PwaIconService } from '../../../common-module/pwa-icon.service';
 import { appendJsonLog } from '../../../common/logging/app-log.util';
 import { AuthenticatedUser } from '../../../shared/contracts/auth';
+import {
+  mergeHomepageLayout,
+  validateHomepageLayout,
+} from '../../../common/homepage/homepage-layout.util';
+import type { HomePageLayout } from '../../../shared/contracts/homepage-layout';
+import { ListingExpiryService } from '../../listing/services/listing-expiry.service';
+import { AppSettingsService } from '../../../shared/settings/app-settings.service';
 
 export const SETTING_KEYS = {
   HOMEPAGE_BANNER: 'HOMEPAGE_BANNER',
+  HOMEPAGE_LAYOUT: 'HOMEPAGE_LAYOUT',
   MEDIA_FALLBACK_LOGO: 'MEDIA_FALLBACK_LOGO',
   /** لوگوی تم روشن (هدر، داشبورد، …) — در صورت خالی بودن از USER_APP_LOGO قدیمی استفاده می‌شود */
   USER_APP_LOGO_LIGHT: 'USER_APP_LOGO_LIGHT',
@@ -80,11 +88,14 @@ export const SETTING_KEYS = {
   PLATFORM_LONGITUDE: 'PLATFORM_LONGITUDE',
   SMS_NOTIFICATION_RULES: 'SMS_NOTIFICATION_RULES',
   SMS_OTP_TEMPLATE_ID: 'SMS_OTP_TEMPLATE_ID',
+  SMS_OTP_TEMPLATE_NAME: 'SMS_OTP_TEMPLATE_NAME',
   SMS_OTP_CODE_PARAMETER_NAME: 'SMS_OTP_CODE_PARAMETER_NAME',
   SMS_WITHDRAW_OTP_TEMPLATE_ID: 'SMS_WITHDRAW_OTP_TEMPLATE_ID',
+  SMS_WITHDRAW_OTP_TEMPLATE_NAME: 'SMS_WITHDRAW_OTP_TEMPLATE_NAME',
   SMS_WITHDRAW_OTP_CODE_PARAMETER_NAME: 'SMS_WITHDRAW_OTP_CODE_PARAMETER_NAME',
   SMS_ADMIN_LOGIN_ALERT_ENABLED: 'SMS_ADMIN_LOGIN_ALERT_ENABLED',
   SMS_ADMIN_LOGIN_ALERT_TEMPLATE_ID: 'SMS_ADMIN_LOGIN_ALERT_TEMPLATE_ID',
+  SMS_ADMIN_LOGIN_ALERT_TEMPLATE_NAME: 'SMS_ADMIN_LOGIN_ALERT_TEMPLATE_NAME',
   SMS_ADMIN_LOGIN_ALERT_RECIPIENTS: 'SMS_ADMIN_LOGIN_ALERT_RECIPIENTS',
   SMS_ADMIN_LOGIN_ALERT_USER_PHONE_PARAMETER:
     'SMS_ADMIN_LOGIN_ALERT_USER_PHONE_PARAMETER',
@@ -145,6 +156,7 @@ export type SettingKey = keyof typeof SETTING_KEYS;
 
 const KNOWN_DESCRIPTIONS: Record<string, string> = {
   HOMEPAGE_BANNER: 'نام فایل تصویر بنر بالای صفحه اصلی',
+  HOMEPAGE_LAYOUT: 'پیکربندی JSON بخش‌های صفحه اصلی (Hero، اسلایدرها، دسته‌ها)',
   MEDIA_FALLBACK_LOGO: 'لوگوی جایگزین وقتی تصویر آگهی/بندانگشتی لود نمی‌شود',
   USER_APP_LOGO_LIGHT: 'لوگوی رابط کاربر — تم روشن',
   USER_APP_LOGO_DARK: 'لوگوی رابط کاربر — تم تاریک',
@@ -232,16 +244,21 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   PLATFORM_LONGITUDE: 'مختصات جغرافیایی طول (Longitude) مرکز طبقه',
   SMS_NOTIFICATION_RULES: 'پالیسی نوتیف/پیامک به ازای نوع رویداد (JSON)',
   SMS_OTP_TEMPLATE_ID: 'شناسه قالب پیامک ورود (OTP) در sms.ir',
+  SMS_OTP_TEMPLATE_NAME: 'نام الگوی پیامک ورود (OTP) در کاوه‌نگار',
   SMS_OTP_CODE_PARAMETER_NAME:
     'نام پارامتر قالب OTP که مقدار کد در آن قرار می‌گیرد (مثلاً CONTACTS)',
   SMS_WITHDRAW_OTP_TEMPLATE_ID:
     'شناسه قالب پیامک OTP تأیید برداشت کیف پول در sms.ir',
+  SMS_WITHDRAW_OTP_TEMPLATE_NAME:
+    'نام الگوی پیامک OTP تأیید برداشت کیف پول در کاوه‌نگار',
   SMS_WITHDRAW_OTP_CODE_PARAMETER_NAME:
     'نام پارامتر قالب OTP برداشت که مقدار کد در آن قرار می‌گیرد',
   SMS_ADMIN_LOGIN_ALERT_ENABLED:
     'ارسال پیامک به ادمین پس از ورود کاربر (true/false، پیش‌فرض true)',
   SMS_ADMIN_LOGIN_ALERT_TEMPLATE_ID:
     'شناسه قالب پیامک «ورود کاربر» برای اطلاع ادمین در sms.ir',
+  SMS_ADMIN_LOGIN_ALERT_TEMPLATE_NAME:
+    'نام الگوی پیامک «ورود کاربر» برای اطلاع ادمین در کاوه‌نگار',
   SMS_ADMIN_LOGIN_ALERT_RECIPIENTS:
     'شماره‌های ادمین برای دریافت هشدار ورود (جدا با ویرگول، مثلاً 0912...,0913...)',
   SMS_ADMIN_LOGIN_ALERT_USER_PHONE_PARAMETER:
@@ -290,6 +307,8 @@ export class AdminSettingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly pwaIconService: PwaIconService,
+    private readonly listingExpiry: ListingExpiryService,
+    private readonly appSettings: AppSettingsService,
   ) {}
 
   list() {
@@ -396,6 +415,7 @@ export class AdminSettingsService {
       }
       result[key] = byKey.get(key)?.value ?? '';
     }
+    result.ACTIVE_SMS_PROVIDER = this.appSettings.getActiveSmsProvider();
     return result;
   }
 
@@ -412,6 +432,9 @@ export class AdminSettingsService {
     });
     if (existing?.value !== dto.value) {
       this.logSettingChange(actor, dto.key, existing?.value ?? null, dto.value);
+    }
+    if (dto.key === SETTING_KEYS.LISTING_DISPLAY_DAYS) {
+      await this.listingExpiry.recalculateApprovedListingExpiry();
     }
     return row;
   }
@@ -442,6 +465,10 @@ export class AdminSettingsService {
       if (prev !== item.value) {
         this.logSettingChange(actor, item.key, prev ?? null, item.value);
       }
+    }
+
+    if (items.some((item) => item.key === SETTING_KEYS.LISTING_DISPLAY_DAYS)) {
+      await this.listingExpiry.recalculateApprovedListingExpiry();
     }
 
     return result;
@@ -804,5 +831,35 @@ export class AdminSettingsService {
       },
     });
     return { ok: true };
+  }
+
+  async getHomepageLayout(): Promise<HomePageLayout> {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { key: SETTING_KEYS.HOMEPAGE_LAYOUT },
+    });
+    return mergeHomepageLayout(row?.value ?? null);
+  }
+
+  async upsertHomepageLayout(layout: HomePageLayout, actor?: AuthenticatedUser) {
+    const err = validateHomepageLayout(layout);
+    if (err) throw new BadRequestException(err);
+
+    const value = JSON.stringify(layout);
+    await this.upsert(
+      {
+        key: SETTING_KEYS.HOMEPAGE_LAYOUT,
+        value,
+        description: KNOWN_DESCRIPTIONS.HOMEPAGE_LAYOUT,
+      },
+      actor,
+    );
+    return mergeHomepageLayout(layout);
+  }
+
+  async resetHomepageLayout(actor?: AuthenticatedUser) {
+    await this.prisma.systemSetting.deleteMany({
+      where: { key: SETTING_KEYS.HOMEPAGE_LAYOUT },
+    });
+    return mergeHomepageLayout(null);
   }
 }

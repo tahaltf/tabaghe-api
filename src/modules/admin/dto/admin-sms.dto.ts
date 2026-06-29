@@ -6,12 +6,20 @@ import {
   IsString,
   MaxLength,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class AdminSmsBroadcastDto {
+  @ValidateIf((o) => !o.templateName)
   @IsInt()
-  templateId!: number;
+  templateId?: number;
+
+  @ValidateIf((o) => !o.templateId)
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  templateName?: string;
 
   @IsString()
   @MinLength(1)

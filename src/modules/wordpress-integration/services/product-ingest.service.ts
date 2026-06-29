@@ -45,6 +45,16 @@ import { WordPressConnectionService } from './connection.service';
 import { buildWordPressListingDescription } from '../utils/wordpress-description.util';
 
 import { WordPressCategoriesService } from './wordpress-categories.service';
+import {
+  ListingAlertItem,
+  ListingNotificationBatchService,
+} from '../../../common/notification/listing-notification-batch.service';
+import type { WordPressSyncOptions } from '../../listing/services/listing-command.service';
+
+export type WordPressIngestOptions = WordPressSyncOptions & {
+  skipAdminNotification?: boolean;
+  onAdminAlert?: (item: ListingAlertItem) => void;
+};
 
 
 
@@ -80,11 +90,29 @@ export class WordPressProductIngestService {
 
     private readonly categoriesService: WordPressCategoriesService,
 
+    private readonly listingNotificationBatch: ListingNotificationBatchService,
+
   ) {}
 
+  createBatchIngestContext() {
+    const pendingAlerts: ListingAlertItem[] = [];
+    return {
+      opts: {
+        skipAdminNotification: true,
+        onAdminAlert: (item: ListingAlertItem) => pendingAlerts.push(item),
+      } satisfies WordPressIngestOptions,
+      flush: () =>
+        this.listingNotificationBatch.flushAdminNewListingAlerts(pendingAlerts),
+    };
+  }
 
 
-  async ingestOne(userId: string, dto: WordPressProductDto) {
+
+  async ingestOne(
+    userId: string,
+    dto: WordPressProductDto,
+    ingestOpts?: WordPressIngestOptions,
+  ) {
 
     await this.assertUserCanCreateListings(userId);
 
@@ -162,6 +190,8 @@ export class WordPressProductIngestService {
 
         syncInput,
 
+        ingestOpts,
+
       );
 
     } else {
@@ -189,6 +219,10 @@ export class WordPressProductIngestService {
           importSource: ListingImportSource.WORDPRESS,
 
         },
+
+        skipAdminNotification: ingestOpts?.skipAdminNotification,
+
+        onAdminAlert: ingestOpts?.onAdminAlert,
 
       });
 
@@ -218,6 +252,8 @@ export class WordPressProductIngestService {
 
   async ingestBulk(userId: string, products: WordPressProductDto[]) {
 
+    const batch = this.createBatchIngestContext();
+
     const results = [];
 
     for (const product of products) {
@@ -230,7 +266,7 @@ export class WordPressProductIngestService {
 
           ok: true,
 
-          ...(await this.ingestOne(userId, product)),
+          ...(await this.ingestOne(userId, product, batch.opts)),
 
         });
 
@@ -249,6 +285,8 @@ export class WordPressProductIngestService {
       }
 
     }
+
+    await batch.flush();
 
     return { results };
 

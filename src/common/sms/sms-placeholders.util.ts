@@ -44,6 +44,11 @@ export function applySmsTemplatePlaceholders(
   s = s.replace(/\{\{\s*firstName\s*\}\}/gi, fn);
   s = s.replace(/\{\{\s*lastName\s*\}\}/gi, ln);
   s = s.replace(/\{\{\s*listingTitle\s*\}\}/gi, listing);
+  const batchCount =
+    ctx.meta && ctx.meta['batchCount'] != null
+      ? String(ctx.meta['batchCount'])
+      : '';
+  s = s.replace(/\{\{\s*batchCount\s*\}\}/gi, batchCount);
   s = s.replace(/\{\{\s*adminFirstName\s*\}\}/gi, adminFn);
   s = s.replace(/\{\{\s*title\s*\}\}/gi, title);
   s = s.replace(/\{\{\s*message\s*\}\}/gi, message);

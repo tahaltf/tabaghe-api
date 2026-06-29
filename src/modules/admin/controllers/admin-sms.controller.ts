@@ -35,6 +35,7 @@ export class AdminSmsController {
     }
     return this.adminSms.broadcast({
       templateId: dto.templateId,
+      templateName: dto.templateName,
       parameterName: dto.parameterName,
       parameterValue: dto.parameterValue,
       userIds,

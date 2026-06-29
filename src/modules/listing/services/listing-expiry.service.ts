@@ -72,6 +72,47 @@ export class ListingExpiryService {
     );
   }
 
+  /** آگهی‌های تاییدشده: expiresAt = approvedAt + مدت فعلی نمایش (برای آگهی‌های قدیمی پس از تغییر تنظیم) */
+  async recalculateApprovedListingExpiry(): Promise<{ updated: number }> {
+    const days = await this.getDisplayDays();
+    const reminderWindowEnd = Date.now() + ListingExpiryService.REMINDER_LEAD_MS;
+
+    const listings = await this.prisma.listing.findMany({
+      where: {
+        status: ListingStatus.APPROVED,
+        approvedAt: { not: null },
+      },
+      select: { id: true, approvedAt: true, expiresAt: true },
+    });
+
+    const updates: Prisma.PrismaPromise<unknown>[] = [];
+    for (const listing of listings) {
+      const newExpiresAt = this.computeExpiresAt(listing.approvedAt!, days);
+      if (listing.expiresAt?.getTime() === newExpiresAt.getTime()) continue;
+
+      const data: Prisma.ListingUpdateInput = { expiresAt: newExpiresAt };
+      if (newExpiresAt.getTime() > reminderWindowEnd) {
+        data.expiryReminderSentAt = null;
+      }
+
+      updates.push(
+        this.prisma.listing.update({
+          where: { id: listing.id },
+          data,
+        }),
+      );
+    }
+
+    if (updates.length) {
+      await this.prisma.$transaction(updates);
+      this.logger.log(
+        `Recalculated listing expiry for ${updates.length} approved listing(s) (${days} days)`,
+      );
+    }
+
+    return { updated: updates.length };
+  }
+
   @Cron(CronExpression.EVERY_MINUTE)
   async runListingExpiryJob(): Promise<void> {
     try {

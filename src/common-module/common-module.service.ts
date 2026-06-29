@@ -66,6 +66,10 @@ export class CommonService {
     return this.content.getPublicSiteSettings(...args);
   }
 
+  getPublicHomepageLayout(...args: Parameters<CommonContentService['getPublicHomepageLayout']>) {
+    return this.content.getPublicHomepageLayout(...args);
+  }
+
   getTermsAndConditions(...args: Parameters<CommonContentService['getTermsAndConditions']>) {
     return this.content.getTermsAndConditions(...args);
   }

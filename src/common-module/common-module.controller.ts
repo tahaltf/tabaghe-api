@@ -118,6 +118,12 @@ export class CommonController {
     return this.commonService.getPublicSiteSettings();
   }
 
+  @SkipThrottle()
+  @Get('homepage-layout')
+  async homepageLayout() {
+    return this.commonService.getPublicHomepageLayout();
+  }
+
   /** آیکن PWA — PNG رستری از لوگوی تم روشن (مناسب iOS) */
   @Get('pwa-icon')
   async pwaIcon(@Res() res: Response): Promise<void> {

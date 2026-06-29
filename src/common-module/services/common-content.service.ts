@@ -28,6 +28,7 @@ import {
   inviteLandingSeedTitle,
   loadInviteLandingSeedSections,
 } from '../../common/landing/invite-landing.seed';
+import { mergeHomepageLayout } from '../../common/homepage/homepage-layout.util';
 
 @Injectable()
 export class CommonContentService {
@@ -43,6 +44,19 @@ export class CommonContentService {
       'common:site-settings',
       CommonContentService.SITE_SETTINGS_CACHE_TTL_SECONDS,
       () => this.loadPublicSiteSettings(),
+    );
+  }
+
+  async getPublicHomepageLayout() {
+    return this.cache.getOrSet(
+      'common:homepage-layout',
+      CommonContentService.SITE_SETTINGS_CACHE_TTL_SECONDS,
+      async () => {
+        const row = await this.prisma.systemSetting.findUnique({
+          where: { key: 'HOMEPAGE_LAYOUT' },
+        });
+        return mergeHomepageLayout(row?.value ?? null);
+      },
     );
   }
 

@@ -3,6 +3,7 @@ import {
   ExchangeOfferStatus,
   Listing,
   ListingStatus,
+  ListingType,
   NotificationType,
   Prisma,
 } from '@prisma/client';
@@ -14,6 +15,7 @@ import { AdminListingCorrectionsDto } from '../dto/admin-listing-corrections.dto
 import { NotificationService } from '../../notification/notification.service';
 import { TRADE_REPUTATION_PENALTY_DELTA } from '../../orders/order-reputation.service';
 import { ListingExpiryService } from './listing-expiry.service';
+import { ListingNotificationBatchService } from '../../../common/notification/listing-notification-batch.service';
 
 const ADMIN_LISTING_INCLUDE = {
   direct: true,
@@ -38,6 +40,18 @@ export type AdminListing = Prisma.ListingGetPayload<{
   include: typeof ADMIN_LISTING_INCLUDE;
 }>;
 
+export type BulkListingActionResult = {
+  id: string;
+  ok: boolean;
+  error?: string;
+};
+
+export type BulkListingActionResponse = {
+  processed: number;
+  skipped: number;
+  results: BulkListingActionResult[];
+};
+
 @Injectable()
 export class ListingAdminService {
   constructor(
@@ -45,6 +59,7 @@ export class ListingAdminService {
     private readonly quotaService: QuotaService,
     private readonly notificationService: NotificationService,
     private readonly listingExpiry: ListingExpiryService,
+    private readonly listingNotificationBatch: ListingNotificationBatchService,
   ) {}
 
   listAll(status?: ListingStatus): Promise<AdminListing[]> {
@@ -135,16 +150,7 @@ export class ListingAdminService {
       await this.applyCorrections(listingId, dto);
     }
 
-    const approvedAt = new Date();
-    const expiryFields = await this.listingExpiry.approvalExpiryFields(approvedAt);
-    const updated = await this.prisma.listing.update({
-      where: { id: listingId },
-      data: {
-        status: ListingStatus.APPROVED,
-        approvedAt,
-        ...expiryFields,
-      },
-    });
+    const updated = await this.approveCore(listingId);
 
     await this.notificationService.create({
       userId: updated.authorId,
@@ -157,14 +163,175 @@ export class ListingAdminService {
     return updated;
   }
 
+  async approveMany(ids: string[]): Promise<BulkListingActionResponse> {
+    const uniqueIds = [...new Set(ids)];
+    const listings = await this.prisma.listing.findMany({
+      where: { id: { in: uniqueIds } },
+      select: {
+        id: true,
+        status: true,
+        title: true,
+        type: true,
+        authorId: true,
+      },
+    });
+    const byId = new Map(listings.map((l) => [l.id, l]));
+
+    const results: BulkListingActionResult[] = [];
+    const approvedForNotify: Array<{
+      listingId: string;
+      listingTitle: string;
+      listingType: ListingType;
+      authorId: string;
+    }> = [];
+
+    for (const id of uniqueIds) {
+      const row = byId.get(id);
+      if (!row) {
+        results.push({ id, ok: false, error: 'آگهی یافت نشد' });
+        continue;
+      }
+      if (row.status !== ListingStatus.PENDING) {
+        results.push({ id, ok: false, error: 'فقط آگهی‌های در انتظار تایید قابل تایید گروهی هستند' });
+        continue;
+      }
+      try {
+        const updated = await this.approveCore(id);
+        approvedForNotify.push({
+          listingId: updated.id,
+          listingTitle: updated.title,
+          listingType: updated.type,
+          authorId: updated.authorId,
+        });
+        results.push({ id, ok: true });
+      } catch (err) {
+        results.push({
+          id,
+          ok: false,
+          error: (err as Error)?.message ?? 'خطای نامشخص',
+        });
+      }
+    }
+
+    await this.listingNotificationBatch.flushUserListingApprovedAlerts(
+      approvedForNotify,
+    );
+
+    const processed = results.filter((r) => r.ok).length;
+    return {
+      processed,
+      skipped: results.length - processed,
+      results,
+    };
+  }
+
+  private async approveCore(listingId: string): Promise<Listing> {
+    const approvedAt = new Date();
+    const expiryFields = await this.listingExpiry.approvalExpiryFields(approvedAt);
+    return this.prisma.listing.update({
+      where: { id: listingId },
+      data: {
+        status: ListingStatus.APPROVED,
+        approvedAt,
+        ...expiryFields,
+      },
+    });
+  }
+
   reject(listingId: string, dto: RejectListingDto): Promise<Listing> {
+    return this.rejectCore(listingId, dto.rejectionReason).then(async (updated) => {
+      await this.notificationService.create({
+        userId: updated.authorId,
+        type: NotificationType.LISTING_REJECTED,
+        title: 'آگهی شما رد شد',
+        message: `آگهی «${updated.title}» رد شد. دلیل رد: ${dto.rejectionReason}. طبق قوانین طبقه، ${TRADE_REPUTATION_PENALTY_DELTA} واحد از امتیاز اعتماد شما کسر شد.`,
+        meta: {
+          listingId: updated.id,
+          listingType: updated.type,
+          reason: dto.rejectionReason,
+        },
+      });
+      return updated;
+    });
+  }
+
+  async rejectMany(
+    ids: string[],
+    rejectionReason: string,
+  ): Promise<BulkListingActionResponse> {
+    const uniqueIds = [...new Set(ids)];
+    const listings = await this.prisma.listing.findMany({
+      where: { id: { in: uniqueIds } },
+      select: {
+        id: true,
+        status: true,
+        title: true,
+        type: true,
+        authorId: true,
+      },
+    });
+    const byId = new Map(listings.map((l) => [l.id, l]));
+
+    const results: BulkListingActionResult[] = [];
+    const rejectedForNotify: Array<{
+      listingId: string;
+      listingTitle: string;
+      listingType: ListingType;
+      authorId: string;
+    }> = [];
+
+    for (const id of uniqueIds) {
+      const row = byId.get(id);
+      if (!row) {
+        results.push({ id, ok: false, error: 'آگهی یافت نشد' });
+        continue;
+      }
+      if (row.status !== ListingStatus.PENDING) {
+        results.push({ id, ok: false, error: 'فقط آگهی‌های در انتظار تایید قابل رد گروهی هستند' });
+        continue;
+      }
+      try {
+        const updated = await this.rejectCore(id, rejectionReason);
+        rejectedForNotify.push({
+          listingId: updated.id,
+          listingTitle: updated.title,
+          listingType: updated.type,
+          authorId: updated.authorId,
+        });
+        results.push({ id, ok: true });
+      } catch (err) {
+        results.push({
+          id,
+          ok: false,
+          error: (err as Error)?.message ?? 'خطای نامشخص',
+        });
+      }
+    }
+
+    await this.listingNotificationBatch.flushUserListingRejectedAlerts(
+      rejectedForNotify,
+      rejectionReason,
+    );
+
+    const processed = results.filter((r) => r.ok).length;
+    return {
+      processed,
+      skipped: results.length - processed,
+      results,
+    };
+  }
+
+  private rejectCore(
+    listingId: string,
+    rejectionReason: string,
+  ): Promise<Listing> {
     return this.prisma.$transaction(async (tx) => {
       const cycleStartedAt = new Date();
       const updated = await tx.listing.update({
         where: { id: listingId },
         data: {
           status: ListingStatus.REJECTED,
-          rejectionReason: dto.rejectionReason,
+          rejectionReason,
           rejectedAt: cycleStartedAt,
           exchangeOffersSince: cycleStartedAt,
         },
@@ -187,14 +354,6 @@ export class ListingAdminService {
           data: { rating: next },
         });
       }
-
-      await this.notificationService.create({
-        userId: updated.authorId,
-        type: NotificationType.LISTING_REJECTED,
-        title: 'آگهی شما رد شد',
-        message: `آگهی «${updated.title}» رد شد. دلیل رد: ${dto.rejectionReason}. طبق قوانین طبقه، ${TRADE_REPUTATION_PENALTY_DELTA} واحد از امتیاز اعتماد شما کسر شد.`,
-        meta: { listingId: updated.id, listingType: updated.type, reason: dto.rejectionReason },
-      });
 
       return updated;
     });

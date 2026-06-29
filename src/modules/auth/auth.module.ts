@@ -10,12 +10,13 @@ import { TokenService } from './services/token.service';
 import { GodadminBootstrapService } from './services/godadmin-bootstrap.service';
 import { RegistrationPlanService } from './services/registration-plan.service';
 import { NotificationModule } from '../notification/notification.module';
-import { SmsService } from '../sms/sms.service';
+import { SmsModule } from '../sms/sms.module';
 import { SmsTemplateBootstrapService } from '../sms/sms-template-bootstrap.service';
 
 @Module({
   imports: [
     NotificationModule,
+    SmsModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -31,7 +32,6 @@ import { SmsTemplateBootstrapService } from '../sms/sms-template-bootstrap.servi
     OtpService,
     TokenService,
     JwtStrategy,
-    SmsService,
     SmsTemplateBootstrapService,
     GodadminBootstrapService,
     RegistrationPlanService,

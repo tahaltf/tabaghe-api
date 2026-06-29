@@ -4,21 +4,31 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import axios from 'axios';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AppSettingsService } from '../../shared/settings/app-settings.service';
+import { KavenegarProvider } from './gateways/kavenegar.provider';
+import { SmsIrProvider } from './gateways/smsir.provider';
+import {
+  SmsProvider,
+  SmsTemplateParameter,
+  SmsTemplateRef,
+} from './gateways/sms-provider.interface';
 
 /**
- * کلیدهای `SystemSetting` (و در نبود مقدار، متغیر هم‌نام `.env`) برای قالب‌های sms.ir.
- * نام متغیر قالب باید دقیقاً مطابق پنل sms.ir باشد.
+ * کلیدهای `SystemSetting` (و در نبود مقدار، متغیر هم‌نام `.env`) برای قالب‌های SMS.
+ * برای sms.ir: شناسه عددی قالب و نام پارامتر.
+ * برای کاوه‌نگار: نام الگو (Lookup) در کلیدهای `*_TEMPLATE_NAME`.
  */
 export const SMS_SETTING_KEYS = {
   OTP_TEMPLATE_ID: 'SMS_OTP_TEMPLATE_ID',
+  OTP_TEMPLATE_NAME: 'SMS_OTP_TEMPLATE_NAME',
   OTP_CODE_PARAMETER_NAME: 'SMS_OTP_CODE_PARAMETER_NAME',
   WITHDRAW_OTP_TEMPLATE_ID: 'SMS_WITHDRAW_OTP_TEMPLATE_ID',
+  WITHDRAW_OTP_TEMPLATE_NAME: 'SMS_WITHDRAW_OTP_TEMPLATE_NAME',
   WITHDRAW_OTP_CODE_PARAMETER_NAME: 'SMS_WITHDRAW_OTP_CODE_PARAMETER_NAME',
   ADMIN_LOGIN_ALERT_ENABLED: 'SMS_ADMIN_LOGIN_ALERT_ENABLED',
   ADMIN_LOGIN_ALERT_TEMPLATE_ID: 'SMS_ADMIN_LOGIN_ALERT_TEMPLATE_ID',
+  ADMIN_LOGIN_ALERT_TEMPLATE_NAME: 'SMS_ADMIN_LOGIN_ALERT_TEMPLATE_NAME',
   ADMIN_LOGIN_ALERT_RECIPIENTS: 'SMS_ADMIN_LOGIN_ALERT_RECIPIENTS',
   ADMIN_LOGIN_ALERT_USER_PHONE_PARAMETER:
     'SMS_ADMIN_LOGIN_ALERT_USER_PHONE_PARAMETER',
@@ -39,7 +49,19 @@ export class SmsService {
     private readonly appSettings: AppSettingsService,
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly smsIrProvider: SmsIrProvider,
+    private readonly kavenegarProvider: KavenegarProvider,
   ) {}
+
+  getActiveProviderName() {
+    return this.appSettings.getActiveSmsProvider();
+  }
+
+  private getProvider(): SmsProvider {
+    const active = this.appSettings.getActiveSmsProvider();
+    if (active === 'kavenegar') return this.kavenegarProvider;
+    return this.smsIrProvider;
+  }
 
   private async resolveSetting(key: string): Promise<string | undefined> {
     const row = await this.prisma.systemSetting.findUnique({
@@ -53,7 +75,7 @@ export class SmsService {
   }
 
   /** شماره موبایل ایران ۱۱ رقمی با صفر ابتدا */
-  private normalizeIranMobile(raw: string): string | null {
+  normalizeIranMobile(raw: string): string | null {
     const d = String(raw ?? '').replace(/\D/g, '');
     if (d.length === 11 && d.startsWith('09')) return d;
     if (d.length === 10 && d.startsWith('9')) return `0${d}`;
@@ -77,8 +99,8 @@ export class SmsService {
 
   async sendByTemplate(
     phone: string,
-    templateId: number,
-    parameters: Array<{ name: string; value: string }>,
+    template: SmsTemplateRef | number,
+    parameters: SmsTemplateParameter[],
   ) {
     const mobile = this.normalizeIranMobile(phone);
     if (!mobile) {
@@ -88,66 +110,38 @@ export class SmsService {
       throw new InternalServerErrorException('شماره موبایل نامعتبر است');
     }
 
-    const apiKey = this.appSettings.getSmsApiKey();
-    const url = 'https://api.sms.ir/v1/send/verify';
+    const templateRef: SmsTemplateRef =
+      typeof template === 'number' ? { templateId: template } : template;
 
-    try {
-      const payload = {
-        mobile,
-        templateId,
-        parameters,
-      };
-
-      const response = await axios.post(url, payload, {
-        headers: {
-          'X-API-KEY': apiKey,
-          Accept: 'text/plain',
-          'Content-Type': 'application/json',
-        },
-      });
-
-      const status = Number(response.data?.status);
-      if (status !== 1) {
-        const message =
-          response.data?.message || 'SMS.IR returned non-success status';
-        this.logger.warn(
-          `SMS.IR rejected template ${templateId} for ${mobile}: ${message}`,
-        );
-        throw new InternalServerErrorException(message);
-      }
-      this.logger.log(`SMS.IR accepted template ${templateId} for ${mobile}.`);
-      return response.data;
-    } catch (error: unknown) {
-      if (error instanceof InternalServerErrorException) {
-        throw error;
-      }
-      const err = error as { response?: { data?: { message?: string } } };
-      const errorDetail = err.response?.data;
-      throw new InternalServerErrorException(
-        errorDetail?.message || 'خطا در برقراری ارتباط با سامانه پیامک',
-      );
-    }
+    return this.getProvider().sendByTemplate(mobile, templateRef, parameters);
   }
 
-  async sendOtp(phone: string, code: string) {
+  private async resolveOtpTemplate(): Promise<SmsTemplateRef> {
+    if (this.appSettings.getActiveSmsProvider() === 'kavenegar') {
+      const name =
+        (await this.resolveSetting(SMS_SETTING_KEYS.OTP_TEMPLATE_NAME))?.trim() ||
+        '';
+      return { templateName: name };
+    }
+
     const tidRaw = await this.resolveSetting(SMS_SETTING_KEYS.OTP_TEMPLATE_ID);
     const templateId = Number.parseInt(tidRaw ?? '', 10);
     const templateIdFinal =
       Number.isFinite(templateId) && templateId > 0
         ? templateId
         : DEFAULT_OTP_TEMPLATE_ID;
-
-    const paramName =
-      (
-        await this.resolveSetting(SMS_SETTING_KEYS.OTP_CODE_PARAMETER_NAME)
-      )?.trim() || DEFAULT_OTP_CODE_PARAMETER;
-
-    return this.sendByTemplate(phone, templateIdFinal, [
-      { name: paramName, value: code },
-    ]);
+    return { templateId: templateIdFinal };
   }
 
-  async sendWithdrawOtp(phone: string, code: string) {
+  private async resolveWithdrawOtpTemplate(): Promise<SmsTemplateRef> {
+    if (this.appSettings.getActiveSmsProvider() === 'kavenegar') {
+      const name =
+        (
+          await this.resolveSetting(SMS_SETTING_KEYS.WITHDRAW_OTP_TEMPLATE_NAME)
+        )?.trim() || '';
+      return { templateName: name };
+    }
+
     const tidRaw = await this.resolveSetting(
       SMS_SETTING_KEYS.WITHDRAW_OTP_TEMPLATE_ID,
     );
@@ -156,6 +150,46 @@ export class SmsService {
       Number.isFinite(templateId) && templateId > 0
         ? templateId
         : DEFAULT_WITHDRAW_OTP_TEMPLATE_ID;
+    return { templateId: templateIdFinal };
+  }
+
+  private async resolveAdminLoginAlertTemplate(): Promise<SmsTemplateRef> {
+    if (this.appSettings.getActiveSmsProvider() === 'kavenegar') {
+      const name =
+        (
+          await this.resolveSetting(
+            SMS_SETTING_KEYS.ADMIN_LOGIN_ALERT_TEMPLATE_NAME,
+          )
+        )?.trim() || '';
+      return { templateName: name };
+    }
+
+    const tidRaw = await this.resolveSetting(
+      SMS_SETTING_KEYS.ADMIN_LOGIN_ALERT_TEMPLATE_ID,
+    );
+    const templateId = Number.parseInt(tidRaw ?? '', 10);
+    const templateIdFinal =
+      Number.isFinite(templateId) && templateId > 0
+        ? templateId
+        : DEFAULT_ADMIN_LOGIN_TEMPLATE_ID;
+    return { templateId: templateIdFinal };
+  }
+
+  async sendOtp(phone: string, code: string) {
+    const template = await this.resolveOtpTemplate();
+
+    const paramName =
+      (
+        await this.resolveSetting(SMS_SETTING_KEYS.OTP_CODE_PARAMETER_NAME)
+      )?.trim() || DEFAULT_OTP_CODE_PARAMETER;
+
+    return this.sendByTemplate(phone, template, [
+      { name: paramName, value: code },
+    ]);
+  }
+
+  async sendWithdrawOtp(phone: string, code: string) {
+    const template = await this.resolveWithdrawOtpTemplate();
 
     const paramName =
       (
@@ -164,7 +198,7 @@ export class SmsService {
         )
       )?.trim() || DEFAULT_WITHDRAW_OTP_CODE_PARAMETER;
 
-    return this.sendByTemplate(phone, templateIdFinal, [
+    return this.sendByTemplate(phone, template, [
       { name: paramName, value: code },
     ]);
   }
@@ -186,14 +220,7 @@ export class SmsService {
       return;
     }
 
-    const tidRaw = await this.resolveSetting(
-      SMS_SETTING_KEYS.ADMIN_LOGIN_ALERT_TEMPLATE_ID,
-    );
-    const templateId = Number.parseInt(tidRaw ?? '', 10);
-    const templateIdFinal =
-      Number.isFinite(templateId) && templateId > 0
-        ? templateId
-        : DEFAULT_ADMIN_LOGIN_TEMPLATE_ID;
+    const template = await this.resolveAdminLoginAlertTemplate();
 
     const paramName =
       (
@@ -217,7 +244,7 @@ export class SmsService {
 
     await Promise.all(
       recipients.map((mobile) =>
-        this.sendByTemplate(mobile, templateIdFinal, [
+        this.sendByTemplate(mobile, template, [
           { name: paramName, value: phoneValue },
         ]),
       ),

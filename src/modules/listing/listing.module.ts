@@ -35,6 +35,11 @@ import { ListingExpiryService } from './services/listing-expiry.service';
     ListingSearchService,
     ListingExpiryService,
   ],
-  exports: [ListingQueryService, ListingCommandService, ListingExpiryService],
+  exports: [
+    ListingQueryService,
+    ListingCommandService,
+    ListingExpiryService,
+    ListingAdminService,
+  ],
 })
 export class ListingModule {}

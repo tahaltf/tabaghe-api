@@ -21,6 +21,8 @@ import {
   AdminSetListingStatusDto,
 } from '../dto/admin-query.dto';
 import { AdminBulkIdsDto } from '../dto/admin-bulk-ids.dto';
+import { AdminBulkRejectDto } from '../dto/admin-bulk-reject.dto';
+import { ListingAdminService } from '../../listing/services/listing-admin.service';
 
 @Controller('admin/listings')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -29,7 +31,18 @@ export class AdminListingsQueryController {
   constructor(
     private readonly service: AdminListingsQueryService,
     private readonly listingDelete: AdminListingDeleteService,
+    private readonly listingAdmin: ListingAdminService,
   ) {}
+
+  @Post('bulk-approve')
+  bulkApprove(@Body() dto: AdminBulkIdsDto) {
+    return this.listingAdmin.approveMany(dto.ids);
+  }
+
+  @Post('bulk-reject')
+  bulkReject(@Body() dto: AdminBulkRejectDto) {
+    return this.listingAdmin.rejectMany(dto.ids, dto.rejectionReason);
+  }
 
   @Post('bulk-delete')
   @Roles(UserRole.GODADMIN)

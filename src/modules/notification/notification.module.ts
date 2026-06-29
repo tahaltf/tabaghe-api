@@ -5,26 +5,28 @@ import { DeadlineReminderService } from './deadline-reminder.service';
 import { NotificationListener } from './notification.listener';
 import { NotificationController } from './notification.controller'; // 👈 اضافه شد
 import { ConfigModule } from '@nestjs/config'; // 👈 اضافه شد برای کلید پیامک
-import { SmsService } from '../sms/sms.service';
+import { SmsModule } from '../sms/sms.module';
 import { OperationalNotifyService } from './operational-notify.service';
 import { ExchangeOrderNotifyService } from './exchange-order-notify.service';
+import { ListingNotificationBatchService } from '../../common/notification/listing-notification-batch.service';
 
 @Module({
-  imports: [ConfigModule],
+  imports: [ConfigModule, SmsModule],
   controllers: [NotificationController], // 👈 اضافه شد
   providers: [
     PrismaService,
-    SmsService,
     NotificationService,
     DeadlineReminderService,
     NotificationListener,
     OperationalNotifyService,
     ExchangeOrderNotifyService,
+    ListingNotificationBatchService,
   ],
   exports: [
     NotificationService,
     OperationalNotifyService,
     ExchangeOrderNotifyService,
+    ListingNotificationBatchService,
   ],
 })
 export class NotificationModule {}

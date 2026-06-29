@@ -2,7 +2,7 @@ const REQUIRED_PRODUCTION_ENV = [
   'DATABASE_URL',
   'JWT_SECRET',
   'JWT_REFRESH_SECRET',
-  'SMS_IR_API_KEY',
+  'ACTIVE_SMS_PROVIDER',
   'API_URL',
   'FRONTEND_APP_URL',
   'PAYMENT_RETURN_URL',
@@ -19,6 +19,7 @@ const PLACEHOLDER_VALUES = new Set([
   'replace-with-strong-secret',
   'replace-with-strong-refresh-secret',
   'replace-with-sms-ir-api-key',
+  'replace-with-kavenegar-api-key',
   'your-merchant-id',
   'super-secret-access',
   'super-secret-refresh',
@@ -60,5 +61,24 @@ export function validateProductionEnv() {
     throw new Error(
       `Production env vars still contain placeholder values: ${placeholders.join(', ')}`,
     );
+  }
+
+  const smsProvider = (process.env.ACTIVE_SMS_PROVIDER ?? 'smsir')
+    .trim()
+    .toLowerCase();
+  if (smsProvider === 'kavenegar') {
+    const key = process.env.KAVENEGAR_API_KEY?.trim() ?? '';
+    if (!key || isPlaceholderEnvValue('KAVENEGAR_API_KEY', key)) {
+      throw new Error(
+        'KAVENEGAR_API_KEY is required when ACTIVE_SMS_PROVIDER=kavenegar',
+      );
+    }
+  } else {
+    const key = process.env.SMS_IR_API_KEY?.trim() ?? '';
+    if (!key || isPlaceholderEnvValue('SMS_IR_API_KEY', key)) {
+      throw new Error(
+        'SMS_IR_API_KEY is required when ACTIVE_SMS_PROVIDER=smsir',
+      );
+    }
   }
 }
