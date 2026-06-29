@@ -50,4 +50,9 @@ export class ListListingsDto extends PaginationQueryDto {
   @IsOptional()
   @IsIn(LISTING_SORTS, { message: 'نوع مرتب‌سازی نامعتبر است' })
   sort?: ListingSort;
+
+  /** slug دسته‌ای که باید از نتایج حذف شود (خود + زیرشاخه‌ها) */
+  @IsOptional()
+  @IsString()
+  excludeCategorySlug?: string;
 }

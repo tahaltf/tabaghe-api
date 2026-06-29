@@ -14,6 +14,17 @@ export class CategoryTreeCacheService {
     private readonly cache: TtlCacheService,
   ) {}
 
+  async resolveDescendantIdsBySlug(slug: string): Promise<string[]> {
+    const normalized = slug.trim().toLowerCase();
+    if (!normalized) return [];
+    const row = await this.prisma.category.findFirst({
+      where: { slug: normalized },
+      select: { id: true },
+    });
+    if (!row) return [];
+    return this.resolveDescendantIds(row.id);
+  }
+
   async resolveDescendantIds(categoryId: string): Promise<string[]> {
     const map = await this.getChildrenByParent();
     const ids = new Set<string>([categoryId]);

@@ -74,6 +74,8 @@ export class WordPressStoreSyncService {
   }
 
   async syncFromStore(userId: string): Promise<WordPressStoreSyncResult> {
+    await this.ingestService.assertUserCanCreateListings(userId);
+
     const connection = await this.prisma.wordPressConnection.findUnique({
       where: { userId },
     });

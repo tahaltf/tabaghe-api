@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
 } from '@nestjs/common';
 
@@ -16,6 +17,8 @@ import {
   Prisma,
 
   ShippingPayer,
+
+  UserStatus,
 
 } from '@prisma/client';
 
@@ -82,6 +85,8 @@ export class WordPressProductIngestService {
 
 
   async ingestOne(userId: string, dto: WordPressProductDto) {
+
+    await this.assertUserCanCreateListings(userId);
 
     const existing = await this.prisma.listing.findFirst({
 
@@ -595,6 +600,23 @@ export class WordPressProductIngestService {
 
     return this.defaultsCache;
 
+  }
+
+  async assertUserCanCreateListings(userId: string): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { status: true, isVerified: true },
+    });
+
+    if (!user || user.status === UserStatus.INCOMPLETE || !user.isVerified) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        error: 'عدم دسترسی',
+        message:
+          'حساب کاربری شما هنوز تایید نشده است. لطفاً پروفایل خود را تکمیل کنید.',
+        code: 'PROFILE_INCOMPLETE',
+      });
+    }
   }
 
 }

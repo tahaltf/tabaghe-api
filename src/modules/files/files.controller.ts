@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { createReadStream, existsSync } from 'fs';
-import { join } from 'path';
+import { join, extname } from 'path';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../shared/contracts/auth';
@@ -20,6 +20,25 @@ const PROTECTED_CATEGORIES = new Set([
   'tickets',
   'deposit-receipts',
 ]);
+
+function contentTypeFromFilename(filename: string): string {
+  const ext = extname(filename).toLowerCase();
+  switch (ext) {
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.png':
+      return 'image/png';
+    case '.webp':
+      return 'image/webp';
+    case '.gif':
+      return 'image/gif';
+    case '.pdf':
+      return 'application/pdf';
+    default:
+      return 'application/octet-stream';
+  }
+}
 
 @Controller('files')
 @UseGuards(JwtAuthGuard)
@@ -52,6 +71,8 @@ export class FilesController {
       throw new NotFoundException('فایل یافت نشد.');
     }
 
+    const contentType = contentTypeFromFilename(safeName);
+    res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     createReadStream(filePath).pipe(res);

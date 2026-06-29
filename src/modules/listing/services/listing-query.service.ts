@@ -15,6 +15,7 @@ import {
 } from '../../../shared/contracts/pagination';
 import { ListListingsDto } from '../dto/list-listings.dto';
 import type { HomeFeedResponse } from '../../../shared/contracts/home-feed';
+import { HOME_JEWELRY_CATEGORY_SLUG } from '../../../common/category/home-category-slugs';
 
 /**
  * لیست آگهی‌ها فقط فیلدهای مورد نیاز کارت را برمیگرداند تا حجم payload
@@ -194,6 +195,11 @@ export class ListingQueryService {
   async getHomeFeed(limit = 10): Promise<HomeFeedResponse> {
     const safeLimit = Math.min(20, Math.max(1, limit));
     const where = await this.buildPublicWhere({} as ListListingsDto);
+    const directWhere = { ...where, type: ListingType.DIRECT };
+    await this.applyCategoryExclusion(
+      directWhere,
+      HOME_JEWELRY_CATEGORY_SLUG,
+    );
     const orderBy: Prisma.ListingOrderByWithRelationInput[] = [
       { isFeatured: 'desc' },
       { featuredAt: 'desc' },
@@ -208,7 +214,7 @@ export class ListingQueryService {
         take: safeLimit,
       }),
       this.prisma.listing.findMany({
-        where: { ...where, type: ListingType.DIRECT },
+        where: directWhere,
         include: LIST_ITEM_INCLUDE,
         orderBy,
         take: safeLimit,
@@ -417,6 +423,30 @@ export class ListingQueryService {
     return this.categoryTree.resolveDescendantIds(categoryId);
   }
 
+  private async applyCategoryExclusion(
+    where: Prisma.ListingWhereInput,
+    excludeSlug: string,
+  ): Promise<void> {
+    const excludedIds =
+      await this.categoryTree.resolveDescendantIdsBySlug(excludeSlug);
+    if (!excludedIds.length) return;
+
+    const existing = where.categoryId;
+    if (
+      existing &&
+      typeof existing === 'object' &&
+      'in' in existing &&
+      Array.isArray(existing.in)
+    ) {
+      where.categoryId = {
+        in: existing.in.filter((id) => !excludedIds.includes(id)),
+      };
+      return;
+    }
+
+    where.categoryId = { notIn: excludedIds };
+  }
+
   private async buildPublicWhere(
     query: ListListingsDto,
   ): Promise<Prisma.ListingWhereInput> {
@@ -445,6 +475,9 @@ export class ListingQueryService {
         query.categoryId,
       );
       where.categoryId = { in: categoryIds };
+    }
+    if (query.excludeCategorySlug) {
+      await this.applyCategoryExclusion(where, query.excludeCategorySlug);
     }
     if (query.type) where.type = query.type;
     if (query.condition) where.condition = query.condition;
