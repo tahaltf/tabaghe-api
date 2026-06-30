@@ -1,4 +1,5 @@
-﻿import { IsBoolean, IsEnum, IsOptional, IsString } from 'class-validator';
+﻿import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 import { OrderType, PaymentMethod } from '@prisma/client';
 
 export class CreateOrderDto {
@@ -27,4 +28,11 @@ export class CreateOrderDto {
   @IsOptional()
   @IsBoolean()
   requiresVerification?: boolean;
+
+  /** تعداد خرید در فروش مستقیم؛ پیش‌فرض ۱ */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  quantity?: number;
 }

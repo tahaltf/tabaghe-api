@@ -18,6 +18,10 @@ import {
 import { isUserOperationalSmsEnabled } from '../../common/notification/user-sms-notification.util';
 import { isOrderStatusNotificationEnabled } from '../../common/notification/notification-order-status-filter.util';
 import { resolveNotificationPath } from '../../common/notification/notification-navigation.util';
+import {
+  isListingTitleLikelyId,
+  resolveListingTitleFromMeta,
+} from '../../common/notification/listing-title-meta.util';
 import webpush = require('web-push');
 import { getFrontendAppOrigin } from '../../common/pwa-brand-icon.util';
 import { isVapidConfigured, resolveVapidKeys, validateVapidKeyPair } from '../../common/push/vapid-keys.util';
@@ -436,26 +440,7 @@ export class NotificationService {
       }
     }
 
-    let listingTitle = 'یک آگهی';
-    if (
-      metaForSms &&
-      typeof metaForSms.listingTitle === 'string' &&
-      metaForSms.listingTitle.trim()
-    ) {
-      listingTitle = metaForSms.listingTitle;
-    } else {
-      const listingId =
-        metaForSms && typeof metaForSms.listingId === 'string'
-          ? metaForSms.listingId
-          : undefined;
-      if (listingId) {
-        const listing = await this.prisma.listing.findUnique({
-          where: { id: listingId },
-          select: { title: true },
-        });
-        if (listing) listingTitle = listing.title;
-      }
-    }
+    let listingTitle = await this.resolveListingTitleForSms(metaForSms);
 
     const templateFirstName = String(subjectFirstName ?? 'کاربر');
 
@@ -537,25 +522,7 @@ export class NotificationService {
       return;
     }
 
-    // دریافت عنوان آگهی برای شخصی‌سازی پیامک
-    let listingTitle = 'یک آگهی';
-    if (
-      meta &&
-      typeof meta['listingTitle'] === 'string' &&
-      meta['listingTitle'].trim()
-    ) {
-      listingTitle = meta['listingTitle'];
-    } else {
-      const listingId =
-        meta && typeof meta.listingId === 'string' ? meta.listingId : undefined;
-      if (listingId) {
-        const listing = await this.prisma.listing.findUnique({
-          where: { id: listingId },
-          select: { title: true },
-        });
-        if (listing) listingTitle = listing.title;
-      }
-    }
+    const listingTitle = await this.resolveListingTitleForSms(meta);
 
     const defaultProvider = await this.smsService.getActiveProviderName();
     const smsConfig = resolveSmsTemplateConfig(rule!, meta, defaultProvider);
@@ -657,12 +624,15 @@ export class NotificationService {
     const templateRef = resolveSmsTemplateRef(config, smsProvider);
     if (!templateRef) return;
 
+    const listingTitle = await this.resolveListingTitleForSms(meta);
+
     const parameters = (config.parameters ?? [])
       .map((p) => ({
         name: String(p?.name ?? '').trim(),
         value: applySmsTemplatePlaceholders(String(p?.value ?? ''), {
           firstName: user.firstName,
           lastName: user.lastName,
+          listingTitle,
           title:
             meta && typeof meta['title'] === 'string' ? meta['title'] : undefined,
           message:
@@ -873,6 +843,48 @@ export class NotificationService {
     throw new BadRequestException('لینک باید با / یا http(s):// شروع شود');
   }
 
+  private async resolveListingTitleForSms(
+    meta?: Record<string, unknown>,
+  ): Promise<string> {
+    const fromMeta = resolveListingTitleFromMeta(meta, '');
+    if (fromMeta) return fromMeta;
+
+    const listingId =
+      meta && typeof meta['listingId'] === 'string'
+        ? meta['listingId']
+        : undefined;
+    if (listingId) {
+      const listing = await this.prisma.listing.findUnique({
+        where: { id: listingId },
+        select: { title: true },
+      });
+      if (listing?.title?.trim()) return listing.title.trim();
+    }
+
+    const orderId =
+      meta && typeof meta['orderId'] === 'string' ? meta['orderId'] : undefined;
+    if (orderId) {
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        select: { listing: { select: { title: true } } },
+      });
+      if (order?.listing?.title?.trim()) return order.listing.title.trim();
+    }
+
+    const staleTitle =
+      meta && typeof meta['listingTitle'] === 'string'
+        ? meta['listingTitle'].trim()
+        : '';
+    if (
+      staleTitle &&
+      !isListingTitleLikelyId(staleTitle, meta?.['listingId'])
+    ) {
+      return staleTitle;
+    }
+
+    return 'یک آگهی';
+  }
+
   private async applySiteNotificationTemplate(
     templateText: string,
     userId: string,
@@ -888,13 +900,13 @@ export class NotificationService {
       ...meta,
       ...(title?.trim() ? { title: title.trim() } : {}),
     };
+    const listingTitle = await this.resolveListingTitleForSms(metaForTemplate);
     return applySmsTemplatePlaceholders(templateText, {
       firstName: user?.firstName,
       lastName: user?.lastName,
       title,
       message: fallbackMessage,
-      listingTitle:
-        typeof meta['listingTitle'] === 'string' ? meta['listingTitle'] : undefined,
+      listingTitle,
       buyerName:
         typeof meta['buyerName'] === 'string' ? meta['buyerName'] : undefined,
       sellerName:

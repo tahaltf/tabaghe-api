@@ -83,4 +83,9 @@ export class WordPressUserController {
       'tabagheh-sync.zip',
     );
   }
+
+  @Get('plugin-info')
+  pluginInfo() {
+    return this.pluginPackageService.getStatus();
+  }
 }

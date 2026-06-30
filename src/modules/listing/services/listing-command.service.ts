@@ -125,6 +125,7 @@ export class ListingCommandService {
             dto.stockQuantity != null && dto.stockQuantity >= 0
               ? dto.stockQuantity
               : 1,
+          singleItemSale: dto.singleItemSale !== false,
           author: { connect: { id: userId } },
           category: { connect: { id: dto.categoryId } },
           province: { connect: { id: dto.provinceId } },
@@ -237,7 +238,9 @@ export class ListingCommandService {
     input: WordPressSyncUpdateInput,
     options?: WordPressSyncOptions,
   ): Promise<Listing> {
-    const listing = await this.ensureListingCanBeModified(listingId, userId);
+    const listing = await this.ensureListingCanBeModified(listingId, userId, {
+      allowWordPressRestock: true,
+    });
 
     const author = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -259,8 +262,10 @@ export class ListingCommandService {
     const wasRejected = listing.status === ListingStatus.REJECTED;
     const wasPending = listing.status === ListingStatus.PENDING;
     const shouldRestoreApproved =
-      listing.status === ListingStatus.ARCHIVED &&
-      listing.importSource === ListingImportSource.WORDPRESS;
+      (listing.status === ListingStatus.ARCHIVED ||
+        listing.status === ListingStatus.SOLD) &&
+      listing.importSource === ListingImportSource.WORDPRESS &&
+      input.stockQuantity > 0;
 
     const data: Prisma.ListingUpdateInput = {
       title: input.title.trim(),
@@ -471,6 +476,9 @@ export class ListingCommandService {
         dto.stockQuantity >= 0 &&
         listing.importSource !== ListingImportSource.WORDPRESS
           ? { stockQuantity: dto.stockQuantity }
+          : {}),
+        ...(dto.singleItemSale !== undefined
+          ? { singleItemSale: dto.singleItemSale !== false }
           : {}),
         ...(dto.categoryId && {
           category: { connect: { id: dto.categoryId } },
@@ -755,6 +763,7 @@ export class ListingCommandService {
   private async ensureListingCanBeModified(
     listingId: string,
     userId: string,
+    options?: { allowWordPressRestock?: boolean },
   ): Promise<Listing> {
     const listing = await this.prisma.listing.findUnique({
       where: { id: listingId },
@@ -764,6 +773,12 @@ export class ListingCommandService {
       throw new ForbiddenException('شما مالک این آگهی نیستید');
     }
     if (listing.status === ListingStatus.SOLD) {
+      if (
+        options?.allowWordPressRestock &&
+        listing.importSource === ListingImportSource.WORDPRESS
+      ) {
+        return listing;
+      }
       throw new BadRequestException('کالای فروخته شده قابل ویرایش یا حذف نیست');
     }
 

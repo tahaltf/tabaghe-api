@@ -403,7 +403,7 @@ model Listing {
   author          User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
   type            ListingType
-  order           Order?
+  orders          Order[]
 
   // 👈 فیلد جدید تنظیمات معاوضه
   exchangePayer   ExchangePayer? @default(NONE)
@@ -431,6 +431,8 @@ model Listing {
   shippingCostOverride Int?
   /** موجودی قابل فروش؛ پیش‌فرض ۱ */
   stockQuantity   Int            @default(1)
+  /** فقط فروش تکی — حتی با موجودی بیشتر، خریدار فقط ۱ عدد می‌تواند بخرد */
+  singleItemSale  Boolean        @default(true)
 
   rejectionReason String?
   deleteReason    String?
@@ -868,7 +870,7 @@ model Message {
 
 model Order {
   id                String      @id @default(cuid())
-  listingId         String      @unique
+  listingId         String
   listing           Listing     @relation(fields: [listingId], references: [id])
   reviews           Review[]
 
@@ -889,6 +891,8 @@ paymentMethod    PaymentMethod @default(GATEWAY)
   seller            User        @relation("SellerOrders", fields: [sellerId], references: [id])
 
   type              OrderType
+  /** تعداد خریداری‌شده در فروش مستقیم */
+  quantity          Int         @default(1)
 
   // --- بخش مالی و کمیسیون ---
   finalPrice        Decimal
@@ -961,6 +965,7 @@ paymentMethod    PaymentMethod @default(GATEWAY)
   @@index([buyerId, status])
   @@index([sellerId, status])
   @@index([status, disputedAt])
+  @@index([listingId, createdAt])
 }
 
 enum DisputeOutcome {

@@ -2,6 +2,10 @@ import { ListingType } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { listingTypePersianLabel } from '../system-settings/listing-type-enabled';
 import { resolveOrderStatusLabelFromMeta } from '../order/order-status-labels.util';
+import {
+  isListingTitleLikelyId,
+  normalizeListingTitleInMeta,
+} from './listing-title-meta.util';
 
 function formatUserName(
   user: { firstName: string | null; lastName: string | null; phone: string } | null | undefined,
@@ -46,6 +50,7 @@ export async function enrichNotificationMeta(
       },
     });
     if (listing) {
+      normalizeListingTitleInMeta(out, listing.title);
       if (!out.listingTitle) out.listingTitle = listing.title;
       if (!out.listingType) out.listingType = listing.type;
       if (!out.listingTypeFa) {
@@ -87,6 +92,7 @@ export async function enrichNotificationMeta(
       if (!out.listingTitle && order.listing?.title) {
         out.listingTitle = order.listing.title;
       }
+      normalizeListingTitleInMeta(out, order.listing?.title ?? null);
       if (!out.status) out.status = order.status;
       out.orderType = order.type;
       out.isExchange = order.type === 'EXCHANGE';
@@ -125,6 +131,7 @@ export async function enrichNotificationMeta(
       if (!out.listingTitle && offer.listing?.title) {
         out.listingTitle = offer.listing.title;
       }
+      normalizeListingTitleInMeta(out, offer.listing?.title ?? null);
     }
   }
 

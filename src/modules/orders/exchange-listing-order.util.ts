@@ -108,8 +108,14 @@ export async function prepareListingSlotForExchangeCheckout(
 ): Promise<Order | null> {
   await reconcileExchangeOfferStatusWithOrder(tx, activeExchangeOfferId);
 
-  const slot = await tx.order.findUnique({
-    where: { listingId },
+  const slot = await tx.order.findFirst({
+    where: {
+      listingId,
+      status: {
+        notIn: [OrderStatus.COMPLETED, OrderStatus.CANCELLED],
+      },
+    },
+    orderBy: { createdAt: 'desc' },
   });
 
   if (
@@ -134,7 +140,15 @@ export async function prepareListingSlotForExchangeCheckout(
   }
 
   if (!order) {
-    const slotAfter = await tx.order.findUnique({ where: { listingId } });
+    const slotAfter = await tx.order.findFirst({
+      where: {
+        listingId,
+        status: {
+          notIn: [OrderStatus.COMPLETED, OrderStatus.CANCELLED],
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
     if (
       slotAfter &&
       isResumableExchangeCheckout(slotAfter, activeExchangeOfferId)

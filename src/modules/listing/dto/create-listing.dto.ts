@@ -277,6 +277,12 @@ export class CreateListingDto {
   @Min(0)
   stockQuantity?: number;
 
+  /** فقط فروش تکی — خریدار نمی‌تواند بیش از ۱ عدد بخرد */
+  @IsOptional()
+  @Transform(toBoolean)
+  @IsBoolean()
+  singleItemSale?: boolean;
+
   @IsOptional()
   @IsString()
   thumbnail?: string;

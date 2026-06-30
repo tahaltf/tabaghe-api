@@ -286,7 +286,9 @@ export class AuctionScheduler {
         },
         listing: {
           select: {
-            order: {
+            orders: {
+              orderBy: { createdAt: 'desc' },
+              take: 1,
               select: {
                 finalPrice: true,
                 platformFee: true,
@@ -307,8 +309,9 @@ export class AuctionScheduler {
 
     for (const row of paidAuctions) {
       const winnerDeposit = new Decimal(row.bids?.[0]?.blockedAmount ?? 0);
+      const paidOrder = row.listing.orders[0];
       const finalPrice = new Decimal(
-        row.listing.order?.finalPrice ?? row.highestBidAmount ?? 0,
+        paidOrder?.finalPrice ?? row.highestBidAmount ?? 0,
       );
       const payableRemainder = Decimal.max(
         finalPrice.minus(winnerDeposit),
@@ -338,7 +341,7 @@ export class AuctionScheduler {
         });
       }
 
-      const order = row.listing.order;
+      const order = paidOrder;
       if (order) {
         const feePlusSeller = new Decimal(order.platformFee ?? 0).plus(
           order.sellerRevenue ?? 0,

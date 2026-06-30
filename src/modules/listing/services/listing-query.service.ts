@@ -254,7 +254,16 @@ export class ListingQueryService {
       where: { id },
       include: {
         ...DETAIL_INCLUDE,
-        order: { select: { status: true, buyerId: true } },
+        orders: {
+          where: {
+            status: {
+              in: [OrderStatus.PENDING, OrderStatus.AWAITING_PAYMENT],
+            },
+          },
+          select: { status: true, buyerId: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
       },
     });
 
@@ -263,8 +272,9 @@ export class ListingQueryService {
     const isStaff =
       viewerRole === UserRole.ADMIN || viewerRole === UserRole.GODADMIN;
 
-    if (listing.order) {
-      const os = listing.order.status;
+    const checkoutOrder = listing.orders[0];
+    if (checkoutOrder) {
+      const os = checkoutOrder.status;
       const isExchangePending =
         listing.type === 'EXCHANGE' &&
         (os === OrderStatus.PENDING || os === OrderStatus.AWAITING_PAYMENT);
@@ -272,7 +282,7 @@ export class ListingQueryService {
         !isExchangePending &&
         (os === OrderStatus.PENDING || os === OrderStatus.AWAITING_PAYMENT)
       ) {
-        const isBuyer = viewerId && listing.order.buyerId === viewerId;
+        const isBuyer = viewerId && checkoutOrder.buyerId === viewerId;
         const isSeller = viewerId && listing.authorId === viewerId;
         if (!isBuyer && !isSeller && !isStaff) {
           throw new NotFoundException('این آگهی در حال حاضر در دسترس نیست.');
@@ -302,10 +312,10 @@ export class ListingQueryService {
       ).author.phone = ownerPhone?.phone ?? null;
     }
 
-    const { order, ...listingWithoutOrder } = listing as typeof listing & {
-      order?: { status: OrderStatus; buyerId: string } | null;
+    const { orders, ...listingWithoutOrder } = listing as typeof listing & {
+      orders?: Array<{ status: OrderStatus; buyerId: string }>;
     };
-    void order;
+    void orders;
     return listingWithoutOrder as ListingDetail;
   }
 
@@ -380,11 +390,21 @@ export class ListingQueryService {
       select: {
         type: true,
         status: true,
-        order: { select: { status: true, buyerId: true } },
+        orders: {
+          where: {
+            status: {
+              in: [OrderStatus.PENDING, OrderStatus.AWAITING_PAYMENT],
+            },
+          },
+          select: { status: true, buyerId: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
       },
     });
     if (!listing || listing.status !== ListingStatus.APPROVED) return false;
-    const os = listing.order?.status;
+    const checkoutOrder = listing.orders[0];
+    const os = checkoutOrder?.status;
     const isExchangePending =
       listing.type === 'EXCHANGE' &&
       (os === OrderStatus.PENDING || os === OrderStatus.AWAITING_PAYMENT);
@@ -392,7 +412,7 @@ export class ListingQueryService {
       !isExchangePending &&
       (os === OrderStatus.PENDING || os === OrderStatus.AWAITING_PAYMENT)
     ) {
-      const buyerId = listing.order?.buyerId;
+      const buyerId = checkoutOrder?.buyerId;
       const sameBuyerContinuing =
         !!viewerId &&
         !!buyerId &&
@@ -453,17 +473,19 @@ export class ListingQueryService {
     const where: Prisma.ListingWhereInput = {
       status: ListingStatus.APPROVED,
       NOT: {
-        order: {
-          AND: [
-            {
-              status: {
-                in: [OrderStatus.PENDING, OrderStatus.AWAITING_PAYMENT],
+        orders: {
+          some: {
+            AND: [
+              {
+                status: {
+                  in: [OrderStatus.PENDING, OrderStatus.AWAITING_PAYMENT],
+                },
               },
-            },
-            {
-              type: { not: 'EXCHANGE' },
-            },
-          ],
+              {
+                type: { not: 'EXCHANGE' },
+              },
+            ],
+          },
         },
       },
     };

@@ -347,8 +347,9 @@ export class AdminAuctionAuditController {
           },
         },
       }),
-      this.prisma.order.findUnique({
+      this.prisma.order.findFirst({
         where: { listingId },
+        orderBy: { createdAt: 'desc' },
         select: {
           id: true,
           status: true,

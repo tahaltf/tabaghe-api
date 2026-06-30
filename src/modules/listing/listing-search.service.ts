@@ -89,17 +89,19 @@ export class ListingSearchService {
 
     if (where.status === ListingStatus.APPROVED) {
       where.NOT = {
-        order: {
-          AND: [
-            {
-              status: {
-                in: [OrderStatus.PENDING, OrderStatus.AWAITING_PAYMENT],
+        orders: {
+          some: {
+            AND: [
+              {
+                status: {
+                  in: [OrderStatus.PENDING, OrderStatus.AWAITING_PAYMENT],
+                },
               },
-            },
-            {
-              type: { not: 'EXCHANGE' },
-            },
-          ],
+              {
+                type: { not: 'EXCHANGE' },
+              },
+            ],
+          },
         },
       };
     }

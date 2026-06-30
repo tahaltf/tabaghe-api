@@ -38,6 +38,14 @@ describe('applySmsTemplatePlaceholders', () => {
     expect(out).toBe('کالای آگهی از انبار برای شما ارسال شد.');
   });
 
+  it('does not treat listingId as listingTitle in placeholder output', () => {
+    const id = 'clxyz123456789abcdefghij';
+    const out = applySmsTemplatePlaceholders('آگهی: {{listingTitle}}', {
+      meta: { listingTitle: id, listingId: id },
+    });
+    expect(out).toBe('آگهی: یک آگهی');
+  });
+
   it('maps trade context placeholders for SMS templates', () => {
     const out = applySmsTemplatePlaceholders(
       'آگهی: {{listingTitle}} | پیشنهاد: {{offerTitle}} | مالک: {{ownerName}} | خریدار: {{buyerName}} | فروشنده: {{sellerOrderStatusFa}} | خریدار: {{buyerOrderStatusFa}}',

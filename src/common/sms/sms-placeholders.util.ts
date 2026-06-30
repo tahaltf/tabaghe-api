@@ -1,4 +1,5 @@
 import { getOrderStatusLabelFa } from '../order/order-status-labels.util';
+import { isListingTitleLikelyId } from '../notification/listing-title-meta.util';
 
 /**
  * جایگزینی متغیرهای قالب پیامک (sms.ir و مشابه).
@@ -36,7 +37,16 @@ export function applySmsTemplatePlaceholders(
       : {};
   const fn = String(ctx.firstName ?? 'کاربر');
   const ln = String(ctx.lastName ?? '');
-  const listing = String(ctx.listingTitle ?? meta['listingTitle'] ?? 'یک آگهی');
+  const metaListingRaw =
+    typeof meta['listingTitle'] === 'string' ? meta['listingTitle'].trim() : '';
+  const metaListingTitle =
+    metaListingRaw &&
+    !isListingTitleLikelyId(metaListingRaw, meta['listingId'])
+      ? metaListingRaw
+      : '';
+  const listing = String(
+    ctx.listingTitle ?? (metaListingTitle || 'یک آگهی'),
+  );
   const adminFn = String(ctx.adminFirstName ?? 'ادمین');
   const title = String(ctx.title ?? '');
   const message = String(ctx.message ?? '');
@@ -120,6 +130,9 @@ export function applySmsTemplatePlaceholders(
   }
 
   for (const [k, v] of Object.entries(meta)) {
+    if (k === 'listingTitle' && isListingTitleLikelyId(v, meta['listingId'])) {
+      continue;
+    }
     let val = v === null || v === undefined ? '' : String(v);
     if (k === 'status' || k === 'orderStatus') {
       val = getOrderStatusLabelFa(val) || val;

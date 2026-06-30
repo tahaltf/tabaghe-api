@@ -177,7 +177,7 @@ export class AdminListingsQueryService {
             },
           },
         },
-        order: true,
+        orders: { orderBy: { createdAt: 'desc' } },
       },
     });
     if (!listing) throw new NotFoundException('آگهی یافت نشد');

@@ -114,6 +114,10 @@ export class OrdersCheckoutService {
       exchangeRequestId,
       requiresVerification,
     } = dto;
+    const orderQuantity = Math.max(
+      1,
+      Math.floor(Number(dto.quantity) || 1),
+    );
 
     const finalExchangeId = exchangeOfferId || exchangeRequestId;
     let listingId = dto.listingId;
@@ -401,8 +405,14 @@ export class OrdersCheckoutService {
 
           return updatedOrder;
         } else {
-          let slotBlock = await tx.order.findUnique({
-            where: { listingId },
+          let slotBlock = await tx.order.findFirst({
+            where: {
+              listingId,
+              status: {
+                notIn: [OrderStatus.COMPLETED, OrderStatus.CANCELLED],
+              },
+            },
+            orderBy: { createdAt: 'desc' },
           });
           if (slotBlock?.status === OrderStatus.CANCELLED) {
             if (
@@ -617,11 +627,23 @@ export class OrdersCheckoutService {
         if (!listing || listing.status !== 'APPROVED')
           throw new BadRequestException('آگهی یافت نشد یا فروخته شده');
 
-        if ((listing.stockQuantity ?? 1) <= 0) {
+        const availableStock = listing.stockQuantity ?? 1;
+        if (availableStock <= 0) {
           throw new BadRequestException('موجودی این کالا تمام شده است');
         }
+        if (listing.singleItemSale !== false && orderQuantity > 1) {
+          throw new BadRequestException(
+            'این آگهی فقط به‌صورت تکی قابل خرید است',
+          );
+        }
+        if (orderQuantity > availableStock) {
+          throw new BadRequestException(
+            `حداکثر ${availableStock} عدد از این کالا موجود است`,
+          );
+        }
 
-        finalPrice = Number(listing.direct?.price || 0);
+        const unitPrice = Number(listing.direct?.price || 0);
+        finalPrice = unitPrice * orderQuantity;
         sellerId = listing.authorId;
         categoryId = listing.categoryId;
         if (sellerId === userId)
@@ -661,7 +683,9 @@ export class OrdersCheckoutService {
         const hasActiveNonCancelable = existingOrders.some((o) => {
           if (
             o.status === OrderStatus.PENDING ||
-            o.status === OrderStatus.CANCELLED
+            o.status === OrderStatus.CANCELLED ||
+            o.status === OrderStatus.COMPLETED ||
+            o.status === OrderStatus.DELIVERED
           ) {
             return false;
           }
@@ -873,6 +897,7 @@ export class OrdersCheckoutService {
         seller: { connect: { id: sellerId } },
         listing: { connect: { id: listingId } },
         type: orderType as any,
+        quantity: orderType === 'DIRECT' ? orderQuantity : 1,
         finalPrice: finalPrice,
         shippingCost: shippingCost,
         totalAmount: totalPayable,
@@ -944,7 +969,11 @@ export class OrdersCheckoutService {
             where: { id: listingId },
             select: { stockQuantity: true },
           });
-          const nextStock = Math.max(0, (listingRow?.stockQuantity ?? 1) - 1);
+          const purchasedQty = orderQuantity;
+          const nextStock = Math.max(
+            0,
+            (listingRow?.stockQuantity ?? 1) - purchasedQty,
+          );
           await tx.listing.update({
             where: { id: listingId },
             data: {
@@ -1115,6 +1144,13 @@ export class OrdersCheckoutService {
       select: { totalAmount: true, type: true },
     });
     const totalAmount = Number(orderRow?.totalAmount ?? order.totalAmount ?? 0);
+    const sharedMeta = {
+      orderId: order.id,
+      listingId: order.listingId,
+      listingTitle,
+      amount: totalAmount,
+      totalAmount,
+    };
 
     await Promise.all([
       this.notificationService.create({
@@ -1123,8 +1159,7 @@ export class OrdersCheckoutService {
         title: 'خرید شما ثبت شد',
         message: `خرید شما برای «${listingTitle}» با موفقیت ثبت شد.`,
         meta: {
-          orderId: order.id,
-          listingId: order.listingId,
+          ...sharedMeta,
           role: 'BUYER',
           status: 'PAID',
           phase: 'purchase_registered',
@@ -1137,8 +1172,7 @@ export class OrdersCheckoutService {
         title: 'کالای شما فروخته شد',
         message: `کالای «${listingTitle}» با موفقیت فروخته شد.`,
         meta: {
-          orderId: order.id,
-          listingId: order.listingId,
+          ...sharedMeta,
           role: 'SELLER',
           status: 'SOLD',
           phase: 'sale_registered',
