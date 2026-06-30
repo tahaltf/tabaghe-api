@@ -1,7 +1,8 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
+  IsInt,
   IsNumber,
   IsObject,
   IsOptional,
@@ -9,6 +10,7 @@ import {
   IsUrl,
   MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 
@@ -118,7 +120,16 @@ export class WordPressProductDto {
   stockStatus?: string;
 
   @IsOptional()
-  @IsNumber()
+  @Transform(({ value }) => {
+    if (value === null || value === undefined || value === '') return null;
+    const n = Number(value);
+    if (!Number.isFinite(n)) return null;
+    const qty = Math.floor(n);
+    if (qty < 0) return null;
+    return qty;
+  })
+  @ValidateIf((_, value) => value != null)
+  @IsInt()
   @Min(0)
   stockQuantity?: number | null;
 
