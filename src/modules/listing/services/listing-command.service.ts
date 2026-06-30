@@ -65,6 +65,7 @@ export type WordPressSyncUpdateInput = {
   categoryId: string;
   provinceId: string;
   cityId: string;
+  stockQuantity: number;
 };
 
 @Injectable()
@@ -120,6 +121,10 @@ export class ListingCommandService {
           externalProductId: options?.externalProductId,
           shortDescription: options?.shortDescription ?? null,
           attributes: options?.attributes,
+          stockQuantity:
+            dto.stockQuantity != null && dto.stockQuantity >= 0
+              ? dto.stockQuantity
+              : 1,
           author: { connect: { id: userId } },
           category: { connect: { id: dto.categoryId } },
           province: { connect: { id: dto.provinceId } },
@@ -267,6 +272,7 @@ export class ListingCommandService {
       category: { connect: { id: input.categoryId } },
       province: { connect: { id: input.provinceId } },
       city: { connect: { id: input.cityId } },
+      stockQuantity: input.stockQuantity,
       direct: {
         upsert: {
           create: {
@@ -353,6 +359,7 @@ export class ListingCommandService {
         gallery: input.gallery,
         thumbnail: input.thumbnail,
         ...(shouldArchive ? { status: ListingStatus.ARCHIVED } : {}),
+        stockQuantity: input.stockQuantity,
         direct: {
           upsert: {
             create: {
@@ -460,6 +467,11 @@ export class ListingCommandService {
         ...(wasRejected ? { exchangeOffersSince: new Date() } : {}),
         expiresAt: null,
         expiryReminderSentAt: null,
+        ...(dto.stockQuantity !== undefined &&
+        dto.stockQuantity >= 0 &&
+        listing.importSource !== ListingImportSource.WORDPRESS
+          ? { stockQuantity: dto.stockQuantity }
+          : {}),
         ...(dto.categoryId && {
           category: { connect: { id: dto.categoryId } },
         }),

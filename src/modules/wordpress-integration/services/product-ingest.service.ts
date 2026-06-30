@@ -320,6 +320,17 @@ export class WordPressProductIngestService {
 
   }
 
+  private resolveStockQuantity(dto: WordPressProductDto): number {
+    if (!this.isProductAvailable(dto)) {
+      return 0;
+    }
+    const raw = dto.stockQuantity;
+    if (raw != null && Number.isFinite(Number(raw)) && Number(raw) >= 0) {
+      return Math.floor(Number(raw));
+    }
+    return 1;
+  }
+
 
 
   private async ingestUnavailableUpdate(
@@ -440,6 +451,8 @@ export class WordPressProductIngestService {
 
       cityId: defaults.cityId,
 
+      stockQuantity: this.resolveStockQuantity(dto),
+
     };
 
   }
@@ -469,6 +482,8 @@ export class WordPressProductIngestService {
       description: input.description,
 
       shippingPayer: ShippingPayer.BUYER_PREPAID,
+
+      stockQuantity: input.stockQuantity,
 
       thumbnail: input.thumbnail ?? undefined,
 

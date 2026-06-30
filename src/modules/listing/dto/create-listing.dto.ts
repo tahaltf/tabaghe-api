@@ -270,6 +270,13 @@ export class CreateListingDto {
   @Max(365)
   testPeriodDays?: number | null;
 
+  /** موجودی قابل فروش؛ پیش‌فرض ۱ */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  stockQuantity?: number;
+
   @IsOptional()
   @IsString()
   thumbnail?: string;

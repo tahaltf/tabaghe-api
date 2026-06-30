@@ -350,6 +350,46 @@ export class NotificationService {
     }
   }
 
+  async notifyAdminNewOrder(params: {
+    orderId: string;
+    listingId: string;
+    listingTitle: string;
+    buyerId: string;
+    sellerId: string;
+    totalAmount: number;
+    orderType: string;
+  }): Promise<void> {
+    const [buyer, seller] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: params.buyerId },
+        select: { phone: true, firstName: true, lastName: true },
+      }),
+      this.prisma.user.findUnique({
+        where: { id: params.sellerId },
+        select: { phone: true, firstName: true, lastName: true },
+      }),
+    ]);
+    const amountFormatted = params.totalAmount.toLocaleString('fa-IR');
+    await this.notifyAdminPersonnel({
+      type: NotificationType.ADMIN_ALERT_NEW_ORDER,
+      title: 'سفارش جدید ثبت شد',
+      message: `سفارش جدید «${params.listingTitle}» — مبلغ ${amountFormatted} تومان — خریدار ${buyer?.phone ?? '—'}`,
+      meta: {
+        orderId: params.orderId,
+        listingId: params.listingId,
+        listingTitle: params.listingTitle,
+        buyerPhone: buyer?.phone,
+        sellerPhone: seller?.phone,
+        buyerName: [buyer?.firstName, buyer?.lastName].filter(Boolean).join(' ') || undefined,
+        sellerName: [seller?.firstName, seller?.lastName].filter(Boolean).join(' ') || undefined,
+        amount: params.totalAmount,
+        totalAmount: params.totalAmount,
+        amountFormatted,
+        orderType: params.orderType,
+      },
+    });
+  }
+
   private async isSmsRuleActive(
     rule: SmsRule | null,
     meta?: Record<string, unknown>,

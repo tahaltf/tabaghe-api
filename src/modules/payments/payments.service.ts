@@ -1074,6 +1074,15 @@ export class PaymentsService {
           phaseKey: 'sale_registered',
         },
       }),
+      this.notificationService.notifyAdminNewOrder({
+        orderId: order.id,
+        listingId: order.listingId,
+        listingTitle,
+        buyerId: order.buyerId,
+        sellerId: order.sellerId,
+        totalAmount: amount,
+        orderType: 'DIRECT',
+      }),
     ]);
   }
 }

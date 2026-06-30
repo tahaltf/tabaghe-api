@@ -92,6 +92,19 @@ export class OrdersCheckoutService {
     private readonly settings: OrdersSettingsService,
   ) {}
 
+  private resolveListingShippingFee(
+    listing: { shippingCostOverride?: number | null },
+    defaultFee: number,
+  ): number {
+    if (
+      listing.shippingCostOverride != null &&
+      listing.shippingCostOverride >= 0
+    ) {
+      return listing.shippingCostOverride;
+    }
+    return defaultFee;
+  }
+
   async handleUniversalOrder(userId: string, dto: any) {
     const {
       addressId,
@@ -587,7 +600,9 @@ export class OrdersCheckoutService {
           throw new ForbiddenException('شما نمی‌توانید آگهی خودتان را بخرید.');
 
         shippingCost =
-          listing.shippingPayer === 'BUYER_PREPAID' ? shippingFee : 0;
+          listing.shippingPayer === 'BUYER_PREPAID'
+            ? this.resolveListingShippingFee(listing, shippingFee)
+            : 0;
         sellerRequestedVerification =
           listing.sellerRequiresVerification || false;
       }
@@ -602,6 +617,10 @@ export class OrdersCheckoutService {
         if (!listing || listing.status !== 'APPROVED')
           throw new BadRequestException('آگهی یافت نشد یا فروخته شده');
 
+        if ((listing.stockQuantity ?? 1) <= 0) {
+          throw new BadRequestException('موجودی این کالا تمام شده است');
+        }
+
         finalPrice = Number(listing.direct?.price || 0);
         sellerId = listing.authorId;
         categoryId = listing.categoryId;
@@ -609,7 +628,9 @@ export class OrdersCheckoutService {
           throw new ForbiddenException('شما نمی‌توانید آگهی خودتان را بخرید.');
 
         shippingCost =
-          listing.shippingPayer === 'BUYER_PREPAID' ? shippingFee : 0;
+          listing.shippingPayer === 'BUYER_PREPAID'
+            ? this.resolveListingShippingFee(listing, shippingFee)
+            : 0;
         sellerRequestedVerification =
           listing.sellerRequiresVerification || false;
       }
@@ -914,11 +935,30 @@ export class OrdersCheckoutService {
             where: { listingId },
             data: { settlementStatus: AuctionSettlementStatus.PAID },
           });
+          await tx.listing.update({
+            where: { id: listingId },
+            data: { status: ListingStatus.SOLD },
+          });
+        } else if (orderType === 'DIRECT') {
+          const listingRow = await tx.listing.findUnique({
+            where: { id: listingId },
+            select: { stockQuantity: true },
+          });
+          const nextStock = Math.max(0, (listingRow?.stockQuantity ?? 1) - 1);
+          await tx.listing.update({
+            where: { id: listingId },
+            data: {
+              stockQuantity: nextStock,
+              status:
+                nextStock <= 0 ? ListingStatus.SOLD : ListingStatus.APPROVED,
+            },
+          });
+        } else {
+          await tx.listing.update({
+            where: { id: listingId },
+            data: { status: ListingStatus.SOLD },
+          });
         }
-        await tx.listing.update({
-          where: { id: listingId },
-          data: { status: ListingStatus.SOLD },
-        });
       }
 
       return createdOrder;
@@ -1062,12 +1102,19 @@ export class OrdersCheckoutService {
     buyerId: string;
     sellerId: string;
     listingId: string;
+    type?: OrderType;
+    totalAmount?: unknown;
   }): Promise<void> {
     const listing = await this.prisma.listing.findUnique({
       where: { id: order.listingId },
       select: { title: true },
     });
     const listingTitle = listing?.title ?? 'کالا';
+    const orderRow = await this.prisma.order.findUnique({
+      where: { id: order.id },
+      select: { totalAmount: true, type: true },
+    });
+    const totalAmount = Number(orderRow?.totalAmount ?? order.totalAmount ?? 0);
 
     await Promise.all([
       this.notificationService.create({
@@ -1097,6 +1144,15 @@ export class OrdersCheckoutService {
           phase: 'sale_registered',
           phaseKey: 'sale_registered',
         },
+      }),
+      this.notificationService.notifyAdminNewOrder({
+        orderId: order.id,
+        listingId: order.listingId,
+        listingTitle,
+        buyerId: order.buyerId,
+        sellerId: order.sellerId,
+        totalAmount,
+        orderType: String(orderRow?.type ?? order.type ?? 'DIRECT'),
       }),
     ]);
   }

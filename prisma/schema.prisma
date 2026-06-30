@@ -196,6 +196,7 @@ enum NotificationType {
   ADMIN_ALERT_WALLET_DEPOSIT
   ADMIN_ALERT_WALLET_WITHDRAW
   ADMIN_ALERT_KYC_SUBMISSION
+  ADMIN_ALERT_NEW_ORDER
 }
 
 enum RepairRequestStatus {
@@ -426,6 +427,10 @@ model Listing {
   city            Location       @relation("CityListings", fields: [cityId], references: [id])
 
   shippingPayer   ShippingPayer  @default(BUYER_PREPAID)
+  /** null = هزینه ارسال پیش‌فرض سایت (SHIPPING_COST) */
+  shippingCostOverride Int?
+  /** موجودی قابل فروش؛ پیش‌فرض ۱ */
+  stockQuantity   Int            @default(1)
 
   rejectionReason String?
   deleteReason    String?

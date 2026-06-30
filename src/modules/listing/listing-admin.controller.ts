@@ -15,6 +15,7 @@ import { ListingAdminService } from './services/listing-admin.service';
 import { RejectListingDto } from './dto/reject-listing.dto';
 import { SetListingStatusDto } from './dto/set-listing-status.dto';
 import { AdminListingCorrectionsDto } from './dto/admin-listing-corrections.dto';
+import { AdminListingUpdateDto } from './dto/admin-listing-update.dto';
 
 @Controller('admin/listings')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -33,6 +34,14 @@ export class ListingAdminController {
     @Body() dto: AdminListingCorrectionsDto,
   ) {
     return this.adminService.applyCorrections(id, dto);
+  }
+
+  @Patch(':id/update')
+  applyAdminUpdate(
+    @Param('id') id: string,
+    @Body() dto: AdminListingUpdateDto,
+  ) {
+    return this.adminService.applyAdminUpdate(id, dto);
   }
 
   @Patch(':id/approve')

@@ -5,6 +5,7 @@ import {
   ListingStatus,
   ListingType,
   NotificationType,
+  OrderStatus,
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
@@ -12,6 +13,7 @@ import { normalizeMultilineText } from '../../../common/multiline-text.util';
 import { QuotaService } from '../../quota/quota.service';
 import { RejectListingDto } from '../dto/reject-listing.dto';
 import { AdminListingCorrectionsDto } from '../dto/admin-listing-corrections.dto';
+import { AdminListingUpdateDto } from '../dto/admin-listing-update.dto';
 import { NotificationService } from '../../notification/notification.service';
 import { TRADE_REPUTATION_PENALTY_DELTA } from '../../orders/order-reputation.service';
 import { ListingExpiryService } from './listing-expiry.service';
@@ -51,6 +53,24 @@ export type BulkListingActionResponse = {
   skipped: number;
   results: BulkListingActionResult[];
 };
+
+const EDITABLE_LISTING_STATUSES: ListingStatus[] = [
+  ListingStatus.PENDING,
+  ListingStatus.APPROVED,
+  ListingStatus.REJECTED,
+];
+
+const TERMINAL_ORDER_STATUSES: OrderStatus[] = [
+  OrderStatus.COMPLETED,
+  OrderStatus.CANCELLED,
+];
+
+const PRICE_FIELDS: (keyof AdminListingUpdateDto)[] = [
+  'price',
+  'basePrice',
+  'minBidIncrement',
+  'buyNowPrice',
+];
 
 @Injectable()
 export class ListingAdminService {
@@ -133,6 +153,141 @@ export class ListingAdminService {
           where: { listingId },
           data: exchangeData,
         });
+      }
+      return tx.listing.update({
+        where: { id: listingId },
+        data: listingData,
+        include: ADMIN_LISTING_INCLUDE,
+      });
+    });
+  }
+
+  private hasAdminUpdateFields(dto: AdminListingUpdateDto): boolean {
+    return Object.keys(dto).some(
+      (k) => dto[k as keyof AdminListingUpdateDto] !== undefined,
+    );
+  }
+
+  async applyAdminUpdate(
+    listingId: string,
+    dto: AdminListingUpdateDto,
+  ): Promise<AdminListing> {
+    if (!this.hasAdminUpdateFields(dto)) {
+      throw new BadRequestException('حداقل یک فیلد برای ویرایش ارسال کنید');
+    }
+
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      include: { exchange: true, direct: true, auction: true },
+    });
+    if (!listing) throw new NotFoundException('آگهی یافت نشد');
+    if (!EDITABLE_LISTING_STATUSES.includes(listing.status)) {
+      throw new BadRequestException('این آگهی در وضعیت فعلی قابل ویرایش نیست');
+    }
+
+    const activeOrder = await this.prisma.order.findFirst({
+      where: {
+        listingId,
+        status: { notIn: TERMINAL_ORDER_STATUSES },
+      },
+      select: { id: true },
+    });
+    const touchesPrice = PRICE_FIELDS.some((f) => dto[f] !== undefined);
+    if (activeOrder && touchesPrice) {
+      throw new BadRequestException(
+        'به‌دلیل سفارش فعال روی این آگهی، تغییر قیمت امکان‌پذیر نیست. سایر فیلدها را می‌توانید ویرایش کنید.',
+      );
+    }
+
+    const listingData: Prisma.ListingUpdateInput = {};
+    if (dto.title !== undefined) {
+      const title = dto.title.trim();
+      if (title.length < 2) {
+        throw new BadRequestException('عنوان آگهی باید حداقل ۲ کاراکتر باشد');
+      }
+      listingData.title = title;
+    }
+    if (dto.description !== undefined) {
+      listingData.description =
+        normalizeMultilineText(dto.description).trim() || '';
+    }
+    if (dto.shippingPayer !== undefined) {
+      listingData.shippingPayer = dto.shippingPayer;
+    }
+    if (dto.shippingCostOverride !== undefined) {
+      listingData.shippingCostOverride = dto.shippingCostOverride;
+    }
+    if (dto.condition !== undefined) {
+      listingData.condition = dto.condition;
+    }
+    if (dto.testPeriodDays !== undefined) {
+      listingData.testPeriodDays =
+        dto.testPeriodDays != null && dto.testPeriodDays > 0
+          ? dto.testPeriodDays
+          : null;
+    }
+    if (dto.stockQuantity !== undefined) {
+      if (dto.stockQuantity < 0) {
+        throw new BadRequestException('موجودی نمی‌تواند منفی باشد');
+      }
+      listingData.stockQuantity = dto.stockQuantity;
+    }
+
+    const exchangeData: Prisma.ListingExchangeUpdateInput = {};
+    if (dto.desiredTitle !== undefined) {
+      exchangeData.desiredTitle = dto.desiredTitle.trim();
+    }
+    if (dto.desiredDescription !== undefined) {
+      exchangeData.desiredDescription =
+        normalizeMultilineText(dto.desiredDescription).trim() || null;
+    }
+    const patchExchange = Object.keys(exchangeData).length > 0;
+    if (patchExchange && !listing.exchange) {
+      throw new BadRequestException(
+        'این آگهی فیلد کالای درخواستی معاوضه ندارد',
+      );
+    }
+
+    if (dto.price !== undefined && listing.type !== ListingType.DIRECT) {
+      throw new BadRequestException('قیمت فقط برای آگهی فروش مستقیم قابل ویرایش است');
+    }
+    if (
+      (dto.basePrice !== undefined ||
+        dto.minBidIncrement !== undefined ||
+        dto.buyNowPrice !== undefined) &&
+      listing.type !== ListingType.AUCTION
+    ) {
+      throw new BadRequestException('فیلدهای مزایده فقط برای آگهی مزایده قابل ویرایش است');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      if (patchExchange) {
+        await tx.listingExchange.update({
+          where: { listingId },
+          data: exchangeData,
+        });
+      }
+      if (dto.price !== undefined && listing.direct) {
+        await tx.listingDirect.update({
+          where: { listingId },
+          data: { price: dto.price },
+        });
+      }
+      if (listing.auction) {
+        const auctionData: Prisma.ListingAuctionUpdateInput = {};
+        if (dto.basePrice !== undefined) auctionData.basePrice = dto.basePrice;
+        if (dto.minBidIncrement !== undefined) {
+          auctionData.minBidIncrement = dto.minBidIncrement;
+        }
+        if (dto.buyNowPrice !== undefined) {
+          auctionData.buyNowPrice = dto.buyNowPrice;
+        }
+        if (Object.keys(auctionData).length > 0) {
+          await tx.listingAuction.update({
+            where: { listingId },
+            data: auctionData,
+          });
+        }
       }
       return tx.listing.update({
         where: { id: listingId },
