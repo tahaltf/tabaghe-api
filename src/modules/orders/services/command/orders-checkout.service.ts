@@ -721,9 +721,19 @@ export class OrdersCheckoutService {
           return true;
         });
         if (hasActiveNonCancelable) {
-          throw new BadRequestException(
-            'این کالا در حال حاضر به فروش رسیده و در جریان است.',
-          );
+          const stockRow = await tx.listing.findUnique({
+            where: { id: listingId },
+            select: { type: true, stockQuantity: true },
+          });
+          const allowsConcurrentSales =
+            stockRow?.type === 'DIRECT' &&
+            (stockRow.stockQuantity ?? 1) > 1;
+
+          if (!allowsConcurrentSales) {
+            throw new BadRequestException(
+              'این کالا در حال حاضر به فروش رسیده و در جریان است.',
+            );
+          }
         }
 
         await tx.order.deleteMany({
