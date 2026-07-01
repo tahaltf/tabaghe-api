@@ -99,6 +99,22 @@ export class CommonContentService {
       'CAMPAIGN_LINK_URL_PREFIX',
       'TICKET_ATTACHMENT_ALLOWED_MIME_TYPES',
       'TICKET_ATTACHMENT_MAX_SIZE_MB',
+      'THEME_VARIANT',
+      'THEME_PALETTE',
+      'THEME_PALETTE_LEGACY',
+      'THEME_PALETTE_LEGACY_DARK',
+      'THEME_PALETTE_PREMIUM',
+      'THEME_PALETTE_PREMIUM_DARK',
+      'THEME_PALETTE_OCEAN',
+      'THEME_PALETTE_OCEAN_DARK',
+      'THEME_PALETTE_FOREST',
+      'THEME_PALETTE_FOREST_DARK',
+      'THEME_PALETTE_SLATE',
+      'THEME_PALETTE_SLATE_DARK',
+      'THEME_PALETTE_ROSE',
+      'THEME_PALETTE_ROSE_DARK',
+      'THEME_PALETTE_MIDNIGHT',
+      'THEME_PALETTE_MIDNIGHT_DARK',
     ];
 
     const rows = await this.prisma.systemSetting.findMany({
@@ -281,6 +297,22 @@ export class CommonContentService {
           labels: formatTicketAttachmentLabels(allowedMimeTypes),
         };
       })(),
+      themeVariant: map.THEME_VARIANT?.trim() || null,
+      themePalette: map.THEME_PALETTE?.trim() || null,
+      themePaletteLegacy: map.THEME_PALETTE_LEGACY?.trim() || null,
+      themePaletteLegacyDark: map.THEME_PALETTE_LEGACY_DARK?.trim() || null,
+      themePalettePremium: map.THEME_PALETTE_PREMIUM?.trim() || null,
+      themePalettePremiumDark: map.THEME_PALETTE_PREMIUM_DARK?.trim() || null,
+      themePaletteOcean: map.THEME_PALETTE_OCEAN?.trim() || null,
+      themePaletteOceanDark: map.THEME_PALETTE_OCEAN_DARK?.trim() || null,
+      themePaletteForest: map.THEME_PALETTE_FOREST?.trim() || null,
+      themePaletteForestDark: map.THEME_PALETTE_FOREST_DARK?.trim() || null,
+      themePaletteSlate: map.THEME_PALETTE_SLATE?.trim() || null,
+      themePaletteSlateDark: map.THEME_PALETTE_SLATE_DARK?.trim() || null,
+      themePaletteRose: map.THEME_PALETTE_ROSE?.trim() || null,
+      themePaletteRoseDark: map.THEME_PALETTE_ROSE_DARK?.trim() || null,
+      themePaletteMidnight: map.THEME_PALETTE_MIDNIGHT?.trim() || null,
+      themePaletteMidnightDark: map.THEME_PALETTE_MIDNIGHT_DARK?.trim() || null,
     };
   }
 
