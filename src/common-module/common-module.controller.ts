@@ -5,14 +5,12 @@ import {
   NotFoundException,
   Param,
   Post,
-  Req,
   Res,
 } from '@nestjs/common';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
-import type { Request, Response } from 'express';
+import type { Response } from 'express';
 import { CommonService } from './common-module.service';
 import { PwaIconService } from './pwa-icon.service';
-import { buildClientNetworkHint } from './client-network-hint.util';
 import { CacheControl } from '../common/decorators/cache-control.decorator';
 
 @Controller('common')
@@ -22,16 +20,6 @@ export class CommonController {
     private readonly commonService: CommonService,
     private readonly pwaIconService: PwaIconService,
   ) {}
-
-  /**
-   * کشور اتصال از هدرهای لبه (مثل Cloudflare) — بدون سرویس Geo خارجی.
-   * برای nginx می‌توان هدر `X-Tabaghe-Client-Country` را با geoip2 پر کرد.
-   */
-  @Get('client-network')
-  @CacheControl('private, no-store')
-  clientNetwork(@Req() req: Request) {
-    return buildClientNetworkHint(req);
-  }
 
   @Get('provinces')
   async provinces() {
