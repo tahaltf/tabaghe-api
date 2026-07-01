@@ -18,6 +18,7 @@ import { NotificationService } from '../../notification/notification.service';
 import { TRADE_REPUTATION_PENALTY_DELTA } from '../../orders/order-reputation.service';
 import { ListingExpiryService } from './listing-expiry.service';
 import { ListingNotificationBatchService } from '../../../common/notification/listing-notification-batch.service';
+import { validateListingSalePricing } from '../../../common/listing/listing-price.util';
 
 const ADMIN_LISTING_INCLUDE = {
   direct: true,
@@ -260,6 +261,29 @@ export class ListingAdminService {
       throw new BadRequestException('فیلدهای مزایده فقط برای آگهی مزایده قابل ویرایش است');
     }
 
+    const touchesDirectPricing =
+      dto.price !== undefined ||
+      dto.compareAtPrice !== undefined ||
+      dto.salePrice !== undefined;
+    if (touchesDirectPricing && listing.direct) {
+      const price = dto.price ?? Number(listing.direct.price);
+      const salePrice =
+        dto.salePrice !== undefined
+          ? dto.salePrice
+          : listing.direct.salePrice != null
+            ? Number(listing.direct.salePrice)
+            : null;
+      if (salePrice != null) {
+        try {
+          validateListingSalePricing({ price, salePrice });
+        } catch (e) {
+          throw new BadRequestException(
+            e instanceof Error ? e.message : 'قیمت تخفیف نمی‌تواند بیشتر از قیمت اصلی باشد',
+          );
+        }
+      }
+    }
+
     return this.prisma.$transaction(async (tx) => {
       if (patchExchange) {
         await tx.listingExchange.update({
@@ -267,20 +291,37 @@ export class ListingAdminService {
           data: exchangeData,
         });
       }
-      if (dto.price !== undefined && listing.direct) {
-        const directPatch: Prisma.ListingDirectUpdateInput = {
-          price: dto.price,
-        };
-        if (dto.compareAtPrice !== undefined) {
-          directPatch.compareAtPrice = dto.compareAtPrice;
+      if (touchesDirectPricing && listing.direct) {
+        const directPatch: Prisma.ListingDirectUpdateInput = {};
+        const effectivePrice = dto.price ?? Number(listing.direct.price);
+        if (dto.price !== undefined) {
+          directPatch.price = dto.price;
         }
         if (dto.salePrice !== undefined) {
           directPatch.salePrice = dto.salePrice;
+          directPatch.compareAtPrice =
+            dto.salePrice != null
+              ? effectivePrice
+              : dto.compareAtPrice !== undefined
+                ? dto.compareAtPrice
+                : null;
+        } else if (dto.compareAtPrice !== undefined) {
+          directPatch.compareAtPrice = dto.compareAtPrice;
+        } else if (dto.price !== undefined) {
+          const currentSale =
+            listing.direct.salePrice != null
+              ? Number(listing.direct.salePrice)
+              : null;
+          if (currentSale != null) {
+            directPatch.compareAtPrice = effectivePrice;
+          }
         }
-        await tx.listingDirect.update({
-          where: { listingId },
-          data: directPatch,
-        });
+        if (Object.keys(directPatch).length > 0) {
+          await tx.listingDirect.update({
+            where: { listingId },
+            data: directPatch,
+          });
+        }
       }
       if (listing.auction) {
         const auctionData: Prisma.ListingAuctionUpdateInput = {};

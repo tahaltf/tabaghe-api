@@ -1,7 +1,7 @@
 import { ListingType } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { listingTypePersianLabel } from '../system-settings/listing-type-enabled';
-import { resolveOrderStatusLabelFromMeta } from '../order/order-status-labels.util';
+import { resolveStatusLabelFromMeta } from '../status/status-labels.util';
 import {
   isListingTitleLikelyId,
   normalizeListingTitleInMeta,
@@ -164,7 +164,7 @@ export async function enrichNotificationMeta(
   }
 
   if (typeof out.status === 'string' && out.status.trim()) {
-    const statusLabel = resolveOrderStatusLabelFromMeta(out);
+    const statusLabel = resolveStatusLabelFromMeta(out);
     out.statusLabel = statusLabel;
     out.orderStatusLabel = statusLabel;
     out.statusFa = statusLabel;
@@ -208,7 +208,7 @@ function resolvePartyOrderStatusFa(
     return meta.note.trim();
   }
 
-  return resolveOrderStatusLabelFromMeta(meta);
+  return resolveStatusLabelFromMeta(meta);
 }
 
 /** meta نقش‌محور برای SMS/اعلان — note و buyerNote/sellerNote برای هر گیرنده */

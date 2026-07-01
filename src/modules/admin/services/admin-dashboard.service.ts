@@ -11,6 +11,8 @@ import {
 } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { getListingStatusLabelFa } from '../../../common/listing/listing-status-labels.util';
+import { getOrderStatusLabelFa } from '../../../common/order/order-status-labels.util';
 
 const MANUAL_DEPOSIT_KIND = 'manual-deposit';
 
@@ -303,14 +305,14 @@ export class AdminDashboardService {
         id: l.id,
         kind: 'listing' as const,
         title: l.title,
-        subtitle: `وضعیت: ${l.status}`,
+        subtitle: `وضعیت: ${getListingStatusLabelFa(l.status)}`,
         createdAt: l.createdAt,
       })),
       ...recentOrders.map((o) => ({
         id: o.id,
         kind: 'order' as const,
         title: o.listing.title,
-        subtitle: `${o.status} • ${o.totalAmount.toString()}`,
+        subtitle: `${getOrderStatusLabelFa(o.status)} • ${Number(o.totalAmount).toLocaleString('fa-IR')}`,
         createdAt: o.createdAt,
       })),
     ]

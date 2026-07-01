@@ -78,4 +78,36 @@ describe('applySmsTemplatePlaceholders', () => {
     });
     expect(out).toBe('وضعیت: تایید با اصلاح مالی');
   });
+
+  it('maps listing SOLD status to Persian label for seller SMS', () => {
+    const out = applySmsTemplatePlaceholders(
+      '{{firstName}} عزیز؛ کالای «{{listingTitle}}» — {{sellerOrderStatusFa}}.',
+      {
+        firstName: 'علی',
+        meta: {
+          listingTitle: 'لپ‌تاپ',
+          status: 'SOLD',
+          role: 'SELLER',
+          phaseKey: 'sale_registered',
+        },
+      },
+    );
+    expect(out).toBe('علی عزیز؛ کالای «لپ‌تاپ» — فروخته شد.');
+  });
+
+  it('maps repair status enum to Persian label', () => {
+    const out = applySmsTemplatePlaceholders(
+      'وضعیت درخواست تعمیر شما ({{trackingCode}}) به «{{status}}» تغییر یافت.',
+      {
+        meta: {
+          repairId: 'repair-1',
+          trackingCode: 'R-100',
+          status: 'UNDER_INSPECTION',
+        },
+      },
+    );
+    expect(out).toBe(
+      'وضعیت درخواست تعمیر شما (R-100) به «در حال کارشناسی» تغییر یافت.',
+    );
+  });
 });

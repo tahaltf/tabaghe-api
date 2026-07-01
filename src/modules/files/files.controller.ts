@@ -4,12 +4,12 @@ import {
   Get,
   NotFoundException,
   Param,
-  Res,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
-import type { Response } from 'express';
 import { createReadStream, existsSync } from 'fs';
 import { join, extname } from 'path';
+import { RawResponse } from '../../common/decorators/raw-response.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../shared/contracts/auth';
@@ -46,12 +46,12 @@ export class FilesController {
   constructor(private readonly filesService: FilesService) {}
 
   @Get(':category/:filename')
+  @RawResponse()
   async serveProtectedFile(
     @CurrentUser() user: AuthenticatedUser,
     @Param('category') category: string,
     @Param('filename') filename: string,
-    @Res() res: Response,
-  ) {
+  ): Promise<StreamableFile> {
     if (!PROTECTED_CATEGORIES.has(category)) {
       throw new NotFoundException('فایل یافت نشد.');
     }
@@ -72,9 +72,9 @@ export class FilesController {
     }
 
     const contentType = contentTypeFromFilename(safeName);
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'private, no-store');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    createReadStream(filePath).pipe(res);
+    return new StreamableFile(createReadStream(filePath), {
+      type: contentType,
+      disposition: `inline; filename="${safeName}"`,
+    });
   }
 }

@@ -797,6 +797,8 @@ export class OperationalNotifyService {
           listingId: order.listingId,
           listingTitle: title,
           status: 'SOLD',
+          statusLabel: 'فروخته شد',
+          sellerOrderStatusFa: 'فروخته شد',
           phase: 'sale_completed',
           phaseKey: 'sale_completed',
           ...buildPartyOrderNotifyMeta('SELLER', { buyerNote, sellerNote }),

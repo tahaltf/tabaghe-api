@@ -13,10 +13,7 @@ export function resolveListingCompareAtPrice(
   if (sale == null || !Number.isFinite(sale) || sale <= 0) {
     return null;
   }
-  const compare =
-    direct.compareAtPrice != null
-      ? Number(direct.compareAtPrice)
-      : Number(direct.price);
+  const compare = Number(direct.price);
   if (!Number.isFinite(compare) || compare <= sale) {
     return null;
   }
@@ -55,6 +52,6 @@ export function validateListingSalePricing(direct: {
   const compare =
     direct.compareAtPrice != null ? Number(direct.compareAtPrice) : price;
   if (!Number.isFinite(compare) || compare <= sale) {
-    throw new Error('قیمت ویژه باید کمتر از قیمت اصلی باشد');
+    throw new Error('قیمت تخفیف نمی‌تواند بیشتر از قیمت اصلی باشد');
   }
 }

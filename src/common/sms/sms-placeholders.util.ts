@@ -1,4 +1,4 @@
-import { getOrderStatusLabelFa } from '../order/order-status-labels.util';
+import { resolveStatusLabelFa, resolveStatusLabelFromMeta } from '../status/status-labels.util';
 import { isListingTitleLikelyId } from '../notification/listing-title-meta.util';
 
 /**
@@ -93,12 +93,18 @@ export function applySmsTemplatePlaceholders(
       meta['sellerOrderStatusFa'] ??
         meta['sellerOrderStatus'] ??
         meta['ownerOrderStatusFa'] ??
+        resolveStatusLabelFromMeta(meta as Record<string, unknown>) ??
         '',
     ),
   );
   s = s.replace(
     /\{\{\s*buyerOrderStatusFa\s*\}\}/gi,
-    String(meta['buyerOrderStatusFa'] ?? meta['buyerOrderStatus'] ?? ''),
+    String(
+      meta['buyerOrderStatusFa'] ??
+        meta['buyerOrderStatus'] ??
+        resolveStatusLabelFromMeta(meta as Record<string, unknown>) ??
+        '',
+    ),
   );
   s = s.replace(
     /\{\{\s*ownerOrderStatusFa\s*\}\}/gi,
@@ -106,6 +112,7 @@ export function applySmsTemplatePlaceholders(
       meta['ownerOrderStatusFa'] ??
         meta['sellerOrderStatusFa'] ??
         meta['sellerOrderStatus'] ??
+        resolveStatusLabelFromMeta(meta as Record<string, unknown>) ??
         '',
     ),
   );
@@ -120,7 +127,9 @@ export function applySmsTemplatePlaceholders(
 
   const statusFa =
     String(meta['statusLabel'] ?? meta['statusFa'] ?? meta['orderStatusLabel'] ?? '').trim() ||
-    (meta['status'] != null ? getOrderStatusLabelFa(String(meta['status'])) : '');
+    (meta['status'] != null
+      ? resolveStatusLabelFromMeta(meta as Record<string, unknown>)
+      : '');
   if (statusFa) {
     s = s.replace(/\{\{\s*status\s*\}\}/gi, statusFa);
     s = s.replace(/\{\{\s*orderStatus\s*\}\}/gi, statusFa);
@@ -135,7 +144,7 @@ export function applySmsTemplatePlaceholders(
     }
     let val = v === null || v === undefined ? '' : String(v);
     if (k === 'status' || k === 'orderStatus') {
-      val = getOrderStatusLabelFa(val) || val;
+      val = resolveStatusLabelFa(val) || val;
     }
     const re = new RegExp(`\\{\\{\\s*${escapeRegExp(k)}\\s*\\}\\}`, 'gi');
     s = s.replace(re, val);

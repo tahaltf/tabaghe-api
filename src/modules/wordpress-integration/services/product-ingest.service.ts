@@ -43,6 +43,7 @@ import { RemoteImageService } from './remote-image.service';
 import { WordPressConnectionService } from './connection.service';
 
 import { buildWordPressListingDescription } from '../utils/wordpress-description.util';
+import { validateListingSalePricing } from '../../../common/listing/listing-price.util';
 
 import { WordPressCategoriesService } from './wordpress-categories.service';
 import {
@@ -412,6 +413,19 @@ export class WordPressProductIngestService {
       dto.salePrice != null && Number(dto.salePrice) > 0
         ? Number(dto.salePrice)
         : null;
+    if (salePrice != null) {
+      try {
+        validateListingSalePricing({
+          price: regularPrice,
+          compareAtPrice: regularPrice,
+          salePrice,
+        });
+      } catch (e) {
+        throw new BadRequestException(
+          e instanceof Error ? e.message : 'قیمت تخفیف نمی‌تواند بیشتر از قیمت اصلی باشد',
+        );
+      }
+    }
     const price = salePrice ?? regularPrice;
 
 

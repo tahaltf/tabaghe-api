@@ -1274,6 +1274,8 @@ export class PaymentsService {
           ...sharedMeta,
           role: 'SELLER',
           status: 'SOLD',
+          statusLabel: 'فروخته شد',
+          sellerOrderStatusFa: 'فروخته شد',
           phase: 'sale_registered',
           phaseKey: 'sale_registered',
         },
