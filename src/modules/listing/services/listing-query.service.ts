@@ -8,6 +8,7 @@ import {
   UserRole,
 } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { TtlCacheService } from '../../../infrastructure/cache/ttl-cache.service';
 import { CategoryTreeCacheService } from '../../../common/category/category-tree-cache.service';
 import {
   buildPaginationMeta,
@@ -129,9 +130,12 @@ export type ListingDetail = Prisma.ListingGetPayload<{
 
 @Injectable()
 export class ListingQueryService {
+  private static readonly HOME_FEED_CACHE_TTL_SECONDS = 45;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly categoryTree: CategoryTreeCacheService,
+    private readonly cache: TtlCacheService,
   ) {}
 
   async findAll(
@@ -194,6 +198,14 @@ export class ListingQueryService {
 
   async getHomeFeed(limit = 10): Promise<HomeFeedResponse> {
     const safeLimit = Math.min(20, Math.max(1, limit));
+    return this.cache.getOrSet(
+      `listings:home-feed:${safeLimit}`,
+      ListingQueryService.HOME_FEED_CACHE_TTL_SECONDS,
+      () => this.buildHomeFeed(safeLimit),
+    );
+  }
+
+  private async buildHomeFeed(safeLimit: number): Promise<HomeFeedResponse> {
     const where = await this.buildPublicWhere({} as ListListingsDto);
     const directWhere = { ...where, type: ListingType.DIRECT };
     await this.applyCategoryExclusion(

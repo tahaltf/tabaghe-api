@@ -16,6 +16,7 @@ import {
 @Injectable()
 export class CommonLocationService {
   private static readonly CACHE_TTL_SECONDS = 120;
+  private static readonly LOCATION_SEO_INDEX_TTL_SECONDS = 300;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -173,6 +174,14 @@ export class CommonLocationService {
 
   /** فهرست شهرها و استان‌ها برای صفحه /locations */
   async getLocationSeoIndex() {
+    return this.cache.getOrSet(
+      'common:locations-seo-index',
+      CommonLocationService.LOCATION_SEO_INDEX_TTL_SECONDS,
+      () => this.buildLocationSeoIndex(),
+    );
+  }
+
+  private async buildLocationSeoIndex() {
     const rows = await this.prisma.location.findMany({
       orderBy: { name: 'asc' },
       select: {
