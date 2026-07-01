@@ -24,6 +24,7 @@ const MY_PROFILE_SELECT = {
   email: true,
   firstName: true,
   lastName: true,
+  displayName: true,
   nationalCode: true,
   shabaNumber: true,
   nationalCardImage: true,
@@ -436,6 +437,7 @@ export class UsersService {
         data: {
           firstName: dto.firstName,
           lastName: dto.lastName,
+          displayName: this.normalizeDisplayName(dto.displayName),
           nationalCode: dto.nationalCode,
           shabaNumber,
           ...(dto.birthDate
@@ -481,6 +483,10 @@ export class UsersService {
     const data: Prisma.UserUpdateInput = {
       firstName: dto.firstName,
       lastName: dto.lastName,
+      displayName:
+        dto.displayName !== undefined
+          ? this.normalizeDisplayName(dto.displayName)
+          : undefined,
       email: dto.email,
       bio: dto.bio,
       avatar: dto.avatar,
@@ -533,6 +539,11 @@ export class UsersService {
     if (value === undefined) return undefined;
     if (typeof value === 'boolean') return value;
     return String(value).toLowerCase() === 'true';
+  }
+
+  private normalizeDisplayName(value?: string | null): string | null {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : null;
   }
 
   async acceptTerms(

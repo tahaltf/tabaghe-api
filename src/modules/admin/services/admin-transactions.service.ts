@@ -12,7 +12,7 @@ const TX_INCLUDE = {
     select: {
       userId: true,
       user: {
-        select: { id: true, phone: true, firstName: true, lastName: true },
+        select: { id: true, phone: true, firstName: true, lastName: true, displayName: true },
       },
     },
   },

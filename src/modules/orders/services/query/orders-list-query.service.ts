@@ -83,6 +83,7 @@ export class OrdersListQueryService {
                     id: true,
                     firstName: true,
                     lastName: true,
+                    displayName: true,
                     avatar: true,
                   },
                 }
@@ -94,6 +95,7 @@ export class OrdersListQueryService {
                     id: true,
                     firstName: true,
                     lastName: true,
+                    displayName: true,
                     avatar: true,
                   },
                 }
@@ -206,6 +208,7 @@ export class OrdersListQueryService {
               id: true,
               firstName: true,
               lastName: true,
+              displayName: true,
               phone: true,
             },
           },

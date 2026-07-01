@@ -94,7 +94,7 @@ export class ReviewsService {
         where: { revieweeId: userId },
         include: {
           reviewer: {
-            select: { firstName: true, lastName: true, avatar: true },
+            select: { firstName: true, lastName: true, displayName: true, avatar: true },
           },
           order: {
             include: { listing: { select: { title: true, type: true } } },
@@ -122,7 +122,7 @@ export class ReviewsService {
     return this.prisma.review.findMany({
       where: { reviewerId: userId },
       include: {
-        reviewee: { select: { firstName: true, lastName: true, avatar: true } },
+        reviewee: { select: { firstName: true, lastName: true, displayName: true, avatar: true } },
         order: {
           include: { listing: { select: { title: true } } },
         },

@@ -22,7 +22,7 @@ export class AdminCampaignLinksService {
       include: {
         _count: { select: { clickLogs: true } },
         createdBy: {
-          select: { id: true, firstName: true, lastName: true, phone: true },
+          select: { id: true, firstName: true, lastName: true, displayName: true, phone: true },
         },
       },
     });
@@ -34,7 +34,7 @@ export class AdminCampaignLinksService {
       include: {
         _count: { select: { clickLogs: true } },
         createdBy: {
-          select: { id: true, firstName: true, lastName: true, phone: true },
+          select: { id: true, firstName: true, lastName: true, displayName: true, phone: true },
         },
       },
     });

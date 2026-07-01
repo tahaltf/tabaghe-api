@@ -46,7 +46,7 @@ export class AdminNotificationsController {
         where,
         include: {
           user: {
-            select: { id: true, phone: true, firstName: true, lastName: true },
+            select: { id: true, phone: true, firstName: true, lastName: true, displayName: true },
           },
         },
         orderBy: { createdAt: 'desc' },

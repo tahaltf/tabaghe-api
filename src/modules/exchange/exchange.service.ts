@@ -457,7 +457,7 @@ export class ExchangeService {
       include: {
         listing: { include: { direct: true, exchange: true } },
         offerer: {
-          select: { id: true, firstName: true, lastName: true, avatar: true },
+          select: { id: true, firstName: true, lastName: true, displayName: true, avatar: true },
         },
       },
     });

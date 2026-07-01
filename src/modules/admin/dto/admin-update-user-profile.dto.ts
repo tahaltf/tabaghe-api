@@ -27,6 +27,11 @@ export class AdminUpdateUserProfileDto {
   lastName?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(80, { message: 'نام نمایشی حداکثر ۸۰ کاراکتر است' })
+  displayName?: string;
+
+  @IsOptional()
   @ValidateIf((o) => o.nationalCode !== '' && o.nationalCode != null)
   @IsString()
   @Length(10, 10, { message: 'کد ملی باید ۱۰ رقم باشد' })

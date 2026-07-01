@@ -9,7 +9,7 @@ import {
 const SAVED_LISTING_INCLUDE = {
   category: { select: { id: true, title: true, slug: true } },
   author: {
-    select: { id: true, firstName: true, lastName: true, avatar: true },
+    select: { id: true, firstName: true, lastName: true, displayName: true, avatar: true },
   },
   direct: { select: { price: true, allowExchange: true } },
   auction: {

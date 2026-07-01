@@ -6,6 +6,7 @@ import {
   Matches,
   ValidateIf,
   IsDateString,
+  MaxLength,
 } from 'class-validator';
 
 export class CompleteProfileDto {
@@ -16,6 +17,11 @@ export class CompleteProfileDto {
   @IsString()
   @IsNotEmpty({ message: 'نام خانوادگی الزامی است' })
   lastName!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80, { message: 'نام نمایشی حداکثر ۸۰ کاراکتر است' })
+  displayName?: string;
 
   @IsString()
   @Length(10, 10, { message: 'کد ملی باید ۱۰ رقم باشد' })

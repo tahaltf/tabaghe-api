@@ -15,10 +15,10 @@ import { AdminOrderListQueryDto } from '../dto/admin-query.dto';
 const ORDER_LIST_INCLUDE = {
   listing: { select: { id: true, title: true, type: true, thumbnail: true } },
   buyer: {
-    select: { id: true, firstName: true, lastName: true, phone: true },
+    select: { id: true, firstName: true, lastName: true, displayName: true, phone: true },
   },
   seller: {
-    select: { id: true, firstName: true, lastName: true, phone: true },
+    select: { id: true, firstName: true, lastName: true, displayName: true, phone: true },
   },
 } satisfies Prisma.OrderInclude;
 

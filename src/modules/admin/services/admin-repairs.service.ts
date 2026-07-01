@@ -20,7 +20,7 @@ import { NotificationService } from '../../notification/notification.service';
 import { normalizePickupSlotsInput } from '../../../shared/utils/pickup-datetime.util';
 
 const REPAIR_INCLUDE = {
-  user: { select: { id: true, phone: true, firstName: true, lastName: true } },
+  user: { select: { id: true, phone: true, firstName: true, lastName: true, displayName: true } },
 } satisfies Prisma.RepairRequestInclude;
 const USER_SHIPPING_NOTE_MARK = '[USER_SHIPPING_NOTE]';
 const ADMIN_RETURN_NOTE_MARK = '[ADMIN_RETURN_NOTE]';

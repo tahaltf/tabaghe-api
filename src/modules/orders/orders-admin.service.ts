@@ -55,8 +55,8 @@ export class OrdersAdminService {
       },
       include: {
         listing: { select: { title: true, type: true } },
-        buyer: { select: { firstName: true, lastName: true, phone: true } },
-        seller: { select: { firstName: true, lastName: true, phone: true } },
+        buyer: { select: { firstName: true, lastName: true, displayName: true, phone: true } },
+        seller: { select: { firstName: true, lastName: true, displayName: true, phone: true } },
       },
       orderBy: { updatedAt: 'desc' },
     });

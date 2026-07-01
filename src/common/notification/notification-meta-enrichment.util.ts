@@ -6,13 +6,12 @@ import {
   isListingTitleLikelyId,
   normalizeListingTitleInMeta,
 } from './listing-title-meta.util';
+import { formatUserDisplayName } from '../utils/user-display-name.util';
 
 function formatUserName(
-  user: { firstName: string | null; lastName: string | null; phone: string } | null | undefined,
+  user: { displayName?: string | null; firstName: string | null; lastName: string | null; phone: string } | null | undefined,
 ): string {
-  if (!user) return '';
-  const name = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim();
-  return name || user.phone;
+  return formatUserDisplayName(user, { fallback: 'phone' });
 }
 
 function formatAmount(value: unknown): string {
@@ -44,7 +43,7 @@ export async function enrichNotificationMeta(
         title: true,
         type: true,
         authorId: true,
-        author: { select: { id: true, firstName: true, lastName: true, phone: true } },
+        author: { select: { id: true, firstName: true, lastName: true, displayName: true, phone: true } },
         direct: { select: { price: true } },
         auction: { select: { highestBidAmount: true, basePrice: true } },
       },
@@ -82,8 +81,8 @@ export async function enrichNotificationMeta(
         totalAmount: true,
         finalPrice: true,
         sellerRevenue: true,
-        buyer: { select: { id: true, firstName: true, lastName: true, phone: true } },
-        seller: { select: { id: true, firstName: true, lastName: true, phone: true } },
+        buyer: { select: { id: true, firstName: true, lastName: true, displayName: true, phone: true } },
+        seller: { select: { id: true, firstName: true, lastName: true, displayName: true, phone: true } },
         listing: { select: { title: true } },
       },
     });
@@ -138,7 +137,7 @@ export async function enrichNotificationMeta(
   if (typeof out.userId === 'string' && (!out.userName || !out.userPhone)) {
     const user = await prisma.user.findUnique({
       where: { id: out.userId },
-      select: { firstName: true, lastName: true, phone: true },
+      select: { firstName: true, lastName: true, displayName: true, phone: true },
     });
     if (user) {
       if (!out.userName) out.userName = formatUserName(user);

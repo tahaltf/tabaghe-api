@@ -84,7 +84,7 @@ const DETAIL_INCLUDE = {
           amount: true,
           createdAt: true,
           bidder: {
-            select: { id: true, firstName: true, lastName: true, avatar: true },
+            select: { id: true, firstName: true, lastName: true, displayName: true, avatar: true },
           },
         },
       },

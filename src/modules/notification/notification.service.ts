@@ -18,6 +18,7 @@ import {
 import { isUserOperationalSmsEnabled } from '../../common/notification/user-sms-notification.util';
 import { isOrderStatusNotificationEnabled } from '../../common/notification/notification-order-status-filter.util';
 import { resolveNotificationPath } from '../../common/notification/notification-navigation.util';
+import { formatUserDisplayName } from '../../common/utils/user-display-name.util';
 import {
   isListingTitleLikelyId,
   resolveListingTitleFromMeta,
@@ -366,11 +367,11 @@ export class NotificationService {
     const [buyer, seller] = await Promise.all([
       this.prisma.user.findUnique({
         where: { id: params.buyerId },
-        select: { phone: true, firstName: true, lastName: true },
+        select: { phone: true, firstName: true, lastName: true, displayName: true },
       }),
       this.prisma.user.findUnique({
         where: { id: params.sellerId },
-        select: { phone: true, firstName: true, lastName: true },
+        select: { phone: true, firstName: true, lastName: true, displayName: true },
       }),
     ]);
     const amountFormatted = params.totalAmount.toLocaleString('fa-IR');
@@ -384,8 +385,8 @@ export class NotificationService {
         listingTitle: params.listingTitle,
         buyerPhone: buyer?.phone,
         sellerPhone: seller?.phone,
-        buyerName: [buyer?.firstName, buyer?.lastName].filter(Boolean).join(' ') || undefined,
-        sellerName: [seller?.firstName, seller?.lastName].filter(Boolean).join(' ') || undefined,
+        buyerName: formatUserDisplayName(buyer, { fallback: 'guest' }) || undefined,
+        sellerName: formatUserDisplayName(seller, { fallback: 'guest' }) || undefined,
         amount: params.totalAmount,
         totalAmount: params.totalAmount,
         amountFormatted,
@@ -507,7 +508,7 @@ export class NotificationService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { phone: true, firstName: true, lastName: true, notifySms: true },
+      select: { phone: true, firstName: true, lastName: true, displayName: true, notifySms: true },
     });
 
     if (!user?.phone) {
@@ -608,7 +609,7 @@ export class NotificationService {
   ) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { phone: true, firstName: true, lastName: true, notifySms: true },
+      select: { phone: true, firstName: true, lastName: true, displayName: true, notifySms: true },
     });
     if (!user?.phone) return;
 
@@ -894,7 +895,7 @@ export class NotificationService {
   ): Promise<string> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { firstName: true, lastName: true },
+      select: { firstName: true, lastName: true, displayName: true },
     });
     const metaForTemplate: Record<string, unknown> = {
       ...meta,

@@ -48,10 +48,10 @@ export class ChatsService {
       include: {
         listing: { select: { title: true, thumbnail: true, id: true } },
         buyer: {
-          select: { firstName: true, lastName: true, id: true, avatar: true },
+          select: { firstName: true, lastName: true, displayName: true, id: true, avatar: true },
         },
         seller: {
-          select: { firstName: true, lastName: true, id: true, avatar: true },
+          select: { firstName: true, lastName: true, displayName: true, id: true, avatar: true },
         },
         messages: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
@@ -67,10 +67,10 @@ export class ChatsService {
         include: {
           listing: { select: { title: true, thumbnail: true, id: true } },
           buyer: {
-            select: { firstName: true, lastName: true, id: true, avatar: true },
+            select: { firstName: true, lastName: true, displayName: true, id: true, avatar: true },
           },
           seller: {
-            select: { firstName: true, lastName: true, id: true, avatar: true },
+            select: { firstName: true, lastName: true, displayName: true, id: true, avatar: true },
           },
           messages: true,
         },
@@ -91,10 +91,10 @@ export class ChatsService {
       include: {
         listing: { select: { title: true, thumbnail: true, id: true } },
         buyer: {
-          select: { firstName: true, lastName: true, id: true, avatar: true },
+          select: { firstName: true, lastName: true, displayName: true, id: true, avatar: true },
         },
         seller: {
-          select: { firstName: true, lastName: true, id: true, avatar: true },
+          select: { firstName: true, lastName: true, displayName: true, id: true, avatar: true },
         },
         messages: { orderBy: { createdAt: 'desc' }, take: 1 },
       },

@@ -46,7 +46,7 @@ export class ListingAnalyticsService {
         title: true,
         thumbnail: true,
         status: true,
-        author: { select: { id: true, firstName: true, lastName: true } },
+        author: { select: { id: true, firstName: true, lastName: true, displayName: true } },
       },
     });
     const listingMap = new Map(listings.map((l) => [l.id, l]));

@@ -256,6 +256,7 @@ model User {
 
   firstName           String?
   lastName            String?
+  displayName         String?
   nationalCode        String?        @unique
   nationalCardImage   String?
   status              UserStatus     @default(INCOMPLETE)

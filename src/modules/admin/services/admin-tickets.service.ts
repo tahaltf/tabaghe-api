@@ -26,13 +26,13 @@ import type { AdminUserPlanInfo } from './admin-user-plan-lookup.service';
 import { TicketAttachmentSettingsService } from '../../support/ticket-attachment-settings.service';
 
 const TICKET_INCLUDE = {
-  user: { select: { id: true, phone: true, firstName: true, lastName: true } },
+  user: { select: { id: true, phone: true, firstName: true, lastName: true, displayName: true } },
   repairRequest: { select: { id: true, trackingCode: true } },
   _count: { select: { messages: true } },
 } satisfies Prisma.TicketInclude;
 
 const TICKET_DETAIL_INCLUDE = {
-  user: { select: { id: true, phone: true, firstName: true, lastName: true } },
+  user: { select: { id: true, phone: true, firstName: true, lastName: true, displayName: true } },
   repairRequest: { select: { id: true, trackingCode: true } },
   messages: { orderBy: { createdAt: 'asc' } },
 } satisfies Prisma.TicketInclude;

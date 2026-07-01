@@ -20,6 +20,7 @@ const LISTING_LIST_INCLUDE = {
       id: true,
       firstName: true,
       lastName: true,
+      displayName: true,
       phone: true,
       isVerified: true,
     },

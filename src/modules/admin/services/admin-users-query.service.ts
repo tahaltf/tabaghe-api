@@ -30,6 +30,7 @@ const USER_LIST_SELECT = {
   email: true,
   firstName: true,
   lastName: true,
+  displayName: true,
   rating: true,
   trustScore: true,
   status: true,
@@ -411,6 +412,10 @@ export class AdminUsersQueryService {
     }
     if (dto.lastName !== undefined) {
       data.lastName = dto.lastName.trim() || null;
+    }
+    if (dto.displayName !== undefined) {
+      const displayName = dto.displayName.trim();
+      data.displayName = displayName || null;
     }
     if (dto.bio !== undefined) {
       data.bio = dto.bio.trim() || null;

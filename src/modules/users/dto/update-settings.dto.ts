@@ -12,6 +12,11 @@ export class UpdateSettingsDto {
   @IsOptional() @IsString() lastName?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(80, { message: 'نام نمایشی حداکثر ۸۰ کاراکتر است' })
+  displayName?: string;
+
+  @IsOptional()
   @IsEmail({}, { message: 'فرمت ایمیل صحیح نیست' })
   email?: string;
 

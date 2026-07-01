@@ -6,9 +6,10 @@ import {
 import { ListingStatus, ListingType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { resolveListingEffectiveUnitPrice } from '../../common/listing/listing-price.util';
+import { formatUserDisplayName } from '../../common/utils/user-display-name.util';
 
 const CART_LISTING_INCLUDE = {
-  author: { select: { id: true, firstName: true, lastName: true } },
+  author: { select: { id: true, firstName: true, lastName: true, displayName: true } },
   category: { select: { id: true, title: true } },
   direct: true,
 } satisfies Prisma.ListingInclude;
@@ -75,9 +76,7 @@ export class CartService {
       .filter(Boolean);
     return {
       sellerId: cart.sellerId,
-      sellerName: seller
-        ? `${seller.firstName ?? ''} ${seller.lastName ?? ''}`.trim() || null
-        : null,
+      sellerName: seller ? formatUserDisplayName(seller) || null : null,
       items,
       itemCount: items.reduce((s, i) => s + (i?.quantity ?? 0), 0),
     };

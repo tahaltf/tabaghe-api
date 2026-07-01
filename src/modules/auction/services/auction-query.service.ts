@@ -82,7 +82,7 @@ export class AuctionQueryService {
         bidderId: true,
         createdAt: true,
         status: true,
-        bidder: { select: { firstName: true, lastName: true, avatar: true } },
+        bidder: { select: { firstName: true, lastName: true, displayName: true, avatar: true } },
       },
     });
 
@@ -94,9 +94,13 @@ export class AuctionQueryService {
       bidderId: isOwner || b.bidderId === viewerUserId ? b.bidderId : null,
       isMine: b.bidderId === viewerUserId,
       bidder: {
-        firstName: b.bidder?.firstName ?? null,
-        // نمایش مخفف نام خانوادگی برای رعایت حریم خصوصی.
-        lastName: b.bidder?.lastName ? `${b.bidder.lastName.charAt(0)}.` : null,
+        displayName: b.bidder?.displayName ?? null,
+        firstName: b.bidder?.displayName ? null : (b.bidder?.firstName ?? null),
+        lastName: b.bidder?.displayName
+          ? null
+          : b.bidder?.lastName
+            ? `${b.bidder.lastName.charAt(0)}.`
+            : null,
         avatar: b.bidder?.avatar ?? null,
       },
     }));
@@ -115,7 +119,7 @@ export class AuctionQueryService {
             },
           },
         },
-        author: { select: { id: true, firstName: true, lastName: true } },
+        author: { select: { id: true, firstName: true, lastName: true, displayName: true } },
       },
     });
 
