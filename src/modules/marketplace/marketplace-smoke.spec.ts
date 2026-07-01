@@ -14,7 +14,9 @@ describe('marketplace smoke (module wiring)', () => {
       'coupons.service.spec.ts',
       'cart.service.spec.ts',
       'cart-checkout.service.spec.ts',
+      'cart-checkout.integration.spec.ts',
+      'orders-checkout-coupon.spec.ts',
     ];
-    expect(specs.length).toBeGreaterThanOrEqual(3);
+    expect(specs.length).toBeGreaterThanOrEqual(5);
   });
 });

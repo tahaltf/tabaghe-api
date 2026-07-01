@@ -21,6 +21,14 @@ describe('PaymentsService', () => {
     wallet: {
       update: jest.fn(),
     },
+    checkoutSession: {
+      findUnique: jest.fn(),
+      update: jest.fn(),
+    },
+    order: {
+      findUnique: jest.fn(),
+      update: jest.fn(),
+    },
     $transaction: jest.fn(),
   };
 
@@ -40,7 +48,11 @@ describe('PaymentsService', () => {
     verifyPayment: jest.fn(),
   };
 
-  const notificationMock = { create: jest.fn(), createMany: jest.fn() };
+  const notificationMock = {
+    create: jest.fn(),
+    createMany: jest.fn(),
+    createUserOperational: jest.fn().mockResolvedValue(undefined),
+  };
   const exchangeMock = { rejectNonWinningExchangeOffersAfterSale: jest.fn() };
 
   beforeEach(async () => {
@@ -144,5 +156,95 @@ describe('PaymentsService', () => {
     });
 
     expect(result).toMatchObject({ ok: true, result: 'ALREADY_PROCESSED' });
+  });
+
+  it('cancels checkout session when user aborts gateway payment', async () => {
+    prismaMock.checkoutSession.findUnique.mockResolvedValue({
+      id: 'session-1',
+      status: 'PENDING',
+      totalAmount: 540_000,
+      orders: [{ id: 'o-1', status: 'PENDING' }],
+    });
+    prismaMock.checkoutSession.update.mockResolvedValue({});
+    prismaMock.$transaction.mockImplementation(async (cb: any) =>
+      cb({
+        order: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'o-1',
+            status: 'PENDING',
+            type: 'DIRECT',
+            totalAmount: 100_000,
+          }),
+          delete: jest.fn(),
+        },
+        secondChanceOffer: { updateMany: jest.fn() },
+      }),
+    );
+
+    const result = await service.processGatewayCallback('zibal', {
+      kind: 'CHECKOUT_SESSION',
+      sessionId: 'session-1',
+      orderId: 'session-1',
+      success: '0',
+      trackId: 'AUTH-CART-1',
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      result: 'CANCELLED_BY_USER',
+      kind: 'CHECKOUT_SESSION',
+      sessionId: 'session-1',
+    });
+    expect(prismaMock.checkoutSession.update).toHaveBeenCalledWith({
+      where: { id: 'session-1' },
+      data: { status: 'CANCELLED' },
+    });
+    expect(zibalGatewayMock.verifyPayment).not.toHaveBeenCalled();
+  });
+
+  it('rolls back checkout session when gateway verify fails', async () => {
+    prismaMock.checkoutSession.findUnique.mockResolvedValue({
+      id: 'session-2',
+      status: 'PENDING',
+      totalAmount: 300_000,
+      orders: [{ id: 'o-2', status: 'AWAITING_PAYMENT' }],
+    });
+    prismaMock.checkoutSession.update.mockResolvedValue({});
+    zibalGatewayMock.verifyPayment.mockResolvedValue({
+      success: false,
+      message: 'not paid',
+    });
+    prismaMock.$transaction.mockImplementation(async (cb: any) =>
+      cb({
+        order: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'o-2',
+            status: 'AWAITING_PAYMENT',
+            type: 'DIRECT',
+            totalAmount: 300_000,
+          }),
+          delete: jest.fn(),
+        },
+        secondChanceOffer: { updateMany: jest.fn() },
+      }),
+    );
+
+    const result = await service.processGatewayCallback('zibal', {
+      kind: 'CHECKOUT_SESSION',
+      sessionId: 'session-2',
+      orderId: 'session-2',
+      success: '1',
+      trackId: 'AUTH-CART-2',
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      result: 'NOT_PAID',
+      kind: 'CHECKOUT_SESSION',
+    });
+    expect(prismaMock.checkoutSession.update).toHaveBeenCalledWith({
+      where: { id: 'session-2' },
+      data: { status: 'CANCELLED' },
+    });
   });
 });

@@ -24,6 +24,8 @@
     "seed:seller-landing": "ts-node scripts/seed-seller-landing.ts",
     "seed:content": "node prisma/seed-content.js",
     "test:phase1": "jest --testPathPattern=\"web-otp-template|seller-landing.seed|landing-sections\"",
+    "test:marketplace": "jest coupons.service.spec.ts cart.service.spec.ts cart-checkout.service.spec.ts cart-checkout.integration.spec.ts marketplace-smoke.spec.ts orders-checkout-coupon.spec.ts payments.service.spec.ts",
+    "test:marketplace:e2e": "jest src/test/e2e/marketplace-cart.e2e.spec.ts --runInBand",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json"
