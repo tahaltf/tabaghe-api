@@ -6,6 +6,7 @@ import {
 import {
   AuctionBidStatus,
   AuctionSettlementStatus,
+  CheckoutSessionStatus,
   ListingStatus,
   NotificationType,
   OrderStatus,
@@ -234,6 +235,196 @@ export class PaymentsService {
     };
   }
 
+  async initiateCheckoutSessionPayment(
+    sessionId: string,
+    userId: string,
+    callbackBaseUrl?: string,
+    returnUrl?: string,
+  ) {
+    const session = await this.prisma.checkoutSession.findUnique({
+      where: { id: sessionId },
+      include: {
+        orders: true,
+        buyer: { select: { phone: true } },
+      },
+    });
+    if (!session) throw new NotFoundException('جلسه پرداخت یافت نشد');
+    if (session.buyerId !== userId) {
+      throw new BadRequestException('دسترسی به این پرداخت مجاز نیست');
+    }
+    if (session.status !== CheckoutSessionStatus.PENDING) {
+      throw new BadRequestException('این جلسه پرداخت قابل پرداخت نیست');
+    }
+    const payableAmount = Number(session.totalAmount);
+    if (payableAmount <= 0) {
+      throw new BadRequestException('مبلغ پرداخت معتبر نیست');
+    }
+
+    const gateway = this.getGateway();
+    const callbackBase =
+      callbackBaseUrl ?? this.appSettings.getPaymentGatewayConfig().callbackUrl;
+    const callback = new URL(callbackBase);
+    callback.searchParams.set('kind', 'CHECKOUT_SESSION');
+    callback.searchParams.set('sessionId', session.id);
+    callback.searchParams.set('orderId', session.id);
+    callback.searchParams.set('payerId', userId);
+    if (returnUrl) callback.searchParams.set('returnUrl', returnUrl);
+
+    const requested = await gateway.requestPayment({
+      amount: payableAmount,
+      callbackUrl: callback.toString(),
+      orderId: `cart-${session.id}`,
+      description: `پرداخت سبد خرید`,
+      mobile: session.buyer?.phone ?? undefined,
+    });
+
+    await this.prisma.checkoutSession.update({
+      where: { id: session.id },
+      data: {
+        paymentAuthority: requested.authority,
+        status: CheckoutSessionStatus.PENDING,
+      },
+    });
+
+    for (const order of session.orders) {
+      if (
+        order.status === OrderStatus.PENDING ||
+        order.status === OrderStatus.AWAITING_PAYMENT
+      ) {
+        await this.prisma.order.update({
+          where: { id: order.id },
+          data: { status: OrderStatus.AWAITING_PAYMENT },
+        });
+      }
+    }
+
+    return {
+      gateway: gateway.name,
+      sessionId: session.id,
+      authority: requested.authority,
+      paymentUrl: requested.paymentUrl,
+    };
+  }
+
+  private async processCheckoutSessionCallback(params: {
+    sessionId: string;
+    authority: string;
+    successFlag: string;
+    payerId?: string;
+  }) {
+    const { sessionId, authority, successFlag } = params;
+    const session = await this.prisma.checkoutSession.findUnique({
+      where: { id: sessionId },
+      include: { orders: true },
+    });
+    if (!session) throw new NotFoundException('جلسه پرداخت یافت نشد');
+
+    const normalizedSuccess = String(successFlag ?? '').trim();
+    if (
+      normalizedSuccess.length > 0 &&
+      !this.isGatewayCallbackSuccess(normalizedSuccess)
+    ) {
+      await this.rollbackCheckoutSession(session.id);
+      return {
+        result: 'CANCELLED_BY_USER',
+        ok: false,
+        kind: 'CHECKOUT_SESSION',
+        sessionId: session.id,
+        authority,
+      };
+    }
+
+    const verified = await this.getGateway().verifyPayment({
+      authority,
+      expectedAmount: Number(session.totalAmount),
+    });
+    if (!verified.success) {
+      await this.rollbackCheckoutSession(session.id);
+      return {
+        result: 'NOT_PAID',
+        ok: false,
+        kind: 'CHECKOUT_SESSION',
+        sessionId: session.id,
+        authority,
+        message: verified.message,
+      };
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.checkoutSession.update({
+        where: { id: session.id },
+        data: { status: CheckoutSessionStatus.PAID },
+      });
+      for (const order of session.orders) {
+        if (
+          order.status !== OrderStatus.AWAITING_PAYMENT &&
+          order.status !== OrderStatus.PENDING
+        ) {
+          continue;
+        }
+        const locked = await tx.order.findUnique({ where: { id: order.id } });
+        if (!locked) continue;
+        const isHubRequired = locked.requiresVerification;
+        const nextStatus = isHubRequired
+          ? ('AWAITING_SHIPMENT_TO_HUB' as OrderStatus)
+          : OrderStatus.PAID;
+        await tx.order.update({
+          where: { id: locked.id },
+          data: { status: nextStatus },
+        });
+        await this.walletService.transferToEscrow(
+          locked.buyerId,
+          locked.sellerId,
+          Number(locked.totalAmount),
+          Math.max(0, Number(locked.totalAmount) - Number(locked.sellerRevenue)),
+          locked.listingId,
+          tx,
+        );
+        const listingRow = await tx.listing.findUnique({
+          where: { id: locked.listingId },
+          select: { stockQuantity: true },
+        });
+        const purchasedQty = locked.quantity ?? 1;
+        const nextStock = Math.max(
+          0,
+          (listingRow?.stockQuantity ?? 1) - purchasedQty,
+        );
+        await tx.listing.update({
+          where: { id: locked.listingId },
+          data: {
+            stockQuantity: nextStock,
+            status:
+              nextStock <= 0 ? ListingStatus.SOLD : ListingStatus.APPROVED,
+          },
+        });
+      }
+    });
+
+    return {
+      result: 'PAID',
+      ok: true,
+      kind: 'CHECKOUT_SESSION',
+      sessionId: session.id,
+      orderIds: session.orders.map((o) => o.id),
+      authority,
+    };
+  }
+
+  private async rollbackCheckoutSession(sessionId: string): Promise<void> {
+    const session = await this.prisma.checkoutSession.findUnique({
+      where: { id: sessionId },
+      include: { orders: true },
+    });
+    if (!session) return;
+    await this.prisma.checkoutSession.update({
+      where: { id: sessionId },
+      data: { status: CheckoutSessionStatus.CANCELLED },
+    });
+    for (const order of session.orders) {
+      await this.rollbackUnpaidGatewayOrder(order.id);
+    }
+  }
+
   async processGatewayCallback(
     gatewayName: string,
     query: Record<string, unknown>,
@@ -259,8 +450,21 @@ export class PaymentsService {
     if (kind === 'REPAIR' && !repairId) {
       throw new BadRequestException('شناسه تعمیر در callback ارسال نشده است');
     }
-    if (kind !== 'ORDER' && kind !== 'REPAIR' && kind !== 'WALLET') {
+    if (kind !== 'ORDER' && kind !== 'REPAIR' && kind !== 'WALLET' && kind !== 'CHECKOUT_SESSION') {
       throw new BadRequestException('نوع callback نامعتبر است');
+    }
+
+    if (kind === 'CHECKOUT_SESSION') {
+      const sessionId = String(query.sessionId ?? orderId).trim();
+      if (!sessionId) {
+        throw new BadRequestException('شناسه جلسه پرداخت در callback ارسال نشده است');
+      }
+      return this.processCheckoutSessionCallback({
+        sessionId,
+        authority,
+        successFlag,
+        payerId,
+      });
     }
 
     if (kind === 'REPAIR') {

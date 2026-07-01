@@ -407,7 +407,12 @@ export class WordPressProductIngestService {
 
     const thumbnail = gallery[0] ?? null;
 
-    const price = dto.salePrice ?? dto.price;
+    const regularPrice = Number(dto.price ?? 0);
+    const salePrice =
+      dto.salePrice != null && Number(dto.salePrice) > 0
+        ? Number(dto.salePrice)
+        : null;
+    const price = salePrice ?? regularPrice;
 
 
 
@@ -443,7 +448,11 @@ export class WordPressProductIngestService {
 
       thumbnail,
 
-      price,
+      price: regularPrice,
+
+      compareAtPrice: salePrice != null ? regularPrice : null,
+
+      salePrice,
 
       categoryId,
 
@@ -492,6 +501,10 @@ export class WordPressProductIngestService {
       direct: {
 
         price: input.price,
+
+        compareAtPrice: input.compareAtPrice ?? null,
+
+        salePrice: input.salePrice ?? null,
 
         allowExchange: false,
 

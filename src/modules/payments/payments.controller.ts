@@ -25,6 +25,21 @@ export class PaymentsController {
     private readonly appSettings: AppSettingsService,
   ) {}
 
+  @Post('checkout-sessions/:sessionId/initiate')
+  @UseGuards(JwtAuthGuard)
+  initiateCheckoutSession(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('sessionId') sessionId: string,
+    @Req() req: Request,
+  ) {
+    return this.paymentsService.initiateCheckoutSessionPayment(
+      sessionId,
+      user.id,
+      this.buildCallbackBase(req),
+      this.buildReturnUrl(req),
+    );
+  }
+
   @Post('orders/:orderId/initiate')
   @UseGuards(JwtAuthGuard)
   initiateOrderPayment(

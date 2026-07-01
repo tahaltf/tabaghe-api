@@ -29,8 +29,14 @@ const SEARCH_SELECT = {
   testPeriodDays: true,
   isFeatured: true,
   featuredAt: true,
+  stockQuantity: true,
   direct: {
-    select: { price: true, allowExchange: true },
+    select: {
+      price: true,
+      compareAtPrice: true,
+      salePrice: true,
+      allowExchange: true,
+    },
   },
   auction: {
     select: {

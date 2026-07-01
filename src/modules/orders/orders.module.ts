@@ -7,6 +7,7 @@ import { ExchangeModule } from '../exchange/exchange.module';
 import { QuotaModule } from '../quota/quota.module';
 import { ListingModule } from '../listing/listing.module';
 import { OrderReputationModule } from './order-reputation.module';
+import { CouponsModule } from '../coupons/coupons.module';
 
 import { OrdersController } from './orders.controller';
 import { OrdersAdminService } from './orders-admin.service';
@@ -34,6 +35,7 @@ import { OrdersSchedulerService } from './services/scheduler/orders-scheduler.se
     QuotaModule,
     ListingModule,
     OrderReputationModule,
+    CouponsModule,
   ],
   controllers: [OrdersController],
   providers: [
@@ -59,6 +61,7 @@ import { OrdersSchedulerService } from './services/scheduler/orders-scheduler.se
     OrdersCompletionService,
     OrdersStateMachineService,
     OrdersResponseEnrichmentService,
+    OrdersCheckoutService,
   ],
 })
 export class OrdersModule {}

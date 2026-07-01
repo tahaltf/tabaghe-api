@@ -56,6 +56,9 @@ import { SitemapModule } from './modules/sitemap/sitemap.module';
 import { TrackingModule } from './modules/tracking/tracking.module';
 import { WordPressIntegrationModule } from './modules/wordpress-integration/wordpress-integration.module';
 import { FilesModule } from './modules/files/files.module';
+import { CartModule } from './modules/cart/cart.module';
+import { CouponsModule } from './modules/coupons/coupons.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -119,6 +122,9 @@ import { AppService } from './app.service';
     SitemapModule,
     TrackingModule,
     WordPressIntegrationModule,
+    CartModule,
+    CouponsModule,
+    AnalyticsModule,
   ],
   controllers: [AppController],
   providers: [

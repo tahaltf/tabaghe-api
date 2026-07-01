@@ -1,5 +1,6 @@
 import {
   IsBoolean,
+  IsDateString,
   IsOptional,
   IsString,
   MaxLength,
@@ -21,4 +22,9 @@ export class UpdateSettingsDto {
   @IsOptional() @IsBoolean() notifyEmail?: boolean;
   @IsOptional() @IsBoolean() notifySms?: boolean;
   @IsOptional() @IsBoolean() notifyPush?: boolean;
+
+  /** تاریخ تولد — اختیاری؛ برای تخفیف‌های مناسبتی */
+  @IsOptional()
+  @IsDateString()
+  birthDate?: string | null;
 }

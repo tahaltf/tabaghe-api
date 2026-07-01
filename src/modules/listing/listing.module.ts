@@ -13,6 +13,7 @@ import { ListingSavedService } from './services/listing-saved.service';
 import { ListingAdminService } from './services/listing-admin.service';
 import { ListingSearchService } from './listing-search.service';
 import { ListingExpiryService } from './services/listing-expiry.service';
+import { AnalyticsModule } from '../analytics/analytics.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { ListingExpiryService } from './services/listing-expiry.service';
     AuctionModule,
     ExchangeModule,
     NotificationModule,
+    AnalyticsModule,
   ],
   controllers: [
     ListingController,

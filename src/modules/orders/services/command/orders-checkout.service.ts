@@ -42,6 +42,7 @@ import {
   orderHasStoredVideos,
 } from '../../../../common/upload/order-video-storage.util';
 import { enrichOrderUpdateForCompletion } from '../../order-lifecycle.util';
+import { resolveListingEffectiveUnitPrice } from '../../../../common/listing/listing-price.util';
 import {
   buildOrderTicketSubject,
   formatTicketMessageBody,
@@ -65,6 +66,7 @@ import {
 import { formatMinutesDurationFa } from '../../../../common/duration-format.util';
 import { OrdersSettingsService } from '../../orders-settings.service';
 import { OrdersResponseEnrichmentService } from '../query/orders-response-enrichment.service';
+import { CouponsService } from '../../../coupons/coupons.service';
 import {
   DEFAULT_SELLER_SHIP_DEADLINE_MINUTES,
   AWAITING_SELLER_SHIPMENT_STATUSES,
@@ -90,6 +92,7 @@ export class OrdersCheckoutService {
     private readonly quotaService: QuotaService,
     private readonly listingCommand: ListingCommandService,
     private readonly settings: OrdersSettingsService,
+    private readonly couponsService: CouponsService,
   ) {}
 
   private resolveListingShippingFee(
@@ -118,6 +121,24 @@ export class OrdersCheckoutService {
       1,
       Math.floor(Number(dto.quantity) || 1),
     );
+
+    let couponDiscountAmount = 0;
+    let couponId: string | null = null;
+    if (
+      dto.couponCode?.trim() &&
+      orderType === OrderType.DIRECT &&
+      dto.listingId &&
+      !dto.skipPaymentInit
+    ) {
+      const validated = await this.couponsService.validateForSingleOrder(
+        userId,
+        dto.couponCode.trim(),
+        dto.listingId,
+        orderQuantity,
+      );
+      couponDiscountAmount = validated.discountAmount;
+      couponId = validated.couponId;
+    }
 
     const finalExchangeId = exchangeOfferId || exchangeRequestId;
     let listingId = dto.listingId;
@@ -642,7 +663,9 @@ export class OrdersCheckoutService {
           );
         }
 
-        const unitPrice = Number(listing.direct?.price || 0);
+        const unitPrice = listing.direct
+          ? resolveListingEffectiveUnitPrice(listing.direct)
+          : 0;
         finalPrice = unitPrice * orderQuantity;
         sellerId = listing.authorId;
         categoryId = listing.categoryId;
@@ -735,12 +758,16 @@ export class OrdersCheckoutService {
       }
 
       // مبلغ کل پرداختی خریدار
-      const totalPayable =
+      let totalPayable =
         orderType === 'AUCTION'
           ? Math.max(0, finalPrice - auctionBlockedDeposit) +
             shippingCost +
             feeChargedToBuyer
           : finalPrice + shippingCost + feeChargedToBuyer;
+
+      if (couponDiscountAmount > 0 && orderType === OrderType.DIRECT) {
+        totalPayable = Math.max(0, totalPayable - couponDiscountAmount);
+      }
 
       const platformFee =
         orderType === 'EXCHANGE'
@@ -939,6 +966,21 @@ export class OrdersCheckoutService {
 
       const createdOrder = await tx.order.create({ data: orderPayload });
 
+      if (couponId && couponDiscountAmount > 0 && orderType === OrderType.DIRECT) {
+        await tx.coupon.update({
+          where: { id: couponId },
+          data: { usedCount: { increment: 1 } },
+        });
+        await tx.couponRedemption.create({
+          data: {
+            couponId,
+            userId,
+            orderId: createdOrder.id,
+            amount: couponDiscountAmount,
+          },
+        });
+      }
+
       if (
         paymentMethod === 'WALLET' &&
         (orderStatus === OrderStatus.PAID ||
@@ -1028,6 +1070,7 @@ export class OrdersCheckoutService {
     // و ممکن است totalAmount سفارش (در لحظه ساخت/به‌روزرسانی) معیار خوبی نباشد.
     if (
       paymentMethod === 'GATEWAY' &&
+      !dto.skipPaymentInit &&
       (order.type === OrderType.EXCHANGE || Number(order.totalAmount) > 0)
     ) {
       try {

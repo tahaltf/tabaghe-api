@@ -17,6 +17,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { normalizeMultilineText } from '../../../common/multiline-text.util';
+import { validateListingSalePricing } from '../../../common/listing/listing-price.util';
 import { NotificationService } from '../../notification/notification.service';
 import { QuotaService } from '../../quota/quota.service';
 import { CreateListingDto } from '../dto/create-listing.dto';
@@ -62,6 +63,8 @@ export type WordPressSyncUpdateInput = {
   gallery: string[];
   thumbnail: string | null;
   price: number;
+  compareAtPrice?: number | null;
+  salePrice?: number | null;
   categoryId: string;
   provinceId: string;
   cityId: string;
@@ -133,11 +136,7 @@ export class ListingCommandService {
           direct:
             dto.type === ListingType.DIRECT
               ? {
-                  create: {
-                    price: dto.direct?.price ?? 0,
-                    allowExchange: dto.direct?.allowExchange ?? false,
-                    shippingMethods: dto.direct?.shippingMethods ?? [],
-                  },
+                  create: this.buildDirectCreateData(dto.direct),
                 }
               : undefined,
           exchange: this.shouldCreateExchange(dto)
@@ -369,10 +368,16 @@ export class ListingCommandService {
           upsert: {
             create: {
               price: input.price,
+              compareAtPrice: input.compareAtPrice ?? null,
+              salePrice: input.salePrice ?? null,
               allowExchange: false,
               shippingMethods: [],
             },
-            update: { price: input.price },
+            update: {
+              price: input.price,
+              compareAtPrice: input.compareAtPrice ?? null,
+              salePrice: input.salePrice ?? null,
+            },
           },
         },
       },
@@ -835,17 +840,37 @@ export class ListingCommandService {
     return listing;
   }
 
+  private buildDirectCreateData(
+    direct?: CreateListingDto['direct'],
+  ): Prisma.ListingDirectCreateWithoutListingInput {
+    const price = direct?.price ?? 0;
+    const compareAtPrice = direct?.compareAtPrice ?? null;
+    const salePrice = direct?.salePrice ?? null;
+    if (salePrice != null) {
+      try {
+        validateListingSalePricing({ price, compareAtPrice, salePrice });
+      } catch (e) {
+        throw new BadRequestException(
+          e instanceof Error ? e.message : 'قیمت ویژه نامعتبر است',
+        );
+      }
+    }
+    return {
+      price,
+      compareAtPrice,
+      salePrice,
+      allowExchange: direct?.allowExchange ?? false,
+      shippingMethods: direct?.shippingMethods ?? [],
+    };
+  }
+
   private buildDirectUpsert(
     type: ListingType,
     dto: UpdateListingDto,
     current: { direct: { listingId: string } | null },
   ): Prisma.ListingDirectUpdateOneWithoutListingNestedInput | undefined {
     if (type === ListingType.DIRECT && dto.direct) {
-      const data = {
-        price: dto.direct.price ?? 0,
-        allowExchange: dto.direct.allowExchange ?? false,
-        shippingMethods: dto.direct.shippingMethods ?? [],
-      };
+      const data = this.buildDirectCreateData(dto.direct);
       return { upsert: { create: data, update: data } };
     }
     return current.direct ? { delete: true } : undefined;

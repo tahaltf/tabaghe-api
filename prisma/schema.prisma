@@ -262,6 +262,8 @@ model User {
   role                UserRole       @default(USER)
   isActive            Boolean        @default(true)
 
+  birthDate           DateTime?
+
   buyerOrders         Order[]        @relation("BuyerOrders")
   sellerOrders        Order[]        @relation("SellerOrders")
 
@@ -311,6 +313,10 @@ model User {
   landingPages        LandingPage[]
   wordpressApiTokens  WordPressApiToken[]
   wordpressConnection WordPressConnection?
+  cart                Cart?
+  listingViews        ListingView[]
+  couponRedemptions   CouponRedemption[]
+  checkoutSessions    CheckoutSession[]
 
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
@@ -463,6 +469,7 @@ model Listing {
   auction         ListingAuction?
   quotaLedger     QuotaLedger[]
   exchangeOffers  ExchangeOffer[]
+  views           ListingView[]
 
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
@@ -483,6 +490,10 @@ model ListingDirect {
   listingId       String   @id
   listing         Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
   price           Decimal
+  /** قیمت اصلی برای نمایش خط‌خورده هنگام تخفیف */
+  compareAtPrice  Decimal?
+  /** قیمت ویژه؛ اگر مقدار داشته باشد این قیمت مؤثر خرید است */
+  salePrice       Decimal?
   allowExchange   Boolean  @default(false)
   shippingMethods String[]
 }
@@ -962,6 +973,10 @@ paymentMethod    PaymentMethod @default(GATEWAY)
   /** یک‌بار: اعمال امتیاز معامله (موفق +۰.۷ یا شکست/مرجوعی −۱.۵) */
   tradeReputationAt    DateTime?
 
+  checkoutSessionId    String?
+  checkoutSession      CheckoutSession? @relation(fields: [checkoutSessionId], references: [id], onDelete: SetNull)
+  couponRedemptions    CouponRedemption[]
+
   @@index([buyerId, status])
   @@index([sellerId, status])
   @@index([status, disputedAt])
@@ -1133,4 +1148,135 @@ model WordPressConnection {
   lastSyncAt    DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+}
+
+////////////////////
+/// CART & CHECKOUT
+////////////////////
+
+model Cart {
+  id        String     @id @default(cuid())
+  userId    String     @unique
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sellerId  String
+  items     CartItem[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@index([sellerId])
+}
+
+model CartItem {
+  id        String   @id @default(cuid())
+  cartId    String
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  listingId String
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cartId, listingId])
+  @@index([listingId])
+}
+
+enum CheckoutSessionStatus {
+  PENDING
+  PAID
+  CANCELLED
+  EXPIRED
+}
+
+model CheckoutSession {
+  id               String                @id @default(cuid())
+  buyerId          String
+  buyer            User                  @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  totalAmount      Decimal
+  discountAmount   Decimal               @default(0)
+  couponId         String?
+  coupon           Coupon?               @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  status           CheckoutSessionStatus @default(PENDING)
+  paymentAuthority String?
+  orders           Order[]
+  redemptions      CouponRedemption[]
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  @@index([buyerId, status])
+  @@index([paymentAuthority])
+}
+
+////////////////////
+/// LISTING ANALYTICS
+////////////////////
+
+model ListingView {
+  id        String   @id @default(cuid())
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sessionId String?
+  viewedAt  DateTime @default(now())
+
+  @@index([listingId, viewedAt])
+  @@index([userId, viewedAt])
+  @@index([sessionId, listingId, viewedAt])
+}
+
+////////////////////
+/// COUPONS
+////////////////////
+
+enum CouponDiscountType {
+  FIXED
+  PERCENT
+}
+
+enum CouponScopeMode {
+  ALL
+  INCLUDE
+  EXCLUDE
+}
+
+model Coupon {
+  id                String             @id @default(cuid())
+  code              String             @unique
+  isActive          Boolean            @default(true)
+  startsAt          DateTime?
+  expiresAt         DateTime?
+  discountType      CouponDiscountType
+  discountValue     Decimal
+  maxDiscountAmount Decimal?
+  minOrderAmount    Decimal?
+  maxUsesTotal      Int?
+  maxUsesPerUser    Int?
+  allowOnSaleItems  Boolean            @default(true)
+  scopeMode         CouponScopeMode    @default(ALL)
+  categoryIds       String[]           @default([])
+  listingIds        String[]           @default([])
+  userIds           String[]           @default([])
+  usedCount         Int                @default(0)
+  checkoutSessions  CheckoutSession[]
+  redemptions       CouponRedemption[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([isActive, code])
+}
+
+model CouponRedemption {
+  id                String           @id @default(cuid())
+  couponId          String
+  coupon            Coupon           @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orderId           String?
+  order             Order?           @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  checkoutSessionId String?
+  checkoutSession   CheckoutSession? @relation(fields: [checkoutSessionId], references: [id], onDelete: SetNull)
+  amount            Decimal
+  createdAt         DateTime         @default(now())
+
+  @@index([couponId, userId])
+  @@index([checkoutSessionId])
 }

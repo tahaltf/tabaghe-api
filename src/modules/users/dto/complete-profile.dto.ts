@@ -5,6 +5,7 @@ import {
   Length,
   Matches,
   ValidateIf,
+  IsDateString,
 } from 'class-validator';
 
 export class CompleteProfileDto {
@@ -26,4 +27,9 @@ export class CompleteProfileDto {
   @IsString()
   @Matches(/^(IR)?\d{24}$/i, { message: 'شماره شبا باید ۲۴ رقم باشد' })
   shabaNumber?: string;
+
+  /** تاریخ تولد — اختیاری */
+  @IsOptional()
+  @IsDateString()
+  birthDate?: string | null;
 }

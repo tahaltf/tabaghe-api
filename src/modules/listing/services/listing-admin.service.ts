@@ -268,9 +268,18 @@ export class ListingAdminService {
         });
       }
       if (dto.price !== undefined && listing.direct) {
+        const directPatch: Prisma.ListingDirectUpdateInput = {
+          price: dto.price,
+        };
+        if (dto.compareAtPrice !== undefined) {
+          directPatch.compareAtPrice = dto.compareAtPrice;
+        }
+        if (dto.salePrice !== undefined) {
+          directPatch.salePrice = dto.salePrice;
+        }
         await tx.listingDirect.update({
           where: { listingId },
-          data: { price: dto.price },
+          data: directPatch,
         });
       }
       if (listing.auction) {

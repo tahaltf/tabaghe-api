@@ -81,6 +81,7 @@ export interface AdminUserActivityItem {
   id: string;
   kind:
     | 'LISTING'
+    | 'LISTING_VIEW'
     | 'ORDER_BUY'
     | 'ORDER_SELL'
     | 'TICKET'
@@ -734,7 +735,7 @@ export class AdminUsersQueryService {
       1,
       Math.min(Number.isFinite(limit) ? limit : 50, 100),
     );
-    const [listings, buyerOrders, sellerOrders, tickets, offers, bids] =
+    const [listings, buyerOrders, sellerOrders, tickets, offers, bids, listingViews] =
       await Promise.all([
         this.prisma.listing.findMany({
           where: { authorId: userId },
@@ -796,6 +797,16 @@ export class AdminUsersQueryService {
           orderBy: { createdAt: 'desc' },
           take,
         }),
+        this.prisma.listingView.findMany({
+          where: { userId },
+          select: {
+            id: true,
+            viewedAt: true,
+            listing: { select: { id: true, title: true } },
+          },
+          orderBy: { viewedAt: 'desc' },
+          take,
+        }),
       ]);
 
     const items: AdminUserActivityItem[] = [
@@ -846,6 +857,14 @@ export class AdminUsersQueryService {
         subtitle: `${x.auction.listing.title} — مبلغ: ${x.amount.toString()} — وضعیت: ${x.status}`,
         createdAt: x.createdAt,
         meta: { bidId: x.id },
+      })),
+      ...listingViews.map((x) => ({
+        id: `listing-view:${x.id}`,
+        kind: 'LISTING_VIEW' as const,
+        title: 'مشاهده آگهی',
+        subtitle: x.listing?.title ?? 'آگهی',
+        createdAt: x.viewedAt,
+        meta: { listingId: x.listing?.id },
       })),
     ];
 

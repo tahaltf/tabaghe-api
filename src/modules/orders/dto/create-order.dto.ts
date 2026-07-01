@@ -35,4 +35,8 @@ export class CreateOrderDto {
   @IsInt()
   @Min(1)
   quantity?: number;
+
+  @IsOptional()
+  @IsString()
+  couponCode?: string;
 }

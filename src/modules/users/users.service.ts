@@ -39,6 +39,7 @@ const MY_PROFILE_SELECT = {
   trustScore: true,
   kycRejectionReason: true,
   kycReviewedAt: true,
+  birthDate: true,
 } satisfies Prisma.UserSelect;
 
 export type MyProfile = Prisma.UserGetPayload<{
@@ -437,6 +438,9 @@ export class UsersService {
           lastName: dto.lastName,
           nationalCode: dto.nationalCode,
           shabaNumber,
+          ...(dto.birthDate
+            ? { birthDate: new Date(dto.birthDate) }
+            : {}),
           ...(nationalCardImageFilename
             ? { nationalCardImage: nationalCardImageFilename }
             : {}),
@@ -484,6 +488,10 @@ export class UsersService {
       notifySms: this.toBool(dto.notifySms),
       notifyPush: this.toBool(dto.notifyPush),
     };
+
+    if (dto.birthDate !== undefined) {
+      data.birthDate = dto.birthDate ? new Date(dto.birthDate) : null;
+    }
 
     if (nationalCardImageFilename) {
       data.nationalCardImage = nationalCardImageFilename;

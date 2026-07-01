@@ -75,6 +75,18 @@ export class AdminListingUpdateDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(0)
+  compareAtPrice?: number | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  salePrice?: number | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
   @Min(1)
   basePrice?: number;
 

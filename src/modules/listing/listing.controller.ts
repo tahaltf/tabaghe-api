@@ -13,7 +13,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
-import { IsNumber, Min } from 'class-validator';
+import { IsNumber, IsOptional, IsString, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 import { listingImagesMulterOptions } from '../../common/upload/listing-images-upload.config';
@@ -32,6 +32,13 @@ import { resolveGalleryFromOrder } from './utils/resolve-gallery-order.util';
 import { ListingCommandService } from './services/listing-command.service';
 import { ListingQueryService } from './services/listing-query.service';
 import { ListingSavedService } from './services/listing-saved.service';
+import { ListingAnalyticsService } from '../analytics/listing-analytics.service';
+
+class RecordViewDto {
+  @IsOptional()
+  @IsString()
+  sessionId?: string;
+}
 
 class PlaceBidDto {
   @Type(() => Number)
@@ -47,6 +54,7 @@ export class ListingController {
     private readonly commandService: ListingCommandService,
     private readonly savedService: ListingSavedService,
     private readonly auctionService: AuctionService,
+    private readonly analyticsService: ListingAnalyticsService,
   ) {}
 
   @Get()
@@ -126,6 +134,17 @@ export class ListingController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.auctionService.getAuctionCheckoutData(id, user.id);
+  }
+
+  @UseGuards(OptionalJwtAuthGuard)
+  @Post(':id/view')
+  async recordView(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser | null,
+    @Body() body: RecordViewDto,
+  ) {
+    await this.analyticsService.recordView(id, user?.id, body.sessionId);
+    return { ok: true };
   }
 
   @UseGuards(OptionalJwtAuthGuard)

@@ -61,6 +61,18 @@ class DirectPayloadDto {
   price?: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  compareAtPrice?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  salePrice?: number;
+
+  @IsOptional()
   @Transform(toBoolean)
   @IsBoolean()
   allowExchange?: boolean;
