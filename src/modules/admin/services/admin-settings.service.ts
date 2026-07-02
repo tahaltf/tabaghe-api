@@ -24,6 +24,7 @@ import {
 import type { HomePageLayout } from '../../../shared/contracts/homepage-layout';
 import { ListingExpiryService } from '../../listing/services/listing-expiry.service';
 import { AppSettingsService } from '../../../shared/settings/app-settings.service';
+import { TtlCacheService } from '../../../infrastructure/cache/ttl-cache.service';
 
 export const SETTING_KEYS = {
   HOMEPAGE_BANNER: 'HOMEPAGE_BANNER',
@@ -321,6 +322,7 @@ export class AdminSettingsService {
     private readonly pwaIconService: PwaIconService,
     private readonly listingExpiry: ListingExpiryService,
     private readonly appSettings: AppSettingsService,
+    private readonly cache: TtlCacheService,
   ) {}
 
   list() {
@@ -451,6 +453,7 @@ export class AdminSettingsService {
     if (dto.key === SETTING_KEYS.LISTING_DISPLAY_DAYS) {
       await this.listingExpiry.recalculateApprovedListingExpiry();
     }
+    await this.invalidatePublicSiteSettingsCache();
     return row;
   }
 
@@ -489,7 +492,13 @@ export class AdminSettingsService {
       await this.listingExpiry.recalculateApprovedListingExpiry();
     }
 
+    await this.invalidatePublicSiteSettingsCache();
+
     return result;
+  }
+
+  private async invalidatePublicSiteSettingsCache(): Promise<void> {
+    await this.cache.delete('common:site-settings');
   }
 
   private assertValidSettingValue(key: string, value: string): void {
@@ -588,6 +597,7 @@ export class AdminSettingsService {
     }
 
     await this.prisma.systemSetting.delete({ where: { key } });
+    await this.invalidatePublicSiteSettingsCache();
     return { key };
   }
 

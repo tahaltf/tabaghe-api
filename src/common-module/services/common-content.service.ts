@@ -115,6 +115,7 @@ export class CommonContentService {
       'THEME_PALETTE_ROSE_DARK',
       'THEME_PALETTE_MIDNIGHT',
       'THEME_PALETTE_MIDNIGHT_DARK',
+      'OCCASION_THEME',
     ];
 
     const rows = await this.prisma.systemSetting.findMany({
@@ -313,6 +314,7 @@ export class CommonContentService {
       themePaletteRoseDark: map.THEME_PALETTE_ROSE_DARK?.trim() || null,
       themePaletteMidnight: map.THEME_PALETTE_MIDNIGHT?.trim() || null,
       themePaletteMidnightDark: map.THEME_PALETTE_MIDNIGHT_DARK?.trim() || null,
+      occasionTheme: map.OCCASION_THEME?.trim() || null,
     };
   }
 
