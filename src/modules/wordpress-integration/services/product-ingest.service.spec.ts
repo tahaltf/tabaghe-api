@@ -59,7 +59,7 @@ describe('WordPressProductIngestService pricing', () => {
     expect(syncInput.salePrice).toBe(80_000);
   });
 
-  it('rejects on-sale product when regularPrice is missing and effective price equals salePrice', async () => {
+  it('drops the discount (instead of failing) when regularPrice is missing and effective price equals salePrice', async () => {
     const dto = {
       externalProductId: '123',
       siteUrl: 'https://example.com/',
@@ -71,14 +71,41 @@ describe('WordPressProductIngestService pricing', () => {
       attributes: [],
     } as WordPressProductDto;
 
-    await expect(
-      (service as any).buildSyncInput(
-        'user-1',
-        dto,
-        { categoryId: 'cat-1', provinceId: 'prov-1', cityId: 'city-1' },
-        'cat-1',
-      ),
-    ).rejects.toThrow('قیمت تخفیف نمی‌تواند بیشتر از قیمت اصلی باشد');
+    const syncInput = await (service as any).buildSyncInput(
+      'user-1',
+      dto,
+      { categoryId: 'cat-1', provinceId: 'prov-1', cityId: 'city-1' },
+      'cat-1',
+    );
+
+    expect(syncInput.price).toBe(80_000);
+    expect(syncInput.compareAtPrice).toBeNull();
+    expect(syncInput.salePrice).toBeNull();
+  });
+
+  it('drops the discount when salePrice exceeds regularPrice instead of blocking the sync', async () => {
+    const dto = {
+      externalProductId: '123',
+      siteUrl: 'https://example.com/',
+      title: 'Out of stock product',
+      description: 'Desc',
+      price: 90_000,
+      regularPrice: 100_000,
+      salePrice: 120_000,
+      images: [{ url: 'https://example.com/img.jpg' }],
+      attributes: [],
+    } as WordPressProductDto;
+
+    const syncInput = await (service as any).buildSyncInput(
+      'user-1',
+      dto,
+      { categoryId: 'cat-1', provinceId: 'prov-1', cityId: 'city-1' },
+      'cat-1',
+    );
+
+    expect(syncInput.price).toBe(100_000);
+    expect(syncInput.compareAtPrice).toBeNull();
+    expect(syncInput.salePrice).toBeNull();
   });
 });
 

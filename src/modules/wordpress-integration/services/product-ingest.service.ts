@@ -43,7 +43,6 @@ import { RemoteImageService } from './remote-image.service';
 import { WordPressConnectionService } from './connection.service';
 
 import { buildWordPressListingDescription } from '../utils/wordpress-description.util';
-import { validateListingSalePricing } from '../../../common/listing/listing-price.util';
 
 import { WordPressCategoriesService } from './wordpress-categories.service';
 import {
@@ -327,6 +326,39 @@ export class WordPressProductIngestService {
 
   }
 
+  /**
+   * WooCommerce may report an inconsistent discount (e.g. an empty regular
+   * price while a sale price is set, so the effective price equals the sale
+   * price). Instead of failing the entire sync — which also blocks marking a
+   * product as unavailable — we degrade gracefully: keep a valid positive base
+   * price and only apply the discount when it is strictly below the base price.
+   */
+  private resolveSyncPricing(dto: WordPressProductDto): {
+    price: number;
+    compareAtPrice: number | null;
+    salePrice: number | null;
+  } {
+    const regularRaw = Number(dto.regularPrice ?? dto.price ?? 0);
+    const priceFallback = Number(dto.price ?? 0);
+    const basePrice =
+      Number.isFinite(regularRaw) && regularRaw > 0 ? regularRaw : priceFallback;
+
+    const saleRaw = dto.salePrice != null ? Number(dto.salePrice) : null;
+    const hasValidSale =
+      saleRaw != null &&
+      Number.isFinite(saleRaw) &&
+      saleRaw > 0 &&
+      Number.isFinite(basePrice) &&
+      basePrice > 0 &&
+      saleRaw < basePrice;
+
+    return {
+      price: Number.isFinite(basePrice) ? basePrice : 0,
+      compareAtPrice: hasValidSale ? basePrice : null,
+      salePrice: hasValidSale ? saleRaw : null,
+    };
+  }
+
   private resolveStockQuantity(dto: WordPressProductDto): number {
     if (!this.isProductAvailable(dto)) {
       return 0;
@@ -414,24 +446,8 @@ export class WordPressProductIngestService {
 
     const thumbnail = gallery[0] ?? null;
 
-    const regularPrice = Number(dto.regularPrice ?? dto.price ?? 0);
-    const salePrice =
-      dto.salePrice != null && Number(dto.salePrice) > 0
-        ? Number(dto.salePrice)
-        : null;
-    if (salePrice != null) {
-      try {
-        validateListingSalePricing({
-          price: regularPrice,
-          compareAtPrice: regularPrice,
-          salePrice,
-        });
-      } catch (e) {
-        throw new BadRequestException(
-          e instanceof Error ? e.message : 'قیمت تخفیف نمی‌تواند بیشتر از قیمت اصلی باشد',
-        );
-      }
-    }
+    const { price: regularPrice, compareAtPrice, salePrice } =
+      this.resolveSyncPricing(dto);
 
 
 
@@ -469,7 +485,7 @@ export class WordPressProductIngestService {
 
       price: regularPrice,
 
-      compareAtPrice: salePrice != null ? regularPrice : null,
+      compareAtPrice,
 
       salePrice,
 
