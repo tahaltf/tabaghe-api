@@ -1,0 +1,83 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { WordPressProductIngestService } from './product-ingest.service';
+import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { RemoteImageService } from './remote-image.service';
+import { WordPressConnectionService } from './connection.service';
+import { ListingCommandService } from '../../listing/services/listing-command.service';
+import { WordPressCategoriesService } from './wordpress-categories.service';
+import { ListingNotificationBatchService } from '../../../common/notification/listing-notification-batch.service';
+import { WordPressProductDto } from '../dto/wordpress-product.dto';
+
+describe('WordPressProductIngestService pricing', () => {
+  let service: WordPressProductIngestService;
+
+  const remoteImagesMock = {
+    downloadMany: jest.fn().mockResolvedValue([]),
+  };
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        WordPressProductIngestService,
+        { provide: PrismaService, useValue: {} },
+        { provide: RemoteImageService, useValue: remoteImagesMock },
+        { provide: WordPressConnectionService, useValue: {} },
+        { provide: ListingCommandService, useValue: {} },
+        { provide: WordPressCategoriesService, useValue: {} },
+        {
+          provide: ListingNotificationBatchService,
+          useValue: { flushAdminNewListingAlerts: jest.fn() },
+        },
+      ],
+    }).compile();
+    service = module.get(WordPressProductIngestService);
+  });
+
+  it('uses regularPrice (not effective price) when validating on-sale WooCommerce products', async () => {
+    const dto = {
+      externalProductId: '123',
+      siteUrl: 'https://example.com/',
+      title: 'On sale product',
+      description: 'Desc',
+      price: 80_000,
+      regularPrice: 100_000,
+      salePrice: 80_000,
+      images: [{ url: 'https://example.com/img.jpg' }],
+      attributes: [],
+    } as WordPressProductDto;
+
+    const syncInput = await (service as any).buildSyncInput(
+      'user-1',
+      dto,
+      { categoryId: 'cat-1', provinceId: 'prov-1', cityId: 'city-1' },
+      'cat-1',
+    );
+
+    expect(syncInput.price).toBe(100_000);
+    expect(syncInput.compareAtPrice).toBe(100_000);
+    expect(syncInput.salePrice).toBe(80_000);
+  });
+
+  it('rejects on-sale product when regularPrice is missing and effective price equals salePrice', async () => {
+    const dto = {
+      externalProductId: '123',
+      siteUrl: 'https://example.com/',
+      title: 'On sale product',
+      description: 'Desc',
+      price: 80_000,
+      salePrice: 80_000,
+      images: [{ url: 'https://example.com/img.jpg' }],
+      attributes: [],
+    } as WordPressProductDto;
+
+    await expect(
+      (service as any).buildSyncInput(
+        'user-1',
+        dto,
+        { categoryId: 'cat-1', provinceId: 'prov-1', cityId: 'city-1' },
+        'cat-1',
+      ),
+    ).rejects.toThrow('قیمت تخفیف نمی‌تواند بیشتر از قیمت اصلی باشد');
+  });
+});

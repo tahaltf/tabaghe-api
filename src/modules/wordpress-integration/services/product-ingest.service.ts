@@ -408,7 +408,7 @@ export class WordPressProductIngestService {
 
     const thumbnail = gallery[0] ?? null;
 
-    const regularPrice = Number(dto.price ?? 0);
+    const regularPrice = Number(dto.regularPrice ?? dto.price ?? 0);
     const salePrice =
       dto.salePrice != null && Number(dto.salePrice) > 0
         ? Number(dto.salePrice)
@@ -426,7 +426,6 @@ export class WordPressProductIngestService {
         );
       }
     }
-    const price = salePrice ?? regularPrice;
 
 
 
