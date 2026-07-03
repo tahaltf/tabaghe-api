@@ -6,6 +6,8 @@ export interface AdminUserPlanInfo {
   id: string;
   planId: string;
   title: string;
+  badgeLabel: string | null;
+  badgeColor: string | null;
   status: string;
   isBuiltinFree: boolean;
   purchasedAt: Date;
@@ -49,6 +51,8 @@ export class AdminUserPlanLookupService {
         id: p.id,
         planId: p.planId,
         title: p.plan?.title ?? 'پلن نامشخص',
+        badgeLabel: p.plan?.badgeLabel?.trim() || null,
+        badgeColor: p.plan?.badgeColor?.trim() || null,
         status: p.status,
         isBuiltinFree: p.planId === BUILTIN_FREE_PLAN_ID,
         purchasedAt: p.createdAt,

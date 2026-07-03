@@ -81,3 +81,56 @@ describe('WordPressProductIngestService pricing', () => {
     ).rejects.toThrow('قیمت تخفیف نمی‌تواند بیشتر از قیمت اصلی باشد');
   });
 });
+
+describe('WordPressProductIngestService availability', () => {
+  let service: WordPressProductIngestService;
+
+  const isAvailable = (dto: Partial<WordPressProductDto>): boolean =>
+    (service as any).isProductAvailable(dto as WordPressProductDto);
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        WordPressProductIngestService,
+        { provide: PrismaService, useValue: {} },
+        {
+          provide: RemoteImageService,
+          useValue: { downloadMany: jest.fn().mockResolvedValue([]) },
+        },
+        { provide: WordPressConnectionService, useValue: {} },
+        { provide: ListingCommandService, useValue: {} },
+        { provide: WordPressCategoriesService, useValue: {} },
+        {
+          provide: ListingNotificationBatchService,
+          useValue: { flushAdminNewListingAlerts: jest.fn() },
+        },
+      ],
+    }).compile();
+    service = module.get(WordPressProductIngestService);
+  });
+
+  it('treats stockQuantity 0 as unavailable even when inStock is true', () => {
+    expect(
+      isAvailable({ status: 'publish', inStock: true, stockQuantity: 0 }),
+    ).toBe(false);
+  });
+
+  it('treats negative stockQuantity as unavailable', () => {
+    expect(
+      isAvailable({ status: 'publish', inStock: true, stockQuantity: -1 }),
+    ).toBe(false);
+  });
+
+  it('keeps product available when stockQuantity is positive', () => {
+    expect(
+      isAvailable({ status: 'publish', inStock: true, stockQuantity: 3 }),
+    ).toBe(true);
+  });
+
+  it('keeps product available when stockQuantity is null (stock not managed)', () => {
+    expect(
+      isAvailable({ status: 'publish', inStock: true, stockQuantity: null }),
+    ).toBe(true);
+  });
+});

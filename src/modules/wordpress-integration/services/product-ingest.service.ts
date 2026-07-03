@@ -317,6 +317,12 @@ export class WordPressProductIngestService {
 
     }
 
+    if (dto.stockQuantity != null && Number(dto.stockQuantity) <= 0) {
+
+      return false;
+
+    }
+
     return true;
 
   }

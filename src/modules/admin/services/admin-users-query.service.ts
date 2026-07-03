@@ -23,6 +23,52 @@ import {
 import { AdminUserListQueryDto } from '../dto/admin-query.dto';
 import { AdminUpdateUserProfileDto } from '../dto/admin-update-user-profile.dto';
 import { AuthenticatedUser } from '../../../shared/contracts/auth';
+import { getListingStatusLabelFa } from '../../../common/listing/listing-status-labels.util';
+import { getOrderStatusLabelFa } from '../../../common/order/order-status-labels.util';
+
+const LISTING_TYPE_LABELS_FA: Record<string, string> = {
+  DIRECT: 'فروش مستقیم',
+  AUCTION: 'مزایده',
+  EXCHANGE: 'معاوضه',
+};
+
+const TICKET_STATUS_LABELS_FA: Record<string, string> = {
+  OPEN: 'باز',
+  ANSWERED: 'پاسخ‌داده‌شده',
+  CLOSED: 'بسته',
+};
+
+const EXCHANGE_OFFER_STATUS_LABELS_FA: Record<string, string> = {
+  PENDING: 'در انتظار',
+  WAITLISTED: 'لیست انتظار',
+  ACCEPTED: 'پذیرفته‌شده',
+  REJECTED: 'رد شده',
+  CANCELLED: 'لغو شده',
+};
+
+const AUCTION_BID_STATUS_LABELS_FA: Record<string, string> = {
+  ACTIVE: 'فعال',
+  OUTBID: 'پیشی گرفته شد',
+  WON: 'برنده',
+  LOST: 'بازنده',
+  CANCELLED: 'لغو شده',
+};
+
+function listingTypeLabelFa(type: string): string {
+  return LISTING_TYPE_LABELS_FA[type] ?? type;
+}
+
+function ticketStatusLabelFa(status: string): string {
+  return TICKET_STATUS_LABELS_FA[status] ?? status;
+}
+
+function exchangeOfferStatusLabelFa(status: string): string {
+  return EXCHANGE_OFFER_STATUS_LABELS_FA[status] ?? status;
+}
+
+function auctionBidStatusLabelFa(status: string): string {
+  return AUCTION_BID_STATUS_LABELS_FA[status] ?? status;
+}
 
 const USER_LIST_SELECT = {
   id: true,
@@ -216,6 +262,8 @@ export class AdminUsersQueryService {
           id: p.id,
           planId: p.planId,
           title: p.plan?.title ?? 'پلن نامشخص',
+          badgeLabel: p.plan?.badgeLabel?.trim() || null,
+          badgeColor: p.plan?.badgeColor?.trim() || null,
           status: p.status,
           isBuiltinFree: false,
           purchasedAt: p.createdAt,
@@ -819,7 +867,7 @@ export class AdminUsersQueryService {
         id: `listing:${x.id}`,
         kind: 'LISTING' as const,
         title: 'ثبت/ویرایش آگهی',
-        subtitle: `${x.title} — وضعیت: ${x.status}`,
+        subtitle: `${x.title} — وضعیت: ${getListingStatusLabelFa(x.status)}`,
         createdAt: x.createdAt,
         meta: { listingId: x.id },
       })),
@@ -827,7 +875,7 @@ export class AdminUsersQueryService {
         id: `order-buy:${x.id}`,
         kind: 'ORDER_BUY' as const,
         title: 'فعالیت خرید',
-        subtitle: `${x.listing?.title ?? 'سفارش'} — نوع: ${x.type} — وضعیت: ${x.status}`,
+        subtitle: `${x.listing?.title ?? 'سفارش'} — نوع: ${listingTypeLabelFa(x.type)} — وضعیت: ${getOrderStatusLabelFa(x.status)}`,
         createdAt: x.createdAt,
         meta: { orderId: x.id },
       })),
@@ -835,7 +883,7 @@ export class AdminUsersQueryService {
         id: `order-sell:${x.id}`,
         kind: 'ORDER_SELL' as const,
         title: 'فعالیت فروش',
-        subtitle: `${x.listing?.title ?? 'سفارش'} — نوع: ${x.type} — وضعیت: ${x.status}`,
+        subtitle: `${x.listing?.title ?? 'سفارش'} — نوع: ${listingTypeLabelFa(x.type)} — وضعیت: ${getOrderStatusLabelFa(x.status)}`,
         createdAt: x.createdAt,
         meta: { orderId: x.id },
       })),
@@ -843,7 +891,7 @@ export class AdminUsersQueryService {
         id: `ticket:${x.id}`,
         kind: 'TICKET' as const,
         title: 'تیکت پشتیبانی',
-        subtitle: `${x.subject} — وضعیت: ${x.status}`,
+        subtitle: `${x.subject} — وضعیت: ${ticketStatusLabelFa(x.status)}`,
         createdAt: x.createdAt,
         meta: { ticketId: x.id },
       })),
@@ -851,7 +899,7 @@ export class AdminUsersQueryService {
         id: `exchange-offer:${x.id}`,
         kind: 'EXCHANGE_OFFER' as const,
         title: 'پیشنهاد معاوضه',
-        subtitle: `${x.title} — روی آگهی: ${x.listing.title} — وضعیت: ${x.status}`,
+        subtitle: `${x.title} — روی آگهی: ${x.listing.title} — وضعیت: ${exchangeOfferStatusLabelFa(x.status)}`,
         createdAt: x.createdAt,
         meta: { exchangeOfferId: x.id },
       })),
@@ -859,7 +907,7 @@ export class AdminUsersQueryService {
         id: `auction-bid:${x.id}`,
         kind: 'AUCTION_BID' as const,
         title: 'پیشنهاد مزایده',
-        subtitle: `${x.auction.listing.title} — مبلغ: ${x.amount.toString()} — وضعیت: ${x.status}`,
+        subtitle: `${x.auction.listing.title} — مبلغ: ${x.amount.toString()} — وضعیت: ${auctionBidStatusLabelFa(x.status)}`,
         createdAt: x.createdAt,
         meta: { bidId: x.id },
       })),
