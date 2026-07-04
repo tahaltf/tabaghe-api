@@ -155,13 +155,13 @@ export class AdminCustomerClubController {
   @Post()
   async addOne(@Body() dto: AdminAddCustomerClubDto) {
     const contact =
-      dto.contact?.trim() || dto.phone?.trim() || dto.email?.trim() || '';
+      dto.contact?.trim() || dto.phone?.trim() || '';
     if (!contact) {
-      throw new BadRequestException('شماره یا ایمیل را وارد کنید');
+      throw new BadRequestException('شماره موبایل را وارد کنید');
     }
     const result = await this.engagement.addCustomerClubContact(contact);
     if (result === 'invalid') {
-      throw new BadRequestException('فرمت شماره یا ایمیل نامعتبر است');
+      throw new BadRequestException('فرمت شماره موبایل نامعتبر است');
     }
     if (result === 'duplicate') {
       return { ok: true, status: 'duplicate' as const };
@@ -177,7 +177,7 @@ export class AdminCustomerClubController {
     }
     const contacts = this.engagement.parseContactsFromText(text);
     if (!contacts.length) {
-      throw new BadRequestException('هیچ شماره یا ایمیل معتبری یافت نشد');
+      throw new BadRequestException('هیچ شماره موبایل معتبری یافت نشد');
     }
     return this.engagement.importCustomerClubContacts(contacts);
   }
@@ -212,10 +212,9 @@ export class AdminCustomerClubController {
   )
   sampleTxt(): string {
     return [
-      '# هر خط یک شماره موبایل (با یا بدون صفر اول) یا ایمیل',
+      '# هر خط یک شماره موبایل (با یا بدون صفر اول)',
       '# مثال:',
       ...CUSTOMER_CLUB_SAMPLE_PHONES,
-      '# user@example.com',
     ].join('\n');
   }
 

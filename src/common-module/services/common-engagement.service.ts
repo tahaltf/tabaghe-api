@@ -41,44 +41,32 @@ export class CommonEngagementService {
   async subscribeCustomerClub(rawContact: string) {
     const contact = String(rawContact ?? '').trim();
     if (!contact) {
-      throw new BadRequestException('لطفاً ایمیل یا شماره موبایل را وارد کنید');
+      throw new BadRequestException('لطفاً شماره موبایل را وارد کنید');
     }
 
-    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const phone = this.normalizeIranMobile(contact);
-    const email = !phone && emailRe.test(contact) ? contact.toLowerCase() : null;
-
-    if (!phone && !email) {
-      if (/@/.test(contact) || /[a-zA-Z]/.test(contact)) {
-        throw new BadRequestException('فرمت ایمیل صحیح نیست');
-      }
+    if (!phone) {
       throw new BadRequestException(
         'شماره موبایل باید ۱۱ رقم و با ۰۹ شروع شود (مثال: ۰۹۱۲۳۴۵۶۷۸۹)',
       );
     }
 
-    const key = phone
-      ? `CUSTOMER_CLUB_PHONE_${phone}`
-      : `CUSTOMER_CLUB_EMAIL_${email}`;
+    const key = `CUSTOMER_CLUB_PHONE_${phone}`;
 
     const existing = await this.prisma.systemSetting.findUnique({
       where: { key },
       select: { key: true },
     });
     if (existing) {
-      throw new ConflictException(
-        phone
-          ? 'این شماره موبایل قبلاً در کلوپ مشتریان ثبت شده است'
-          : 'این ایمیل قبلاً در کلوپ مشتریان ثبت شده است',
-      );
+      throw new ConflictException('این شماره موبایل قبلاً در کلوپ مشتریان ثبت شده است');
     }
 
     await this.prisma.systemSetting.create({
       data: {
         key,
         value: JSON.stringify({
-          phone: phone ?? null,
-          email: email ?? null,
+          phone,
+          email: null,
           createdAt: new Date().toISOString(),
         }),
         description: 'Customer club subscription',
@@ -144,15 +132,10 @@ export class CommonEngagementService {
     const contact = String(rawContact ?? '').trim();
     if (!contact) return 'invalid';
 
-    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const phone = this.normalizeIranMobile(contact);
-    const email = !phone && emailRe.test(contact) ? contact.toLowerCase() : null;
+    if (!phone) return 'invalid';
 
-    if (!phone && !email) return 'invalid';
-
-    const key = phone
-      ? `CUSTOMER_CLUB_PHONE_${phone}`
-      : `CUSTOMER_CLUB_EMAIL_${email}`;
+    const key = `CUSTOMER_CLUB_PHONE_${phone}`;
 
     const existing = await this.prisma.systemSetting.findUnique({
       where: { key },
@@ -164,8 +147,8 @@ export class CommonEngagementService {
       data: {
         key,
         value: JSON.stringify({
-          phone: phone ?? null,
-          email: email ?? null,
+          phone,
+          email: null,
           createdAt: new Date().toISOString(),
         }),
         description: 'Customer club subscription',
