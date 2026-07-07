@@ -23,29 +23,11 @@ RUN DATABASE_URL=$DATABASE_URL npx prisma generate && \
     cp prisma/seed-data/*.json dist/prisma/seed-data/
 
 # -----------------------------------------------------------------------------
-# Stage 2: Production Env with Chromium (Puppeteer)
+# Stage 2: Production (Chromium from pre-built base image — see Dockerfile.base)
 # -----------------------------------------------------------------------------
-FROM node:20-alpine AS production
+ARG API_BASE_IMAGE=tabagheh-api-base:latest
+FROM ${API_BASE_IMAGE} AS production
 
-WORKDIR /app
-
-# نصب کرومیوم و فونت‌های مورد نیاز برای PDF کارشناسی در لینوکس آلپاین
-RUN apk add --no-cache \
-    chromium \
-    nss \
-    freetype \
-    harfbuzz \
-    ca-certificates \
-    ttf-freefont \
-    bash \
-    docker-cli \
-    postgresql-client \
-    coreutils
-
-# 🟢 اصلاح و یکپارچه‌سازی متغیرها در استیج دوم (برای متوقف کردن دانلود در npm ci)
-ENV PUPPETEER_SKIP_DOWNLOAD=true
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 ENV NODE_ENV=production
 
 COPY package*.json ./

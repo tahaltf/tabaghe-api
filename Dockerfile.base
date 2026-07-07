@@ -1,0 +1,24 @@
+# Base image for Tabagheh API — Chromium + system tools for Puppeteer PDFs.
+# Build once and tag; survives `docker builder prune` (unlike build-cache layers).
+#
+#   docker build -f Dockerfile.base -t tabagheh-api-base:latest .
+#
+FROM node:20-alpine
+
+WORKDIR /app
+
+RUN apk add --no-cache \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    bash \
+    docker-cli \
+    postgresql-client \
+    coreutils
+
+ENV PUPPETEER_SKIP_DOWNLOAD=true \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser

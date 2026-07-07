@@ -18,7 +18,7 @@ export class NotificationListener {
       userId: payload.userId,
       type: NotificationType.AUCTION_LOST,
       title: 'پیشنهاد شما بالاتر زده شد',
-      message: 'کاربر دیگری پیشنهاد بالاتری ثبت کرده است.',
+      message: 'برای تکمیل معامله، پیشنهاد بالاتر ثبت کنید.',
       meta: {
         ...payload,
         phase: 'outbid',
@@ -38,8 +38,8 @@ export class NotificationListener {
     await this.notificationService.create({
       userId: payload.winnerUserId,
       type: NotificationType.AUCTION_WON,
-      title: 'شما برنده مزایده شدید',
-      message: 'لطفاً پرداخت را قبل از پایان مهلت انجام دهید.',
+      title: 'مزایده را بردید — معامله را تکمیل کنید',
+      message: 'پرداخت میانجی را قبل از پایان مهلت انجام دهید.',
       meta: {
         ...payload,
         phase: 'auction_won',
