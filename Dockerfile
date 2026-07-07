@@ -1,3 +1,6 @@
+# ARG before the first FROM is required so it can be used in a later FROM (stage 2).
+ARG API_BASE_IMAGE=tabagheh-api-base:latest
+
 # -----------------------------------------------------------------------------
 # Stage 1: Build NestJS Application
 # -----------------------------------------------------------------------------
@@ -25,7 +28,6 @@ RUN DATABASE_URL=$DATABASE_URL npx prisma generate && \
 # -----------------------------------------------------------------------------
 # Stage 2: Production (Chromium from pre-built base image — see Dockerfile.base)
 # -----------------------------------------------------------------------------
-ARG API_BASE_IMAGE=tabagheh-api-base:latest
 FROM ${API_BASE_IMAGE} AS production
 
 ENV NODE_ENV=production
