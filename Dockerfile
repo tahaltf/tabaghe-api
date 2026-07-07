@@ -1,6 +1,3 @@
-# ARG before the first FROM is required so it can be used in a later FROM (stage 2).
-ARG API_BASE_IMAGE=tabagheh-api-base:latest
-
 # -----------------------------------------------------------------------------
 # Stage 1: Build NestJS Application
 # -----------------------------------------------------------------------------
@@ -26,9 +23,32 @@ RUN DATABASE_URL=$DATABASE_URL npx prisma generate && \
     cp prisma/seed-data/*.json dist/prisma/seed-data/
 
 # -----------------------------------------------------------------------------
-# Stage 2: Production (Chromium from pre-built base image — see Dockerfile.base)
+# Stage 2: Chromium runtime (mirrors Dockerfile.base; cached by BuildKit)
 # -----------------------------------------------------------------------------
-FROM ${API_BASE_IMAGE} AS production
+FROM node:20-alpine AS api-base
+
+WORKDIR /app
+
+RUN apk add --no-cache \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    bash \
+    docker-cli \
+    postgresql-client \
+    coreutils
+
+ENV PUPPETEER_SKIP_DOWNLOAD=true \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+
+# -----------------------------------------------------------------------------
+# Stage 3: Production
+# -----------------------------------------------------------------------------
+FROM api-base AS production
 
 ENV NODE_ENV=production
 
