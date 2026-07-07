@@ -13,7 +13,6 @@ export function normalizeCampaignUrlPrefix(raw?: string | null): string {
   return v;
 }
 
-
 export function isAllowedCampaignPrefix(
   prefix: string,
   configuredPrefix = DEFAULT_CAMPAIGN_URL_PREFIX,
