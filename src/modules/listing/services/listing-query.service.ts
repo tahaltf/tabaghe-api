@@ -23,7 +23,14 @@ import { HOME_JEWELRY_CATEGORY_SLUG } from '../../../common/category/home-catego
  * حداقلی باشه. فیلدهای حساس (phone صاحب آگهی، sellerRevenue، ...) لو نمی‌ره.
  */
 const LIST_ITEM_INCLUDE = {
-  direct: { select: { price: true, allowExchange: true } },
+  direct: {
+    select: {
+      price: true,
+      salePrice: true,
+      compareAtPrice: true,
+      allowExchange: true,
+    },
+  },
   auction: {
     select: {
       basePrice: true,
@@ -158,7 +165,7 @@ export class ListingQueryService {
         where,
         include: LIST_ITEM_INCLUDE,
         // آگهی‌های ویژه همیشه بالاتر قرار می‌گیرند، سپس مرتب‌سازی انتخابی کاربر اعمال می‌شود.
-        orderBy: [{ isFeatured: 'desc' }, { featuredAt: 'desc' }, orderBy],
+        orderBy: [{ isFeatured: 'desc' }, { featuredAt: 'desc' }, ...orderBy],
         skip: useRelevanceSort ? 0 : skip,
         take: takeForRanking,
       }),
@@ -191,7 +198,12 @@ export class ListingQueryService {
         title: { contains: q, mode: 'insensitive' },
       },
       select: { id: true, title: true },
-      orderBy: [{ isFeatured: 'desc' }, { createdAt: 'desc' }],
+      orderBy: [
+        { isFeatured: 'desc' },
+        { featuredAt: 'desc' },
+        { approvedAt: 'desc' },
+        { createdAt: 'desc' },
+      ],
       take,
     });
   }
@@ -215,6 +227,7 @@ export class ListingQueryService {
     const orderBy: Prisma.ListingOrderByWithRelationInput[] = [
       { isFeatured: 'desc' },
       { featuredAt: 'desc' },
+      { approvedAt: 'desc' },
       { createdAt: 'desc' },
     ];
 
@@ -544,16 +557,27 @@ export class ListingQueryService {
     return where;
   }
 
-  private buildOrderBy(sort?: string): Prisma.ListingOrderByWithRelationInput {
+  private buildOrderBy(
+    sort?: string,
+  ): Prisma.ListingOrderByWithRelationInput[] {
     switch (sort) {
       case 'price_asc':
-        return { direct: { price: 'asc' } };
+        return [
+          { direct: { price: 'asc' } },
+          { approvedAt: 'desc' },
+          { createdAt: 'desc' },
+        ];
       case 'price_desc':
-        return { direct: { price: 'desc' } };
+        return [
+          { direct: { price: 'desc' } },
+          { approvedAt: 'desc' },
+          { createdAt: 'desc' },
+        ];
       case 'oldest':
-        return { createdAt: 'asc' };
+        return [{ approvedAt: 'asc' }, { createdAt: 'asc' }];
       default:
-        return { createdAt: 'desc' };
+        // newest
+        return [{ approvedAt: 'desc' }, { createdAt: 'desc' }];
     }
   }
 
