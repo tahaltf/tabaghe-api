@@ -127,6 +127,9 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
   private bot: Telegraf<BotContext> | null = null;
   private botFingerprint: string | null = null;
   private refreshTimer: NodeJS.Timeout | null = null;
+  private disabledMode = false;
+  private disabledMessage =
+    'ربات فعلاً غیرفعال است. لطفاً بعداً دوباره تلاش کنید.';
 
   constructor(
     private readonly prisma: PrismaService,
@@ -152,6 +155,15 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     bot.use(async (ctx, next) => {
       const from = ctx.from;
       if (!from) return;
+
+      if (this.disabledMode) {
+        try {
+          await ctx.reply(this.disabledMessage);
+        } catch {
+          // ignore
+        }
+        return;
+      }
 
       // Allow /start (linking) without being linked.
       if (ctx.message && 'text' in ctx.message) {
@@ -262,6 +274,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
             in: [
               SETTING_KEYS.TELEGRAM_BOT_ENABLED,
               SETTING_KEYS.TELEGRAM_BOT_TOKEN,
+              SETTING_KEYS.TELEGRAM_BOT_DISABLED_MESSAGE,
               SETTING_KEYS.TELEGRAM_PROXY_URL,
               SETTING_KEYS.TELEGRAM_PROXY_POOL,
               SETTING_KEYS.TELEGRAM_PROXY_HEALTHCHECK_INTERVAL_SECONDS,
@@ -275,14 +288,16 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       const enabledRaw = (byKey.get(SETTING_KEYS.TELEGRAM_BOT_ENABLED) ?? '').toLowerCase();
       const enabled = enabledRaw === 'true' || enabledRaw === '1' || enabledRaw === 'yes';
       const token = byKey.get(SETTING_KEYS.TELEGRAM_BOT_TOKEN) ?? '';
+      const disabledMessage =
+        byKey.get(SETTING_KEYS.TELEGRAM_BOT_DISABLED_MESSAGE) ?? '';
       const proxyUrl = byKey.get(SETTING_KEYS.TELEGRAM_PROXY_URL) ?? '';
       const proxyPoolRaw = byKey.get(SETTING_KEYS.TELEGRAM_PROXY_POOL) ?? '';
       const intervalSecondsRaw =
         byKey.get(SETTING_KEYS.TELEGRAM_PROXY_HEALTHCHECK_INTERVAL_SECONDS) ?? '';
 
-      if (!enabled) {
-        await this.stopBotIfRunning('disabled_by_admin');
-        return;
+      this.disabledMode = !enabled;
+      if (disabledMessage.trim()) {
+        this.disabledMessage = disabledMessage.trim();
       }
 
       if (!token) {
@@ -317,7 +332,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      const fingerprint = `${token.slice(0, 10)}...|${selectedProxy}`;
+      const fingerprint = `${token.slice(0, 10)}...|${selectedProxy}|disabled=${this.disabledMode ? '1' : '0'}`;
       if (this.bot && this.botFingerprint === fingerprint) {
         return;
       }
@@ -510,7 +525,9 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     const result = await this.linkTelegramAccountByToken(token, telegramId);
 
     if (!result.ok) {
-      if (result.reason === 'telegram_already_linked') {
+      const reason =
+        'reason' in result ? result.reason : ('invalid_token' as const);
+      if (reason === 'telegram_already_linked') {
         await ctx.reply('این حساب تلگرام قبلاً به حساب دیگری متصل شده است.');
         return;
       }
@@ -582,8 +599,10 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       const token = text;
       const result = await this.linkTelegramAccountByToken(token, telegramId);
       if (!result.ok) {
+        const reason =
+          'reason' in result ? result.reason : ('invalid_token' as const);
         await ctx.reply(
-          result.reason === 'telegram_already_linked'
+          reason === 'telegram_already_linked'
             ? 'این حساب تلگرام قبلاً به حساب دیگری متصل شده است.'
             : 'توکن نامعتبر یا منقضی است. لطفاً از داخل حساب کاربری، توکن جدید بگیرید.',
         );
