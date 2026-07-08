@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomBytes } from 'crypto';
 import {
   AuctionStatus,
   ExchangeOfferStatus,
@@ -68,6 +69,17 @@ export type PanelBadgeSection =
 
 export type PanelBadges = Record<PanelBadgeSection, number>;
 
+export type TelegramLinkStatus = {
+  linked: boolean;
+  telegramId: string | null;
+  hasToken: boolean;
+};
+
+export type GeneratedTelegramToken = {
+  token: string;
+  startCommand: string;
+};
+
 const REQUEST_NOTIFICATION_TYPES: NotificationType[] = [
   NotificationType.EXCHANGE_OFFER_RECEIVED,
   NotificationType.EXCHANGE_OFFER_ACCEPTED,
@@ -100,6 +112,61 @@ export class UsersService {
     });
     if (!user) throw new NotFoundException('کاربر یافت نشد');
     return user;
+  }
+
+  async getTelegramLinkStatus(userId: string): Promise<TelegramLinkStatus> {
+    const row = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { telegramId: true, telegramToken: true, isActive: true },
+    });
+    if (!row || !row.isActive) throw new NotFoundException('کاربر یافت نشد');
+    return {
+      linked: !!row.telegramId,
+      telegramId: row.telegramId ?? null,
+      hasToken: !!row.telegramToken,
+    };
+  }
+
+  async generateTelegramLinkToken(userId: string): Promise<GeneratedTelegramToken> {
+    // short, URL-safe token; stored in DB and consumed by /start <token>
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const token = randomBytes(24).toString('base64url');
+      try {
+        await this.prisma.user.update({
+          where: { id: userId },
+          data: {
+            telegramToken: token,
+          },
+          select: { id: true },
+        });
+        return {
+          token,
+          startCommand: `/start ${token}`,
+        };
+      } catch (err) {
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002'
+        ) {
+          // token collision (extremely unlikely) or existing unique constraint conflict; retry
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new BadRequestException('ساخت توکن ناموفق بود؛ دوباره تلاش کنید.');
+  }
+
+  async unlinkTelegram(userId: string): Promise<{ ok: true }> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        telegramId: null,
+        telegramToken: null,
+      },
+      select: { id: true },
+    });
+    return { ok: true };
   }
 
   async getDashboardStats(userId: string): Promise<DashboardStats> {

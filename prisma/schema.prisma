@@ -262,6 +262,8 @@ model User {
   status              UserStatus     @default(INCOMPLETE)
   role                UserRole       @default(USER)
   isActive            Boolean        @default(true)
+  telegramId          String?        @unique
+  telegramToken       String?        @unique
 
   birthDate           DateTime?
 

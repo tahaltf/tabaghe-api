@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Header,
   Patch,
@@ -22,6 +23,7 @@ import { nationalCardMulterOptions } from '../../common/upload/national-card-upl
 import { validateUploadedFileSignature } from '../../common/upload/validate-uploaded-file.util';
 import { CompleteProfileDto } from './dto/complete-profile.dto';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
+import { IsVerifiedGuard } from '../auth/guards/is-verified.guard';
 import {
   DashboardStats,
   MyProfile,
@@ -138,5 +140,22 @@ export class UsersController {
       req.ip,
       String(req.headers['user-agent'] ?? ''),
     );
+  }
+
+  @Get('integrations/telegram')
+  telegramStatus(@CurrentUser() user: AuthenticatedUser) {
+    return this.usersService.getTelegramLinkStatus(user.id);
+  }
+
+  @Post('integrations/telegram/token')
+  @UseGuards(IsVerifiedGuard)
+  generateTelegramToken(@CurrentUser() user: AuthenticatedUser) {
+    return this.usersService.generateTelegramLinkToken(user.id);
+  }
+
+  @Delete('integrations/telegram/link')
+  @UseGuards(IsVerifiedGuard)
+  unlinkTelegram(@CurrentUser() user: AuthenticatedUser) {
+    return this.usersService.unlinkTelegram(user.id);
   }
 }

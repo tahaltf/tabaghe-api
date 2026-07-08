@@ -143,6 +143,14 @@ export const SETTING_KEYS = {
   CAMPAIGN_LINK_URL_PREFIX: 'CAMPAIGN_LINK_URL_PREFIX',
   TICKET_ATTACHMENT_ALLOWED_MIME_TYPES: 'TICKET_ATTACHMENT_ALLOWED_MIME_TYPES',
   TICKET_ATTACHMENT_MAX_SIZE_MB: 'TICKET_ATTACHMENT_MAX_SIZE_MB',
+  TELEGRAM_BOT_ENABLED: 'TELEGRAM_BOT_ENABLED',
+  TELEGRAM_BOT_TOKEN: 'TELEGRAM_BOT_TOKEN',
+  TELEGRAM_PROXY_URL: 'TELEGRAM_PROXY_URL',
+  /** لیست پروکسی‌ها (JSON array یا چندخطی). اگر مقدار داشته باشد، اولویت با این است. */
+  TELEGRAM_PROXY_POOL: 'TELEGRAM_PROXY_POOL',
+  /** بازه Health-check پروکسی‌ها (ثانیه). */
+  TELEGRAM_PROXY_HEALTHCHECK_INTERVAL_SECONDS:
+    'TELEGRAM_PROXY_HEALTHCHECK_INTERVAL_SECONDS',
 } as const;
 
 /**
@@ -236,6 +244,14 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   TICKET_ATTACHMENT_ALLOWED_MIME_TYPES:
     'فرمت‌های مجاز پیوست تیکت پشتیبانی (JSON آرایه MIME type)',
   TICKET_ATTACHMENT_MAX_SIZE_MB: 'حداکثر حجم پیوست تیکت پشتیبانی (مگابایت)',
+  TELEGRAM_BOT_ENABLED: 'فعال/غیرفعال بودن تلگرام بات (true/false)',
+  TELEGRAM_BOT_TOKEN: 'توکن تلگرام بات (BotFather token)',
+  TELEGRAM_PROXY_URL:
+    'آدرس پراکسی برای Telegram Bot API (مثلاً http://user:pass@ip:port یا socks5://...)',
+  TELEGRAM_PROXY_POOL:
+    'لیست پروکسی‌های قابل استفاده برای بات (JSON array یا متن چندخطی؛ هر خط یک URL). اولویت با این لیست است.',
+  TELEGRAM_PROXY_HEALTHCHECK_INTERVAL_SECONDS:
+    'بازه بررسی سلامت پروکسی‌ها برای بات (ثانیه). پیش‌فرض: 10',
   BANK_CARD_NUMBER: 'شماره کارت بانکی واریز',
   BANK_ACCOUNT_HOLDER: 'نام دارنده حساب بانکی',
   BANK_SHABA: 'شماره شبا جهت واریز',

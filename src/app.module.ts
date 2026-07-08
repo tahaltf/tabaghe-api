@@ -42,6 +42,7 @@ import { PlansModule } from './modules/plans/plans.module';
 import { QuotaModule } from './modules/quota/quota.module';
 import { AuctionModule } from './modules/auction/auction.module';
 import { NotificationModule } from './modules/notification/notification.module';
+import { TelegramBotModule } from './modules/notification/telegram-bot/telegram-bot.module';
 import { ExchangeModule } from './modules/exchange/exchange.module';
 import { RepairModule } from './modules/repair/repair.module';
 import { SupportModule } from './modules/support/support.module';
@@ -112,6 +113,7 @@ import { AppService } from './app.service';
     ExchangeModule,
     RepairModule,
     NotificationModule,
+    TelegramBotModule,
     SupportModule,
     ChatsModule,
     OrdersModule,
