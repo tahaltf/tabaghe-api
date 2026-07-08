@@ -145,6 +145,8 @@ export const SETTING_KEYS = {
   TICKET_ATTACHMENT_MAX_SIZE_MB: 'TICKET_ATTACHMENT_MAX_SIZE_MB',
   TELEGRAM_BOT_ENABLED: 'TELEGRAM_BOT_ENABLED',
   TELEGRAM_BOT_TOKEN: 'TELEGRAM_BOT_TOKEN',
+  /** یوزرنیم ربات (بدون @) برای ساخت لینک مستقیم t.me */
+  TELEGRAM_BOT_USERNAME: 'TELEGRAM_BOT_USERNAME',
   TELEGRAM_PROXY_URL: 'TELEGRAM_PROXY_URL',
   /** لیست پروکسی‌ها (JSON array یا چندخطی). اگر مقدار داشته باشد، اولویت با این است. */
   TELEGRAM_PROXY_POOL: 'TELEGRAM_PROXY_POOL',
@@ -246,6 +248,8 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   TICKET_ATTACHMENT_MAX_SIZE_MB: 'حداکثر حجم پیوست تیکت پشتیبانی (مگابایت)',
   TELEGRAM_BOT_ENABLED: 'فعال/غیرفعال بودن تلگرام بات (true/false)',
   TELEGRAM_BOT_TOKEN: 'توکن تلگرام بات (BotFather token)',
+  TELEGRAM_BOT_USERNAME:
+    'یوزرنیم ربات برای ساخت لینک مستقیم (مثلاً tabagheh_bot بدون @)',
   TELEGRAM_PROXY_URL:
     'آدرس پراکسی برای Telegram Bot API (مثلاً http://user:pass@ip:port یا socks5://...)',
   TELEGRAM_PROXY_POOL:

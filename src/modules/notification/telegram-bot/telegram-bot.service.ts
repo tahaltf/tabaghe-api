@@ -22,6 +22,7 @@ type BotState = {
 type BotContext = Context & { state: BotState };
 
 const WIZARD_TTL_SECONDS = 30 * 60;
+const LINK_TTL_SECONDS = 5 * 60;
 const DEFAULT_PROXY_HEALTHCHECK_INTERVAL_SECONDS = 10;
 const PROXY_CHECK_TIMEOUT_MS = 3500;
 
@@ -173,6 +174,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 
   private registerHandlers(bot: Telegraf<BotContext>): void {
     bot.start(this.onStart.bind(this));
+    bot.command('link', this.onLinkCommand.bind(this));
     bot.command('cancel', this.onCancel.bind(this));
 
     bot.on('photo', this.onPhoto.bind(this));
@@ -181,6 +183,27 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 
   private wizardKey(telegramId: string): string {
     return `telegram:wizard:${telegramId}`;
+  }
+
+  private linkKey(telegramId: string): string {
+    return `telegram:link:${telegramId}`;
+  }
+
+  private async setLinkPending(telegramId: string): Promise<void> {
+    await this.cache.set(
+      this.linkKey(telegramId),
+      { pending: true },
+      LINK_TTL_SECONDS,
+    );
+  }
+
+  private async isLinkPending(telegramId: string): Promise<boolean> {
+    const v = await this.cache.get<{ pending?: boolean }>(this.linkKey(telegramId));
+    return !!v?.pending;
+  }
+
+  private async clearLinkPending(telegramId: string): Promise<void> {
+    await this.cache.delete(this.linkKey(telegramId));
   }
 
   private async getWizard(telegramId: string): Promise<WizardState | null> {
@@ -477,39 +500,14 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       rawText.replace(/^\/start(@\w+)?/i, '').trim();
 
     if (!token) {
-      await ctx.reply('برای اتصال حساب، دستور را به شکل `/start <token>` ارسال کنید.', {
-        parse_mode: 'Markdown',
-      });
+      await this.setLinkPending(telegramId);
+      await ctx.reply(
+        'برای اتصال حساب، توکن را همینجا ارسال کنید.\n(اگر توکن ندارید، از پنل کاربری → تنظیمات → تلگرام بسازید.)',
+      );
       return;
     }
 
-    const result = await this.prisma.$transaction(async (tx) => {
-      const target = await tx.user.findFirst({
-        where: { telegramToken: token, isActive: true },
-        select: { id: true, telegramId: true },
-      });
-      if (!target) {
-        return { ok: false as const, reason: 'invalid_token' as const };
-      }
-
-      const existing = await tx.user.findFirst({
-        where: { telegramId, isActive: true },
-        select: { id: true },
-      });
-      if (existing && existing.id !== target.id) {
-        return { ok: false as const, reason: 'telegram_already_linked' as const };
-      }
-
-      await tx.user.update({
-        where: { id: target.id },
-        data: {
-          telegramId,
-          telegramToken: null,
-        },
-      });
-
-      return { ok: true as const };
-    });
+    const result = await this.linkTelegramAccountByToken(token, telegramId);
 
     if (!result.ok) {
       if (result.reason === 'telegram_already_linked') {
@@ -520,14 +518,24 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    await this.clearLinkPending(telegramId);
     await this.cache.delete(`telegram:linkedUser:${telegramId}`);
     await ctx.reply('حساب شما با موفقیت به تلگرام متصل شد. حالا یک عکس با کپشن ارسال کنید تا آگهی ثبت شود.');
+  }
+
+  @SafeTelegrafHandler()
+  private async onLinkCommand(ctx: BotContext): Promise<void> {
+    const telegramId = ctx.from?.id ? String(ctx.from.id) : null;
+    if (!telegramId) return;
+    await this.setLinkPending(telegramId);
+    await ctx.reply('توکن اتصال را ارسال کنید.');
   }
 
   @SafeTelegrafHandler()
   private async onCancel(ctx: BotContext): Promise<void> {
     const telegramId = ctx.from?.id ? String(ctx.from.id) : null;
     if (!telegramId) return;
+    await this.clearLinkPending(telegramId);
     await this.clearWizard(telegramId);
     await ctx.reply('فرآیند ثبت آگهی لغو شد. برای شروع، یک عکس با کپشن ارسال کنید.');
   }
@@ -562,12 +570,48 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
   @SafeTelegrafHandler()
   private async onText(ctx: BotContext): Promise<void> {
     const telegramId = ctx.from?.id ? String(ctx.from.id) : null;
+    if (!telegramId) return;
     const linkedUser = ctx.state.linkedUser;
-    if (!telegramId || !linkedUser) return;
 
     const text = normalizeText(String((ctx.message as any)?.text ?? ''));
     if (!text) return;
     if (isLikelyCommand(text)) return;
+
+    // Linking wizard: user asked to link and is sending token.
+    if (!linkedUser && (await this.isLinkPending(telegramId))) {
+      const token = text;
+      const result = await this.linkTelegramAccountByToken(token, telegramId);
+      if (!result.ok) {
+        await ctx.reply(
+          result.reason === 'telegram_already_linked'
+            ? 'این حساب تلگرام قبلاً به حساب دیگری متصل شده است.'
+            : 'توکن نامعتبر یا منقضی است. لطفاً از داخل حساب کاربری، توکن جدید بگیرید.',
+        );
+        return;
+      }
+
+      // Best-effort delete the token message (privacy).
+      try {
+        await ctx.deleteMessage();
+      } catch {
+        // ignore
+      }
+
+      await this.clearLinkPending(telegramId);
+      await this.cache.delete(`telegram:linkedUser:${telegramId}`);
+      await ctx.reply(
+        'اتصال انجام شد. حالا یک عکس با کپشن ارسال کنید تا آگهی ثبت شود.',
+      );
+      return;
+    }
+
+    if (!linkedUser) {
+      await ctx.reply(
+        'برای استفاده از بات، ابتدا حساب خود را متصل کنید. از پنل کاربری → تنظیمات → تلگرام توکن بسازید و سپس اینجا `/start <token>` را بزنید.',
+        { parse_mode: 'Markdown' as any },
+      );
+      return;
+    }
 
     const wizard = await this.getWizard(telegramId);
     if (!wizard) {
@@ -797,6 +841,42 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     await ctx.reply(
       `آگهی شما با موفقیت ثبت شد و در انتظار تایید است.\nشناسه: ${String(id)}`,
     );
+  }
+
+  private async linkTelegramAccountByToken(
+    token: string,
+    telegramId: string,
+  ): Promise<
+    | { ok: true }
+    | { ok: false; reason: 'invalid_token' | 'telegram_already_linked' }
+  > {
+    return await this.prisma.$transaction(async (tx) => {
+      const target = await tx.user.findFirst({
+        where: { telegramToken: token, isActive: true },
+        select: { id: true },
+      });
+      if (!target) {
+        return { ok: false as const, reason: 'invalid_token' as const };
+      }
+
+      const existing = await tx.user.findFirst({
+        where: { telegramId, isActive: true },
+        select: { id: true },
+      });
+      if (existing && existing.id !== target.id) {
+        return { ok: false as const, reason: 'telegram_already_linked' as const };
+      }
+
+      await tx.user.update({
+        where: { id: target.id },
+        data: {
+          telegramId,
+          telegramToken: null,
+        },
+      });
+
+      return { ok: true as const };
+    });
   }
 }
 

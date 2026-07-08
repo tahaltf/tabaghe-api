@@ -18,6 +18,7 @@ import { CompleteProfileDto } from './dto/complete-profile.dto';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { appendJsonLog } from '../../common/logging/app-log.util';
 import { NotificationService } from '../notification/notification.service';
+import { SETTING_KEYS } from '../admin/services/admin-settings.service';
 
 const MY_PROFILE_SELECT = {
   id: true,
@@ -78,6 +79,7 @@ export type TelegramLinkStatus = {
 export type GeneratedTelegramToken = {
   token: string;
   startCommand: string;
+  deepLinkUrl: string | null;
 };
 
 const REQUEST_NOTIFICATION_TYPES: NotificationType[] = [
@@ -139,9 +141,22 @@ export class UsersService {
           },
           select: { id: true },
         });
+
+        const usernameRow = await this.prisma.systemSetting.findUnique({
+          where: { key: SETTING_KEYS.TELEGRAM_BOT_USERNAME },
+          select: { value: true },
+        });
+        const username = String(usernameRow?.value ?? '')
+          .trim()
+          .replace(/^@/, '');
+        const deepLinkUrl = username
+          ? `https://t.me/${encodeURIComponent(username)}?start=${encodeURIComponent(token)}`
+          : null;
+
         return {
           token,
           startCommand: `/start ${token}`,
+          deepLinkUrl,
         };
       } catch (err) {
         if (
