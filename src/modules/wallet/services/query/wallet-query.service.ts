@@ -1,23 +1,32 @@
 import {
-  BadRequestException,
   Injectable,
-  NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../../infrastructure/prisma/prisma.service';
 import {
   WalletTransactionType,
   WalletTransactionStatus,
   Prisma,
-  } from '@prisma/client';
-import Decimal from 'decimal.js';
+} from '@prisma/client';
 import {
   buildPaginationMeta,
   DEFAULT_PAGE,
   DEFAULT_PAGE_SIZE,
 } from '../../../../shared/contracts/pagination';
-import { ALLOWED_WALLET_META_KEYS, GATEWAY_TOPUP_KIND, UserWalletTxFilter, WalletTxnRow } from '../../wallet.constants';
+import {
+  ALLOWED_WALLET_META_KEYS,
+  GATEWAY_TOPUP_KIND,
+  ORPHAN_PLATFORM_FEE_CLEAR_PHASE,
+  UserWalletTxFilter,
+  WALLET_RECONCILE_KIND,
+  WalletTxnRow,
+} from '../../wallet.constants';
 import { WalletSupportService } from '../support/wallet-support.service';
 
+const ESCROW_HOLD_KINDS = new Set([
+  'order-escrow',
+  'auction-escrow',
+  'gateway-escrow',
+]);
 
 @Injectable()
 export class WalletQueryService {
@@ -32,16 +41,30 @@ export class WalletQueryService {
     return {
       walletId,
       NOT: {
-        AND: [
-          { type: WalletTransactionType.DEPOSIT },
-          { meta: { path: ['kind'], equals: GATEWAY_TOPUP_KIND } },
-          { status: { not: WalletTransactionStatus.SUCCESS } },
+        OR: [
+          {
+            AND: [
+              { type: WalletTransactionType.DEPOSIT },
+              { meta: { path: ['kind'], equals: GATEWAY_TOPUP_KIND } },
+              { status: { not: WalletTransactionStatus.SUCCESS } },
+            ],
+          },
+          {
+            AND: [
+              { type: WalletTransactionType.COMMISSION_FEE },
+              { meta: { path: ['kind'], equals: WALLET_RECONCILE_KIND } },
+            ],
+          },
         ],
       },
     };
   }
 
-  private isLegacyEscrowBlockedTxn(t: WalletTxnRow): boolean {
+  private isLegacyEscrowBlockedTxn(t: {
+    type: WalletTransactionType;
+    status: WalletTransactionStatus;
+    meta: unknown;
+  }): boolean {
     const meta = (t.meta ?? {}) as Record<string, unknown>;
     const description = String(meta['description'] ?? '').trim();
     const isPendingDeposit =
@@ -171,54 +194,7 @@ export class WalletQueryService {
     );
   }
 
-  private async sanitizeTransactionsForUser(
-    transactions: WalletTxnRow[],
-    userId: string,
-  ) {
-    const sellerBlockedListingIds = transactions
-      .filter((t) => {
-        const meta = t.meta as Record<string, unknown> | null;
-        return (
-          !!meta &&
-          meta['kind'] === 'order-escrow' &&
-          meta['phase'] === 'seller_blocked' &&
-          typeof meta['listingId'] === 'string'
-        );
-      })
-      .map((t) => (t.meta as Record<string, unknown>)['listingId'] as string);
-
-    const uniqueSellerBlockedListingIds = Array.from(
-      new Set(sellerBlockedListingIds),
-    );
-    const exchangeOrdersForFix = uniqueSellerBlockedListingIds.length
-      ? await this.prisma.order.findMany({
-          where: {
-            type: 'EXCHANGE' as any,
-            listingId: { in: uniqueSellerBlockedListingIds },
-            sellerId: userId,
-          },
-          select: {
-            listingId: true,
-            sellerRevenue: true,
-            platformFee: true,
-            createdAt: true,
-          },
-          orderBy: { createdAt: 'desc' },
-        })
-      : [];
-    const exchangeOrderByListingId = new Map<
-      string,
-      { sellerRevenue: number; platformFee: number }
-    >();
-    for (const o of exchangeOrdersForFix) {
-      if (!exchangeOrderByListingId.has(o.listingId)) {
-        exchangeOrderByListingId.set(o.listingId, {
-          sellerRevenue: Number(o.sellerRevenue || 0),
-          platformFee: Number(o.platformFee || 0),
-        });
-      }
-    }
-
+  private sanitizeTransactionsForUser(transactions: WalletTxnRow[]) {
     return transactions
       .filter((t) => !this.shouldHideZeroSellerBlocked(t))
       .map((t) => {
@@ -231,25 +207,229 @@ export class WalletQueryService {
             if (ALLOWED_WALLET_META_KEYS.has(k)) safeMeta[k] = v;
           }
         }
-        let normalizedAmount = Number(t.amount || 0);
-        const rawMeta = t.meta as Record<string, unknown> | null;
-        if (
-          rawMeta &&
-          rawMeta['kind'] === 'order-escrow' &&
-          rawMeta['phase'] === 'seller_blocked' &&
-          typeof rawMeta['listingId'] === 'string'
+        return { ...t, amount: Number(t.amount || 0), meta: safeMeta };
+      });
+  }
+
+  /**
+   * هولدهای هنوز فعال قابل توجیه برای کاربر (امانت/ودیعه/برداشت در صف).
+   * DEPOSIT اسکرو بعد از آزادسازی همچنان PENDING می‌ماند؛ اگر seller_released
+   * برای همان order/listing ثبت شده، دیگر هولد حساب نمی‌شود (باقی‌مانده ≈ کارمزد).
+   */
+  private async computeActiveBlockedHolds(walletId: string): Promise<number> {
+    const rows = await this.prisma.walletTransaction.findMany({
+      where: {
+        walletId,
+        OR: [
+          {
+            type: WalletTransactionType.BLOCK,
+            status: { not: WalletTransactionStatus.FAILED },
+          },
+          {
+            type: WalletTransactionType.UNBLOCK,
+            status: WalletTransactionStatus.SUCCESS,
+          },
+          {
+            type: WalletTransactionType.DEPOSIT,
+            status: WalletTransactionStatus.PENDING,
+          },
+          {
+            type: WalletTransactionType.WITHDRAW_REQUEST,
+            status: WalletTransactionStatus.PENDING,
+          },
+          {
+            type: WalletTransactionType.PENALTY,
+            status: WalletTransactionStatus.SUCCESS,
+          },
+        ],
+      },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        type: true,
+        status: true,
+        amount: true,
+        referenceId: true,
+        meta: true,
+      },
+    });
+
+    const holdGroups: Array<{
+      amount: number;
+      orderId: string;
+      listingId: string;
+      ref: string;
+    }> = [];
+    const releasedOrderIds = new Set<string>();
+    const releasedListingIdsLegacy = new Set<string>();
+    let auctionBidNet = 0;
+    let withdrawPending = 0;
+
+    for (const row of rows) {
+      const amount = Math.max(0, Number(row.amount) || 0);
+      if (!Number.isFinite(amount) || amount <= 0) continue;
+      const meta = (row.meta ?? {}) as Record<string, unknown>;
+      const kind = String(meta['kind'] ?? '').trim();
+
+      if (
+        row.type === WalletTransactionType.WITHDRAW_REQUEST &&
+        row.status === WalletTransactionStatus.PENDING
+      ) {
+        withdrawPending += amount;
+        continue;
+      }
+
+      if (kind === 'auction-bid-deposit') {
+        if (row.type === WalletTransactionType.BLOCK) auctionBidNet += amount;
+        else if (
+          row.type === WalletTransactionType.UNBLOCK ||
+          row.type === WalletTransactionType.PENALTY
         ) {
-          const match = exchangeOrderByListingId.get(rawMeta['listingId']);
-          if (
-            match &&
-            match.platformFee > 0 &&
-            Math.abs(normalizedAmount - match.sellerRevenue) < 1
-          ) {
-            normalizedAmount = match.sellerRevenue + match.platformFee;
+          auctionBidNet -= amount;
+        }
+        continue;
+      }
+
+      if (!ESCROW_HOLD_KINDS.has(kind) && !this.isLegacyEscrowBlockedTxn(row)) {
+        continue;
+      }
+
+      const orderId = String(meta['orderId'] ?? '').trim();
+      const listingId = String(meta['listingId'] ?? '').trim();
+      const ref = String(row.referenceId ?? '').trim();
+      if (!orderId && !listingId && !ref) continue;
+
+      if (
+        row.type === WalletTransactionType.DEPOSIT &&
+        row.status === WalletTransactionStatus.PENDING
+      ) {
+        holdGroups.push({ amount, orderId, listingId, ref });
+        continue;
+      }
+
+      if (
+        row.type === WalletTransactionType.UNBLOCK &&
+        row.status === WalletTransactionStatus.SUCCESS
+      ) {
+        const phase = String(meta['phase'] ?? '').trim();
+        if (phase === 'seller_released') {
+          if (orderId) releasedOrderIds.add(orderId);
+          // تراکنش‌های قدیمی فقط listingId دارند
+          if (!orderId && listingId) releasedListingIdsLegacy.add(listingId);
+          if (!orderId && !listingId && ref) releasedListingIdsLegacy.add(ref);
+        } else {
+          let remaining = amount;
+          for (const g of holdGroups) {
+            if (remaining <= 0) break;
+            const overlap =
+              (orderId && (g.orderId === orderId || g.ref === orderId)) ||
+              (listingId &&
+                (g.listingId === listingId || g.ref === listingId)) ||
+              (ref &&
+                (g.ref === ref ||
+                  g.orderId === ref ||
+                  g.listingId === ref));
+            if (!overlap) continue;
+            const take = Math.min(g.amount, remaining);
+            g.amount -= take;
+            remaining -= take;
           }
         }
-        return { ...t, amount: normalizedAmount, meta: safeMeta };
+        continue;
+      }
+
+      if (
+        row.type === WalletTransactionType.PENALTY &&
+        row.status === WalletTransactionStatus.SUCCESS
+      ) {
+        // کسر جزئی از هولد هم‌پوشان (نه صفر کردن کل سفارش)
+        let remaining = amount;
+        for (const g of holdGroups) {
+          if (remaining <= 0) break;
+          const overlap =
+            (orderId && (g.orderId === orderId || g.ref === orderId)) ||
+            (listingId &&
+              (g.listingId === listingId || g.ref === listingId)) ||
+            (ref &&
+              (g.ref === ref || g.orderId === ref || g.listingId === ref));
+          if (!overlap) continue;
+          const take = Math.min(g.amount, remaining);
+          g.amount -= take;
+          remaining -= take;
+        }
+      }
+    }
+
+    let escrowActive = 0;
+    for (const g of holdGroups) {
+      if (g.amount <= 0) continue;
+      if (g.orderId && releasedOrderIds.has(g.orderId)) continue;
+      if (g.ref && releasedOrderIds.has(g.ref)) continue;
+      if (!g.orderId && g.listingId && releasedListingIdsLegacy.has(g.listingId))
+        continue;
+      if (
+        !g.orderId &&
+        !g.listingId &&
+        g.ref &&
+        releasedListingIdsLegacy.has(g.ref)
+      )
+        continue;
+      escrowActive += g.amount;
+    }
+
+    return Math.max(
+      0,
+      Math.floor(withdrawPending + Math.max(0, auctionBidNet) + escrowActive),
+    );
+  }
+
+  /**
+   * اگر هیچ هولد فعالی نیست ولی balanceBlocked مانده دارد، آن را پاک می‌کند
+   * (بازمانده کارمزد/نشتی پس از تسویه).
+   */
+  private async reconcileOrphanBlockedBalance(
+    userId: string,
+    walletId: string,
+    rawBlocked: number,
+    activeHolds: number,
+  ): Promise<number> {
+    if (activeHolds > 0) return Math.floor(rawBlocked);
+    const orphan = Math.max(0, Math.floor(rawBlocked));
+    if (orphan <= 0) return 0;
+
+    await this.prisma.$transaction(async (tx) => {
+      const current = await tx.wallet.findUnique({
+        where: { userId },
+        select: { balanceBlocked: true },
       });
+      const latestBlocked = Math.max(
+        0,
+        Math.floor(Number(current?.balanceBlocked ?? 0)),
+      );
+      // اگر در همین لحظه هولد جدیدی اضافه شده، دست نزن
+      if (latestBlocked <= 0) return;
+
+      await tx.wallet.update({
+        where: { userId },
+        data: { balanceBlocked: { decrement: latestBlocked } },
+      });
+
+      await tx.walletTransaction.create({
+        data: {
+          walletId,
+          amount: latestBlocked,
+          type: WalletTransactionType.COMMISSION_FEE,
+          status: WalletTransactionStatus.SUCCESS,
+          meta: {
+            kind: WALLET_RECONCILE_KIND,
+            phase: ORPHAN_PLATFORM_FEE_CLEAR_PHASE,
+            description:
+              'تسویه مانده بلوکهٔ بدون هولد فعال (کارمزد/باقی‌مانده سیستمی)',
+          },
+        },
+      });
+    });
+
+    return 0;
   }
 
   private async getWalletStatsForUser(userId: string, walletId: string) {
@@ -273,10 +453,7 @@ export class WalletQueryService {
       },
     });
 
-    const sanitizedMonth = await this.sanitizeTransactionsForUser(
-      monthTxs,
-      userId,
-    );
+    const sanitizedMonth = this.sanitizeTransactionsForUser(monthTxs);
 
     let incomeThisMonth = 0;
     let expenseThisMonth = 0;
@@ -308,11 +485,35 @@ export class WalletQueryService {
   }
 
   async getWalletByUserId(userId: string) {
-    const wallet = await this.support.ensureUserWallet(userId);
+    let wallet = await this.support.ensureUserWallet(userId);
+    const rawBlocked = Math.max(
+      0,
+      Math.floor(Number(wallet.balanceBlocked) || 0),
+    );
+    const activeHolds = await this.computeActiveBlockedHolds(wallet.id);
+    const reconciledBlocked = await this.reconcileOrphanBlockedBalance(
+      userId,
+      wallet.id,
+      rawBlocked,
+      activeHolds,
+    );
+
+    if (reconciledBlocked !== rawBlocked) {
+      wallet = await this.support.ensureUserWallet(userId);
+    }
+
     const stats = await this.getWalletStatsForUser(userId, wallet.id);
+    const balanceBlockedVisible = Math.min(
+      Math.max(0, Math.floor(Number(wallet.balanceBlocked) || 0)),
+      Math.max(0, Math.floor(activeHolds)),
+    );
 
     return {
       ...wallet,
+      // برای کاربر فقط هولدهای فعال را نشان می‌دهیم (باقی‌مانده کارمزد پنهان/پاک می‌شود).
+      balanceBlocked: balanceBlockedVisible,
+      balanceBlockedRaw: wallet.balanceBlocked,
+      balanceBlockedVisible,
       transactions: [],
       stats,
     };
@@ -356,7 +557,7 @@ export class WalletQueryService {
       }),
     ]);
 
-    let items = await this.sanitizeTransactionsForUser(rows, userId);
+    let items = this.sanitizeTransactionsForUser(rows);
 
     if (filter === 'INCOME') {
       items = items.filter((t) => this.isIncomeTxn(t));

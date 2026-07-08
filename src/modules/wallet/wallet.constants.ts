@@ -7,6 +7,9 @@ import { WalletTransactionStatus, WalletTransactionType } from '@prisma/client';
  */
 export const MANUAL_DEPOSIT_KIND = 'manual-deposit';
 export const GATEWAY_TOPUP_KIND = 'gateway-topup';
+/** Clears orphan residual platform-fee left in balanceBlocked after escrow release. */
+export const WALLET_RECONCILE_KIND = 'wallet-reconcile';
+export const ORPHAN_PLATFORM_FEE_CLEAR_PHASE = 'orphan_platform_fee_clear';
 
 export const ALLOWED_WALLET_META_KEYS = new Set([
   'kind',
