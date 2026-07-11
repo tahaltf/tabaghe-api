@@ -31,6 +31,7 @@ function createAuctionService(deps: {
     gateway as never,
     eventEmitter as never,
     support,
+    {} as never,
   );
   const query = new AuctionQueryService(deps.prisma as never, support);
   return new AuctionService(bidding, settlement, query);

@@ -430,6 +430,7 @@ describe('Exchange lifecycle — hub inspection (scenarios 7–12)', () => {
         walletService as never,
         listingCommand as never,
         notify,
+        operationalNotify as never,
       ),
     );
 

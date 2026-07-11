@@ -17,6 +17,7 @@ import { IsNumber, IsOptional, IsString, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 import { listingImagesMulterOptions } from '../../common/upload/listing-images-upload.config';
+import { processListingImageUploads } from '../../common/upload/listing-image-process.util';
 import { CacheControl } from '../../common/decorators/cache-control.decorator';
 import { AuthenticatedUser } from '../../shared/contracts/auth';
 import { AuctionService } from '../auction/auction.service';
@@ -181,12 +182,12 @@ export class ListingController {
   @UseGuards(JwtAuthGuard, IsVerifiedGuard)
   @Post()
   @UseInterceptors(FilesInterceptor('images', 10, listingImagesMulterOptions))
-  create(
+  async create(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateListingDto,
     @UploadedFiles() files: Array<Express.Multer.File>,
   ) {
-    const fileNames = files?.map((f) => f.filename) ?? [];
+    const fileNames = await processListingImageUploads(files);
     let gallery = fileNames;
     let thumbnail = fileNames[0] ?? dto.thumbnail;
     if (dto.galleryOrder?.length && fileNames.length > 0) {
@@ -206,7 +207,7 @@ export class ListingController {
   @UseGuards(JwtAuthGuard, IsVerifiedGuard)
   @Patch(':id')
   @UseInterceptors(FilesInterceptor('images', 10, listingImagesMulterOptions))
-  update(
+  async update(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: UpdateListingDto,
@@ -215,7 +216,7 @@ export class ListingController {
     const { galleryOrder, ...restDto } = dto;
     const payload: UpdateListingDto = { ...restDto };
     if (files?.length) {
-      const fileNames = files.map((f) => f.filename);
+      const fileNames = await processListingImageUploads(files);
       if (galleryOrder?.length) {
         const resolved = resolveGalleryFromOrder(galleryOrder, fileNames);
         payload.gallery = resolved.gallery;

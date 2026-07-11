@@ -22,6 +22,8 @@
     "seed": "ts-node prisma/seed.ts",
     "seed:test-users": "ts-node prisma/seed-test-users.ts",
     "seed:seller-landing": "ts-node scripts/seed-seller-landing.ts",
+    "migrate:listing-images": "ts-node scripts/migrate-listing-image-variants.ts",
+    "load:smoke": "node scripts/load-smoke.mjs",
     "seed:content": "node prisma/seed-content.js",
     "test:phase1": "jest --testPathPattern=\"web-otp-template|seller-landing.seed|landing-sections\"",
     "test:marketplace": "jest coupons.service.spec.ts cart.service.spec.ts cart-checkout.service.spec.ts cart-checkout.integration.spec.ts marketplace-smoke.spec.ts orders-checkout-coupon.spec.ts payments.service.spec.ts",

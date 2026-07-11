@@ -21,8 +21,28 @@ import { HOME_JEWELRY_CATEGORY_SLUG } from '../../../common/category/home-catego
 /**
  * لیست آگهی‌ها فقط فیلدهای مورد نیاز کارت را برمیگرداند تا حجم payload
  * حداقلی باشه. فیلدهای حساس (phone صاحب آگهی، sellerRevenue، ...) لو نمی‌ره.
+ * از root `select` استفاده می‌شود تا description/gallery/attributes برنگردند.
  */
-const LIST_ITEM_INCLUDE = {
+const LIST_ITEM_SELECT = {
+  id: true,
+  title: true,
+  type: true,
+  status: true,
+  condition: true,
+  thumbnail: true,
+  createdAt: true,
+  approvedAt: true,
+  authorId: true,
+  categoryId: true,
+  provinceId: true,
+  cityId: true,
+  shippingPayer: true,
+  sellerRequiresVerification: true,
+  testPeriodDays: true,
+  isFeatured: true,
+  featuredAt: true,
+  stockQuantity: true,
+  exchangeOffersSince: true,
   direct: {
     select: {
       price: true,
@@ -55,13 +75,6 @@ const LIST_ITEM_INCLUDE = {
       id: true,
       title: true,
       slug: true,
-      parent: {
-        select: {
-          id: true,
-          title: true,
-          parent: { select: { id: true, title: true } },
-        },
-      },
     },
   },
   author: {
@@ -75,7 +88,7 @@ const LIST_ITEM_INCLUDE = {
       isApproved: true,
     },
   },
-} satisfies Prisma.ListingInclude;
+} satisfies Prisma.ListingSelect;
 
 /**
  * DETAIL_INCLUDE عمومی: شماره تلفن صاحب آگهی اینجا نباید لو بره. فقط
@@ -131,7 +144,7 @@ const DETAIL_INCLUDE = {
 } satisfies Prisma.ListingInclude;
 
 export type ListingListItem = Prisma.ListingGetPayload<{
-  include: typeof LIST_ITEM_INCLUDE;
+  select: typeof LIST_ITEM_SELECT;
 }>;
 export type ListingDetail = Prisma.ListingGetPayload<{
   include: typeof DETAIL_INCLUDE;
@@ -165,7 +178,7 @@ export class ListingQueryService {
     const [rawItems, total] = await Promise.all([
       this.prisma.listing.findMany({
         where,
-        include: LIST_ITEM_INCLUDE,
+        select: LIST_ITEM_SELECT,
         // آگهی‌های ویژه همیشه بالاتر قرار می‌گیرند، سپس مرتب‌سازی انتخابی کاربر اعمال می‌شود.
         orderBy: [{ isFeatured: 'desc' }, { featuredAt: 'desc' }, ...orderBy],
         skip: useRelevanceSort ? 0 : skip,
@@ -236,13 +249,13 @@ export class ListingQueryService {
     const [auction, direct, exchange, auctions, total] = await Promise.all([
       this.prisma.listing.findMany({
         where: { ...where, type: ListingType.AUCTION },
-        include: LIST_ITEM_INCLUDE,
+        select: LIST_ITEM_SELECT,
         orderBy,
         take: safeLimit,
       }),
       this.prisma.listing.findMany({
         where: directWhere,
-        include: LIST_ITEM_INCLUDE,
+        select: LIST_ITEM_SELECT,
         orderBy,
         take: safeLimit,
       }),
@@ -254,7 +267,7 @@ export class ListingQueryService {
             { direct: { allowExchange: true } },
           ],
         },
-        include: LIST_ITEM_INCLUDE,
+        select: LIST_ITEM_SELECT,
         orderBy,
         take: safeLimit,
       }),
@@ -358,7 +371,7 @@ export class ListingQueryService {
     const [rows, total] = await Promise.all([
       this.prisma.listing.findMany({
         where,
-        include: LIST_ITEM_INCLUDE,
+        select: LIST_ITEM_SELECT,
         orderBy: { createdAt: 'desc' },
         skip,
         take: pageSize,
@@ -376,23 +389,42 @@ export class ListingQueryService {
 
     const pendingCounts = new Map<string, number>();
     if (exchangeListingIds.length) {
-      const offers = await this.prisma.exchangeOffer.findMany({
+      const sinceByListing = new Map(
+        rows.map((row) => [row.id, row.exchangeOffersSince] as const),
+      );
+      const grouped = await this.prisma.exchangeOffer.groupBy({
+        by: ['listingId'],
         where: {
           listingId: { in: exchangeListingIds },
           status: ExchangeOfferStatus.PENDING,
         },
-        select: { listingId: true, createdAt: true },
+        _count: { _all: true },
       });
-      const sinceByListing = new Map(
-        rows.map((row) => [row.id, row.exchangeOffersSince] as const),
+      // groupBy cannot filter per-row `since`; apply since with a second light query only when needed
+      const needsSinceFilter = rows.some(
+        (r) =>
+          exchangeListingIds.includes(r.id) && r.exchangeOffersSince != null,
       );
-      for (const offer of offers) {
-        const since = sinceByListing.get(offer.listingId);
-        if (since && offer.createdAt < since) continue;
-        pendingCounts.set(
-          offer.listingId,
-          (pendingCounts.get(offer.listingId) ?? 0) + 1,
-        );
+      if (needsSinceFilter) {
+        const offers = await this.prisma.exchangeOffer.findMany({
+          where: {
+            listingId: { in: exchangeListingIds },
+            status: ExchangeOfferStatus.PENDING,
+          },
+          select: { listingId: true, createdAt: true },
+        });
+        for (const offer of offers) {
+          const since = sinceByListing.get(offer.listingId);
+          if (since && offer.createdAt < since) continue;
+          pendingCounts.set(
+            offer.listingId,
+            (pendingCounts.get(offer.listingId) ?? 0) + 1,
+          );
+        }
+      } else {
+        for (const row of grouped) {
+          pendingCounts.set(row.listingId, row._count._all);
+        }
       }
     }
 
@@ -612,7 +644,6 @@ export class ListingQueryService {
 
   private relevanceScore(query: string, item: ListingListItem): number {
     const title = this.normalize(item.title);
-    const description = this.normalize(item.description ?? '');
     const category = this.normalize(item.category?.title ?? '');
     const city = this.normalize(item.city?.name ?? '');
     const province = this.normalize(item.province?.name ?? '');
@@ -621,7 +652,6 @@ export class ListingQueryService {
     if (title.includes(query)) score += 50;
     if (category.includes(query)) score += 30;
     if (city.includes(query) || province.includes(query)) score += 18;
-    if (description.includes(query)) score += 12;
     return score;
   }
 

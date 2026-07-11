@@ -3,7 +3,7 @@ import { IsInt, IsOptional, Max, Min } from 'class-validator';
 
 export const DEFAULT_PAGE = 1;
 export const DEFAULT_PAGE_SIZE = 20;
-export const MAX_PAGE_SIZE = 100;
+export const MAX_PAGE_SIZE = 48;
 
 /**
  * DTO مشترک برای query های صفحه‌بندی.

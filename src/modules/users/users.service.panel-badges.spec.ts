@@ -12,7 +12,15 @@ describe('UsersService panel badges', () => {
     },
   };
 
-  const service = new UsersService(prismaMock as never);
+  const notificationsMock = {
+    create: jest.fn(),
+    notify: jest.fn(),
+  };
+
+  const service = new UsersService(
+    prismaMock as never,
+    notificationsMock as never,
+  );
 
   beforeEach(() => {
     jest.clearAllMocks();

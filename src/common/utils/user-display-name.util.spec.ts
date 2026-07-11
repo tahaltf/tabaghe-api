@@ -40,9 +40,15 @@ describe('user-display-name.util', () => {
     );
   });
 
-  it('builds initials from displayName', () => {
+  it('builds initials from first name only', () => {
+    expect(
+      formatUserInitials({ firstName: 'علی', lastName: 'احمدی' }),
+    ).toBe('ع');
+  });
+
+  it('builds initials from displayName when firstName missing', () => {
     expect(
       formatUserInitials({ displayName: 'علی طبقه' }),
-    ).toBe('عط');
+    ).toBe('ع');
   });
 });

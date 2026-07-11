@@ -32,19 +32,26 @@ export function formatUserDisplayName(
   return fallback;
 }
 
+/** حرف اول نام کوچک برای آواتار — بدون چسباندن به نام خانوادگی. */
 export function formatUserInitials(
   user: UserNameFields | null | undefined,
 ): string {
+  const first = user?.firstName?.trim();
+  if (first) return avatarInitialChar(first);
+
   const display = user?.displayName?.trim();
   if (display) {
-    const parts = display.split(/\s+/).filter(Boolean);
-    if (parts.length >= 2) {
-      return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
-    }
-    return display.slice(0, 2).toUpperCase();
+    const firstPart = display.split(/\s+/).filter(Boolean)[0] ?? display;
+    return avatarInitialChar(firstPart);
   }
 
-  const first = user?.firstName?.trim()?.[0] ?? '';
-  const last = user?.lastName?.trim()?.[0] ?? '';
-  return `${first}${last}`.toUpperCase();
+  const last = user?.lastName?.trim();
+  if (last) return avatarInitialChar(last);
+
+  return '';
+}
+
+function avatarInitialChar(word: string): string {
+  const ch = word[0] ?? '';
+  return /[A-Za-z]/.test(ch) ? ch.toUpperCase() : ch;
 }

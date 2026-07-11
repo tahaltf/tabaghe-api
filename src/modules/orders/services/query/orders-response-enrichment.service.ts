@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus, OrderType } from '@prisma/client';
 import { PrismaService } from '../../../../infrastructure/prisma/prisma.service';
+import { OrdersSettingsService } from '../../orders-settings.service';
 
 export const BUYER_CONFIRM_ELIGIBLE_STATUSES: OrderStatus[] = [
   OrderStatus.SHIPPED,
@@ -8,11 +9,20 @@ export const BUYER_CONFIRM_ELIGIBLE_STATUSES: OrderStatus[] = [
   OrderStatus.DELIVERED,
 ];
 
+const SHIPPING_DEADLINE_ELIGIBLE_STATUSES: OrderStatus[] = [
+  OrderStatus.PAID,
+  OrderStatus.AWAITING_SHIPMENT_TO_HUB,
+  OrderStatus.SHIPPED_TO_HUB,
+];
+
 const DEFAULT_BUYER_CONFIRM_DEADLINE_MINUTES = 4 * 24 * 60;
 
 @Injectable()
 export class OrdersResponseEnrichmentService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settings: OrdersSettingsService,
+  ) {}
 
   /** برای ثبت مهلت هنگام ارسال از هاب / ارسال مستقیم */
   computeBuyerConfirmDeadlineNow(): Promise<Date> {
@@ -52,33 +62,103 @@ export class OrdersResponseEnrichmentService {
     T extends {
       id: string;
       status: OrderStatus;
+      type?: OrderType;
       buyerConfirmDeadline?: Date | null;
+      shippingDeadline?: Date | null;
       updatedAt: Date;
       createdAt: Date;
       disputedAt?: Date | null;
     },
   >(order: T): Promise<T> {
-    if (!BUYER_CONFIRM_ELIGIBLE_STATUSES.includes(order.status)) {
-      return this.enrichOrderClientFields(order);
+    let next = await this.attachShippingDeadline(order);
+
+    if (!BUYER_CONFIRM_ELIGIBLE_STATUSES.includes(next.status)) {
+      return this.enrichOrderClientFields(next);
     }
-    await this.ensureBuyerConfirmDeadline(order.id);
+    await this.ensureBuyerConfirmDeadline(next.id);
     const fresh = await this.prisma.order.findUnique({
-      where: { id: order.id },
+      where: { id: next.id },
       select: { buyerConfirmDeadline: true },
     });
     const deadline =
       fresh?.buyerConfirmDeadline ??
       (await this.resolveEffectiveBuyerConfirmDeadline({
-        status: order.status,
+        status: next.status,
         buyerConfirmDeadline: fresh?.buyerConfirmDeadline ?? null,
+        updatedAt: next.updatedAt,
+        createdAt: next.createdAt,
+      }));
+    if (!deadline) return this.enrichOrderClientFields(next);
+    return this.enrichOrderClientFields({
+      ...next,
+      buyerConfirmDeadline: deadline,
+    });
+  }
+
+  /**
+   * سفارش‌های پرداخت‌شده بدون shippingDeadline (باگ سبد/تسویه ناقص)
+   * را هنگام خواندن جزئیات بک‌فیل می‌کند تا فروشنده مهلت را ببیند.
+   */
+  async ensureShippingDeadline(orderId: string): Promise<void> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        status: true,
+        type: true,
+        shippingDeadline: true,
+        updatedAt: true,
+        createdAt: true,
+      },
+    });
+    if (!order) return;
+    if (order.shippingDeadline) return;
+    if (!SHIPPING_DEADLINE_ELIGIBLE_STATUSES.includes(order.status)) return;
+
+    const deadline = await this.settings.resolveEffectiveShippingDeadline({
+      type: order.type,
+      shippingDeadline: null,
+      updatedAt: order.updatedAt,
+      createdAt: order.createdAt,
+    });
+    if (!deadline) return;
+
+    await this.prisma.order.update({
+      where: { id: order.id },
+      data: { shippingDeadline: deadline },
+    });
+  }
+
+  private async attachShippingDeadline<
+    T extends {
+      id: string;
+      status: OrderStatus;
+      type?: OrderType;
+      shippingDeadline?: Date | null;
+      updatedAt: Date;
+      createdAt: Date;
+    },
+  >(order: T): Promise<T> {
+    if (!SHIPPING_DEADLINE_ELIGIBLE_STATUSES.includes(order.status)) {
+      return order;
+    }
+    if (order.shippingDeadline) return order;
+
+    await this.ensureShippingDeadline(order.id);
+    const fresh = await this.prisma.order.findUnique({
+      where: { id: order.id },
+      select: { shippingDeadline: true },
+    });
+    const deadline =
+      fresh?.shippingDeadline ??
+      (await this.settings.resolveEffectiveShippingDeadline({
+        type: order.type,
+        shippingDeadline: null,
         updatedAt: order.updatedAt,
         createdAt: order.createdAt,
       }));
-    if (!deadline) return this.enrichOrderClientFields(order);
-    return this.enrichOrderClientFields({
-      ...order,
-      buyerConfirmDeadline: deadline,
-    });
+    if (!deadline) return order;
+    return { ...order, shippingDeadline: deadline };
   }
 
   enrichOrderClientFields<T extends Record<string, unknown>>(order: T): T {
@@ -120,10 +200,19 @@ export class OrdersResponseEnrichmentService {
         : typeof exchangePaymentDeadlineRaw === 'string'
           ? exchangePaymentDeadlineRaw
           : null;
+    const shippingDeadlineRaw = (o as { shippingDeadline?: unknown })
+      .shippingDeadline;
+    const shippingDeadline =
+      shippingDeadlineRaw instanceof Date
+        ? shippingDeadlineRaw.toISOString()
+        : typeof shippingDeadlineRaw === 'string'
+          ? shippingDeadlineRaw
+          : null;
     return {
       ...order,
       buyerConfirmDeadline,
       exchangePaymentDeadline,
+      shippingDeadline,
       returnDestinationAddress: returnDestinationAddress ?? null,
       returnDestinationPostalCode: returnDestinationPostalCode ?? null,
     } as T;
