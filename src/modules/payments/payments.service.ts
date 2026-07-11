@@ -418,35 +418,44 @@ export class PaymentsService {
       include: { orders: true },
     });
     if (!session) throw new NotFoundException('جلسه پرداخت یافت نشد');
-    if (session.status === CheckoutSessionStatus.PAID) return;
 
-    await tx.checkoutSession.update({
-      where: { id: session.id },
-      data: { status: CheckoutSessionStatus.PAID },
-    });
+    // حتی اگر session قبلاً PAID شده، سفارش‌های بدون امانت را تکمیل می‌کنیم
+    // (مثلاً پس از باگ قدیمی یا callback ناقص).
+    if (session.status !== CheckoutSessionStatus.PAID) {
+      await tx.checkoutSession.update({
+        where: { id: session.id },
+        data: { status: CheckoutSessionStatus.PAID },
+      });
+    }
 
     const shipDeadlineMinutes = await this.getSellerShipDeadlineMinutes(tx);
     const deadline = new Date(Date.now() + shipDeadlineMinutes * 60 * 1000);
 
     for (const order of session.orders) {
+      const locked = await tx.order.findUnique({ where: { id: order.id } });
+      if (!locked) continue;
       if (
-        order.status !== OrderStatus.AWAITING_PAYMENT &&
-        order.status !== OrderStatus.PENDING
+        locked.status === OrderStatus.CANCELLED ||
+        locked.status === OrderStatus.COMPLETED
       ) {
         continue;
       }
-      const locked = await tx.order.findUnique({ where: { id: order.id } });
-      if (!locked) continue;
+
+      const needsStatusAdvance =
+        locked.status === OrderStatus.AWAITING_PAYMENT ||
+        locked.status === OrderStatus.PENDING;
       const paidAmount = Number(locked.totalAmount);
       const nextStatus = locked.requiresVerification
         ? OrderStatus.AWAITING_SHIPMENT_TO_HUB
         : OrderStatus.PAID;
 
       if (paidAmount <= 0) {
-        await tx.order.update({
-          where: { id: locked.id },
-          data: { status: nextStatus, shippingDeadline: deadline },
-        });
+        if (needsStatusAdvance) {
+          await tx.order.update({
+            where: { id: locked.id },
+            data: { status: nextStatus, shippingDeadline: deadline },
+          });
+        }
         continue;
       }
 
@@ -461,60 +470,61 @@ export class PaymentsService {
       const listingTitle = listing?.title;
 
       if (paymentSource === 'WALLET') {
-        await this.walletService.transferToEscrow(
-          locked.buyerId,
-          locked.sellerId,
-          paidAmount,
-          platformCut,
-          locked.listingId,
-          tx,
-          { orderId: locked.id },
+        const presence = await this.walletService.getPurchaseEscrowPresence(
+          locked.id,
+          {
+            buyerId: locked.buyerId,
+            sellerId: locked.sellerId,
+            listingId: locked.listingId,
+            tx,
+          },
         );
+        // اگر لاگ خریدار از قبل هست، دوباره از کیف کم نکن (idempotent).
+        if (!presence.buyerPaid) {
+          await this.walletService.transferToEscrow(
+            locked.buyerId,
+            locked.sellerId,
+            paidAmount,
+            platformCut,
+            locked.listingId,
+            tx,
+            { orderId: locked.id },
+          );
+        } else if (!presence.sellerBlocked) {
+          // خریدار پرداخت شده ولی فروشنده بلوکه ندارد — فقط امانت فروشنده.
+          await this.walletService.ensureGatewayPurchaseEscrowInTx(tx, {
+            orderId: locked.id,
+            buyerId: locked.buyerId,
+            sellerId: locked.sellerId,
+            listingId: locked.listingId,
+            paidAmount,
+            platformCut,
+            paymentSource: 'WALLET',
+            listingTitle,
+          });
+        } else {
+          await this.walletService.linkEscrowDepositsToOrder(tx, {
+            orderId: locked.id,
+            listingId: locked.listingId,
+            userIds: [locked.buyerId, locked.sellerId],
+          });
+        }
       } else {
-        await this.walletService.creditExternalPaymentToEscrow(
-          locked.sellerId,
+        await this.walletService.ensureGatewayPurchaseEscrowInTx(tx, {
+          orderId: locked.id,
+          buyerId: locked.buyerId,
+          sellerId: locked.sellerId,
+          listingId: locked.listingId,
           paidAmount,
           platformCut,
-          locked.listingId,
-          tx,
-          { orderId: locked.id },
-        );
-        const payerWallet = await tx.wallet.upsert({
-          where: { userId: locked.buyerId },
-          create: {
-            userId: locked.buyerId,
-            balanceAvailable: 0,
-            balanceBlocked: 0,
-          },
-          update: {},
-        });
-        await tx.walletTransaction.create({
-          data: {
-            walletId: payerWallet.id,
-            amount: paidAmount,
-            type: WalletTransactionType.SETTLEMENT,
-            status: WalletTransactionStatus.SUCCESS,
-            referenceId: locked.listingId,
-            meta: {
-              kind: 'order-escrow',
-              phase: 'buyer_paid',
-              orderId: locked.id,
-              listingId: locked.listingId,
-              ...(listingTitle ? { listingTitle } : {}),
-              paymentSource: 'GATEWAY',
-              description: listingTitle
-                ? `پرداخت خرید برای «${listingTitle}» از درگاه ثبت شد.`
-                : 'پرداخت خرید از درگاه ثبت شد.',
-            },
-          },
+          paymentSource: 'GATEWAY',
+          listingTitle,
         });
       }
 
-      await this.walletService.linkEscrowDepositsToOrder(tx, {
-        orderId: locked.id,
-        listingId: locked.listingId,
-        userIds: [locked.buyerId, locked.sellerId],
-      });
+      if (!needsStatusAdvance) {
+        continue;
+      }
 
       await tx.order.update({
         where: { id: locked.id },

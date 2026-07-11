@@ -9,6 +9,10 @@ import {
   WalletTransactionStatus,
   Prisma,
   NotificationType,
+  ListingStatus,
+  OrderStatus,
+  CheckoutSessionStatus,
+  OrderType,
 } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { WalletSupportService } from '../support/wallet-support.service';
@@ -763,5 +767,479 @@ export class WalletEscrowService {
         meta: { description: 'پرداخت از موجودی' },
       },
     });
+  }
+
+  /**
+   * آیا لاگ امانت خرید برای این سفارش ثبت شده؟
+   * (فروشنده: DEPOSIT PENDING seller_blocked — خریدار: SETTLEMENT buyer_paid)
+   */
+  async getPurchaseEscrowPresence(
+    orderId: string,
+    opts?: {
+      buyerId?: string;
+      sellerId?: string;
+      listingId?: string;
+      tx?: Prisma.TransactionClient;
+    },
+  ): Promise<{ sellerBlocked: boolean; buyerPaid: boolean }> {
+    const prisma = opts?.tx || this.prisma;
+    const order =
+      opts?.buyerId && opts?.sellerId && opts?.listingId
+        ? {
+            id: orderId,
+            buyerId: opts.buyerId,
+            sellerId: opts.sellerId,
+            listingId: opts.listingId,
+          }
+        : await prisma.order.findUnique({
+            where: { id: orderId },
+            select: {
+              id: true,
+              buyerId: true,
+              sellerId: true,
+              listingId: true,
+            },
+          });
+    if (!order) {
+      return { sellerBlocked: false, buyerPaid: false };
+    }
+
+    const [sellerWallet, buyerWallet] = await Promise.all([
+      prisma.wallet.findUnique({
+        where: { userId: order.sellerId },
+        select: { id: true },
+      }),
+      prisma.wallet.findUnique({
+        where: { userId: order.buyerId },
+        select: { id: true },
+      }),
+    ]);
+
+    let sellerBlocked = false;
+    let buyerPaid = false;
+
+    if (sellerWallet) {
+      const rows = await prisma.walletTransaction.findMany({
+        where: {
+          walletId: sellerWallet.id,
+          type: WalletTransactionType.DEPOSIT,
+          status: WalletTransactionStatus.PENDING,
+          OR: [
+            { referenceId: order.id },
+            { referenceId: order.listingId },
+          ],
+        },
+        select: { meta: true },
+      });
+      sellerBlocked = rows.some((row) => {
+        const meta = (row.meta ?? {}) as Record<string, unknown>;
+        if (String(meta['kind'] ?? '') !== 'order-escrow') return false;
+        if (String(meta['phase'] ?? '') !== 'seller_blocked') return false;
+        const metaOrderId = String(meta['orderId'] ?? '').trim();
+        if (metaOrderId) return metaOrderId === order.id;
+        return String(meta['listingId'] ?? order.listingId) === order.listingId;
+      });
+    }
+
+    if (buyerWallet) {
+      const rows = await prisma.walletTransaction.findMany({
+        where: {
+          walletId: buyerWallet.id,
+          type: WalletTransactionType.SETTLEMENT,
+          status: WalletTransactionStatus.SUCCESS,
+          OR: [
+            { referenceId: order.id },
+            { referenceId: order.listingId },
+          ],
+        },
+        select: { meta: true },
+      });
+      buyerPaid = rows.some((row) => {
+        const meta = (row.meta ?? {}) as Record<string, unknown>;
+        if (String(meta['kind'] ?? '') !== 'order-escrow') return false;
+        const phase = String(meta['phase'] ?? '');
+        if (phase !== 'buyer_paid' && phase !== 'exchange_participant_paid') {
+          return false;
+        }
+        const metaOrderId = String(meta['orderId'] ?? '').trim();
+        if (metaOrderId) return metaOrderId === order.id;
+        return String(meta['listingId'] ?? order.listingId) === order.listingId;
+      });
+    }
+
+    return { sellerBlocked, buyerPaid };
+  }
+
+  /**
+   * ثبت امانت خرید از درگاه به‌صورت idempotent (بدون دوباره‌کاری اگر لاگ از قبل هست).
+   * برای callback سبد/تکی و تعمیر سفارش‌های خراب.
+   */
+  async ensureGatewayPurchaseEscrowInTx(
+    tx: Prisma.TransactionClient,
+    params: {
+      orderId: string;
+      buyerId: string;
+      sellerId: string;
+      listingId: string;
+      paidAmount: number;
+      platformCut: number;
+      paymentSource?: 'GATEWAY' | 'WALLET' | 'REPAIR';
+      listingTitle?: string | null;
+    },
+  ): Promise<{ createdSellerBlocked: boolean; createdBuyerPaid: boolean }> {
+    const paidAmount = Math.max(0, Number(params.paidAmount) || 0);
+    const platformCut = Math.max(0, Number(params.platformCut) || 0);
+    const sellerRevenue = Math.max(0, paidAmount - platformCut);
+    const paymentSource = params.paymentSource ?? 'GATEWAY';
+
+    const presence = await this.getPurchaseEscrowPresence(params.orderId, {
+      buyerId: params.buyerId,
+      sellerId: params.sellerId,
+      listingId: params.listingId,
+      tx,
+    });
+
+    let createdSellerBlocked = false;
+    let createdBuyerPaid = false;
+
+    if (!presence.sellerBlocked && sellerRevenue > 0) {
+      await this.creditExternalPaymentToEscrow(
+        params.sellerId,
+        paidAmount,
+        platformCut,
+        params.listingId,
+        tx,
+        { orderId: params.orderId },
+      );
+      createdSellerBlocked = true;
+    }
+
+    if (!presence.buyerPaid && paidAmount > 0) {
+      const listingTitle =
+        params.listingTitle ??
+        (await this.support.listingTitleForWalletTx(tx, params.listingId));
+      const payerWallet = await tx.wallet.upsert({
+        where: { userId: params.buyerId },
+        create: {
+          userId: params.buyerId,
+          balanceAvailable: 0,
+          balanceBlocked: 0,
+        },
+        update: {},
+      });
+      await tx.walletTransaction.create({
+        data: {
+          walletId: payerWallet.id,
+          amount: paidAmount,
+          type: WalletTransactionType.SETTLEMENT,
+          status: WalletTransactionStatus.SUCCESS,
+          referenceId: params.listingId,
+          meta: {
+            kind: 'order-escrow',
+            phase: 'buyer_paid',
+            orderId: params.orderId,
+            listingId: params.listingId,
+            ...(listingTitle ? { listingTitle } : {}),
+            paymentSource,
+            ...(paymentSource === 'REPAIR'
+              ? { repaired: true, repairReason: 'missing-purchase-escrow' }
+              : {}),
+            description: listingTitle
+              ? `پرداخت خرید برای «${listingTitle}» از درگاه ثبت شد.`
+              : 'پرداخت خرید از درگاه ثبت شد.',
+          },
+        },
+      });
+      createdBuyerPaid = true;
+    }
+
+    await this.linkEscrowDepositsToOrder(tx, {
+      orderId: params.orderId,
+      listingId: params.listingId,
+      userIds: [params.buyerId, params.sellerId],
+    });
+
+    return { createdSellerBlocked, createdBuyerPaid };
+  }
+
+  /**
+   * تعمیر سفارش DIRECT که پرداخت شده ولی بلوکه فروشنده / لاگ خریدار ثبت نشده.
+   */
+  async repairMissingPurchaseEscrow(
+    orderId: string,
+    opts?: { force?: boolean },
+  ): Promise<{
+    repaired: boolean;
+    createdSellerBlocked: boolean;
+    createdBuyerPaid: boolean;
+    statusAdvanced: boolean;
+    message: string;
+  }> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        checkoutSession: {
+          select: {
+            id: true,
+            status: true,
+            paymentAuthority: true,
+          },
+        },
+      },
+    });
+    if (!order) throw new NotFoundException('سفارش یافت نشد');
+    if (order.type !== OrderType.DIRECT) {
+      return {
+        repaired: false,
+        createdSellerBlocked: false,
+        createdBuyerPaid: false,
+        statusAdvanced: false,
+        message: 'این repair فقط برای فروش مستقیم است.',
+      };
+    }
+    if (order.status === OrderStatus.CANCELLED) {
+      return {
+        repaired: false,
+        createdSellerBlocked: false,
+        createdBuyerPaid: false,
+        statusAdvanced: false,
+        message: 'سفارش لغو شده قابل تعمیر امانت خرید نیست.',
+      };
+    }
+    if (order.status === OrderStatus.COMPLETED) {
+      return {
+        repaired: false,
+        createdSellerBlocked: false,
+        createdBuyerPaid: false,
+        statusAdvanced: false,
+        message:
+          'سفارش تکمیل‌شده را نمی‌توان با این ابزار تعمیر کرد (نیاز به بررسی دستی آزادسازی دارد).',
+      };
+    }
+
+    const paidAmount = Number(order.totalAmount || 0);
+    if (paidAmount <= 0) {
+      return {
+        repaired: false,
+        createdSellerBlocked: false,
+        createdBuyerPaid: false,
+        statusAdvanced: false,
+        message: 'مبلغ سفارش صفر است؛ امانتی برای ثبت نیست.',
+      };
+    }
+
+    const presence = await this.getPurchaseEscrowPresence(orderId);
+    const awaitingPayment =
+      order.status === OrderStatus.AWAITING_PAYMENT ||
+      order.status === OrderStatus.PENDING;
+    const sessionPaid =
+      order.checkoutSession?.status === CheckoutSessionStatus.PAID;
+    const hasAuthority = Boolean(
+      order.checkoutSession?.paymentAuthority?.trim(),
+    );
+    const paymentEvidence =
+      !awaitingPayment || sessionPaid || hasAuthority || Boolean(opts?.force);
+
+    if (!paymentEvidence) {
+      return {
+        repaired: false,
+        createdSellerBlocked: false,
+        createdBuyerPaid: false,
+        statusAdvanced: false,
+        message:
+          'شواهد پرداخت یافت نشد. اگر از پرداخت درگاه مطمئنید، با force=true دوباره تلاش کنید.',
+      };
+    }
+
+    if (
+      presence.sellerBlocked &&
+      presence.buyerPaid &&
+      !awaitingPayment
+    ) {
+      return {
+        repaired: false,
+        createdSellerBlocked: false,
+        createdBuyerPaid: false,
+        statusAdvanced: false,
+        message: 'امانت خرید و لاگ مالی از قبل کامل است.',
+      };
+    }
+
+    const platformCut = Math.max(
+      0,
+      paidAmount - Number(order.sellerRevenue || 0),
+    );
+    let createdSellerBlocked = false;
+    let createdBuyerPaid = false;
+    let statusAdvanced = false;
+
+    await this.prisma.$transaction(async (tx) => {
+      const ensured = await this.ensureGatewayPurchaseEscrowInTx(tx, {
+        orderId: order.id,
+        buyerId: order.buyerId,
+        sellerId: order.sellerId,
+        listingId: order.listingId,
+        paidAmount,
+        platformCut,
+        paymentSource: 'REPAIR',
+      });
+      createdSellerBlocked = ensured.createdSellerBlocked;
+      createdBuyerPaid = ensured.createdBuyerPaid;
+
+      if (awaitingPayment) {
+        const nextStatus = order.requiresVerification
+          ? OrderStatus.AWAITING_SHIPMENT_TO_HUB
+          : OrderStatus.PAID;
+        const shipSetting = await tx.systemSetting.findFirst({
+          where: {
+            key: {
+              in: ['SELLER_SHIP_DEADLINE_MINUTES', 'SELLER_SHIP_DEADLINE_DAYS'],
+            },
+          },
+          orderBy: { key: 'asc' },
+        });
+        const parsed = Number(shipSetting?.value ?? '');
+        const shipMinutes =
+          Number.isFinite(parsed) && parsed > 0
+            ? Math.floor(parsed)
+            : 3 * 24 * 60;
+        const deadline = new Date(Date.now() + shipMinutes * 60 * 1000);
+
+        await tx.order.update({
+          where: { id: order.id },
+          data: { status: nextStatus, shippingDeadline: deadline },
+        });
+        statusAdvanced = true;
+
+        if (order.checkoutSessionId) {
+          await tx.checkoutSession.updateMany({
+            where: {
+              id: order.checkoutSessionId,
+              status: { not: CheckoutSessionStatus.PAID },
+            },
+            data: { status: CheckoutSessionStatus.PAID },
+          });
+        }
+
+        const listing = await tx.listing.findUnique({
+          where: { id: order.listingId },
+          select: { stockQuantity: true },
+        });
+        const purchasedQty = order.quantity ?? 1;
+        const nextStock = Math.max(
+          0,
+          (listing?.stockQuantity ?? 1) - purchasedQty,
+        );
+        await tx.listing.update({
+          where: { id: order.listingId },
+          data: {
+            stockQuantity: nextStock,
+            status:
+              nextStock <= 0 ? ListingStatus.SOLD : ListingStatus.APPROVED,
+          },
+        });
+      }
+    });
+
+    const repaired = createdSellerBlocked || createdBuyerPaid || statusAdvanced;
+    return {
+      repaired,
+      createdSellerBlocked,
+      createdBuyerPaid,
+      statusAdvanced,
+      message: repaired
+        ? `امانت خرید تعمیر شد (فروشنده‌بلوکه=${createdSellerBlocked ? 'بله' : 'خیر'}، لاگ‌خریدار=${createdBuyerPaid ? 'بله' : 'خیر'}، وضعیت=${statusAdvanced ? 'به‌روز شد' : 'بدون تغییر'}).`
+        : 'تغییری لازم نبود؛ امانت از قبل ثبت شده بود.',
+    };
+  }
+
+  /**
+   * پیدا کردن سفارش‌های DIRECT که لاگ امانت خرید ناقص دارند.
+   */
+  async findOrdersMissingPurchaseEscrow(limit = 100): Promise<
+    Array<{
+      id: string;
+      status: string;
+      totalAmount: number;
+      sellerRevenue: number;
+      checkoutSessionId: string | null;
+      createdAt: Date;
+      sellerBlocked: boolean;
+      buyerPaid: boolean;
+    }>
+  > {
+    const take = Math.min(Math.max(1, limit), 500);
+    const candidates = await this.prisma.order.findMany({
+      where: {
+        type: OrderType.DIRECT,
+        status: {
+          notIn: [OrderStatus.CANCELLED, OrderStatus.COMPLETED],
+        },
+        OR: [
+          {
+            status: {
+              notIn: [OrderStatus.AWAITING_PAYMENT, OrderStatus.PENDING],
+            },
+          },
+          {
+            checkoutSession: {
+              OR: [
+                { status: CheckoutSessionStatus.PAID },
+                { paymentAuthority: { not: null } },
+              ],
+            },
+          },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      take: take * 3,
+      select: {
+        id: true,
+        status: true,
+        totalAmount: true,
+        sellerRevenue: true,
+        checkoutSessionId: true,
+        createdAt: true,
+        buyerId: true,
+        sellerId: true,
+        listingId: true,
+      },
+    });
+
+    const out: Array<{
+      id: string;
+      status: string;
+      totalAmount: number;
+      sellerRevenue: number;
+      checkoutSessionId: string | null;
+      createdAt: Date;
+      sellerBlocked: boolean;
+      buyerPaid: boolean;
+    }> = [];
+
+    for (const order of candidates) {
+      if (out.length >= take) break;
+      if (Number(order.totalAmount) <= 0) continue;
+      const presence = await this.getPurchaseEscrowPresence(order.id, {
+        buyerId: order.buyerId,
+        sellerId: order.sellerId,
+        listingId: order.listingId,
+      });
+      const sellerNeeds =
+        Number(order.sellerRevenue) > 0 && !presence.sellerBlocked;
+      const buyerNeeds = !presence.buyerPaid;
+      if (!sellerNeeds && !buyerNeeds) continue;
+      out.push({
+        id: order.id,
+        status: order.status,
+        totalAmount: Number(order.totalAmount),
+        sellerRevenue: Number(order.sellerRevenue),
+        checkoutSessionId: order.checkoutSessionId,
+        createdAt: order.createdAt,
+        sellerBlocked: presence.sellerBlocked,
+        buyerPaid: presence.buyerPaid,
+      });
+    }
+    return out;
   }
 }

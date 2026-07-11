@@ -29,6 +29,18 @@ export class AdminOrdersCommandService {
     return this.status.repairBuyerRefundForCancelledOrder(...args);
   }
 
+  repairMissingPurchaseEscrow(...args: Parameters<AdminOrdersStatusService['repairMissingPurchaseEscrow']>) {
+    return this.status.repairMissingPurchaseEscrow(...args);
+  }
+
+  listMissingPurchaseEscrow(...args: Parameters<AdminOrdersStatusService['listMissingPurchaseEscrow']>) {
+    return this.status.listMissingPurchaseEscrow(...args);
+  }
+
+  repairAllMissingPurchaseEscrow(...args: Parameters<AdminOrdersStatusService['repairAllMissingPurchaseEscrow']>) {
+    return this.status.repairAllMissingPurchaseEscrow(...args);
+  }
+
   updateStatus(...args: Parameters<AdminOrdersStatusService['updateStatus']>) {
     return this.status.updateStatus(...args);
   }

@@ -37,6 +37,8 @@ describe('PaymentsService', () => {
     creditExternalPaymentToEscrow: jest.fn(),
     linkEscrowDepositsToOrder: jest.fn(),
     transferToEscrow: jest.fn(),
+    getPurchaseEscrowPresence: jest.fn(),
+    ensureGatewayPurchaseEscrowInTx: jest.fn(),
   };
 
   const appSettingsMock = {
@@ -325,7 +327,10 @@ describe('PaymentsService', () => {
       totalAmount: 500_000,
       finalPrice: 500_000,
     });
-    walletServiceMock.creditExternalPaymentToEscrow.mockResolvedValue(undefined);
+    walletServiceMock.ensureGatewayPurchaseEscrowInTx.mockResolvedValue({
+      createdSellerBlocked: true,
+      createdBuyerPaid: true,
+    });
     walletServiceMock.linkEscrowDepositsToOrder.mockResolvedValue(undefined);
     notificationMock.create.mockResolvedValue(undefined);
     notificationMock.notifyAdminNewOrder = jest.fn().mockResolvedValue(undefined);
@@ -345,13 +350,17 @@ describe('PaymentsService', () => {
       sessionId: 'session-3',
     });
     expect(walletServiceMock.transferToEscrow).not.toHaveBeenCalled();
-    expect(walletServiceMock.creditExternalPaymentToEscrow).toHaveBeenCalledWith(
-      'seller-1',
-      500_000,
-      50_000,
-      'listing-1',
+    expect(walletServiceMock.ensureGatewayPurchaseEscrowInTx).toHaveBeenCalledWith(
       expect.anything(),
-      { orderId: 'o-3' },
+      expect.objectContaining({
+        orderId: 'o-3',
+        buyerId: 'buyer-1',
+        sellerId: 'seller-1',
+        listingId: 'listing-1',
+        paidAmount: 500_000,
+        platformCut: 50_000,
+        paymentSource: 'GATEWAY',
+      }),
     );
     expect(orderUpdate).toHaveBeenCalledWith({
       where: { id: 'o-3' },
@@ -424,6 +433,10 @@ describe('PaymentsService', () => {
     prismaMock.order.findUnique.mockResolvedValue({
       totalAmount: 200_000,
       finalPrice: 200_000,
+    });
+    walletServiceMock.getPurchaseEscrowPresence.mockResolvedValue({
+      sellerBlocked: false,
+      buyerPaid: false,
     });
     walletServiceMock.transferToEscrow.mockResolvedValue(undefined);
     walletServiceMock.linkEscrowDepositsToOrder.mockResolvedValue(undefined);

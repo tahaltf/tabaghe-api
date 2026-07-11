@@ -60,6 +60,29 @@ export class WalletQueryService {
     };
   }
 
+  /**
+   * تراکنش‌های «در حال انجام» واقعی (مثلاً برداشت/واریز دستی در صف ادمین).
+   * امانت/بلوکه فروشنده PENDING است ولی باید در فیلتر «بلوکه» دیده شود، نه اینجا.
+   */
+  private actionablePendingWhere(): Prisma.WalletTransactionWhereInput {
+    return {
+      status: WalletTransactionStatus.PENDING,
+      NOT: {
+        OR: [
+          { type: WalletTransactionType.BLOCK },
+          {
+            type: WalletTransactionType.DEPOSIT,
+            OR: [
+              { meta: { path: ['kind'], equals: 'order-escrow' } },
+              { meta: { path: ['kind'], equals: 'auction-escrow' } },
+              { meta: { path: ['kind'], equals: 'gateway-escrow' } },
+            ],
+          },
+        ],
+      },
+    };
+  }
+
   private isLegacyEscrowBlockedTxn(t: {
     type: WalletTransactionType;
     status: WalletTransactionStatus;
@@ -174,10 +197,7 @@ export class WalletQueryService {
           ],
         };
       case 'PENDING':
-        return {
-          status: WalletTransactionStatus.PENDING,
-          NOT: { type: WalletTransactionType.BLOCK },
-        };
+        return this.actionablePendingWhere();
       default:
         return null;
     }
@@ -466,9 +486,10 @@ export class WalletQueryService {
 
     const pendingCount = await this.prisma.walletTransaction.count({
       where: {
-        ...this.userVisibleTransactionWhere(walletId),
-        status: WalletTransactionStatus.PENDING,
-        NOT: { type: WalletTransactionType.BLOCK },
+        AND: [
+          this.userVisibleTransactionWhere(walletId),
+          this.actionablePendingWhere(),
+        ],
       },
     });
 

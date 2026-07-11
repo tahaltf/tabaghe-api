@@ -263,12 +263,84 @@ export class AdminOrdersQueryService {
       exchangePaymentSources = inferred;
     }
 
+    let purchaseEscrowPresence: {
+      sellerBlocked: boolean;
+      buyerPaid: boolean;
+    } | null = null;
+    if (order.type === OrderType.DIRECT) {
+      const [sellerWallet, buyerWallet] = await Promise.all([
+        this.prisma.wallet.findUnique({
+          where: { userId: order.sellerId },
+          select: { id: true },
+        }),
+        this.prisma.wallet.findUnique({
+          where: { userId: order.buyerId },
+          select: { id: true },
+        }),
+      ]);
+      let sellerBlocked = false;
+      let buyerPaid = false;
+      if (sellerWallet) {
+        const rows = await this.prisma.walletTransaction.findMany({
+          where: {
+            walletId: sellerWallet.id,
+            type: WalletTransactionType.DEPOSIT,
+            status: WalletTransactionStatus.PENDING,
+            OR: [
+              { referenceId: order.id },
+              { referenceId: order.listingId },
+            ],
+          },
+          select: { meta: true },
+        });
+        sellerBlocked = rows.some((row) => {
+          const meta = (row.meta ?? {}) as Record<string, unknown>;
+          if (String(meta['kind'] ?? '') !== 'order-escrow') return false;
+          if (String(meta['phase'] ?? '') !== 'seller_blocked') return false;
+          const metaOrderId = String(meta['orderId'] ?? '').trim();
+          if (metaOrderId) return metaOrderId === order.id;
+          return (
+            String(meta['listingId'] ?? order.listingId) === order.listingId
+          );
+        });
+      }
+      if (buyerWallet) {
+        const rows = await this.prisma.walletTransaction.findMany({
+          where: {
+            walletId: buyerWallet.id,
+            type: WalletTransactionType.SETTLEMENT,
+            status: WalletTransactionStatus.SUCCESS,
+            OR: [
+              { referenceId: order.id },
+              { referenceId: order.listingId },
+            ],
+          },
+          select: { meta: true },
+        });
+        buyerPaid = rows.some((row) => {
+          const meta = (row.meta ?? {}) as Record<string, unknown>;
+          if (String(meta['kind'] ?? '') !== 'order-escrow') return false;
+          const phase = String(meta['phase'] ?? '');
+          if (phase !== 'buyer_paid' && phase !== 'exchange_participant_paid') {
+            return false;
+          }
+          const metaOrderId = String(meta['orderId'] ?? '').trim();
+          if (metaOrderId) return metaOrderId === order.id;
+          return (
+            String(meta['listingId'] ?? order.listingId) === order.listingId
+          );
+        });
+      }
+      purchaseEscrowPresence = { sellerBlocked, buyerPaid };
+    }
+
     return {
       ...orderRest,
       postPurchaseSurveys: (postPurchaseSurveys ?? []).map(mapSurveyForAdmin),
       exchangeOfferDetails,
       exchangeOffer,
       exchangePaymentSources,
+      purchaseEscrowPresence,
     };
   }
 }

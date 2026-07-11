@@ -80,6 +80,22 @@ export class WalletService {
     return this.escrow.getOrderScopedBlockedAmount(...args);
   }
 
+  getPurchaseEscrowPresence(...args: Parameters<WalletEscrowService['getPurchaseEscrowPresence']>) {
+    return this.escrow.getPurchaseEscrowPresence(...args);
+  }
+
+  ensureGatewayPurchaseEscrowInTx(...args: Parameters<WalletEscrowService['ensureGatewayPurchaseEscrowInTx']>) {
+    return this.escrow.ensureGatewayPurchaseEscrowInTx(...args);
+  }
+
+  repairMissingPurchaseEscrow(...args: Parameters<WalletEscrowService['repairMissingPurchaseEscrow']>) {
+    return this.escrow.repairMissingPurchaseEscrow(...args);
+  }
+
+  findOrdersMissingPurchaseEscrow(...args: Parameters<WalletEscrowService['findOrdersMissingPurchaseEscrow']>) {
+    return this.escrow.findOrdersMissingPurchaseEscrow(...args);
+  }
+
   refundDirectOrderEscrowOnCancel(...args: Parameters<WalletRefundService['refundDirectOrderEscrowOnCancel']>) {
     return this.refund.refundDirectOrderEscrowOnCancel(...args);
   }

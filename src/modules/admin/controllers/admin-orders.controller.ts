@@ -40,6 +40,26 @@ export class AdminOrdersQueryController {
     return this.query.list(query);
   }
 
+  /** لیست سفارش‌های DIRECT که امانت خرید / لاگ مالی ناقص دارند */
+  @Get('missing-purchase-escrow')
+  listMissingPurchaseEscrow(@Query('limit') limit?: string) {
+    const parsed = Number(limit);
+    return this.command.listMissingPurchaseEscrow(
+      Number.isFinite(parsed) ? parsed : 100,
+    );
+  }
+
+  /** تعمیر دسته‌ای امانت خرید برای سفارش‌های خراب */
+  @Post('repair-missing-purchase-escrow')
+  repairAllMissingPurchaseEscrow(
+    @Body() body?: { force?: boolean; limit?: number },
+  ) {
+    return this.command.repairAllMissingPurchaseEscrow({
+      force: Boolean(body?.force),
+      limit: body?.limit,
+    });
+  }
+
   @Get(':id/detail')
   detail(@Param('id') id: string) {
     return this.query.detail(id);
@@ -49,6 +69,15 @@ export class AdminOrdersQueryController {
   @Post(':id/repair-buyer-refund')
   repairBuyerRefund(@Param('id') id: string) {
     return this.command.repairBuyerRefundForCancelledOrder(id);
+  }
+
+  /** ثبت امانت خرید (بلوکه فروشنده + لاگ خریدار) اگر بعد از پرداخت درگاه جا افتاده */
+  @Post(':id/repair-purchase-escrow')
+  repairPurchaseEscrow(
+    @Param('id') id: string,
+    @Body() body?: { force?: boolean },
+  ) {
+    return this.command.repairMissingPurchaseEscrow(id, Boolean(body?.force));
   }
 
   @Patch(':id/status')

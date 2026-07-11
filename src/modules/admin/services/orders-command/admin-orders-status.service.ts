@@ -47,6 +47,58 @@ export class AdminOrdersStatusService {
     return this.walletService.repairMissingDirectCancelRefund(orderId);
   }
 
+  repairMissingPurchaseEscrow(orderId: string, force?: boolean) {
+    return this.walletService.repairMissingPurchaseEscrow(orderId, { force });
+  }
+
+  listMissingPurchaseEscrow(limit = 100) {
+    return this.walletService.findOrdersMissingPurchaseEscrow(limit);
+  }
+
+  async repairAllMissingPurchaseEscrow(opts?: { force?: boolean; limit?: number }) {
+    const missing = await this.walletService.findOrdersMissingPurchaseEscrow(
+      opts?.limit ?? 100,
+    );
+    const results: Array<{
+      orderId: string;
+      repaired: boolean;
+      message: string;
+      createdSellerBlocked: boolean;
+      createdBuyerPaid: boolean;
+      statusAdvanced: boolean;
+    }> = [];
+    for (const row of missing) {
+      try {
+        const r = await this.walletService.repairMissingPurchaseEscrow(row.id, {
+          force: opts?.force,
+        });
+        results.push({
+          orderId: row.id,
+          repaired: r.repaired,
+          message: r.message,
+          createdSellerBlocked: r.createdSellerBlocked,
+          createdBuyerPaid: r.createdBuyerPaid,
+          statusAdvanced: r.statusAdvanced,
+        });
+      } catch (err: unknown) {
+        results.push({
+          orderId: row.id,
+          repaired: false,
+          message:
+            err instanceof Error ? err.message : 'خطای ناشناخته در تعمیر',
+          createdSellerBlocked: false,
+          createdBuyerPaid: false,
+          statusAdvanced: false,
+        });
+      }
+    }
+    return {
+      scanned: missing.length,
+      repairedCount: results.filter((r) => r.repaired).length,
+      results,
+    };
+  }
+
   async updateStatus(
     id: string,
     status: OrderStatus,
