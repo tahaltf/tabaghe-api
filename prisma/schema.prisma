@@ -197,6 +197,12 @@ enum NotificationType {
   ADMIN_ALERT_WALLET_WITHDRAW
   ADMIN_ALERT_KYC_SUBMISSION
   ADMIN_ALERT_NEW_ORDER
+  POST_PURCHASE_SURVEY
+}
+
+enum SurveyRole {
+  BUYER
+  SELLER
 }
 
 enum RepairRequestStatus {
@@ -283,6 +289,7 @@ model User {
 
   givenReviews        Review[]       @relation("GivenReviews")
   receivedReviews     Review[]       @relation("ReceivedReviews")
+  postPurchaseSurveys PostPurchaseSurvey[]
 
   shabaNumber         String?
   kycRejectionReason  String?
@@ -890,6 +897,7 @@ model Order {
   listingId         String
   listing           Listing     @relation(fields: [listingId], references: [id])
   reviews           Review[]
+  postPurchaseSurveys PostPurchaseSurvey[]
 
 // کدهای رهگیری ارسال شده از سمت انبار طبقه به کاربران
   hubToBuyerTrackingCode  String?
@@ -1038,6 +1046,32 @@ model Review {
   reviewee    User     @relation("ReceivedReviews", fields: [revieweeId], references: [id])
 
   @@unique([orderId, reviewerId])
+}
+
+/// نظرسنجی رضایت پلتفرم پس از تکمیل معامله (جدا از Review طرف مقابل)
+model PostPurchaseSurvey {
+  id              String     @id @default(cuid())
+  orderId         String
+  userId          String
+  role            SurveyRole
+  token           String     @unique
+  score           Int?
+  comment         String?
+  scheduledSendAt DateTime
+  sentAt          DateTime?
+  respondedAt     DateTime?
+  openedAt        DateTime?
+  expiresAt       DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, role])
+  @@index([scheduledSendAt, sentAt])
+  @@index([userId])
+  @@index([respondedAt])
 }
 
 model Faq {

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { NotificationType, OrderStatus, OrderType } from '@prisma/client';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { NotificationType, OrderStatus, OrderType, SurveyRole } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import {
   buildExchangeFinancialSettlementNotifyMessage,
@@ -12,6 +13,7 @@ import {
 } from '../../common/order/order-status-labels.util';
 import { buildPartyOrderNotifyMeta } from '../../common/notification/notification-meta-enrichment.util';
 import { NotificationService } from './notification.service';
+import { OrderEvents } from '../orders/order.events';
 
 type NotifyPayload = {
   userId: string;
@@ -26,6 +28,7 @@ export class OperationalNotifyService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async notifyMany(items: NotifyPayload[]): Promise<void> {
@@ -307,6 +310,50 @@ export class OperationalNotifyService {
             buyerNote: completedNote,
             sellerNote: completedNote,
           }),
+          note: message,
+        },
+      },
+    ]);
+
+    this.eventEmitter.emit(OrderEvents.COMPLETED, {
+      orderId: params.orderId,
+      buyerId: params.buyerId,
+      sellerId: params.sellerId,
+      listingId: params.listingId,
+    });
+  }
+
+  /** لینک نظرسنجی پس از معامله برای خریدار یا فروشنده */
+  async notifyPostPurchaseSurvey(params: {
+    userId: string;
+    role: SurveyRole | 'BUYER' | 'SELLER';
+    orderId: string;
+    listingId: string;
+    listingTitle: string;
+    surveyUrl: string;
+    surveyPath: string;
+  }): Promise<void> {
+    const role = params.role === 'SELLER' ? 'SELLER' : 'BUYER';
+    const isBuyer = role === 'BUYER';
+    const title = isBuyer ? 'نظرسنجی خرید' : 'نظرسنجی فروش';
+    const message = isBuyer
+      ? `از خرید «${params.listingTitle}» راضی بودید؟ لطفاً نظرسنجی کوتاه را تکمیل کنید.`
+      : `از فروش «${params.listingTitle}» راضی بودید؟ لطفاً نظرسنجی کوتاه را تکمیل کنید.`;
+
+    await this.notifyMany([
+      {
+        userId: params.userId,
+        type: NotificationType.POST_PURCHASE_SURVEY,
+        title,
+        message,
+        meta: {
+          orderId: params.orderId,
+          listingId: params.listingId,
+          listingTitle: params.listingTitle,
+          role,
+          audience: role,
+          surveyUrl: params.surveyUrl,
+          url: params.surveyPath,
           note: message,
         },
       },

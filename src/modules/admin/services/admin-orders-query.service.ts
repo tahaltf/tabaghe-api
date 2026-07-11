@@ -12,6 +12,10 @@ import {
   PaginatedResult,
 } from '../../../shared/contracts/pagination';
 import { AdminOrderListQueryDto } from '../dto/admin-query.dto';
+import {
+  ADMIN_ORDER_SURVEY_SELECT,
+  mapSurveyForAdmin,
+} from './admin-order-survey.util';
 
 const ORDER_LIST_INCLUDE = {
   listing: { select: { id: true, title: true, type: true, thumbnail: true } },
@@ -22,6 +26,10 @@ const ORDER_LIST_INCLUDE = {
     select: { id: true, firstName: true, lastName: true, displayName: true, phone: true },
   },
   checkoutSession: { select: { id: true, source: true } },
+  postPurchaseSurveys: {
+    select: ADMIN_ORDER_SURVEY_SELECT,
+    orderBy: { role: 'asc' as const },
+  },
 } satisfies Prisma.OrderInclude;
 
 export type AdminOrderItem = Prisma.OrderGetPayload<{
@@ -107,15 +115,17 @@ export class AdminOrdersQueryService {
         o.type === OrderType.EXCHANGE && o.exchangeOfferId
           ? offerMetaById.get(o.exchangeOfferId)
           : undefined;
+      const { postPurchaseSurveys, ...rest } = o;
       return {
-        ...o,
+        ...rest,
         exchangeOfferTitle: offerMeta?.title ?? null,
         exchangeOfferThumbnail: offerMeta?.thumbnail ?? null,
+        postPurchaseSurveys: (postPurchaseSurveys ?? []).map(mapSurveyForAdmin),
       };
     });
 
     return {
-      items: items as AdminOrderItem[],
+      items: items as unknown as AdminOrderItem[],
       pagination: buildPaginationMeta(page, pageSize, total),
     };
   }
@@ -162,9 +172,15 @@ export class AdminOrdersQueryService {
         },
         reviews: true,
         checkoutSession: { select: { id: true, source: true } },
+        postPurchaseSurveys: {
+          select: ADMIN_ORDER_SURVEY_SELECT,
+          orderBy: { role: 'asc' },
+        },
       },
     });
     if (!order) throw new NotFoundException('سفارش یافت نشد');
+
+    const { postPurchaseSurveys, ...orderRest } = order;
 
     let exchangeOfferDetails: {
       extraPayment: number;
@@ -248,7 +264,8 @@ export class AdminOrdersQueryService {
     }
 
     return {
-      ...order,
+      ...orderRest,
+      postPurchaseSurveys: (postPurchaseSurveys ?? []).map(mapSurveyForAdmin),
       exchangeOfferDetails,
       exchangeOffer,
       exchangePaymentSources,

@@ -138,6 +138,15 @@ export function applySmsTemplatePlaceholders(
     s = s.replace(/\{\{\s*statusFa\s*\}\}/gi, statusFa);
   }
 
+  s = s.replace(
+    /\{\{\s*surveyUrl\s*\}\}/gi,
+    String(meta['surveyUrl'] ?? meta['link'] ?? ''),
+  );
+  s = s.replace(
+    /\{\{\s*link\s*\}\}/gi,
+    String(meta['surveyUrl'] ?? meta['link'] ?? meta['url'] ?? ''),
+  );
+
   for (const [k, v] of Object.entries(meta)) {
     if (k === 'listingTitle' && isListingTitleLikelyId(v, meta['listingId'])) {
       continue;

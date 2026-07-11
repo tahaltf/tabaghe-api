@@ -67,6 +67,12 @@ export const SETTING_KEYS = {
   AUCTION_SECOND_CHANCE_PAYMENT_DEADLINE_HOURS:
     'AUCTION_SECOND_CHANCE_PAYMENT_DEADLINE_HOURS',
   ORDER_COMPLETED_VIDEO_RETENTION_DAYS: 'ORDER_COMPLETED_VIDEO_RETENTION_DAYS',
+  /** نظرسنجی پس از معامله: فعال/غیرفعال */
+  POST_PURCHASE_SURVEY_ENABLED: 'POST_PURCHASE_SURVEY_ENABLED',
+  /** ساعت تأخیر ارسال لینک نظرسنجی پس از تکمیل معامله */
+  POST_PURCHASE_SURVEY_DELAY_HOURS: 'POST_PURCHASE_SURVEY_DELAY_HOURS',
+  /** روز اعتبار لینک نظرسنجی پس از ساخت */
+  POST_PURCHASE_SURVEY_EXPIRE_DAYS: 'POST_PURCHASE_SURVEY_EXPIRE_DAYS',
   OTP_TTL_MINUTES: 'OTP_TTL_MINUTES',
   OTP_RESEND_COOLDOWN_SECONDS: 'OTP_RESEND_COOLDOWN_SECONDS',
   TRADE_REPUTATION_SUCCESS_DELTA: 'TRADE_REPUTATION_SUCCESS_DELTA',
@@ -210,6 +216,12 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
     'مهلت پرداخت نفر بعدی در صورت عدم پرداخت برنده (ساعت)',
   ORDER_COMPLETED_VIDEO_RETENTION_DAYS:
     'تعداد روز نگهداری ویدیوهای سفارش تکمیل‌شده قبل از حذف خودکار',
+  POST_PURCHASE_SURVEY_ENABLED:
+    'فعال بودن ارسال نظرسنجی پس از تکمیل معامله (true/false)',
+  POST_PURCHASE_SURVEY_DELAY_HOURS:
+    'چند ساعت بعد از تکمیل معامله لینک نظرسنجی ارسال شود (پیش‌فرض ۲۴)',
+  POST_PURCHASE_SURVEY_EXPIRE_DAYS:
+    'چند روز پس از ساخت، لینک نظرسنجی منقضی شود (پیش‌فرض ۳۰)',
   OTP_TTL_MINUTES: 'مدت اعتبار کد OTP (دقیقه)',
   DEFAULT_REGISTRATION_PLAN_ID:
     'شناسه پلن فعال‌شونده برای کاربران تازه‌ثبت‌نام (خالی = فقط سهمیه رایگان)',

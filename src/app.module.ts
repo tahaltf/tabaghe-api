@@ -59,6 +59,7 @@ import { WordPressIntegrationModule } from './modules/wordpress-integration/word
 import { FilesModule } from './modules/files/files.module';
 import { CartModule } from './modules/cart/cart.module';
 import { CouponsModule } from './modules/coupons/coupons.module';
+import { SurveysModule } from './modules/surveys/surveys.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 
 import { AppController } from './app.controller';
@@ -127,6 +128,7 @@ import { AppService } from './app.service';
     CartModule,
     CouponsModule,
     AnalyticsModule,
+    SurveysModule,
   ],
   controllers: [AppController],
   providers: [

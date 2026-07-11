@@ -83,6 +83,20 @@ export function resolveNotificationPath(
     }
   }
 
+  if (type === 'POST_PURCHASE_SURVEY') {
+    const surveyPath = metaString(m, 'url', 'surveyPath');
+    if (surveyPath.startsWith('/')) return surveyPath;
+    const surveyUrl = metaString(m, 'surveyUrl');
+    if (surveyUrl) {
+      try {
+        const u = new URL(surveyUrl);
+        return u.pathname + u.search;
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
   const orderId = metaString(m, 'orderId');
   if (orderId || type === 'ORDER_STATUS_CHANGED' || type === 'BUY_NOW') {
     if (orderId) return `/orders/${orderId}`;

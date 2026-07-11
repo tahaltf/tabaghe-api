@@ -16,6 +16,7 @@ describe('OperationalNotifyService - exchange inbound hub notifications', () => 
     const service = new OperationalNotifyService(
       prisma as never,
       notificationService as never,
+      { emit: jest.fn() } as never,
     );
     return { service, notificationService };
   };
