@@ -4,6 +4,7 @@ import {
   Prisma,
   WalletTransactionStatus,
   WalletTransactionType,
+  CheckoutSessionSource,
 } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import {
@@ -20,6 +21,7 @@ const ORDER_LIST_INCLUDE = {
   seller: {
     select: { id: true, firstName: true, lastName: true, displayName: true, phone: true },
   },
+  checkoutSession: { select: { id: true, source: true } },
 } satisfies Prisma.OrderInclude;
 
 export type AdminOrderItem = Prisma.OrderGetPayload<{
@@ -40,15 +42,29 @@ export class AdminOrdersQueryService {
     const where: Prisma.OrderWhereInput = {};
     if (query.status) where.status = query.status;
     if (query.type) where.type = query.type;
+    if (query.purchaseSource === 'CART') {
+      where.checkoutSession = { is: { source: CheckoutSessionSource.CART } };
+    } else if (query.purchaseSource === 'DIRECT') {
+      where.OR = [
+        { checkoutSessionId: null },
+        { checkoutSession: { is: { source: CheckoutSessionSource.DIRECT } } },
+      ];
+    }
     if (query.search) {
       const s = query.search.trim();
-      where.OR = [
+      const searchOr: Prisma.OrderWhereInput[] = [
         { id: { contains: s } },
         { trackingCode: { contains: s } },
         { listing: { title: { contains: s, mode: 'insensitive' } } },
         { buyer: { phone: { contains: s } } },
         { seller: { phone: { contains: s } } },
       ];
+      if (where.OR) {
+        where.AND = [{ OR: where.OR }, { OR: searchOr }];
+        delete where.OR;
+      } else {
+        where.OR = searchOr;
+      }
     }
 
     const dir: 'asc' | 'desc' = query.sortDir === 'asc' ? 'asc' : 'desc';
@@ -145,6 +161,7 @@ export class AdminOrdersQueryService {
           },
         },
         reviews: true,
+        checkoutSession: { select: { id: true, source: true } },
       },
     });
     if (!order) throw new NotFoundException('سفارش یافت نشد');

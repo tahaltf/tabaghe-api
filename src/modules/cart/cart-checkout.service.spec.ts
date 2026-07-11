@@ -1,10 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { CheckoutSessionSource } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CartCheckoutService } from './cart-checkout.service';
 import { CartService } from './cart.service';
-import { OrdersCheckoutService } from '../orders/services/command/orders-checkout.service';
-import { CouponsService } from '../coupons/coupons.service';
-import { PaymentsService } from '../payments/payments.service';
+import { MarketplaceCheckoutService } from './marketplace-checkout.service';
 
 describe('CartCheckoutService', () => {
   let service: CartCheckoutService;
@@ -12,23 +11,15 @@ describe('CartCheckoutService', () => {
   const prismaMock = {
     listing: { findMany: jest.fn() },
     systemSetting: { findUnique: jest.fn().mockResolvedValue(null) },
-    $transaction: jest.fn(),
   };
 
   const cartServiceMock = {
     requireCartItems: jest.fn(),
   };
 
-  const couponsServiceMock = {
-    validateForCart: jest.fn(),
-  };
-
-  const ordersCheckoutMock = {
-    handleUniversalOrder: jest.fn(),
-  };
-
-  const paymentsServiceMock = {
-    initiateCheckoutSessionPayment: jest.fn(),
+  const marketplaceMock = {
+    previewFromLines: jest.fn(),
+    checkoutLines: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -38,15 +29,13 @@ describe('CartCheckoutService', () => {
         CartCheckoutService,
         { provide: PrismaService, useValue: prismaMock },
         { provide: CartService, useValue: cartServiceMock },
-        { provide: OrdersCheckoutService, useValue: ordersCheckoutMock },
-        { provide: CouponsService, useValue: couponsServiceMock },
-        { provide: PaymentsService, useValue: paymentsServiceMock },
+        { provide: MarketplaceCheckoutService, useValue: marketplaceMock },
       ],
     }).compile();
     service = module.get(CartCheckoutService);
   });
 
-  it('preview applies coupon discount and shipping', async () => {
+  it('preview applies coupon discount and shipping via marketplace', async () => {
     cartServiceMock.requireCartItems.mockResolvedValue({
       cart: { sellerId: 'seller-1' },
       items: [{ listingId: 'l-1', quantity: 1 }],
@@ -60,10 +49,14 @@ describe('CartCheckoutService', () => {
         direct: { price: 1_000_000, salePrice: null },
       },
     ]);
-    couponsServiceMock.validateForCart.mockResolvedValue({
-      couponId: 'coupon-1',
+    marketplaceMock.previewFromLines.mockResolvedValue({
+      items: [],
+      subtotal: 1_000_000,
+      shippingTotal: 0,
+      verificationFee: 0,
       discountAmount: 100_000,
-      eligibleSubtotal: 1_000_000,
+      couponId: 'coupon-1',
+      totalPayable: 900_000,
     });
 
     const preview = await service.preview('buyer-1', {
@@ -75,9 +68,10 @@ describe('CartCheckoutService', () => {
     expect(preview.discountAmount).toBe(100_000);
     expect(preview.totalPayable).toBe(900_000);
     expect(preview.couponId).toBe('coupon-1');
+    expect(preview.sellerId).toBe('seller-1');
   });
 
-  it('distributes discount proportionally across orders on checkout', async () => {
+  it('checkout delegates to marketplace with CART source and clearCart', async () => {
     cartServiceMock.requireCartItems.mockResolvedValue({
       cart: { sellerId: 'seller-1' },
       items: [
@@ -101,25 +95,13 @@ describe('CartCheckoutService', () => {
         direct: { price: 700_000, salePrice: null },
       },
     ]);
-    couponsServiceMock.validateForCart.mockResolvedValue({
-      couponId: 'coupon-1',
+    marketplaceMock.checkoutLines.mockResolvedValue({
+      sessionId: 'session-1',
+      orderIds: ['o-1', 'o-2'],
+      totalAmount: 900_000,
       discountAmount: 100_000,
-      eligibleSubtotal: 1_000_000,
+      paymentUrl: null,
     });
-
-    ordersCheckoutMock.handleUniversalOrder
-      .mockResolvedValueOnce({ id: 'o-1', totalAmount: 300_000 })
-      .mockResolvedValueOnce({ id: 'o-2', totalAmount: 700_000 });
-
-    const txMock = {
-      order: { update: jest.fn(), updateMany: jest.fn() },
-      checkoutSession: { create: jest.fn().mockResolvedValue({ id: 'session-1' }) },
-      coupon: { update: jest.fn() },
-      couponRedemption: { create: jest.fn() },
-      cart: { findUnique: jest.fn().mockResolvedValue({ id: 'cart-1' }), delete: jest.fn() },
-      cartItem: { deleteMany: jest.fn() },
-    };
-    prismaMock.$transaction.mockImplementation(async (fn) => fn(txMock));
 
     const result = await service.checkout('buyer-1', {
       addressId: 'addr-1',
@@ -128,14 +110,16 @@ describe('CartCheckoutService', () => {
       requiresVerification: false,
     });
 
+    expect(marketplaceMock.checkoutLines).toHaveBeenCalledWith(
+      'buyer-1',
+      expect.objectContaining({
+        source: CheckoutSessionSource.CART,
+        clearCart: true,
+        paymentMethod: 'WALLET',
+        addressId: 'addr-1',
+      }),
+    );
     expect(result.sessionId).toBe('session-1');
-    expect(txMock.order.update).toHaveBeenCalledWith({
-      where: { id: 'o-1' },
-      data: { totalAmount: 270_000 },
-    });
-    expect(txMock.order.update).toHaveBeenCalledWith({
-      where: { id: 'o-2' },
-      data: { totalAmount: 630_000 },
-    });
+    expect(result.orderIds).toEqual(['o-1', 'o-2']);
   });
 });

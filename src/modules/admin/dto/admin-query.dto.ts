@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -102,6 +103,11 @@ export class AdminOrderListQueryDto extends AdminListQueryDto {
   @IsOptional()
   @IsEnum(OrderType)
   type?: OrderType;
+
+  /** CART = از سبد خرید، DIRECT = خرید تکی */
+  @IsOptional()
+  @IsIn(['CART', 'DIRECT'])
+  purchaseSource?: 'CART' | 'DIRECT';
 }
 
 export class AdminTransactionListQueryDto extends AdminListQueryDto {

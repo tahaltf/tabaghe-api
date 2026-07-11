@@ -351,54 +351,10 @@ export class PaymentsService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.checkoutSession.update({
-        where: { id: session.id },
-        data: { status: CheckoutSessionStatus.PAID },
-      });
-      for (const order of session.orders) {
-        if (
-          order.status !== OrderStatus.AWAITING_PAYMENT &&
-          order.status !== OrderStatus.PENDING
-        ) {
-          continue;
-        }
-        const locked = await tx.order.findUnique({ where: { id: order.id } });
-        if (!locked) continue;
-        const isHubRequired = locked.requiresVerification;
-        const nextStatus = isHubRequired
-          ? ('AWAITING_SHIPMENT_TO_HUB' as OrderStatus)
-          : OrderStatus.PAID;
-        await tx.order.update({
-          where: { id: locked.id },
-          data: { status: nextStatus },
-        });
-        await this.walletService.transferToEscrow(
-          locked.buyerId,
-          locked.sellerId,
-          Number(locked.totalAmount),
-          Math.max(0, Number(locked.totalAmount) - Number(locked.sellerRevenue)),
-          locked.listingId,
-          tx,
-        );
-        const listingRow = await tx.listing.findUnique({
-          where: { id: locked.listingId },
-          select: { stockQuantity: true },
-        });
-        const purchasedQty = locked.quantity ?? 1;
-        const nextStock = Math.max(
-          0,
-          (listingRow?.stockQuantity ?? 1) - purchasedQty,
-        );
-        await tx.listing.update({
-          where: { id: locked.listingId },
-          data: {
-            stockQuantity: nextStock,
-            status:
-              nextStock <= 0 ? ListingStatus.SOLD : ListingStatus.APPROVED,
-          },
-        });
-      }
+      await this.finalizeCheckoutSessionOrdersInTx(tx, session.id, 'GATEWAY');
     });
+
+    await this.notifyCheckoutSessionPaid(session.id);
 
     return {
       result: 'PAID',
@@ -408,6 +364,203 @@ export class PaymentsService {
       orderIds: session.orders.map((o) => o.id),
       authority,
     };
+  }
+
+  /**
+   * تسویه جلسه پرداخت از کیف پول خریدار (بدون درگاه).
+   * مبالغ سفارش‌ها باید از قبل نهایی شده باشند.
+   */
+  async settleCheckoutSessionFromWallet(sessionId: string, userId: string) {
+    const session = await this.prisma.checkoutSession.findUnique({
+      where: { id: sessionId },
+      include: { orders: true },
+    });
+    if (!session) throw new NotFoundException('جلسه پرداخت یافت نشد');
+    if (session.buyerId !== userId) {
+      throw new BadRequestException('دسترسی به این پرداخت مجاز نیست');
+    }
+    if (session.status !== CheckoutSessionStatus.PENDING) {
+      throw new BadRequestException('این جلسه پرداخت قابل تسویه نیست');
+    }
+
+    const payable = Number(session.totalAmount);
+    if (payable > 0) {
+      const wallet = await this.prisma.wallet.findUnique({
+        where: { userId },
+      });
+      if (!wallet || Number(wallet.balanceAvailable) < payable) {
+        throw new BadRequestException('موجودی کیف پول برای خرید کافی نیست');
+      }
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await this.finalizeCheckoutSessionOrdersInTx(tx, session.id, 'WALLET');
+    });
+
+    await this.notifyCheckoutSessionPaid(session.id);
+
+    return {
+      result: 'PAID',
+      ok: true,
+      kind: 'CHECKOUT_SESSION',
+      sessionId: session.id,
+      orderIds: session.orders.map((o) => o.id),
+    };
+  }
+
+  private async finalizeCheckoutSessionOrdersInTx(
+    tx: Prisma.TransactionClient,
+    sessionId: string,
+    paymentSource: 'GATEWAY' | 'WALLET',
+  ) {
+    const session = await tx.checkoutSession.findUnique({
+      where: { id: sessionId },
+      include: { orders: true },
+    });
+    if (!session) throw new NotFoundException('جلسه پرداخت یافت نشد');
+    if (session.status === CheckoutSessionStatus.PAID) return;
+
+    await tx.checkoutSession.update({
+      where: { id: session.id },
+      data: { status: CheckoutSessionStatus.PAID },
+    });
+
+    const shipDeadlineMinutes = await this.getSellerShipDeadlineMinutes(tx);
+    const deadline = new Date(Date.now() + shipDeadlineMinutes * 60 * 1000);
+
+    for (const order of session.orders) {
+      if (
+        order.status !== OrderStatus.AWAITING_PAYMENT &&
+        order.status !== OrderStatus.PENDING
+      ) {
+        continue;
+      }
+      const locked = await tx.order.findUnique({ where: { id: order.id } });
+      if (!locked) continue;
+      const paidAmount = Number(locked.totalAmount);
+      const nextStatus = locked.requiresVerification
+        ? OrderStatus.AWAITING_SHIPMENT_TO_HUB
+        : OrderStatus.PAID;
+
+      if (paidAmount <= 0) {
+        await tx.order.update({
+          where: { id: locked.id },
+          data: { status: nextStatus, shippingDeadline: deadline },
+        });
+        continue;
+      }
+
+      const platformCut = Math.max(
+        0,
+        paidAmount - Number(locked.sellerRevenue),
+      );
+      const listing = await tx.listing.findUnique({
+        where: { id: locked.listingId },
+        select: { title: true, stockQuantity: true },
+      });
+      const listingTitle = listing?.title;
+
+      if (paymentSource === 'WALLET') {
+        await this.walletService.transferToEscrow(
+          locked.buyerId,
+          locked.sellerId,
+          paidAmount,
+          platformCut,
+          locked.listingId,
+          tx,
+          { orderId: locked.id },
+        );
+      } else {
+        await this.walletService.creditExternalPaymentToEscrow(
+          locked.sellerId,
+          paidAmount,
+          platformCut,
+          locked.listingId,
+          tx,
+          { orderId: locked.id },
+        );
+        const payerWallet = await tx.wallet.upsert({
+          where: { userId: locked.buyerId },
+          create: {
+            userId: locked.buyerId,
+            balanceAvailable: 0,
+            balanceBlocked: 0,
+          },
+          update: {},
+        });
+        await tx.walletTransaction.create({
+          data: {
+            walletId: payerWallet.id,
+            amount: paidAmount,
+            type: WalletTransactionType.SETTLEMENT,
+            status: WalletTransactionStatus.SUCCESS,
+            referenceId: locked.listingId,
+            meta: {
+              kind: 'order-escrow',
+              phase: 'buyer_paid',
+              orderId: locked.id,
+              listingId: locked.listingId,
+              ...(listingTitle ? { listingTitle } : {}),
+              paymentSource: 'GATEWAY',
+              description: listingTitle
+                ? `پرداخت خرید برای «${listingTitle}» از درگاه ثبت شد.`
+                : 'پرداخت خرید از درگاه ثبت شد.',
+            },
+          },
+        });
+      }
+
+      await this.walletService.linkEscrowDepositsToOrder(tx, {
+        orderId: locked.id,
+        listingId: locked.listingId,
+        userIds: [locked.buyerId, locked.sellerId],
+      });
+
+      await tx.order.update({
+        where: { id: locked.id },
+        data: { status: nextStatus, shippingDeadline: deadline },
+      });
+
+      const purchasedQty = locked.quantity ?? 1;
+      const nextStock = Math.max(
+        0,
+        (listing?.stockQuantity ?? 1) - purchasedQty,
+      );
+      await tx.listing.update({
+        where: { id: locked.listingId },
+        data: {
+          stockQuantity: nextStock,
+          status:
+            nextStock <= 0 ? ListingStatus.SOLD : ListingStatus.APPROVED,
+        },
+      });
+    }
+  }
+
+  private async notifyCheckoutSessionPaid(sessionId: string): Promise<void> {
+    const session = await this.prisma.checkoutSession.findUnique({
+      where: { id: sessionId },
+      include: {
+        orders: {
+          select: {
+            id: true,
+            buyerId: true,
+            sellerId: true,
+            listingId: true,
+            status: true,
+          },
+        },
+      },
+    });
+    if (!session) return;
+    for (const order of session.orders) {
+      if (
+        order.status === OrderStatus.PAID ||
+        order.status === OrderStatus.AWAITING_SHIPMENT_TO_HUB
+      ) {
+        await this.notifyOrderPurchasedAndSold(order);
+      }
+    }
   }
 
   private async rollbackCheckoutSession(sessionId: string): Promise<void> {

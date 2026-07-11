@@ -1192,6 +1192,11 @@ enum CheckoutSessionStatus {
   EXPIRED
 }
 
+enum CheckoutSessionSource {
+  CART
+  DIRECT
+}
+
 model CheckoutSession {
   id               String                @id @default(cuid())
   buyerId          String
@@ -1201,6 +1206,8 @@ model CheckoutSession {
   couponId         String?
   coupon           Coupon?               @relation(fields: [couponId], references: [id], onDelete: SetNull)
   status           CheckoutSessionStatus @default(PENDING)
+  /** CART = از سبد، DIRECT = خرید تکی یکپارچه */
+  source           CheckoutSessionSource @default(CART)
   paymentAuthority String?
   orders           Order[]
   redemptions      CouponRedemption[]

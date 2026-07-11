@@ -124,11 +124,14 @@ export class OrdersCheckoutService {
 
     let couponDiscountAmount = 0;
     let couponId: string | null = null;
+    const deferSettlement = Boolean(dto.deferSettlement);
     if (
       dto.couponCode?.trim() &&
       orderType === OrderType.DIRECT &&
       dto.listingId &&
-      !dto.skipPaymentInit
+      !dto.skipPaymentInit &&
+      !deferSettlement &&
+      !dto.skipCoupon
     ) {
       const validated = await this.couponsService.validateForSingleOrder(
         userId,
@@ -752,11 +755,25 @@ export class OrdersCheckoutService {
       }
 
       // 👇 منطق هوشمند کارشناسی
-      const isHubRequired = requiresVerification || sellerRequestedVerification;
+      const isHubRequired = Boolean(
+        requiresVerification || sellerRequestedVerification,
+      );
       let feeChargedToBuyer = 0;
       let feeChargedToSeller = 0;
 
-      if (isHubRequired && orderType !== 'EXCHANGE') {
+      if (dto.verificationFeeOverride !== undefined) {
+        verificationFee = Math.max(0, Number(dto.verificationFeeOverride) || 0);
+        if (isHubRequired) {
+          platformAddress = hubAddress;
+          if (verificationFee > 0) {
+            if (sellerRequestedVerification) {
+              feeChargedToSeller = verificationFee;
+            } else if (requiresVerification) {
+              feeChargedToBuyer = verificationFee;
+            }
+          }
+        }
+      } else if (isHubRequired && orderType !== 'EXCHANGE') {
         verificationFee = hubFee;
         platformAddress = hubAddress;
 
@@ -802,7 +819,7 @@ export class OrdersCheckoutService {
       const totalPlatformCut =
         Number(platformFee) + feeChargedToSeller + feeChargedToBuyer;
 
-      if (paymentMethod === 'WALLET' && totalPayable > 0) {
+      if (paymentMethod === 'WALLET' && totalPayable > 0 && !deferSettlement) {
         const wallet = await tx.wallet.findUnique({ where: { userId } });
         if (!wallet || Number(wallet.balanceAvailable) < totalPayable) {
           throw new BadRequestException('موجودی کیف پول کافی نیست');
@@ -909,7 +926,10 @@ export class OrdersCheckoutService {
 
       let orderStatus: OrderStatus = OrderStatus.PENDING;
 
-      if (paymentMethod === 'WALLET') {
+      if (deferSettlement) {
+        // تسویه در سطح CheckoutSession انجام می‌شود.
+        orderStatus = OrderStatus.AWAITING_PAYMENT;
+      } else if (paymentMethod === 'WALLET') {
         // پرداخت از کیف: در همین تراکنش واریزی انجام شده یا مبلغ صفر بوده؛ فروش فقط همین سناریوها قطعی می‌شود.
         if (orderType === 'EXCHANGE' || isHubRequired) {
           orderStatus = 'AWAITING_SHIPMENT_TO_HUB' as OrderStatus;
@@ -976,7 +996,7 @@ export class OrdersCheckoutService {
 
       const createdOrder = await tx.order.create({ data: orderPayload });
 
-      if (couponId && couponDiscountAmount > 0 && orderType === OrderType.DIRECT) {
+      if (couponId && couponDiscountAmount > 0 && orderType === OrderType.DIRECT && !deferSettlement) {
         await tx.coupon.update({
           where: { id: couponId },
           data: { usedCount: { increment: 1 } },
@@ -992,6 +1012,7 @@ export class OrdersCheckoutService {
       }
 
       if (
+        !deferSettlement &&
         paymentMethod === 'WALLET' &&
         (orderStatus === OrderStatus.PAID ||
           orderStatus === ('AWAITING_SHIPMENT_TO_HUB' as OrderStatus))
@@ -1081,6 +1102,7 @@ export class OrdersCheckoutService {
     if (
       paymentMethod === 'GATEWAY' &&
       !dto.skipPaymentInit &&
+      !deferSettlement &&
       (order.type === OrderType.EXCHANGE || Number(order.totalAmount) > 0)
     ) {
       try {
@@ -1096,6 +1118,7 @@ export class OrdersCheckoutService {
     }
 
     const shouldNotifyPurchase =
+      !deferSettlement &&
       order.type !== OrderType.EXCHANGE &&
       order.status !== OrderStatus.PENDING &&
       order.status !== OrderStatus.AWAITING_PAYMENT;

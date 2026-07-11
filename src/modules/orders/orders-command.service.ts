@@ -1,8 +1,10 @@
-﻿import { Injectable } from '@nestjs/common';
+﻿import { Inject, Injectable, forwardRef } from '@nestjs/common';
+import { CheckoutSessionSource, OrderType } from '@prisma/client';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OrdersCheckoutService } from './services/command/orders-checkout.service';
 import { OrdersShippingService } from './services/command/orders-shipping.service';
 import { OrdersCompletionService } from './services/command/orders-completion.service';
+import { MarketplaceCheckoutService } from '../cart/marketplace-checkout.service';
 
 @Injectable()
 export class OrdersCommandService {
@@ -10,9 +12,26 @@ export class OrdersCommandService {
     private readonly checkout: OrdersCheckoutService,
     private readonly shipping: OrdersShippingService,
     private readonly completion: OrdersCompletionService,
+    @Inject(forwardRef(() => MarketplaceCheckoutService))
+    private readonly marketplaceCheckout: MarketplaceCheckoutService,
   ) {}
 
-  createOrder(userId: string, dto: CreateOrderDto) {
+  async createOrder(userId: string, dto: CreateOrderDto) {
+    if (dto.orderType === OrderType.DIRECT && dto.listingId && dto.addressId) {
+      const line = await this.marketplaceCheckout.buildLineFromListing(
+        dto.listingId,
+        dto.quantity ?? 1,
+      );
+      return this.marketplaceCheckout.checkoutLines(userId, {
+        source: CheckoutSessionSource.DIRECT,
+        addressId: dto.addressId,
+        paymentMethod: dto.paymentMethod as 'GATEWAY' | 'WALLET',
+        couponCode: dto.couponCode,
+        requiresVerification: dto.requiresVerification,
+        clearCart: false,
+        items: [line],
+      });
+    }
     return this.checkout.handleUniversalOrder(userId, dto);
   }
 

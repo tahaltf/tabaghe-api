@@ -1,4 +1,4 @@
-﻿import { Module } from '@nestjs/common';
+﻿import { Module, forwardRef } from '@nestjs/common';
 import { WalletModule } from '../wallet/wallet.module';
 import { FeesModule } from '../fees/fees.module';
 import { PaymentsModule } from '../payments/payments.module';
@@ -8,6 +8,7 @@ import { QuotaModule } from '../quota/quota.module';
 import { ListingModule } from '../listing/listing.module';
 import { OrderReputationModule } from './order-reputation.module';
 import { CouponsModule } from '../coupons/coupons.module';
+import { CartModule } from '../cart/cart.module';
 
 import { OrdersController } from './orders.controller';
 import { OrdersAdminService } from './orders-admin.service';
@@ -36,6 +37,7 @@ import { OrdersSchedulerService } from './services/scheduler/orders-scheduler.se
     ListingModule,
     OrderReputationModule,
     CouponsModule,
+    forwardRef(() => CartModule),
   ],
   controllers: [OrdersController],
   providers: [
