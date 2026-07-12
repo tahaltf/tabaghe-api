@@ -334,9 +334,11 @@ function coerceSection(raw: unknown, index: number): HomeSection | null {
             asString(props['subtitle']).trim() || asString(defProps?.subtitle).trim() || undefined,
           showViewAll: asBool(props['showViewAll'], defProps?.showViewAll ?? true),
           viewAllLink:
-            asString(props['viewAllLink']).trim() ||
-            asString(defProps?.viewAllLink).trim() ||
-            undefined,
+            feed === 'category' && categorySlug
+              ? `/category/${categorySlug}`
+              : asString(props['viewAllLink']).trim() ||
+                asString(defProps?.viewAllLink).trim() ||
+                undefined,
           theme: (asString(props['theme'], defProps?.theme ?? 'accent') || 'accent') as HomeSection extends {
             type: 'listings-slider';
           }

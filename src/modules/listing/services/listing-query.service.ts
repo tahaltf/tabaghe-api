@@ -17,6 +17,19 @@ import {
 import { ListListingsDto } from '../dto/list-listings.dto';
 import type { HomeFeedResponse } from '../../../shared/contracts/home-feed';
 import { HOME_JEWELRY_CATEGORY_SLUG } from '../../../common/category/home-category-slugs';
+import {
+  searchDigitVariants,
+  toLatinDigits,
+} from '../utils/search-digit-variants.util';
+
+export type ListingSuggestItem = {
+  id: string;
+  title: string;
+  thumbnail: string | null;
+  type: ListingType;
+  direct: { price: Prisma.Decimal; salePrice: Prisma.Decimal | null } | null;
+  auction: { basePrice: Prisma.Decimal } | null;
+};
 
 /**
  * لیست آگهی‌ها فقط فیلدهای مورد نیاز کارت را برمیگرداند تا حجم payload
@@ -199,20 +212,28 @@ export class ListingQueryService {
     };
   }
 
-  /** Lightweight autocomplete for search boxes — title only. */
-  async suggest(
-    query: string,
-    limit = 8,
-  ): Promise<Array<{ id: string; title: string }>> {
-    const q = query.trim();
-    if (q.length < 2) return [];
+  /** Autocomplete for search boxes — title + category (+ parent), with digit variants. */
+  async suggest(query: string, limit = 8): Promise<ListingSuggestItem[]> {
+    const variants = searchDigitVariants(query);
+    const searchOr = this.buildTextSearchOr(variants, {
+      includeDescription: false,
+      includeLocation: false,
+    });
+    if (!searchOr.length) return [];
     const take = Math.min(15, Math.max(1, limit));
     return this.prisma.listing.findMany({
       where: {
         status: ListingStatus.APPROVED,
-        title: { contains: q, mode: 'insensitive' },
+        OR: searchOr,
       },
-      select: { id: true, title: true },
+      select: {
+        id: true,
+        title: true,
+        thumbnail: true,
+        type: true,
+        direct: { select: { price: true, salePrice: true } },
+        auction: { select: { basePrice: true } },
+      },
       orderBy: [
         { isFeatured: 'desc' },
         { featuredAt: 'desc' },
@@ -564,14 +585,14 @@ export class ListingQueryService {
     if (query.condition) where.condition = query.condition;
 
     if (query.search) {
-      const normalized = query.search.trim();
-      where.OR = [
-        { title: { contains: normalized, mode: 'insensitive' } },
-        { description: { contains: normalized, mode: 'insensitive' } },
-        { category: { title: { contains: normalized, mode: 'insensitive' } } },
-        { city: { name: { contains: normalized, mode: 'insensitive' } } },
-        { province: { name: { contains: normalized, mode: 'insensitive' } } },
-      ];
+      const variants = searchDigitVariants(query.search);
+      const searchOr = this.buildTextSearchOr(variants, {
+        includeDescription: true,
+        includeLocation: true,
+      });
+      if (searchOr.length) {
+        where.OR = searchOr;
+      }
     }
 
     if (query.minPrice !== undefined || query.maxPrice !== undefined) {
@@ -655,8 +676,34 @@ export class ListingQueryService {
     return score;
   }
 
+  private buildTextSearchOr(
+    variants: string[],
+    opts: { includeDescription: boolean; includeLocation: boolean },
+  ): Prisma.ListingWhereInput[] {
+    const clauses: Prisma.ListingWhereInput[] = [];
+    for (const v of variants) {
+      if (v.length < 2) continue;
+      const mode = 'insensitive' as const;
+      clauses.push(
+        { title: { contains: v, mode } },
+        { category: { title: { contains: v, mode } } },
+        { category: { parent: { title: { contains: v, mode } } } },
+      );
+      if (opts.includeDescription) {
+        clauses.push({ description: { contains: v, mode } });
+      }
+      if (opts.includeLocation) {
+        clauses.push(
+          { city: { name: { contains: v, mode } } },
+          { province: { name: { contains: v, mode } } },
+        );
+      }
+    }
+    return clauses;
+  }
+
   private normalize(input: string): string {
-    return String(input || '')
+    return toLatinDigits(String(input || ''))
       .toLowerCase()
       .replace(/ي/g, 'ی')
       .replace(/ك/g, 'ک')
