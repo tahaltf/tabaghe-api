@@ -66,11 +66,16 @@ export class ListingController {
 
   @Get('suggest')
   @CacheControl('public, max-age=30, stale-while-revalidate=60')
-  suggest(@Query('q') q?: string, @Query('limit') limit?: string) {
+  suggest(
+    @Query('q') q?: string,
+    @Query('limit') limit?: string,
+    @Query('types') types?: string,
+  ) {
     const parsed = limit ? Number(limit) : 8;
     return this.queryService.suggest(
       q ?? '',
       Number.isFinite(parsed) ? parsed : 8,
+      types,
     );
   }
 

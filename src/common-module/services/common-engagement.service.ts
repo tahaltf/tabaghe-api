@@ -58,7 +58,7 @@ export class CommonEngagementService {
       select: { key: true },
     });
     if (existing) {
-      throw new ConflictException('این شماره موبایل قبلاً در کلوپ مشتریان ثبت شده است');
+      throw new ConflictException('این شماره موبایل قبلاً در باشگاه مشتریان ثبت شده است');
     }
 
     await this.prisma.systemSetting.create({

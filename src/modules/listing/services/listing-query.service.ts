@@ -213,7 +213,11 @@ export class ListingQueryService {
   }
 
   /** Autocomplete for search boxes — title + category (+ parent), with digit variants. */
-  async suggest(query: string, limit = 8): Promise<ListingSuggestItem[]> {
+  async suggest(
+    query: string,
+    limit = 8,
+    typesCsv?: string,
+  ): Promise<ListingSuggestItem[]> {
     const variants = searchDigitVariants(query);
     const searchOr = this.buildTextSearchOr(variants, {
       includeDescription: false,
@@ -221,10 +225,12 @@ export class ListingQueryService {
     });
     if (!searchOr.length) return [];
     const take = Math.min(15, Math.max(1, limit));
+    const types = this.parseSuggestTypes(typesCsv);
     return this.prisma.listing.findMany({
       where: {
         status: ListingStatus.APPROVED,
         OR: searchOr,
+        ...(types.length ? { type: { in: types } } : {}),
       },
       select: {
         id: true,
@@ -242,6 +248,15 @@ export class ListingQueryService {
       ],
       take,
     });
+  }
+
+  private parseSuggestTypes(typesCsv?: string): ListingType[] {
+    if (!typesCsv?.trim()) return [];
+    const allowed = new Set<string>(Object.values(ListingType));
+    return typesCsv
+      .split(',')
+      .map((t) => t.trim().toUpperCase())
+      .filter((t): t is ListingType => allowed.has(t));
   }
 
   async getHomeFeed(limit = 10): Promise<HomeFeedResponse> {
