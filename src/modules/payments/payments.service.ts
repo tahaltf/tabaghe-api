@@ -402,12 +402,7 @@ export class PaymentsService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      await this.finalizeCheckoutSessionOrdersInTx(
-        tx,
-        session.id,
-        'GATEWAY',
-        await this.resolveClientMetaByAuthority(authority),
-      );
+      await this.finalizeCheckoutSessionOrdersInTx(tx, session.id, 'GATEWAY');
     });
 
     await this.notifyCheckoutSessionPaid(session.id);
@@ -463,12 +458,7 @@ export class PaymentsService {
     });
 
     await this.prisma.$transaction(async (tx) => {
-      await this.finalizeCheckoutSessionOrdersInTx(
-        tx,
-        session.id,
-        'WALLET',
-        clientMeta,
-      );
+      await this.finalizeCheckoutSessionOrdersInTx(tx, session.id, 'WALLET');
     });
 
     await this.notifyCheckoutSessionPaid(session.id);
@@ -486,7 +476,6 @@ export class PaymentsService {
     tx: Prisma.TransactionClient,
     sessionId: string,
     paymentSource: 'GATEWAY' | 'WALLET',
-    clientMeta?: ClientRequestMeta,
   ) {
     const session = await tx.checkoutSession.findUnique({
       where: { id: sessionId },
