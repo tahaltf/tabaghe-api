@@ -926,6 +926,45 @@ export class AdminUsersQueryService {
       .slice(0, take);
   }
 
+  async loginLogs(
+    actor: AuthenticatedUser,
+    userId: string,
+    limit = 50,
+  ): Promise<
+    Array<{
+      id: string;
+      method: string;
+      ipAddress: string | null;
+      userAgent: string | null;
+      createdAt: Date;
+    }>
+  > {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true },
+    });
+    if (!user) throw new NotFoundException('کاربر یافت نشد');
+    this.assertCanManageTarget(actor, user.role);
+
+    const take = Math.max(
+      1,
+      Math.min(Number.isFinite(limit) ? limit : 50, 100),
+    );
+
+    return this.prisma.userLoginLog.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take,
+      select: {
+        id: true,
+        method: true,
+        ipAddress: true,
+        userAgent: true,
+        createdAt: true,
+      },
+    });
+  }
+
   private assertCanManageTarget(
     actor: AuthenticatedUser,
     targetRole: UserRole,

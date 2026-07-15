@@ -28,6 +28,7 @@ import { WalletService } from '../../../wallet/wallet.service';
 import { FeeCalculatorService } from '../../../fees/fee-calculator.service';
 import { AppSettingsService } from '../../../../shared/settings/app-settings.service';
 import { PaymentsService } from '../../../payments/payments.service';
+import type { ClientRequestMeta } from '../../../../common/http/client-ip.util';
 import { NotificationService } from '../../../notification/notification.service';
 import { ExchangeOrderNotifyService } from '../../../notification/exchange-order-notify.service';
 import { OrderReputationService } from '../../order-reputation.service';
@@ -108,7 +109,11 @@ export class OrdersCheckoutService {
     return defaultFee;
   }
 
-  async handleUniversalOrder(userId: string, dto: any) {
+  async handleUniversalOrder(
+    userId: string,
+    dto: any,
+    clientMeta?: ClientRequestMeta,
+  ) {
     const {
       addressId,
       paymentMethod,
@@ -1109,6 +1114,9 @@ export class OrdersCheckoutService {
         const initiated = await this.paymentsService.initiateOrderPayment(
           order.id,
           userId,
+          undefined,
+          undefined,
+          clientMeta,
         );
         paymentUrl = initiated.paymentUrl;
       } catch (err) {

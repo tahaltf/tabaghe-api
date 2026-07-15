@@ -44,7 +44,10 @@ export type MarketplaceCheckoutInput = {
   /** پاک کردن سبد بعد از ساخت session (فقط CART) */
   clearCart?: boolean;
   items: MarketplaceCheckoutLine[];
+  clientMeta?: ClientRequestMeta;
 };
+
+import type { ClientRequestMeta } from '../../common/http/client-ip.util';
 
 @Injectable()
 export class MarketplaceCheckoutService {
@@ -230,6 +233,9 @@ export class MarketplaceCheckoutService {
           await this.paymentsService.initiateCheckoutSessionPayment(
             session.id,
             userId,
+            undefined,
+            undefined,
+            input.clientMeta,
           );
         paymentUrl = initiated.paymentUrl;
       } else if (
@@ -239,6 +245,7 @@ export class MarketplaceCheckoutService {
         await this.paymentsService.settleCheckoutSessionFromWallet(
           session.id,
           userId,
+          input.clientMeta,
         );
       }
     } catch (err) {

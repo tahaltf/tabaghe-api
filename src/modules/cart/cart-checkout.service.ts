@@ -10,6 +10,7 @@ import {
   MarketplaceCheckoutLine,
   MarketplaceCheckoutService,
 } from './marketplace-checkout.service';
+import type { ClientRequestMeta } from '../../common/http/client-ip.util';
 
 @Injectable()
 export class CartCheckoutService {
@@ -35,7 +36,11 @@ export class CartCheckoutService {
     };
   }
 
-  async checkout(userId: string, dto: CartCheckoutDto) {
+  async checkout(
+    userId: string,
+    dto: CartCheckoutDto,
+    clientMeta?: ClientRequestMeta,
+  ) {
     const { items } = await this.loadCartLines(userId);
     if (items.length === 0) {
       throw new BadRequestException('سبد خرید خالی است');
@@ -49,6 +54,7 @@ export class CartCheckoutService {
       requiresVerification: dto.requiresVerification,
       clearCart: true,
       items,
+      clientMeta,
     });
 
     return {

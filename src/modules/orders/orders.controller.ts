@@ -23,6 +23,7 @@ import { IsVerifiedGuard } from '../auth/guards/is-verified.guard';
 import { AuthenticatedUser } from '../../shared/contracts/auth';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OrdersCommandService } from './orders-command.service';
+import { extractClientRequestMeta } from '../../common/http/client-ip.util';
 import { OrdersQueryService } from './orders-query.service';
 import {
   InspectionCertificateService,
@@ -51,8 +52,13 @@ export class OrdersController {
   createOrder(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateOrderDto,
+    @Req() req: Request,
   ) {
-    return this.commandService.createOrder(user.id, dto);
+    return this.commandService.createOrder(
+      user.id,
+      dto,
+      extractClientRequestMeta(req),
+    );
   }
 
   @Get('my-orders')

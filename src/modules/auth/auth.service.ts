@@ -4,7 +4,14 @@ import {
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
-import { User, UserRole, UserStatus, NotificationType, OtpPurpose } from '@prisma/client';
+import {
+  User,
+  UserLoginMethod,
+  UserRole,
+  UserStatus,
+  NotificationType,
+  OtpPurpose,
+} from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AuthSessionResponse, JwtPayload } from '../../shared/contracts/auth';
@@ -14,6 +21,7 @@ import { SmsService } from '../sms/sms.service';
 import { NotificationService } from '../notification/notification.service';
 import { RegistrationPlanService } from './services/registration-plan.service';
 import { resolveAdminBootstrapPassword } from '../../config/bootstrap-password.util';
+import type { ClientRequestMeta } from '../../common/http/client-ip.util';
 
 export interface AdminPasswordLoginChallengeResponse {
   challengeToken: string;
@@ -39,7 +47,11 @@ export class AuthService {
     return this.otpService.issue(phone);
   }
 
-  async verifyOtp(phone: string, code: string): Promise<AuthSessionResponse> {
+  async verifyOtp(
+    phone: string,
+    code: string,
+    clientMeta: ClientRequestMeta = { ipAddress: null, userAgent: null },
+  ): Promise<AuthSessionResponse> {
     await this.otpService.consume(phone, code);
     const existed = await this.prisma.user.findUnique({
       where: { phone },
@@ -47,6 +59,7 @@ export class AuthService {
     });
     const user = await this.findOrCreateUser(phone);
     const isNewUser = !existed;
+    await this.recordSuccessfulLogin(user.id, UserLoginMethod.OTP, clientMeta);
     const session = this.buildSession(user);
     this.notifyAdminAboutLogin(user.phone);
     if (isNewUser) {
@@ -89,6 +102,7 @@ export class AuthService {
   async verifyAdminLoginOtp(
     challengeToken: string,
     code: string,
+    clientMeta: ClientRequestMeta = { ipAddress: null, userAgent: null },
   ): Promise<AuthSessionResponse> {
     const userId = this.tokenService.verifyAdminLoginChallenge(challengeToken);
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -113,6 +127,11 @@ export class AuthService {
       OtpPurpose.ADMIN_LOGIN,
     );
 
+    await this.recordSuccessfulLogin(
+      user.id,
+      UserLoginMethod.ADMIN_OTP,
+      clientMeta,
+    );
     const session = this.buildSession(user);
     this.notifyAdminAboutLogin(user.phone);
     return session;
@@ -229,5 +248,36 @@ export class AuthService {
         }`,
       );
     });
+  }
+
+  private async recordSuccessfulLogin(
+    userId: string,
+    method: UserLoginMethod,
+    clientMeta: ClientRequestMeta,
+  ): Promise<void> {
+    const now = new Date();
+    try {
+      await this.prisma.$transaction([
+        this.prisma.user.update({
+          where: { id: userId },
+          data: { lastLoginAt: now },
+        }),
+        this.prisma.userLoginLog.create({
+          data: {
+            userId,
+            method,
+            ipAddress: clientMeta.ipAddress,
+            userAgent: clientMeta.userAgent,
+            createdAt: now,
+          },
+        }),
+      ]);
+    } catch (err) {
+      this.logger.warn(
+        `recordSuccessfulLogin failed for ${userId}: ${String(
+          (err as Error)?.message ?? err,
+        )}`,
+      );
+    }
   }
 }

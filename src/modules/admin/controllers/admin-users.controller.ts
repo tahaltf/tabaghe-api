@@ -69,6 +69,15 @@ export class AdminUsersQueryController {
     return this.service.activities(actor, id, limit);
   }
 
+  @Get(':id/login-logs')
+  loginLogs(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Param('id') id: string,
+    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit: number,
+  ) {
+    return this.service.loginLogs(actor, id, limit);
+  }
+
   @Get(':id/rating-history')
   ratingHistory(
     @CurrentUser() actor: AuthenticatedUser,

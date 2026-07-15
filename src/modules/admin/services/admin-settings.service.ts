@@ -90,7 +90,12 @@ export const SETTING_KEYS = {
   TERMS_CONDITIONS: 'TERMS_CONDITIONS',
   ABOUT_US: 'ABOUT_US',
   FOOTER_TAGLINE: 'FOOTER_TAGLINE',
+  HEADER_NAV_JSON: 'HEADER_NAV_JSON',
+  HEADER_ACTIONS_JSON: 'HEADER_ACTIONS_JSON',
+  FOOTER_TEXTS_JSON: 'FOOTER_TEXTS_JSON',
+  FOOTER_QUICK_LINKS_JSON: 'FOOTER_QUICK_LINKS_JSON',
   REPAIR_ALLOWED_CATEGORY_IDS: 'REPAIR_ALLOWED_CATEGORY_IDS',
+
   PLATFORM_LATITUDE: 'PLATFORM_LATITUDE',
   PLATFORM_LONGITUDE: 'PLATFORM_LONGITUDE',
   SMS_NOTIFICATION_RULES: 'SMS_NOTIFICATION_RULES',
@@ -279,6 +284,13 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   TERMS_CONDITIONS: 'متن قوانین و مقررات (نمایش به کاربران)',
   ABOUT_US: 'متن صفحه درباره ما',
   FOOTER_TAGLINE: 'معرفی کوتاه فوتر سایت (۱–۲ جمله)',
+  HEADER_NAV_JSON:
+    'منوی هدر سایت (JSON آرایه آیتم‌ها با label/link/enabled)',
+  HEADER_ACTIONS_JSON:
+    'اکشن‌های هدر: آیکن سبد، نمایش CTA و ... (JSON)',
+  FOOTER_TEXTS_JSON: 'متن‌های فوتر: باشگاه، عناوین بخش‌ها، کپی‌رایت (JSON)',
+  FOOTER_QUICK_LINKS_JSON:
+    'لینک‌های دسترسی سریع فوتر (JSON آرایه با label/link/icon/enabled)',
   REPAIR_ALLOWED_CATEGORY_IDS:
     'لیست دسته‌بندی‌های مجاز برای ثبت تعمیرات (JSON)',
   PLATFORM_LATITUDE: 'مختصات جغرافیایی عرض (Latitude) مرکز طبقه',

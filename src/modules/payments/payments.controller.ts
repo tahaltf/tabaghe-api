@@ -17,6 +17,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../shared/contracts/auth';
 import { AppSettingsService } from '../../shared/settings/app-settings.service';
 import { resolveSafeReturnUrl } from '../../common/security/safe-return-url.util';
+import { extractClientRequestMeta } from '../../common/http/client-ip.util';
 
 @Controller('payments')
 export class PaymentsController {
@@ -37,6 +38,7 @@ export class PaymentsController {
       user.id,
       this.buildCallbackBase(req),
       this.buildReturnUrl(req),
+      extractClientRequestMeta(req),
     );
   }
 
@@ -52,6 +54,7 @@ export class PaymentsController {
       user.id,
       this.buildCallbackBase(req),
       this.buildReturnUrl(req),
+      extractClientRequestMeta(req),
     );
   }
 
@@ -67,6 +70,7 @@ export class PaymentsController {
       user.id,
       this.buildCallbackBase(req),
       this.buildReturnUrl(req),
+      extractClientRequestMeta(req),
     );
   }
 
@@ -82,6 +86,7 @@ export class PaymentsController {
       body.amount,
       this.buildCallbackBase(req),
       this.buildReturnUrl(req),
+      extractClientRequestMeta(req),
     );
   }
 

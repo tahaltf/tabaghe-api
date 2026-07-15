@@ -11,6 +11,7 @@ import {
   NotificationType,
   OrderStatus,
   OrderType,
+  PaymentInitKind,
   Prisma,
   RepairRequestStatus,
   SecondChanceOfferStatus,
@@ -25,6 +26,7 @@ import { ZibalGateway } from './gateways/zibal.gateway';
 import { NotificationService } from '../notification/notification.service';
 import { ExchangeOrderNotifyService } from '../notification/exchange-order-notify.service';
 import { ExchangeService } from '../exchange/exchange.service';
+import type { ClientRequestMeta } from '../../common/http/client-ip.util';
 
 @Injectable()
 export class PaymentsService {
@@ -51,6 +53,7 @@ export class PaymentsService {
     userId: string,
     callbackBaseUrl?: string,
     returnUrl?: string,
+    clientMeta?: ClientRequestMeta,
   ) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
@@ -117,6 +120,17 @@ export class PaymentsService {
       });
     }
 
+    await this.recordPaymentInit({
+      userId,
+      kind: PaymentInitKind.ORDER,
+      paymentSource: 'GATEWAY',
+      amount: payableAmount,
+      referenceId: order.id,
+      authority: requested.authority,
+      gateway: gateway.name,
+      clientMeta,
+    });
+
     return {
       gateway: gateway.name,
       orderId: order.id,
@@ -130,6 +144,7 @@ export class PaymentsService {
     userId: string,
     callbackBaseUrl?: string,
     returnUrl?: string,
+    clientMeta?: ClientRequestMeta,
   ) {
     const repair = await this.prisma.repairRequest.findUnique({
       where: { id: repairId },
@@ -168,6 +183,17 @@ export class PaymentsService {
       mobile: repair.user?.phone ?? undefined,
     });
 
+    await this.recordPaymentInit({
+      userId,
+      kind: PaymentInitKind.REPAIR,
+      paymentSource: 'GATEWAY',
+      amount,
+      referenceId: repair.id,
+      authority: requested.authority,
+      gateway: gateway.name,
+      clientMeta,
+    });
+
     return {
       gateway: gateway.name,
       repairId: repair.id,
@@ -181,6 +207,7 @@ export class PaymentsService {
     amountRaw: number,
     callbackBaseUrl?: string,
     returnUrl?: string,
+    clientMeta?: ClientRequestMeta,
   ) {
     const amount = Number(amountRaw ?? 0);
     if (!Number.isFinite(amount) || amount <= 0) {
@@ -224,8 +251,20 @@ export class PaymentsService {
           authority: requested.authority,
           paymentSource: 'GATEWAY',
           description: 'شارژ آنلاین کیف پول (در انتظار تایید درگاه)',
+          ...this.clientMetaFields(clientMeta),
         },
       },
+    });
+
+    await this.recordPaymentInit({
+      userId,
+      kind: PaymentInitKind.WALLET_TOPUP,
+      paymentSource: 'GATEWAY',
+      amount,
+      referenceId: wallet.id,
+      authority: requested.authority,
+      gateway: gateway.name,
+      clientMeta,
     });
 
     return {
@@ -240,6 +279,7 @@ export class PaymentsService {
     userId: string,
     callbackBaseUrl?: string,
     returnUrl?: string,
+    clientMeta?: ClientRequestMeta,
   ) {
     const session = await this.prisma.checkoutSession.findUnique({
       where: { id: sessionId },
@@ -298,6 +338,17 @@ export class PaymentsService {
       }
     }
 
+    await this.recordPaymentInit({
+      userId,
+      kind: PaymentInitKind.CHECKOUT_SESSION,
+      paymentSource: 'GATEWAY',
+      amount: payableAmount,
+      referenceId: session.id,
+      authority: requested.authority,
+      gateway: gateway.name,
+      clientMeta,
+    });
+
     return {
       gateway: gateway.name,
       sessionId: session.id,
@@ -351,7 +402,12 @@ export class PaymentsService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      await this.finalizeCheckoutSessionOrdersInTx(tx, session.id, 'GATEWAY');
+      await this.finalizeCheckoutSessionOrdersInTx(
+        tx,
+        session.id,
+        'GATEWAY',
+        await this.resolveClientMetaByAuthority(authority),
+      );
     });
 
     await this.notifyCheckoutSessionPaid(session.id);
@@ -370,7 +426,11 @@ export class PaymentsService {
    * تسویه جلسه پرداخت از کیف پول خریدار (بدون درگاه).
    * مبالغ سفارش‌ها باید از قبل نهایی شده باشند.
    */
-  async settleCheckoutSessionFromWallet(sessionId: string, userId: string) {
+  async settleCheckoutSessionFromWallet(
+    sessionId: string,
+    userId: string,
+    clientMeta?: ClientRequestMeta,
+  ) {
     const session = await this.prisma.checkoutSession.findUnique({
       where: { id: sessionId },
       include: { orders: true },
@@ -393,8 +453,22 @@ export class PaymentsService {
       }
     }
 
+    await this.recordPaymentInit({
+      userId,
+      kind: PaymentInitKind.CHECKOUT_WALLET,
+      paymentSource: 'WALLET',
+      amount: payable,
+      referenceId: session.id,
+      clientMeta,
+    });
+
     await this.prisma.$transaction(async (tx) => {
-      await this.finalizeCheckoutSessionOrdersInTx(tx, session.id, 'WALLET');
+      await this.finalizeCheckoutSessionOrdersInTx(
+        tx,
+        session.id,
+        'WALLET',
+        clientMeta,
+      );
     });
 
     await this.notifyCheckoutSessionPaid(session.id);
@@ -412,6 +486,7 @@ export class PaymentsService {
     tx: Prisma.TransactionClient,
     sessionId: string,
     paymentSource: 'GATEWAY' | 'WALLET',
+    clientMeta?: ClientRequestMeta,
   ) {
     const session = await tx.checkoutSession.findUnique({
       where: { id: sessionId },
@@ -967,6 +1042,9 @@ export class PaymentsService {
                 : listingTitle
                   ? `پرداخت خرید برای «${listingTitle}» از درگاه ثبت شد.`
                   : 'پرداخت خرید از درگاه ثبت شد.',
+              ...this.clientMetaFields(
+                await this.resolveClientMetaByAuthority(authority),
+              ),
             },
           },
         });
@@ -1177,6 +1255,9 @@ export class PaymentsService {
             authority,
             refId: verified.refId ?? null,
             description: 'پرداخت هزینه تعمیرات',
+            ...this.clientMetaFields(
+              await this.resolveClientMetaByAuthority(authority),
+            ),
           },
         },
       });
@@ -1350,6 +1431,64 @@ export class PaymentsService {
   private isGatewayCallbackSuccess(successFlag: string): boolean {
     const normalized = successFlag.trim().toLowerCase();
     return normalized === '1' || normalized === 'true';
+  }
+
+  private clientMetaFields(
+    meta?: ClientRequestMeta | null,
+  ): { clientIp?: string; userAgent?: string } {
+    const out: { clientIp?: string; userAgent?: string } = {};
+    if (meta?.ipAddress) out.clientIp = meta.ipAddress;
+    if (meta?.userAgent) out.userAgent = meta.userAgent;
+    return out;
+  }
+
+  private async recordPaymentInit(params: {
+    userId: string;
+    kind: PaymentInitKind;
+    paymentSource: 'GATEWAY' | 'WALLET';
+    amount?: number;
+    referenceId?: string;
+    authority?: string | null;
+    gateway?: string | null;
+    clientMeta?: ClientRequestMeta;
+  }): Promise<void> {
+    try {
+      await this.prisma.paymentInitLog.create({
+        data: {
+          userId: params.userId,
+          kind: params.kind,
+          paymentSource: params.paymentSource,
+          amount:
+            params.amount != null && Number.isFinite(params.amount)
+              ? params.amount
+              : null,
+          referenceId: params.referenceId ?? null,
+          authority: params.authority ?? null,
+          gateway: params.gateway ?? null,
+          ipAddress: params.clientMeta?.ipAddress ?? null,
+          userAgent: params.clientMeta?.userAgent ?? null,
+        },
+      });
+    } catch {
+      // لاگ ممیزی نباید جریان پرداخت را متوقف کند
+    }
+  }
+
+  private async resolveClientMetaByAuthority(
+    authority: string | null | undefined,
+  ): Promise<ClientRequestMeta | undefined> {
+    const auth = String(authority ?? '').trim();
+    if (!auth) return undefined;
+    const row = await this.prisma.paymentInitLog.findFirst({
+      where: { authority: auth },
+      orderBy: { createdAt: 'desc' },
+      select: { ipAddress: true, userAgent: true },
+    });
+    if (!row) return undefined;
+    return {
+      ipAddress: row.ipAddress,
+      userAgent: row.userAgent,
+    };
   }
 
   private async getExchangeParticipantDue(

@@ -6,8 +6,10 @@ import {
   Param,
   Patch,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { IsVerifiedGuard } from '../auth/guards/is-verified.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -20,6 +22,7 @@ import {
   CartCheckoutPreviewDto,
   UpdateCartItemDto,
 } from './dto/cart.dto';
+import { extractClientRequestMeta } from '../../common/http/client-ip.util';
 
 @Controller('cart')
 @UseGuards(JwtAuthGuard)
@@ -85,7 +88,12 @@ export class CartController {
   checkout(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CartCheckoutDto,
+    @Req() req: Request,
   ) {
-    return this.cartCheckout.checkout(user.id, dto);
+    return this.cartCheckout.checkout(
+      user.id,
+      dto,
+      extractClientRequestMeta(req),
+    );
   }
 }

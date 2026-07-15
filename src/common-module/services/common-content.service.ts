@@ -17,6 +17,10 @@ import {
   DEFAULT_FOOTER_TAGLINE_FA,
   DEFAULT_SYSTEM_INTRO_FA,
   DEFAULT_TERMS_CONDITIONS_FA,
+  parseHeaderNavJson,
+  parseHeaderActionsJson,
+  parseFooterTextsJson,
+  parseFooterQuickLinksJson,
 } from '../../common/content';
 import { getPwaAppName, getPwaAppShortName } from '../../common/pwa-brand-icon.util';
 import { coerceLandingSections } from '../../common/landing/landing-sections.util';
@@ -85,6 +89,10 @@ export class CommonContentService {
       'BANK_SHABA',
       'MANUAL_CARD_TRANSFER_MAX',
       'FOOTER_SOCIAL_LINKS',
+      'HEADER_NAV_JSON',
+      'HEADER_ACTIONS_JSON',
+      'FOOTER_TEXTS_JSON',
+      'FOOTER_QUICK_LINKS_JSON',
       'BUYER_CONFIRM_DEADLINE_MINUTES',
       'BUYER_CONFIRM_DEADLINE_DAYS',
       'LISTING_TYPE_DIRECT_ENABLED',
@@ -267,6 +275,10 @@ export class CommonContentService {
         : 10000000,
       buyerConfirmDeadlineMinutes,
       footerSocialLinks,
+      headerNav: parseHeaderNavJson(map.HEADER_NAV_JSON),
+      headerActions: parseHeaderActionsJson(map.HEADER_ACTIONS_JSON),
+      footerTexts: parseFooterTextsJson(map.FOOTER_TEXTS_JSON),
+      footerQuickLinks: parseFooterQuickLinksJson(map.FOOTER_QUICK_LINKS_JSON),
       footerTagline:
         map.FOOTER_TAGLINE?.trim() || DEFAULT_FOOTER_TAGLINE_FA,
       listingTypesEnabled: parseListingTypesEnabledFromMap(map),

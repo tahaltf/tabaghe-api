@@ -5,6 +5,7 @@ import { OrdersCheckoutService } from './services/command/orders-checkout.servic
 import { OrdersShippingService } from './services/command/orders-shipping.service';
 import { OrdersCompletionService } from './services/command/orders-completion.service';
 import { MarketplaceCheckoutService } from '../cart/marketplace-checkout.service';
+import type { ClientRequestMeta } from '../../common/http/client-ip.util';
 
 @Injectable()
 export class OrdersCommandService {
@@ -16,7 +17,11 @@ export class OrdersCommandService {
     private readonly marketplaceCheckout: MarketplaceCheckoutService,
   ) {}
 
-  async createOrder(userId: string, dto: CreateOrderDto) {
+  async createOrder(
+    userId: string,
+    dto: CreateOrderDto,
+    clientMeta?: ClientRequestMeta,
+  ) {
     if (dto.orderType === OrderType.DIRECT && dto.listingId && dto.addressId) {
       const line = await this.marketplaceCheckout.buildLineFromListing(
         dto.listingId,
@@ -30,9 +35,10 @@ export class OrdersCommandService {
         requiresVerification: dto.requiresVerification,
         clearCart: false,
         items: [line],
+        clientMeta,
       });
     }
-    return this.checkout.handleUniversalOrder(userId, dto);
+    return this.checkout.handleUniversalOrder(userId, dto, clientMeta);
   }
 
   updateTrackingCode(

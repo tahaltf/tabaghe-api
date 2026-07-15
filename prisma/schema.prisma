@@ -327,9 +327,59 @@ model User {
   listingViews        ListingView[]
   couponRedemptions   CouponRedemption[]
   checkoutSessions    CheckoutSession[]
+  loginLogs           UserLoginLog[]
+  paymentInitLogs     PaymentInitLog[]
 
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
+}
+
+enum UserLoginMethod {
+  OTP
+  ADMIN_OTP
+}
+
+/** لاگ ورود موفق به سامانه — برای بررسی امنیتی / کلاهبرداری */
+model UserLoginLog {
+  id        String          @id @default(cuid())
+  userId    String
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  method    UserLoginMethod
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime        @default(now())
+
+  @@index([userId, createdAt])
+  @@index([ipAddress, createdAt])
+}
+
+enum PaymentInitKind {
+  ORDER
+  WALLET_TOPUP
+  REPAIR
+  CHECKOUT_SESSION
+  CHECKOUT_WALLET
+}
+
+/** ثبت هر شروع پرداخت (درگاه یا کیف پول) همراه IP برای ممیزی */
+model PaymentInitLog {
+  id            String          @id @default(cuid())
+  userId        String
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind          PaymentInitKind
+  paymentSource String          @default("GATEWAY")
+  amount        Decimal?
+  referenceId   String?
+  authority     String?
+  gateway       String?
+  ipAddress     String?
+  userAgent     String?
+  createdAt     DateTime        @default(now())
+
+  @@index([userId, createdAt])
+  @@index([authority])
+  @@index([referenceId, kind])
+  @@index([ipAddress, createdAt])
 }
 
 model UserRatingHistory {
