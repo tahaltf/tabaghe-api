@@ -1044,11 +1044,15 @@ export class OperationalNotifyService {
     sellerId: string;
     listingId: string;
     ticketId: string;
+    ticketSubject?: string;
   }): Promise<void> {
     const listingTitle = await this.listingTitle(params.listingId);
     const shortId = params.orderId.slice(-6);
     const buyerNote = 'شکایت شما ثبت شد و برای پشتیبانی ارسال گردید.';
     const sellerNote = 'خریدار برای این سفارش شکایت ثبت کرده است.';
+    const ticketSubject =
+      params.ticketSubject?.trim() ||
+      `شکایت — مغایرت کالا · #${shortId.toUpperCase()}`;
     await this.notifyMany([
       {
         userId: params.buyerId,
@@ -1090,6 +1094,23 @@ export class OperationalNotifyService {
         },
       },
     ]);
+
+    // تیکت شکایت بیرون از SupportService ساخته می‌شود؛ ادمین باید مثل تیکت عادی مطلع شود.
+    await this.notificationService
+      .notifyAdminPersonnel({
+        type: NotificationType.ADMIN_ALERT_NEW_TICKET,
+        title: 'شکایت جدید روی سفارش',
+        message: `شکایت جدید برای سفارش #${shortId} («${listingTitle}») ثبت شد.`,
+        meta: {
+          ticketId: params.ticketId,
+          orderId: params.orderId,
+          userId: params.buyerId,
+          listingId: params.listingId,
+          listingTitle,
+          subject: ticketSubject,
+        },
+      })
+      .catch(() => undefined);
   }
 
   /** ثبت ارسال — فروش مستقیم / مزایده */

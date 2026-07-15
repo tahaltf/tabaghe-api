@@ -903,10 +903,14 @@ export class OrdersCompletionService {
         ].filter((line): line is string => Boolean(line)),
       );
 
+      const ticketSubject = buildOrderTicketSubject(
+        'شکایت — مغایرت کالا',
+        order.id,
+      );
       const createdTicket = await tx.ticket.create({
         data: {
           userId: buyerId,
-          subject: buildOrderTicketSubject('شکایت — مغایرت کالا', order.id),
+          subject: ticketSubject,
           status: 'OPEN',
           messages: {
             create: { senderRole: 'USER', message: ticketMessage },
@@ -934,6 +938,7 @@ export class OrdersCompletionService {
           sellerId: order.sellerId,
           listingId: order.listingId,
           ticketId: createdTicket.id,
+          ticketSubject,
         },
       };
     });
