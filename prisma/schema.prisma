@@ -198,6 +198,8 @@ enum NotificationType {
   ADMIN_ALERT_KYC_SUBMISSION
   ADMIN_ALERT_NEW_ORDER
   POST_PURCHASE_SURVEY
+  PLAN_CHANGED
+  PLAN_EXPIRED
 }
 
 enum SurveyRole {
@@ -701,8 +703,12 @@ model UserPlanPurchase {
   status      String        @default("ACTIVE")
   /// پایان اعتبار اشتراک؛ برای خریدهای جدید از روی plan.durationDays ست می‌شود
   expiresAt   DateTime?
+  /// زمان ارسال اعلان انقضا (جلوگیری از نوتیف تکراری)
+  expiryNotifiedAt DateTime?
   quotaLedger QuotaLedger[]
   createdAt   DateTime      @default(now())
+
+  @@index([status, expiresAt])
 }
 
 model QuotaLedger {

@@ -17,6 +17,7 @@ import {
   BUILTIN_FREE_PLAN_DISPLAY_KEY,
   parseBuiltinFreePlanDisplay,
 } from './builtin-free-plan-display';
+import { PlanLifecycleService } from './plan-lifecycle.service';
 
 function addDaysUtc(base: Date, days: number): Date {
   const d = new Date(base.getTime());
@@ -31,6 +32,7 @@ export class PlansService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly walletService: WalletService,
+    private readonly planLifecycle: PlanLifecycleService,
   ) {}
 
   // تغییر نام برای هماهنگی با Controller
@@ -222,6 +224,14 @@ export class PlansService {
         });
       }
 
+      return { purchase, planTitle: plan.title };
+    }).then(async ({ purchase, planTitle }) => {
+      await this.planLifecycle.notifyPlanChange({
+        userId,
+        kind: 'PURCHASE',
+        planTitle,
+        expiresAt: purchase.expiresAt,
+      });
       return purchase;
     });
   }

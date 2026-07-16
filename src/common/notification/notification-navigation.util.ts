@@ -140,6 +140,10 @@ export function resolveNotificationPath(
     return '/dashboard/setting';
   }
 
+  if (type === 'PLAN_CHANGED' || type === 'PLAN_EXPIRED') {
+    return '/dashboard/plans';
+  }
+
   if (type === 'ADMIN_ANNOUNCEMENT') {
     return null;
   }

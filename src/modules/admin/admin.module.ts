@@ -79,6 +79,7 @@ import { OrdersModule } from '../orders/orders.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { ListingModule } from '../listing/listing.module';
 import { SupportModule } from '../support/support.module';
+import { PlansModule } from '../plans/plans.module';
 import { UserRatingHistoryService } from '../users/user-rating-history.service';
 import { CommonModuleModule } from '../../common-module/common-module.module';
 
@@ -94,6 +95,7 @@ import { CommonModuleModule } from '../../common-module/common-module.module';
     WalletModule,
     ListingModule,
     SupportModule,
+    PlansModule,
   ],
   controllers: [
     AdminDashboardController,

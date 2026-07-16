@@ -4,6 +4,7 @@ import { PlansService } from './plans.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { BUILTIN_FREE_PLAN_ID } from './builtin-free-plan';
+import { PlanLifecycleService } from './plan-lifecycle.service';
 
 describe('PlansService', () => {
   let service: PlansService;
@@ -43,6 +44,10 @@ describe('PlansService', () => {
         PlansService,
         { provide: PrismaService, useValue: prismaMock },
         { provide: WalletService, useValue: walletMock },
+        {
+          provide: PlanLifecycleService,
+          useValue: { notifyPlanChange: jest.fn().mockResolvedValue(undefined) },
+        },
       ],
     }).compile();
 

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { NotificationType, Prisma, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
+import { PlanLifecycleService } from '../plans/plan-lifecycle.service';
 
 const KYC_REQUEST_SELECT = {
   id: true,
@@ -24,6 +25,7 @@ export class AdminUsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
+    private readonly planLifecycle: PlanLifecycleService,
   ) {}
 
   listPendingKyc(): Promise<KycRequest[]> {
@@ -55,6 +57,8 @@ export class AdminUsersService {
       message:
         'مدارک هویتی شما توسط ادمین تایید شد و اکنون حساب کاربری شما فعال است.',
     });
+
+    void this.planLifecycle.assignKycGiftPlan(targetUserId);
 
     return updatedUser;
   }

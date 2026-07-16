@@ -148,6 +148,8 @@ export const SETTING_KEYS = {
     'ACTION_DEADLINE_REMINDER_AUCTION_PAYMENT_MINUTES',
   /** شناسه پلن فعال‌شونده برای کاربران تازه‌ثبت‌نام (خالی = فقط سهمیه رایگان) */
   DEFAULT_REGISTRATION_PLAN_ID: 'DEFAULT_REGISTRATION_PLAN_ID',
+  /** شناسه پلن هدیه پس از تایید احراز هویت (خالی = بدون تغییر پلن) */
+  KYC_APPROVAL_PLAN_ID: 'KYC_APPROVAL_PLAN_ID',
   /** پیشوند URL صفحات لندینگ (مثلاً p → /p/my-page). seller همیشه /seller */
   LANDING_PAGES_URL_PREFIX: 'LANDING_PAGES_URL_PREFIX',
   /** پیشوند URL لینک‌های ردیابی کمپین (مثلاً ref → /ref/my-slug) */
@@ -230,6 +232,8 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   OTP_TTL_MINUTES: 'مدت اعتبار کد OTP (دقیقه)',
   DEFAULT_REGISTRATION_PLAN_ID:
     'شناسه پلن فعال‌شونده برای کاربران تازه‌ثبت‌نام (خالی = فقط سهمیه رایگان)',
+  KYC_APPROVAL_PLAN_ID:
+    'شناسه پلن هدیه پس از تایید احراز هویت (خالی = بدون تغییر پلن؛ در صورت تنظیم، پلن فعال قبلی لغو و این پلن فعال می‌شود)',
   LANDING_PAGES_URL_PREFIX:
     'پیشوند URL صفحات لندینگ (فقط حروف کوچک انگلیسی و خط تیره؛ مثلاً p → /p/slug)',
   CAMPAIGN_LINK_URL_PREFIX:

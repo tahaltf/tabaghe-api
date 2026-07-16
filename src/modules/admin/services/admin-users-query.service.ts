@@ -25,6 +25,7 @@ import { AdminUpdateUserProfileDto } from '../dto/admin-update-user-profile.dto'
 import { AuthenticatedUser } from '../../../shared/contracts/auth';
 import { getListingStatusLabelFa } from '../../../common/listing/listing-status-labels.util';
 import { getOrderStatusLabelFa } from '../../../common/order/order-status-labels.util';
+import { PlanLifecycleService } from '../../plans/plan-lifecycle.service';
 
 const LISTING_TYPE_LABELS_FA: Record<string, string> = {
   DIRECT: 'فروش مستقیم',
@@ -155,6 +156,7 @@ export class AdminUsersQueryService {
     private readonly prisma: PrismaService,
     private readonly userRatingHistory: UserRatingHistoryService,
     private readonly userPlanLookup: AdminUserPlanLookupService,
+    private readonly planLifecycle: PlanLifecycleService,
   ) {}
 
   async list(
@@ -370,55 +372,25 @@ export class AdminUsersQueryService {
     if (!user) throw new NotFoundException('کاربر یافت نشد');
     this.assertCanManageTarget(actor, user.role);
 
-    const plan = await this.prisma.plan.findUnique({
-      where: { id: planId },
-      include: { rules: true },
+    const granted = await this.planLifecycle.grantReplacingActive(
+      userId,
+      planId,
+      'انتساب پلن توسط ادمین',
+    );
+
+    await this.planLifecycle.notifyPlanChange({
+      userId,
+      kind: 'ADMIN_ASSIGN',
+      planTitle: granted.planTitle,
+      previousPlanTitle: granted.previousPlanTitle,
+      expiresAt: granted.expiresAt,
     });
-    if (!plan || !plan.isActive) {
-      throw new NotFoundException('پلن مورد نظر یافت نشد یا غیرفعال است');
-    }
 
-    const now = new Date();
-    const durationDays = Math.max(1, plan.durationDays ?? 365);
-    const expiresAt = new Date(now.getTime());
-    expiresAt.setUTCDate(expiresAt.getUTCDate() + durationDays);
-
-    return this.prisma.$transaction(async (tx) => {
-      await tx.userPlanPurchase.updateMany({
-        where: { userId, status: 'ACTIVE' },
-        data: { status: 'CANCELLED' },
-      });
-
-      const purchase = await tx.userPlanPurchase.create({
-        data: {
-          userId,
-          planId,
-          status: 'ACTIVE',
-          expiresAt,
-        },
-      });
-
-      // RELEASE entries to mark allocated quota (consistent with PlansService.buyPlan)
-      for (const rule of plan.rules) {
-        const entries = Array.from({ length: rule.count }).map(() => ({
-          userId,
-          planPurchaseId: purchase.id,
-          listingType: rule.type,
-          action: QuotaAction.RELEASE,
-          reason: QuotaReason.PLAN,
-          note: `انتساب پلن «${plan.title}» توسط ادمین`,
-        }));
-        if (entries.length > 0) {
-          await tx.quotaLedger.createMany({ data: entries });
-        }
-      }
-
-      return {
-        id: purchase.id,
-        planId: purchase.planId,
-        expiresAt: purchase.expiresAt,
-      };
-    });
+    return {
+      id: granted.id,
+      planId: granted.planId,
+      expiresAt: granted.expiresAt,
+    };
   }
 
   /** لغو پلن فعال کاربر توسط ادمین (انقضای فوری). */
@@ -433,10 +405,26 @@ export class AdminUsersQueryService {
     if (!user) throw new NotFoundException('کاربر یافت نشد');
     this.assertCanManageTarget(actor, user.role);
 
+    const previous = await this.prisma.userPlanPurchase.findFirst({
+      where: { userId, status: 'ACTIVE' },
+      include: { plan: { select: { title: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+
     const result = await this.prisma.userPlanPurchase.updateMany({
       where: { userId, status: 'ACTIVE' },
       data: { status: 'CANCELLED' },
     });
+
+    if (result.count > 0) {
+      await this.planLifecycle.notifyPlanChange({
+        userId,
+        kind: 'ADMIN_CANCEL',
+        planTitle: previous?.plan?.title ?? 'پلن',
+        previousPlanTitle: previous?.plan?.title ?? null,
+      });
+    }
+
     return { cancelled: result.count };
   }
 
