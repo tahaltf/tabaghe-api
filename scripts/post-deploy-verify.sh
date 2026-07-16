@@ -1,23 +1,28 @@
 #!/usr/bin/env bash
-# Post-deploy health check + SMS alert to admins on failure.
+# Post-deploy health check + SMS to admins (success OR failure).
 #
-# Called from deploy.sh. Does not depend on Nest being healthy for SMS
-# (calls sms.ir / Kavenegar directly from .env).
+# sms.ir verify format (same as OTP / admin login):
+#   POST /v1/send/verify
+#   { "mobile", "templateId", "parameters": [{ "name", "value" }, ...] }
 #
-# Env (optional):
-#   SKIP_HEALTH_CHECK=1          — skip entirely
-#   SMS_DEPLOY_ALERT_ENABLED=0   — health-check only, no SMS (default: 1)
-#   HEALTH_TIMEOUT_SEC=90        — wait for API (default 90)
-#   HEALTH_URL                   — override (default http://127.0.0.1:3000/api/v1/health)
-#   GATEWAY_URL                  — default http://127.0.0.1:80/
-#   CHECK_GATEWAY=1              — also probe gateway (default 1)
+# Template example in sms.ir panel:
+#   دیپلوی طبقه: #STATUS
+#   جزئیات: #DETAIL
 #
-# Reuses from .env / admin settings env file:
-#   SMS_ADMIN_LOGIN_ALERT_RECIPIENTS
-#   ACTIVE_SMS_PROVIDER / SMS_IR_API_KEY / KAVENEGAR_API_KEY
-#   SMS_ADMIN_LOGIN_ALERT_TEMPLATE_ID (sms.ir)
-#   SMS_ADMIN_LOGIN_ALERT_USER_PHONE_PARAMETER (default PHONE)
-#   SMS_ADMIN_LOGIN_ALERT_TEMPLATE_NAME (kavenegar lookup — optional; else plain send)
+# Env:
+#   SKIP_HEALTH_CHECK=1
+#   SMS_DEPLOY_ALERT_ENABLED=0|1          (default 1)
+#   HEALTH_TIMEOUT_SEC=90
+#   HEALTH_URL / GATEWAY_URL / CHECK_GATEWAY
+#
+# SMS (.env on server):
+#   ACTIVE_SMS_PROVIDER=smsir
+#   SMS_IR_API_KEY=...
+#   SMS_DEPLOY_ALERT_RECIPIENTS=09...,09...   (fallback: SMS_ADMIN_LOGIN_ALERT_RECIPIENTS)
+#   SMS_DEPLOY_ALERT_TEMPLATE_ID=123456       (sms.ir template id — required for smsir)
+#   SMS_DEPLOY_ALERT_STATUS_PARAMETER=STATUS  (default STATUS)
+#   SMS_DEPLOY_ALERT_DETAIL_PARAMETER=DETAIL  (default DETAIL; empty = only STATUS)
+#   SMS_DEPLOY_ALERT_TEMPLATE_NAME=...        (kavenegar lookup name; token=STATUS, token2=DETAIL)
 set -euo pipefail
 
 ROOT="${ROOT:-/app/tabagheh}"
@@ -37,7 +42,6 @@ if [[ "$SKIP_HEALTH_CHECK" == "1" ]]; then
   exit 0
 fi
 
-# Load .env keys we need (safe: no eval of arbitrary values into shell logic beyond assignment)
 load_env_var() {
   local key="$1"
   local line
@@ -85,6 +89,20 @@ parse_recipients() {
   printf '%s\n' "${out[@]+"${out[@]}"}"
 }
 
+json_escape() {
+  # Prefer python for correct UTF-8 / quotes
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import json,sys; print(json.dumps(sys.argv[1], ensure_ascii=False)[1:-1])' "$1"
+    return
+  fi
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/ }"
+  s="${s//$'\r'/}"
+  printf '%s' "$s"
+}
+
 http_ok() {
   local url="$1"
   local code
@@ -123,130 +141,172 @@ wait_for_health() {
   return 1
 }
 
+# sms.ir verify — parameters: STATUS (+ optional DETAIL)
+send_sms_smsir_verify() {
+  local api_key="$1"
+  local mobile="$2"
+  local template_id="$3"
+  local status_name="$4"
+  local status_value="$5"
+  local detail_name="$6"
+  local detail_value="$7"
+
+  if [[ -z "$template_id" || "$template_id" == "0" ]]; then
+    warn "sms.ir: SMS_DEPLOY_ALERT_TEMPLATE_ID خالی است"
+    return 1
+  fi
+
+  local status_esc detail_esc payload
+  status_esc="$(json_escape "$status_value")"
+  if [[ -n "$detail_name" ]]; then
+    detail_esc="$(json_escape "$detail_value")"
+    payload="$(printf '{"mobile":"%s","templateId":%s,"parameters":[{"name":"%s","value":"%s"},{"name":"%s","value":"%s"}]}' \
+      "$mobile" "$template_id" "$status_name" "$status_esc" "$detail_name" "$detail_esc")"
+  else
+    payload="$(printf '{"mobile":"%s","templateId":%s,"parameters":[{"name":"%s","value":"%s"}]}' \
+      "$mobile" "$template_id" "$status_name" "$status_esc")"
+  fi
+
+  local resp
+  resp="$(curl -sS --max-time 20 -X POST "https://api.sms.ir/v1/send/verify" \
+    -H "X-API-KEY: ${api_key}" \
+    -H "Content-Type: application/json" \
+    -H "Accept: application/json" \
+    -d "$payload" 2>&1)" || true
+  if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*1'; then
+    return 0
+  fi
+  warn "sms.ir response: $(echo "$resp" | tr '\n' ' ' | cut -c1-200)"
+  return 1
+}
+
 send_sms_kavenegar() {
   local api_key="$1"
   local mobile="$2"
-  local message="$3"
-  local template_name="$4"
+  local template_name="$3"
+  local status_value="$4"
+  local detail_value="$5"
+
   if [[ -n "$template_name" ]]; then
     curl -sS --max-time 20 -G \
       "https://api.kavenegar.com/v1/${api_key}/verify/lookup.json" \
       --data-urlencode "receptor=${mobile}" \
       --data-urlencode "template=${template_name}" \
-      --data-urlencode "token=${message}" >/dev/null 2>&1 \
+      --data-urlencode "token=${status_value}" \
+      --data-urlencode "token2=${detail_value}" >/dev/null 2>&1 \
       && return 0
   fi
+  local msg="دیپلوی طبقه: ${status_value} — ${detail_value}"
   curl -sS --max-time 20 -X POST \
     "https://api.kavenegar.com/v1/${api_key}/sms/send.json" \
     --data-urlencode "receptor=${mobile}" \
-    --data-urlencode "message=${message}" >/dev/null 2>&1
+    --data-urlencode "message=${msg}" >/dev/null 2>&1
 }
 
-send_sms_smsir() {
-  local api_key="$1"
-  local mobile="$2"
-  local message="$3"
-  local template_id="$4"
-  local param_name="$5"
-  if [[ -z "$template_id" || "$template_id" == "0" ]]; then
-    warn "sms.ir: no SMS_ADMIN_LOGIN_ALERT_TEMPLATE_ID — cannot send deploy alert"
-    return 1
-  fi
-  # Reuse verify template; put short error text in the configured parameter slot
-  local payload
-  payload="$(printf '{"mobile":"%s","templateId":%s,"parameters":[{"name":"%s","value":"%s"}]}' \
-    "$mobile" "$template_id" "$param_name" "$message")"
-  curl -sS --max-time 20 -X POST "https://api.sms.ir/v1/send/verify" \
-    -H "X-API-KEY: ${api_key}" \
-    -H "Content-Type: application/json" \
-    -H "Accept: text/plain" \
-    -d "$payload" >/dev/null 2>&1
-}
-
+# status_fa: موفق | ناموفق
+# detail: short ASCII/Persian detail for second template param
 notify_admins_sms() {
-  local reason="$1"
+  local status_fa="$1"
+  local detail="$2"
+
   if [[ "$SMS_DEPLOY_ALERT_ENABLED" == "0" || "$SMS_DEPLOY_ALERT_ENABLED" == "false" ]]; then
-    warn "SMS_DEPLOY_ALERT_ENABLED=0 — not sending SMS"
+    warn "SMS_DEPLOY_ALERT_ENABLED=0 — SMS ارسال نشد"
     return 0
   fi
 
-  local recipients_raw provider api_key template_id template_name param_name
-  recipients_raw="$(load_env_var SMS_ADMIN_LOGIN_ALERT_RECIPIENTS)"
+  local recipients_raw
+  recipients_raw="$(load_env_var SMS_DEPLOY_ALERT_RECIPIENTS)"
   if [[ -z "${recipients_raw// /}" ]]; then
-    warn "SMS_ADMIN_LOGIN_ALERT_RECIPIENTS empty — cannot SMS admins"
+    recipients_raw="$(load_env_var SMS_ADMIN_LOGIN_ALERT_RECIPIENTS)"
+  fi
+  if [[ -z "${recipients_raw// /}" ]]; then
+    warn "SMS_DEPLOY_ALERT_RECIPIENTS / SMS_ADMIN_LOGIN_ALERT_RECIPIENTS خالی است"
     return 0
   fi
 
+  local provider
   provider="$(load_env_var ACTIVE_SMS_PROVIDER)"
   provider="$(echo "${provider:-smsir}" | tr '[:upper:]' '[:lower:]')"
-  template_id="$(load_env_var SMS_ADMIN_LOGIN_ALERT_TEMPLATE_ID)"
-  template_id="${template_id:-176584}"
-  template_name="$(load_env_var SMS_ADMIN_LOGIN_ALERT_TEMPLATE_NAME)"
-  param_name="$(load_env_var SMS_ADMIN_LOGIN_ALERT_USER_PHONE_PARAMETER)"
-  param_name="${param_name:-PHONE}"
 
-  # Keep SMS param short (templates often truncate)
-  local short
-  short="$(echo "$reason" | tr '\n' ' ' | cut -c1-80)"
+  local template_id template_name status_param detail_param
+  template_id="$(load_env_var SMS_DEPLOY_ALERT_TEMPLATE_ID)"
+  if [[ -z "$template_id" ]]; then
+    template_id="$(load_env_var SMS_ADMIN_LOGIN_ALERT_TEMPLATE_ID)"
+  fi
+  template_name="$(load_env_var SMS_DEPLOY_ALERT_TEMPLATE_NAME)"
+  if [[ -z "$template_name" ]]; then
+    template_name="$(load_env_var SMS_ADMIN_LOGIN_ALERT_TEMPLATE_NAME)"
+  fi
+  status_param="$(load_env_var SMS_DEPLOY_ALERT_STATUS_PARAMETER)"
+  status_param="${status_param:-STATUS}"
+  detail_param="$(load_env_var SMS_DEPLOY_ALERT_DETAIL_PARAMETER)"
+  detail_param="${detail_param:-DETAIL}"
+
+  # sms.ir often limits param length
+  detail="$(echo "$detail" | tr '\n' ' ' | cut -c1-70)"
   local stamp
   stamp="$(date '+%m/%d %H:%M')"
-  local msg="DeployFail ${stamp}: ${short}"
+  if [[ -z "$detail" ]]; then
+    detail="$stamp"
+  else
+    detail="${stamp} ${detail}"
+  fi
 
   local -a mobiles=()
   mapfile -t mobiles < <(parse_recipients "$recipients_raw")
   if [[ ${#mobiles[@]} -eq 0 ]]; then
-    warn "no valid admin mobiles parsed"
+    warn "شماره ادمین معتبر پیدا نشد"
     return 0
   fi
 
-  log "sending deploy-failure SMS to ${#mobiles[@]} admin(s) via ${provider}..."
-  local ok=0
-  local m
+  log "ارسال SMS دیپلوی (وضعیت=${status_fa}) به ${#mobiles[@]} ادمین via ${provider}..."
+  local ok=0 m api_key
   for m in "${mobiles[@]}"; do
     if [[ "$provider" == "kavenegar" ]]; then
       api_key="$(load_env_var KAVENEGAR_API_KEY)"
       [[ -n "$api_key" ]] || { warn "KAVENEGAR_API_KEY missing"; return 0; }
-      if send_sms_kavenegar "$api_key" "$m" "$msg" "$template_name"; then
+      if send_sms_kavenegar "$api_key" "$m" "$template_name" "$status_fa" "$detail"; then
         ok=$((ok + 1))
       else
-        warn "Kavenegar send failed for $m"
+        warn "Kavenegar failed for $m"
       fi
     else
       api_key="$(load_env_var SMS_IR_API_KEY)"
       [[ -n "$api_key" ]] || { warn "SMS_IR_API_KEY missing"; return 0; }
-      if send_sms_smsir "$api_key" "$m" "$msg" "$template_id" "$param_name"; then
+      if send_sms_smsir_verify "$api_key" "$m" "$template_id" \
+        "$status_param" "$status_fa" "$detail_param" "$detail"; then
         ok=$((ok + 1))
       else
-        warn "sms.ir send failed for $m"
+        warn "sms.ir failed for $m"
       fi
     fi
   done
-  log "SMS attempted: ${ok}/${#mobiles[@]}"
+  log "SMS: ${ok}/${#mobiles[@]} ارسال شد"
 }
 
 # --- run checks ---
 failures=()
 
 if ! wait_for_health "$HEALTH_URL" "API health"; then
-  failures+=("API health ($HEALTH_URL)")
+  failures+=("API")
 fi
 
 if [[ "$CHECK_GATEWAY" == "1" ]]; then
   if curl -sS -o /dev/null -w '%{http_code}' --max-time 8 "$GATEWAY_URL" 2>/dev/null | grep -qE '^2|^3'; then
     log "gateway OK ($GATEWAY_URL)"
   else
-    # soft warn only if frontend wasn't the only deploy — still count as failure when API is up but site 502
-    failures+=("gateway ($GATEWAY_URL)")
+    failures+=("Gateway")
     log "gateway FAILED ($GATEWAY_URL)"
   fi
 fi
 
 if [[ ${#failures[@]} -eq 0 ]]; then
   log "all checks passed"
+  notify_admins_sms "موفق" "API+Gateway OK"
   exit 0
 fi
 
-reason="$(IFS='; '; echo "${failures[*]}")"
+reason="$(IFS=+; echo "${failures[*]}")"
 log "ERROR: post-deploy checks failed: $reason"
-notify_admins_sms "$reason"
+notify_admins_sms "ناموفق" "$reason"
 exit 1
