@@ -12,13 +12,13 @@ import { RegistrationPlanService } from './services/registration-plan.service';
 import { NotificationModule } from '../notification/notification.module';
 import { SmsModule } from '../sms/sms.module';
 import { SmsTemplateBootstrapService } from '../sms/sms-template-bootstrap.service';
-import { PlansModule } from '../plans/plans.module';
+import { PlanLifecycleModule } from '../plans/plan-lifecycle.module';
 
 @Module({
   imports: [
     NotificationModule,
     SmsModule,
-    PlansModule,
+    PlanLifecycleModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
