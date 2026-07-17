@@ -453,7 +453,10 @@ export class AdminDisputesService {
       return resolved;
     });
 
-    if (dto.outcome === DisputeOutcome.RELEASE_SELLER) {
+    if (
+      dto.outcome === DisputeOutcome.RELEASE_SELLER ||
+      dto.outcome === DisputeOutcome.PARTIAL_REFUND
+    ) {
       await this.referralReward
         .creditForCompletedOrder(id)
         .catch(() => undefined);
