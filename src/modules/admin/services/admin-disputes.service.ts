@@ -26,6 +26,7 @@ import { OrderReputationService } from '../../orders/order-reputation.service';
 import { enrichOrderUpdateForCompletion } from '../../orders/order-lifecycle.util';
 import { ListingCommandService } from '../../listing/services/listing-command.service';
 import { WalletService } from '../../wallet/wallet.service';
+import { ReferralRewardService } from '../../referral/referral-reward.service';
 
 const DISPUTE_INCLUDE = {
   listing: {
@@ -74,6 +75,7 @@ export class AdminDisputesService {
     private readonly orderReputation: OrderReputationService,
     private readonly listingCommand: ListingCommandService,
     private readonly walletService: WalletService,
+    private readonly referralReward: ReferralRewardService,
   ) {}
 
   async list(
@@ -168,7 +170,7 @@ export class AdminDisputesService {
    *  - CANCEL: بدون انتقال مالی خاص، فقط CANCELLED
    */
   async resolve(id: string, adminId: string, dto: ResolveDisputeDto) {
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const order = await tx.order.findUnique({ where: { id } });
       if (!order) throw new NotFoundException('سفارش یافت نشد');
       if (order.disputeResolvedAt) {
@@ -450,5 +452,13 @@ export class AdminDisputesService {
 
       return resolved;
     });
+
+    if (dto.outcome === DisputeOutcome.RELEASE_SELLER) {
+      await this.referralReward
+        .creditForCompletedOrder(id)
+        .catch(() => undefined);
+    }
+
+    return result;
   }
 }

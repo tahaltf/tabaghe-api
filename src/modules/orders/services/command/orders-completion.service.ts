@@ -74,6 +74,7 @@ import {
 import { BUYER_CONFIRM_ELIGIBLE_STATUSES } from '../query/orders-response-enrichment.service';
 
 import { OrdersSchedulerService } from '../scheduler/orders-scheduler.service';
+import { ReferralRewardService } from '../../../referral/referral-reward.service';
 
 @Injectable()
 export class OrdersCompletionService {
@@ -89,6 +90,7 @@ export class OrdersCompletionService {
     private readonly listingCommand: ListingCommandService,
     private readonly settings: OrdersSettingsService,
     private readonly responseEnrichment: OrdersResponseEnrichmentService,
+    private readonly referralReward: ReferralRewardService,
   ) {}
 
   async submitReturnTrackingCode(
@@ -764,6 +766,9 @@ export class OrdersCompletionService {
           listingId: order.listingId,
           orderType: order.type,
         })
+        .catch(() => undefined);
+      await this.referralReward
+        .creditForCompletedOrder(order.id)
         .catch(() => undefined);
     } else if (order.type === OrderType.EXCHANGE && before) {
       const beforeInspection =

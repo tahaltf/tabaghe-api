@@ -42,6 +42,11 @@ export class UsersController {
     return this.usersService.getMe(user.id);
   }
 
+  @Get('referral')
+  getReferral(@CurrentUser() user: AuthenticatedUser) {
+    return this.usersService.getReferralInfo(user.id);
+  }
+
   @Get('dashboard-stats')
   @Header('Cache-Control', 'no-store, no-cache, must-revalidate')
   @Header('Pragma', 'no-cache')

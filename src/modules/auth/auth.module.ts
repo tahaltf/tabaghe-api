@@ -13,12 +13,14 @@ import { NotificationModule } from '../notification/notification.module';
 import { SmsModule } from '../sms/sms.module';
 import { SmsTemplateBootstrapService } from '../sms/sms-template-bootstrap.service';
 import { PlanLifecycleModule } from '../plans/plan-lifecycle.module';
+import { ReferralModule } from '../referral/referral.module';
 
 @Module({
   imports: [
     NotificationModule,
     SmsModule,
     PlanLifecycleModule,
+    ReferralModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

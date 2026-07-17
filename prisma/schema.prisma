@@ -115,6 +115,7 @@ enum WalletTransactionType {
   WITHDRAW_REQUEST
   WITHDRAW_PAID
   REFUND           // برگشت وجه به خریدار در صورت لغو یا حل اختلاف
+  REFERRAL_REWARD  // پاداش معرف از کارمزد فروش دعوت‌شده
 }
 
 enum WalletTransactionStatus {
@@ -332,8 +333,19 @@ model User {
   loginLogs           UserLoginLog[]
   paymentInitLogs     PaymentInitLog[]
 
+  /** کد دعوت یکتای کاربر برای معرفی دوستان */
+  inviteCode          String?        @unique
+  /** معرف مستقیم — فقط یک‌بار قابل تنظیم */
+  referredById        String?
+  referredBy          User?          @relation("UserReferrals", fields: [referredById], references: [id], onDelete: SetNull)
+  referrals           User[]         @relation("UserReferrals")
+  referralRewardsAsReferrer ReferralReward[] @relation("ReferralRewardReferrer")
+  referralRewardsAsSeller   ReferralReward[] @relation("ReferralRewardSeller")
+
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
+
+  @@index([referredById])
 }
 
 enum UserLoginMethod {
@@ -1048,11 +1060,30 @@ paymentMethod    PaymentMethod @default(GATEWAY)
   checkoutSessionId    String?
   checkoutSession      CheckoutSession? @relation(fields: [checkoutSessionId], references: [id], onDelete: SetNull)
   couponRedemptions    CouponRedemption[]
+  referralReward       ReferralReward?
 
   @@index([buyerId, status])
   @@index([sellerId, status])
   @@index([status, disputedAt])
   @@index([listingId, createdAt])
+}
+
+/** پاداش یک‌باره معرف به‌ازای هر سفارش تکمیل‌شده فروشنده دعوت‌شده */
+model ReferralReward {
+  id           String   @id @default(cuid())
+  orderId      String   @unique
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  referrerId   String
+  referrer     User     @relation("ReferralRewardReferrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  sellerId     String
+  seller       User     @relation("ReferralRewardSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  platformFee  Decimal
+  percent      Float
+  amount       Decimal
+  createdAt    DateTime @default(now())
+
+  @@index([referrerId, createdAt])
+  @@index([sellerId])
 }
 
 enum DisputeOutcome {

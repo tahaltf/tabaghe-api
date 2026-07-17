@@ -19,6 +19,8 @@ import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { appendJsonLog } from '../../common/logging/app-log.util';
 import { NotificationService } from '../notification/notification.service';
 import { SETTING_KEYS } from '../admin/services/admin-settings.service';
+import { ReferralService } from '../referral/referral.service';
+import type { UserReferralInfo } from '../referral/referral.service';
 
 const MY_PROFILE_SELECT = {
   id: true,
@@ -43,6 +45,8 @@ const MY_PROFILE_SELECT = {
   kycRejectionReason: true,
   kycReviewedAt: true,
   birthDate: true,
+  inviteCode: true,
+  referredById: true,
 } satisfies Prisma.UserSelect;
 
 export type MyProfile = Prisma.UserGetPayload<{
@@ -105,6 +109,7 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationService,
+    private readonly referralService: ReferralService,
   ) {}
 
   async getMe(userId: string): Promise<MyProfile> {
@@ -114,6 +119,10 @@ export class UsersService {
     });
     if (!user) throw new NotFoundException('کاربر یافت نشد');
     return user;
+  }
+
+  async getReferralInfo(userId: string): Promise<UserReferralInfo> {
+    return this.referralService.getReferralInfo(userId);
   }
 
   async getTelegramLinkStatus(userId: string): Promise<TelegramLinkStatus> {
@@ -488,7 +497,7 @@ export class UsersService {
   ): Promise<MyProfile> {
     const currentUser = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { nationalCardImage: true },
+      select: { nationalCardImage: true, referredById: true },
     });
     if (!currentUser) throw new NotFoundException('کاربر یافت نشد');
 
@@ -514,23 +523,33 @@ export class UsersService {
     }
 
     try {
-      const updated = await this.prisma.user.update({
-        where: { id: userId },
-        data: {
-          firstName: dto.firstName,
-          lastName: dto.lastName,
-          displayName: this.normalizeDisplayName(dto.displayName),
-          nationalCode: dto.nationalCode,
-          shabaNumber,
-          ...(dto.birthDate
-            ? { birthDate: new Date(dto.birthDate) }
-            : {}),
-          ...(nationalCardImageFilename
-            ? { nationalCardImage: nationalCardImageFilename }
-            : {}),
-          status: UserStatus.PENDING,
-        },
-        select: MY_PROFILE_SELECT,
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const referredById = await this.referralService.resolveReferrerId(
+          tx,
+          userId,
+          dto.referralCode,
+          currentUser.referredById,
+        );
+
+        return tx.user.update({
+          where: { id: userId },
+          data: {
+            firstName: dto.firstName,
+            lastName: dto.lastName,
+            displayName: this.normalizeDisplayName(dto.displayName),
+            nationalCode: dto.nationalCode,
+            shabaNumber,
+            ...(dto.birthDate
+              ? { birthDate: new Date(dto.birthDate) }
+              : {}),
+            ...(nationalCardImageFilename
+              ? { nationalCardImage: nationalCardImageFilename }
+              : {}),
+            ...(referredById ? { referredById } : {}),
+            status: UserStatus.PENDING,
+          },
+          select: MY_PROFILE_SELECT,
+        });
       });
       void this.notifications
         .notifyAdminPersonnel({
@@ -542,6 +561,7 @@ export class UsersService {
         .catch(() => undefined);
       return updated;
     } catch (err) {
+      if (err instanceof BadRequestException) throw err;
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
         err.code === 'P2002'

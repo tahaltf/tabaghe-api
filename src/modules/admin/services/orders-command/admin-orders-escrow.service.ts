@@ -28,6 +28,7 @@ import {
 import { buildExchangeFinancialSettlementTicketNotifyMessage } from '../../../../common/order/exchange-financial-settlement-messaging.util';
 import { AdminOrdersNotifyService } from './admin-orders-notify.service';
 import { OperationalNotifyService } from '../../../notification/operational-notify.service';
+import { ReferralRewardService } from '../../../referral/referral-reward.service';
 
 @Injectable()
 export class AdminOrdersEscrowService {
@@ -39,6 +40,7 @@ export class AdminOrdersEscrowService {
     private readonly listingCommand: ListingCommandService,
     private readonly notify: AdminOrdersNotifyService,
     private readonly operationalNotify: OperationalNotifyService,
+    private readonly referralReward: ReferralRewardService,
   ) {}
 
   async resolveEscrow(id: string, dto: ResolveOrderEscrowDto) {
@@ -849,6 +851,9 @@ export class AdminOrdersEscrowService {
           sellerId: order.sellerId,
           listingId: order.listingId,
           orderType: order.type,
+        });
+        postTxNotifies.push(async () => {
+          await this.referralReward.creditForCompletedOrder(order.id);
         });
         return updated;
       }

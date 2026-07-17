@@ -150,6 +150,10 @@ export const SETTING_KEYS = {
   DEFAULT_REGISTRATION_PLAN_ID: 'DEFAULT_REGISTRATION_PLAN_ID',
   /** شناسه پلن هدیه پس از تایید احراز هویت (خالی = بدون تغییر پلن) */
   KYC_APPROVAL_PLAN_ID: 'KYC_APPROVAL_PLAN_ID',
+  /** درصد پاداش معرف از کارمزد فروش دعوت‌شده (۰–۱۰۰) */
+  REFERRAL_COMMISSION_PERCENT: 'REFERRAL_COMMISSION_PERCENT',
+  /** متن پیش‌فرض اشتراک‌گذاری دعوت؛ {inviteCode} و {inviteLink} */
+  REFERRAL_SHARE_MESSAGE: 'REFERRAL_SHARE_MESSAGE',
   /** پیشوند URL صفحات لندینگ (مثلاً p → /p/my-page). seller همیشه /seller */
   LANDING_PAGES_URL_PREFIX: 'LANDING_PAGES_URL_PREFIX',
   /** پیشوند URL لینک‌های ردیابی کمپین (مثلاً ref → /ref/my-slug) */
@@ -234,6 +238,10 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
     'شناسه پلن فعال‌شونده برای کاربران تازه‌ثبت‌نام (خالی = فقط سهمیه رایگان)',
   KYC_APPROVAL_PLAN_ID:
     'شناسه پلن هدیه پس از تایید احراز هویت (خالی = بدون تغییر پلن؛ در صورت تنظیم، پلن فعال قبلی لغو و این پلن فعال می‌شود)',
+  REFERRAL_COMMISSION_PERCENT:
+    'درصد پاداش معرف از کارمزد فروش کاربر دعوت‌شده (۰ تا ۱۰۰؛ فقط سطح اول)',
+  REFERRAL_SHARE_MESSAGE:
+    'متن پیش‌فرض دعوت دوستان؛ از {inviteCode} و {inviteLink} استفاده کنید',
   LANDING_PAGES_URL_PREFIX:
     'پیشوند URL صفحات لندینگ (فقط حروف کوچک انگلیسی و خط تیره؛ مثلاً p → /p/slug)',
   CAMPAIGN_LINK_URL_PREFIX:

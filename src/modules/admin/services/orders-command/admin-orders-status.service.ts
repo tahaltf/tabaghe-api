@@ -28,6 +28,7 @@ import {
 } from '../../../../common/ticket-message.util';
 import { AdminOrdersNotifyService } from './admin-orders-notify.service';
 import { OperationalNotifyService } from '../../../notification/operational-notify.service';
+import { ReferralRewardService } from '../../../referral/referral-reward.service';
 
 @Injectable()
 export class AdminOrdersStatusService {
@@ -41,6 +42,7 @@ export class AdminOrdersStatusService {
     private readonly stateMachine: OrdersStateMachineService,
     private readonly notify: AdminOrdersNotifyService,
     private readonly operationalNotify: OperationalNotifyService,
+    private readonly referralReward: ReferralRewardService,
   ) {}
 
   repairBuyerRefundForCancelledOrder(orderId: string) {
@@ -470,6 +472,9 @@ export class AdminOrdersStatusService {
         listingId: existing.listingId,
         orderType: existing.type,
       });
+      await this.referralReward
+        .creditForCompletedOrder(id)
+        .catch(() => undefined);
     } else {
       await this.notify.notifyParties(
         existing.buyerId,

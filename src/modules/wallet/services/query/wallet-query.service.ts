@@ -131,7 +131,8 @@ export class WalletQueryService {
     return (
       (t.type === WalletTransactionType.DEPOSIT ||
         t.type === WalletTransactionType.UNBLOCK ||
-        t.type === WalletTransactionType.REFUND) &&
+        t.type === WalletTransactionType.REFUND ||
+        t.type === WalletTransactionType.REFERRAL_REWARD) &&
       t.status !== WalletTransactionStatus.FAILED
     );
   }
@@ -158,6 +159,7 @@ export class WalletQueryService {
               WalletTransactionType.DEPOSIT,
               WalletTransactionType.UNBLOCK,
               WalletTransactionType.REFUND,
+              WalletTransactionType.REFERRAL_REWARD,
             ],
           },
           status: { not: WalletTransactionStatus.FAILED },

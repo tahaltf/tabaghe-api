@@ -38,4 +38,10 @@ export class CompleteProfileDto {
   @IsOptional()
   @IsDateString()
   birthDate?: string | null;
+
+  /** کد معرف (اختیاری) — فقط یک‌بار قابل ثبت */
+  @IsOptional()
+  @IsString()
+  @MaxLength(32, { message: 'کد معرف نامعتبر است' })
+  referralCode?: string;
 }

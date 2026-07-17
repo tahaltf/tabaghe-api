@@ -9,6 +9,7 @@ import { ListingModule } from '../listing/listing.module';
 import { OrderReputationModule } from './order-reputation.module';
 import { CouponsModule } from '../coupons/coupons.module';
 import { CartModule } from '../cart/cart.module';
+import { ReferralModule } from '../referral/referral.module';
 
 import { OrdersController } from './orders.controller';
 import { OrdersAdminService } from './orders-admin.service';
@@ -38,6 +39,7 @@ import { OrdersSchedulerService } from './services/scheduler/orders-scheduler.se
     OrderReputationModule,
     CouponsModule,
     forwardRef(() => CartModule),
+    ReferralModule,
   ],
   controllers: [OrdersController],
   providers: [

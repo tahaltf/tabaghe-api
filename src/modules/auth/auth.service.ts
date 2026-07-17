@@ -22,6 +22,7 @@ import { NotificationService } from '../notification/notification.service';
 import { RegistrationPlanService } from './services/registration-plan.service';
 import { resolveAdminBootstrapPassword } from '../../config/bootstrap-password.util';
 import type { ClientRequestMeta } from '../../common/http/client-ip.util';
+import { ReferralService } from '../referral/referral.service';
 
 export interface AdminPasswordLoginChallengeResponse {
   challengeToken: string;
@@ -41,6 +42,7 @@ export class AuthService {
     private readonly smsService: SmsService,
     private readonly notifications: NotificationService,
     private readonly registrationPlan: RegistrationPlanService,
+    private readonly referralService: ReferralService,
   ) {}
 
   async requestOtp(phone: string): Promise<OtpIssueResult> {
@@ -207,10 +209,21 @@ export class AuthService {
   private async findOrCreateUser(phone: string): Promise<User> {
     return this.prisma.$transaction(async (tx) => {
       const existing = await tx.user.findUnique({ where: { phone } });
-      if (existing) return existing;
+      if (existing) {
+        if (!existing.inviteCode) {
+          const inviteCode =
+            await this.referralService.createUniqueInviteCode(tx);
+          return tx.user.update({
+            where: { id: existing.id },
+            data: { inviteCode },
+          });
+        }
+        return existing;
+      }
 
+      const inviteCode = await this.referralService.createUniqueInviteCode(tx);
       const created = await tx.user.create({
-        data: { phone, status: UserStatus.INCOMPLETE },
+        data: { phone, status: UserStatus.INCOMPLETE, inviteCode },
       });
       await tx.wallet.create({ data: { userId: created.id } });
       return created;

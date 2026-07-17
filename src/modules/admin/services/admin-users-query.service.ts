@@ -26,6 +26,7 @@ import { AuthenticatedUser } from '../../../shared/contracts/auth';
 import { getListingStatusLabelFa } from '../../../common/listing/listing-status-labels.util';
 import { getOrderStatusLabelFa } from '../../../common/order/order-status-labels.util';
 import { PlanLifecycleService } from '../../plans/plan-lifecycle.service';
+import { generateInviteCode } from '../../../common/referral/invite-code.util';
 
 const LISTING_TYPE_LABELS_FA: Record<string, string> = {
   DIRECT: 'فروش مستقیم',
@@ -88,6 +89,23 @@ const USER_LIST_SELECT = {
   createdAt: true,
   lastLoginAt: true,
   avatar: true,
+  inviteCode: true,
+  referredById: true,
+  referredBy: {
+    select: {
+      id: true,
+      phone: true,
+      firstName: true,
+      lastName: true,
+      displayName: true,
+      inviteCode: true,
+    },
+  },
+  _count: {
+    select: {
+      referrals: true,
+    },
+  },
 } satisfies Prisma.UserSelect;
 
 const USER_DETAIL_INCLUDE = {
@@ -98,6 +116,29 @@ const USER_DETAIL_INCLUDE = {
       balanceCredit: true,
     },
   },
+  referredBy: {
+    select: {
+      id: true,
+      phone: true,
+      firstName: true,
+      lastName: true,
+      displayName: true,
+      inviteCode: true,
+    },
+  },
+  referrals: {
+    select: {
+      id: true,
+      phone: true,
+      firstName: true,
+      lastName: true,
+      displayName: true,
+      createdAt: true,
+      status: true,
+    },
+    orderBy: { createdAt: 'desc' as const },
+    take: 100,
+  },
   _count: {
     select: {
       listings: true,
@@ -105,6 +146,7 @@ const USER_DETAIL_INCLUDE = {
       sellerOrders: true,
       bids: true,
       exchangeOffers: true,
+      referrals: true,
     },
   },
 } satisfies Prisma.UserInclude;
@@ -736,6 +778,21 @@ export class AdminUsersQueryService {
     const rawPassword = resolveNewAdminPassword(input.password);
     const passwordHash = await bcrypt.hash(rawPassword, 10);
     const created = await this.prisma.$transaction(async (tx) => {
+      let inviteCode = '';
+      for (let attempt = 0; attempt < 12; attempt++) {
+        const candidate = generateInviteCode();
+        const exists = await tx.user.findUnique({
+          where: { inviteCode: candidate },
+          select: { id: true },
+        });
+        if (!exists) {
+          inviteCode = candidate;
+          break;
+        }
+      }
+      if (!inviteCode) {
+        throw new BadRequestException('ساخت کد دعوت ناموفق بود.');
+      }
       const user = await tx.user.create({
         data: {
           phone,
@@ -745,6 +802,7 @@ export class AdminUsersQueryService {
           isActive: input.isActive ?? true,
           status: UserStatus.INCOMPLETE,
           passwordHash,
+          inviteCode,
         },
         select: { id: true, phone: true, role: true, isActive: true },
       });
