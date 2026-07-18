@@ -191,11 +191,19 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.set('trust proxy', true);
 
-  const redisUrl = validateRedisEnv({ requireInProduction: false });
-  if (redisUrl) {
-    const redisIo = new RedisIoAdapter(app);
-    redisIo.connectToRedis(redisUrl);
-    app.useWebSocketAdapter(redisIo);
+  try {
+    const redisUrl = validateRedisEnv();
+    if (redisUrl) {
+      const redisIo = new RedisIoAdapter(app);
+      redisIo.connectToRedis(redisUrl);
+      app.useWebSocketAdapter(redisIo);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[bootstrap] Socket.io Redis adapter skipped: ${message}`,
+    );
   }
 
   if (process.env.NODE_ENV === 'production') {

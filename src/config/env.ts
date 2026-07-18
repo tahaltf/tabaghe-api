@@ -15,7 +15,6 @@ const REQUIRED_PRODUCTION_ENV = [
   'ZIBAL_VERIFY_URL',
   'ZIBAL_START_PAY_URL',
   'ZIBAL_CALLBACK_URL',
-  'REDIS_URL',
 ] as const;
 
 const PLACEHOLDER_VALUES = new Set([
@@ -85,25 +84,21 @@ export function validateProductionEnv() {
     }
   }
 
-  validateRedisEnv({ requireInProduction: true });
+  // Redis is strongly recommended for multi-replica (cache/throttle/sockets)
+  // but must not block boot — missing REDIS_URL falls back to in-process.
+  const redisUrl = validateRedisEnv();
+  if (!redisUrl && process.env.NODE_ENV === 'production') {
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[env] REDIS_URL is not set — using in-process cache/throttle (set redis://tabagheh-redis:6379 for multi-replica)',
+    );
+  }
 }
 
 /**
- * Validate REDIS_URL when set. In production, REDIS_URL is required
- * (shared throttler, Socket.io adapter, and TTL cache across replicas).
+ * Validate REDIS_URL when set. Returns null if unset.
+ * Invalid format throws so misconfiguration is visible in logs.
  */
-export function validateRedisEnv(options?: {
-  requireInProduction?: boolean;
-}): string | null {
-  const requireInProduction = options?.requireInProduction ?? false;
-  const isProduction = process.env.NODE_ENV === 'production';
-  const raw = process.env.REDIS_URL;
-
-  if ((!raw || !raw.trim()) && requireInProduction && isProduction) {
-    throw new Error(
-      'REDIS_URL is required in production for shared cache, throttler, and websockets',
-    );
-  }
-
-  return parseRedisUrl(raw);
+export function validateRedisEnv(): string | null {
+  return parseRedisUrl(process.env.REDIS_URL);
 }

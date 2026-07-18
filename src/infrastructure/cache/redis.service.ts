@@ -25,8 +25,11 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       url = parseRedisUrl(process.env.REDIS_URL);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      this.logger.error(`Invalid REDIS_URL: ${message}`);
-      throw err;
+      // Never crash the Nest process over a bad Redis URL — fall back to in-process.
+      this.logger.error(
+        `Invalid REDIS_URL (${message}) — continuing without Redis`,
+      );
+      return;
     }
 
     if (!url) {
