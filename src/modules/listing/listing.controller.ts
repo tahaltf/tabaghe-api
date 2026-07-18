@@ -12,6 +12,7 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { IsNumber, IsOptional, IsString, Min } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -59,12 +60,14 @@ export class ListingController {
   ) {}
 
   @Get()
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @CacheControl('public, max-age=30, stale-while-revalidate=60')
   findAll(@Query() query: ListListingsDto) {
     return this.queryService.findAll(query);
   }
 
   @Get('suggest')
+  @Throttle({ default: { limit: 40, ttl: 60_000 } })
   @CacheControl('public, max-age=30, stale-while-revalidate=60')
   suggest(
     @Query('q') q?: string,
@@ -80,6 +83,7 @@ export class ListingController {
   }
 
   @Get('home-feed')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @CacheControl('public, max-age=30, stale-while-revalidate=60')
   getHomeFeed(@Query('limit') limit?: string) {
     const parsed = limit ? Number(limit) : 10;

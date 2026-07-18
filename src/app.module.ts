@@ -22,7 +22,7 @@ function loadEnvFilePaths(): string[] {
 
 // Infrastructure
 import { PrismaModule } from './infrastructure/prisma/prisma.module';
-import { AppCacheModule } from './infrastructure/cache/cache.module';
+import { RedisModule } from './infrastructure/cache/redis.module';
 import { RedisService } from './infrastructure/cache/redis.service';
 
 // Common / Shared
@@ -79,9 +79,9 @@ import { AppService } from './app.service';
     }),
     ScheduleModule.forRoot(),
     EventEmitterModule.forRoot(),
-    AppCacheModule,
+    RedisModule,
     ThrottlerModule.forRootAsync({
-      imports: [AppCacheModule],
+      imports: [RedisModule],
       inject: [RedisService],
       useFactory: (redis: RedisService) => {
         const client = redis.getClient();

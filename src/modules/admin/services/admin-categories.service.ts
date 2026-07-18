@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { CategoryTreeCacheService } from '../../../common/category/category-tree-cache.service';
+import { TtlCacheService } from '../../../infrastructure/cache/ttl-cache.service';
 import {
   CreateCategoryDto,
   SetCategoryActiveDto,
@@ -47,6 +49,8 @@ export class AdminCategoriesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly listingDelete: AdminListingDeleteService,
+    private readonly categoryTree: CategoryTreeCacheService,
+    private readonly cache: TtlCacheService,
   ) {}
 
   async list(search?: string): Promise<AdminCategoryItem[]> {
@@ -83,7 +87,7 @@ export class AdminCategoriesService {
     const feeAuction = dto.feePercentageAuction ?? dto.feePercentage ?? 5;
     const capDirect = dto.feeCapDirect ?? dto.feeCap ?? 10_000_000;
     const capAuction = dto.feeCapAuction ?? dto.feeCap ?? 500000;
-    return this.prisma.category.create({
+    const created = await this.prisma.category.create({
       data: {
         title: dto.title,
         slug: dto.slug,
@@ -100,6 +104,8 @@ export class AdminCategoriesService {
       },
       select: CATEGORY_SELECT,
     });
+    await this.invalidateCategoryCaches();
+    return created;
   }
 
   async setActive(id: string, dto: SetCategoryActiveDto): Promise<{ id: string; isActive: boolean; affected: number }> {
@@ -122,6 +128,7 @@ export class AdminCategoriesService {
         where: { id },
         data: { isActive: true },
       });
+      await this.invalidateCategoryCaches();
       return { id, isActive: true, affected: 1 };
     }
 
@@ -130,6 +137,7 @@ export class AdminCategoriesService {
       where: { id: { in: subtreeIds } },
       data: { isActive: false },
     });
+    await this.invalidateCategoryCaches();
     return { id, isActive: false, affected: result.count };
   }
 
@@ -145,7 +153,7 @@ export class AdminCategoriesService {
       }
       await this.ensureParentExists(dto.parentId);
     }
-    return this.prisma.category.update({
+    const updated = await this.prisma.category.update({
       where: { id },
       data: {
         title: dto.title ?? undefined,
@@ -163,6 +171,8 @@ export class AdminCategoriesService {
       },
       select: CATEGORY_SELECT,
     });
+    await this.invalidateCategoryCaches();
+    return updated;
   }
 
   async forceRemove(id: string): Promise<CategoryForceDeleteResult> {
@@ -179,7 +189,7 @@ export class AdminCategoriesService {
     const totals: Record<string, number> = {};
     let listingsDeleted = 0;
 
-    return this.prisma.$transaction(
+    const result = await this.prisma.$transaction(
       async (tx) => {
         for (const categoryId of orderedCategoryIds) {
           const listingRows = await tx.listing.findMany({
@@ -214,6 +224,8 @@ export class AdminCategoriesService {
       },
       { timeout: 120_000 },
     );
+    await this.invalidateCategoryCaches();
+    return result;
   }
 
   async remove(id: string): Promise<{ id: string }> {
@@ -229,7 +241,16 @@ export class AdminCategoriesService {
       throw new ConflictException('ابتدا زیردسته‌ها را حذف کنید');
     }
     await this.prisma.category.delete({ where: { id } });
+    await this.invalidateCategoryCaches();
     return { id };
+  }
+
+  private async invalidateCategoryCaches(): Promise<void> {
+    await Promise.all([
+      this.categoryTree.invalidate(),
+      this.cache.delete('common:categories'),
+      this.cache.deleteByPrefix('listings:home-feed'),
+    ]);
   }
 
   /** خود ریشه و تمام زیردسته‌ها (والد قبل از فرزند) */

@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { validateProductionEnv } from './config/env';
+import { validateProductionEnv, validateRedisEnv } from './config/env';
 import {
   BadRequestException,
   RequestMethod,
@@ -191,7 +191,7 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.set('trust proxy', true);
 
-  const redisUrl = process.env.REDIS_URL?.trim();
+  const redisUrl = validateRedisEnv({ requireInProduction: false });
   if (redisUrl) {
     const redisIo = new RedisIoAdapter(app);
     redisIo.connectToRedis(redisUrl);

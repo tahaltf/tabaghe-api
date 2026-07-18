@@ -1,3 +1,5 @@
+import { parseRedisUrl } from '../infrastructure/cache/redis-options.util';
+
 const REQUIRED_PRODUCTION_ENV = [
   'DATABASE_URL',
   'JWT_SECRET',
@@ -13,6 +15,7 @@ const REQUIRED_PRODUCTION_ENV = [
   'ZIBAL_VERIFY_URL',
   'ZIBAL_START_PAY_URL',
   'ZIBAL_CALLBACK_URL',
+  'REDIS_URL',
 ] as const;
 
 const PLACEHOLDER_VALUES = new Set([
@@ -81,4 +84,26 @@ export function validateProductionEnv() {
       );
     }
   }
+
+  validateRedisEnv({ requireInProduction: true });
+}
+
+/**
+ * Validate REDIS_URL when set. In production, REDIS_URL is required
+ * (shared throttler, Socket.io adapter, and TTL cache across replicas).
+ */
+export function validateRedisEnv(options?: {
+  requireInProduction?: boolean;
+}): string | null {
+  const requireInProduction = options?.requireInProduction ?? false;
+  const isProduction = process.env.NODE_ENV === 'production';
+  const raw = process.env.REDIS_URL;
+
+  if ((!raw || !raw.trim()) && requireInProduction && isProduction) {
+    throw new Error(
+      'REDIS_URL is required in production for shared cache, throttler, and websockets',
+    );
+  }
+
+  return parseRedisUrl(raw);
 }

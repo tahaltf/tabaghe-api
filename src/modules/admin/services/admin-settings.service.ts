@@ -558,7 +558,10 @@ export class AdminSettingsService {
   }
 
   private async invalidatePublicSiteSettingsCache(): Promise<void> {
-    await this.cache.delete('common:site-settings');
+    await Promise.all([
+      this.cache.delete('common:site-settings'),
+      this.cache.delete('common:homepage-layout'),
+    ]);
   }
 
   private assertValidSettingValue(key: string, value: string): void {
@@ -972,6 +975,7 @@ export class AdminSettingsService {
     await this.prisma.systemSetting.deleteMany({
       where: { key: SETTING_KEYS.HOMEPAGE_LAYOUT },
     });
+    await this.invalidatePublicSiteSettingsCache();
     return mergeHomepageLayout(null);
   }
 }

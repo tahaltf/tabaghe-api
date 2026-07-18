@@ -12,7 +12,12 @@ import {
 import { SETTING_KEYS } from '../admin/services/admin-settings.service';
 
 const DEFAULT_SHARE_MESSAGE =
-  'سلام! من تو «طبقه» ثبت‌نام کردم و خرید و فروش گوشی و کالای دیجیتال رو راحت‌تر کردم. با کد دعوت من ثبت‌نام کن:\n{inviteCode}\n{inviteLink}';
+  'سلام!\n' +
+  'من تو «طبقه» خرید و فروش گوشی و کالای دیجیتال رو شروع کردم — امن، راحت و با کارمزد شفاف.\n\n' +
+  'با کد دعوت من ثبت‌نام کن تا وارد شی:\n' +
+  'کد: {inviteCode}\n' +
+  '{inviteLink}\n\n' +
+  'منتظرتم!';
 
 export type UserReferralInfo = {
   inviteCode: string;

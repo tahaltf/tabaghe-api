@@ -30,17 +30,10 @@ ENV_FILE="${ENV_FILE:-$ROOT/.env}"
 SKIP_HEALTH_CHECK="${SKIP_HEALTH_CHECK:-0}"
 SMS_DEPLOY_ALERT_ENABLED="${SMS_DEPLOY_ALERT_ENABLED:-1}"
 HEALTH_TIMEOUT_SEC="${HEALTH_TIMEOUT_SEC:-90}"
-HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:3000/api/v1/health}"
-GATEWAY_URL="${GATEWAY_URL:-http://127.0.0.1:80/}"
 CHECK_GATEWAY="${CHECK_GATEWAY:-1}"
 
 log() { echo "[post-deploy] $*"; }
 warn() { echo "[post-deploy] WARN: $*" >&2; }
-
-if [[ "$SKIP_HEALTH_CHECK" == "1" ]]; then
-  log "SKIP_HEALTH_CHECK=1 — skipping"
-  exit 0
-fi
 
 load_env_var() {
   local key="$1"
@@ -50,6 +43,17 @@ load_env_var() {
   [[ -n "$line" ]] || return 0
   printf '%s' "${line#*=}" | sed 's/^["'\'']//; s/["'\'']$//'
 }
+
+# API is not published on the host (only gateway :80). Prefer gateway health URL.
+_http_port="$(load_env_var HTTP_PORT)"
+_http_port="${_http_port:-80}"
+HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:${_http_port}/api/v1/health}"
+GATEWAY_URL="${GATEWAY_URL:-http://127.0.0.1:${_http_port}/}"
+
+if [[ "$SKIP_HEALTH_CHECK" == "1" ]]; then
+  log "SKIP_HEALTH_CHECK=1 — skipping"
+  exit 0
+fi
 
 normalize_mobile() {
   local raw="$1"
@@ -123,6 +127,23 @@ http_ok() {
   return 1
 }
 
+# Fallback when host cannot reach API (port 3000 not published): curl inside container
+api_health_via_docker() {
+  local svc body
+  cd "$ROOT" 2>/dev/null || true
+  for svc in backend tabagheh-api; do
+    if docker compose ps --status running "$svc" >/dev/null 2>&1; then
+      body="$(docker compose exec -T "$svc" wget -qO- http://127.0.0.1:3000/api/v1/health 2>/dev/null \
+        || docker compose exec -T "$svc" curl -sS --max-time 5 http://127.0.0.1:3000/api/v1/health 2>/dev/null \
+        || true)"
+      if echo "$body" | grep -qE '"ok"[[:space:]]*:[[:space:]]*true|"status"[[:space:]]*:[[:space:]]*"up"'; then
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
+
 wait_for_health() {
   local url="$1"
   local label="$2"
@@ -133,6 +154,11 @@ wait_for_health() {
     n=$((n + 1))
     if http_ok "$url"; then
       log "$label OK (attempt $n)"
+      return 0
+    fi
+    # Host URL often fails for API (expose-only); try in-container after a few attempts
+    if [[ "$label" == "API health" ]] && (( n >= 3 )) && api_health_via_docker; then
+      log "$label OK via docker exec (attempt $n)"
       return 0
     fi
     sleep 2

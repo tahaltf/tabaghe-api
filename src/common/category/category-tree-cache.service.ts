@@ -60,9 +60,14 @@ export class CategoryTreeCacheService {
       },
     );
     if (!Array.isArray(payload?.entries)) {
-      await this.cache.delete(CACHE_KEY);
+      await this.invalidate();
       return this.getChildrenByParent();
     }
     return new Map(payload.entries);
+  }
+
+  /** Drop the children-by-parent map (call after category tree mutations). */
+  async invalidate(): Promise<void> {
+    await this.cache.delete(CACHE_KEY);
   }
 }
