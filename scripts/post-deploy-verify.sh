@@ -15,18 +15,18 @@
 #   HEALTH_TIMEOUT_SEC=90
 #   HEALTH_URL / GATEWAY_URL / CHECK_GATEWAY
 #
-# SMS (.env on server):
+# SMS (searched in multiple .env files — production often uses api/.env):
 #   ACTIVE_SMS_PROVIDER=smsir
 #   SMS_IR_API_KEY=...
+#   SMS_IR_LINE_NUMBER=3000...              (optional plain-SMS fallback if no template)
 #   SMS_DEPLOY_ALERT_RECIPIENTS=09...,09...   (fallback: SMS_ADMIN_LOGIN_ALERT_RECIPIENTS)
-#   SMS_DEPLOY_ALERT_TEMPLATE_ID=123456       (sms.ir template id — required for smsir)
+#   SMS_DEPLOY_ALERT_TEMPLATE_ID=123456       (sms.ir template with #STATUS #DETAIL)
 #   SMS_DEPLOY_ALERT_STATUS_PARAMETER=STATUS  (default STATUS)
 #   SMS_DEPLOY_ALERT_DETAIL_PARAMETER=DETAIL  (default DETAIL; empty = only STATUS)
 #   SMS_DEPLOY_ALERT_TEMPLATE_NAME=...        (kavenegar lookup name; token=STATUS, token2=DETAIL)
 set -euo pipefail
 
 ROOT="${ROOT:-/app/tabagheh}"
-ENV_FILE="${ENV_FILE:-$ROOT/.env}"
 SKIP_HEALTH_CHECK="${SKIP_HEALTH_CHECK:-0}"
 SMS_DEPLOY_ALERT_ENABLED="${SMS_DEPLOY_ALERT_ENABLED:-1}"
 HEALTH_TIMEOUT_SEC="${HEALTH_TIMEOUT_SEC:-90}"
@@ -35,13 +35,48 @@ CHECK_GATEWAY="${CHECK_GATEWAY:-1}"
 log() { echo "[post-deploy] $*"; }
 warn() { echo "[post-deploy] WARN: $*" >&2; }
 
+# Production server uses ./api/.env (compose env_file); monorepo may use root .env.
+# Search all candidates; first non-empty value for each key wins (ENV_FILE first if set).
+ENV_FILES=()
+_add_env_file() {
+  local f="$1"
+  [[ -n "$f" && -f "$f" ]] || return 0
+  local x
+  for x in "${ENV_FILES[@]+"${ENV_FILES[@]}"}"; do
+    [[ "$x" == "$f" ]] && return 0
+  done
+  ENV_FILES+=("$f")
+}
+_add_env_file "${ENV_FILE:-}"
+_add_env_file "$ROOT/.env"
+_add_env_file "$ROOT/api/.env"
+_add_env_file "$ROOT/tabaghe-api/.env"
+
+if [[ ${#ENV_FILES[@]} -eq 0 ]]; then
+  warn "هیچ فایل .env پیدا نشد (ROOT=$ROOT)"
+else
+  log "env files: ${ENV_FILES[*]}"
+fi
+
 load_env_var() {
   local key="$1"
-  local line
-  [[ -f "$ENV_FILE" ]] || return 0
-  line="$(grep -E "^${key}=" "$ENV_FILE" 2>/dev/null | tail -n1 || true)"
-  [[ -n "$line" ]] || return 0
-  printf '%s' "${line#*=}" | sed 's/^["'\'']//; s/["'\'']$//'
+  local f line
+  for f in "${ENV_FILES[@]+"${ENV_FILES[@]}"}"; do
+    line="$(grep -E "^${key}=" "$f" 2>/dev/null | tail -n1 || true)"
+    [[ -n "$line" ]] || continue
+    printf '%s' "${line#*=}" | sed 's/^["'\'']//; s/["'\'']$//'
+    return 0
+  done
+  return 0
+}
+
+# Host often cannot resolve api.sms.ir (compose uses extra_hosts). Mirror that for host curl.
+SMS_IR_HOST_IP="$(load_env_var SMS_IR_HOST_IP)"
+SMS_IR_HOST_IP="${SMS_IR_HOST_IP:-185.211.56.44}"
+
+curl_smsir() {
+  # usage: curl_smsir [curl args...]
+  curl -sS --max-time 20 --resolve "api.sms.ir:443:${SMS_IR_HOST_IP}" "$@"
 }
 
 # API is not published on the host (only gateway :80). Prefer gateway health URL.
@@ -178,7 +213,6 @@ send_sms_smsir_verify() {
   local detail_value="$7"
 
   if [[ -z "$template_id" || "$template_id" == "0" ]]; then
-    warn "sms.ir: SMS_DEPLOY_ALERT_TEMPLATE_ID خالی است"
     return 1
   fi
 
@@ -194,7 +228,7 @@ send_sms_smsir_verify() {
   fi
 
   local resp
-  resp="$(curl -sS --max-time 20 -X POST "https://api.sms.ir/v1/send/verify" \
+  resp="$(curl_smsir -X POST "https://api.sms.ir/v1/send/verify" \
     -H "X-API-KEY: ${api_key}" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json" \
@@ -202,7 +236,35 @@ send_sms_smsir_verify() {
   if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*1'; then
     return 0
   fi
-  warn "sms.ir response: $(echo "$resp" | tr '\n' ' ' | cut -c1-200)"
+  warn "sms.ir verify response: $(echo "$resp" | tr '\n' ' ' | cut -c1-200)"
+  return 1
+}
+
+# Plain text via line number when no deploy template is configured
+send_sms_smsir_bulk() {
+  local api_key="$1"
+  local mobile="$2"
+  local line_number="$3"
+  local message="$4"
+
+  if [[ -z "$line_number" ]]; then
+    return 1
+  fi
+
+  local msg_esc payload resp
+  msg_esc="$(json_escape "$message")"
+  payload="$(printf '{"lineNumber":%s,"messageText":"%s","mobiles":["%s"],"sendDateTime":null}' \
+    "$line_number" "$msg_esc" "$mobile")"
+
+  resp="$(curl_smsir -X POST "https://api.sms.ir/v1/send/bulk" \
+    -H "X-API-KEY: ${api_key}" \
+    -H "Content-Type: application/json" \
+    -H "Accept: application/json" \
+    -d "$payload" 2>&1)" || true
+  if echo "$resp" | grep -qE '"status"[[:space:]]*:[[:space:]]*1'; then
+    return 0
+  fi
+  warn "sms.ir bulk response: $(echo "$resp" | tr '\n' ' ' | cut -c1-200)"
   return 1
 }
 
@@ -246,7 +308,7 @@ notify_admins_sms() {
     recipients_raw="$(load_env_var SMS_ADMIN_LOGIN_ALERT_RECIPIENTS)"
   fi
   if [[ -z "${recipients_raw// /}" ]]; then
-    warn "SMS_DEPLOY_ALERT_RECIPIENTS / SMS_ADMIN_LOGIN_ALERT_RECIPIENTS خالی است"
+    warn "SMS ارسال نشد: SMS_DEPLOY_ALERT_RECIPIENTS یا SMS_ADMIN_LOGIN_ALERT_RECIPIENTS را در api/.env بگذارید"
     return 0
   fi
 
@@ -254,15 +316,11 @@ notify_admins_sms() {
   provider="$(load_env_var ACTIVE_SMS_PROVIDER)"
   provider="$(echo "${provider:-smsir}" | tr '[:upper:]' '[:lower:]')"
 
-  local template_id template_name status_param detail_param
+  local template_id template_name status_param detail_param line_number
+  # Do NOT fall back to admin-login template — that uses #PHONE, not #STATUS/#DETAIL
   template_id="$(load_env_var SMS_DEPLOY_ALERT_TEMPLATE_ID)"
-  if [[ -z "$template_id" ]]; then
-    template_id="$(load_env_var SMS_ADMIN_LOGIN_ALERT_TEMPLATE_ID)"
-  fi
   template_name="$(load_env_var SMS_DEPLOY_ALERT_TEMPLATE_NAME)"
-  if [[ -z "$template_name" ]]; then
-    template_name="$(load_env_var SMS_ADMIN_LOGIN_ALERT_TEMPLATE_NAME)"
-  fi
+  line_number="$(load_env_var SMS_IR_LINE_NUMBER)"
   status_param="$(load_env_var SMS_DEPLOY_ALERT_STATUS_PARAMETER)"
   status_param="${status_param:-STATUS}"
   detail_param="$(load_env_var SMS_DEPLOY_ALERT_DETAIL_PARAMETER)"
@@ -281,12 +339,20 @@ notify_admins_sms() {
   local -a mobiles=()
   mapfile -t mobiles < <(parse_recipients "$recipients_raw")
   if [[ ${#mobiles[@]} -eq 0 ]]; then
-    warn "شماره ادمین معتبر پیدا نشد"
+    warn "شماره ادمین معتبر پیدا نشد (raw=$recipients_raw)"
     return 0
   fi
 
+  if [[ "$provider" != "kavenegar" ]]; then
+    if [[ -z "$template_id" || "$template_id" == "0" ]] && [[ -z "$line_number" ]]; then
+      warn "SMS ارسال نشد: SMS_DEPLOY_ALERT_TEMPLATE_ID (قالب با #STATUS و #DETAIL) یا SMS_IR_LINE_NUMBER را در api/.env ست کنید"
+      return 0
+    fi
+  fi
+
   log "ارسال SMS دیپلوی (وضعیت=${status_fa}) به ${#mobiles[@]} ادمین via ${provider}..."
-  local ok=0 m api_key
+  local ok=0 m api_key plain_msg
+  plain_msg="دیپلوی طبقه: ${status_fa} — ${detail}"
   for m in "${mobiles[@]}"; do
     if [[ "$provider" == "kavenegar" ]]; then
       api_key="$(load_env_var KAVENEGAR_API_KEY)"
@@ -298,16 +364,22 @@ notify_admins_sms() {
       fi
     else
       api_key="$(load_env_var SMS_IR_API_KEY)"
-      [[ -n "$api_key" ]] || { warn "SMS_IR_API_KEY missing"; return 0; }
-      if send_sms_smsir_verify "$api_key" "$m" "$template_id" \
-        "$status_param" "$status_fa" "$detail_param" "$detail"; then
+      [[ -n "$api_key" ]] || { warn "SMS_IR_API_KEY missing (در api/.env یا .env ریشه)"; return 0; }
+      if [[ -n "$template_id" && "$template_id" != "0" ]] \
+        && send_sms_smsir_verify "$api_key" "$m" "$template_id" \
+          "$status_param" "$status_fa" "$detail_param" "$detail"; then
+        ok=$((ok + 1))
+      elif send_sms_smsir_bulk "$api_key" "$m" "$line_number" "$plain_msg"; then
         ok=$((ok + 1))
       else
-        warn "sms.ir failed for $m"
+        warn "sms.ir failed for $m (template_id=${template_id:-empty} line=${line_number:-empty})"
       fi
     fi
   done
   log "SMS: ${ok}/${#mobiles[@]} ارسال شد"
+  if [[ "$ok" -eq 0 ]]; then
+    warn "هیچ SMS دیپلوی ارسال نشد — لاگ بالا و پنل sms.ir را چک کنید"
+  fi
 }
 
 # --- run checks ---
