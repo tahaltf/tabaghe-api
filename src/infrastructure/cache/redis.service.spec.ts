@@ -1,4 +1,3 @@
-import { RedisMemoryServer } from 'redis-memory-server';
 import { parseRedisUrl } from './redis-options.util';
 import { RedisService } from './redis.service';
 import { TtlCacheService } from './ttl-cache.service';
@@ -25,23 +24,15 @@ describe('parseRedisUrl', () => {
   });
 });
 
-describe('RedisService integration', () => {
-  let mem: RedisMemoryServer | null = null;
+const redisUrl = process.env.REDIS_URL?.trim();
+const describeRedis = redisUrl ? describe : describe.skip;
+
+describeRedis('RedisService integration (requires REDIS_URL)', () => {
   let redis: RedisService;
   let cache: TtlCacheService;
-  let previousUrl: string | undefined;
 
   beforeAll(async () => {
-    previousUrl = process.env.REDIS_URL;
-    let url = process.env.REDIS_URL?.trim();
-    if (!url) {
-      mem = new RedisMemoryServer();
-      const host = await mem.getHost();
-      const port = await mem.getPort();
-      url = `redis://${host}:${port}`;
-      process.env.REDIS_URL = url;
-    }
-
+    process.env.REDIS_URL = redisUrl!;
     redis = new RedisService();
     const deadline = Date.now() + 15_000;
     while (!redis.isEnabled() && Date.now() < deadline) {
@@ -51,18 +42,10 @@ describe('RedisService integration', () => {
       throw new Error('Redis did not become ready in time');
     }
     cache = new TtlCacheService(redis);
-  }, 60_000);
+  });
 
   afterAll(async () => {
     await redis.onModuleDestroy();
-    if (mem) {
-      await mem.stop();
-    }
-    if (previousUrl === undefined) {
-      delete process.env.REDIS_URL;
-    } else {
-      process.env.REDIS_URL = previousUrl;
-    }
   });
 
   it('requires TTL on set', async () => {

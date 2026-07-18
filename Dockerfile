@@ -8,6 +8,8 @@ WORKDIR /app
 COPY package*.json ./
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+# Avoid accidental binary downloads from test-only packages if reintroduced
+ENV REDISMS_DISABLE_POSTINSTALL=1
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --legacy-peer-deps
 
