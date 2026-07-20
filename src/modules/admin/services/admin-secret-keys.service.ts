@@ -25,6 +25,8 @@ export type AdminSecretItemSource = 'db' | 'env' | 'none';
 export interface AdminSecretCatalogItem extends AdminSecretKeyDef {
   isConfigured: boolean;
   maskedValue: string;
+  /** فقط برای GODADMIN — مقدار کامل خوانا */
+  value: string | null;
   source: AdminSecretItemSource;
   updatedAt: string | null;
   updatedById: string | null;
@@ -52,7 +54,8 @@ export class AdminSecretKeysService {
     };
   }
 
-  async list(): Promise<AdminSecretCatalogItem[]> {
+  async list(actor?: AuthenticatedUser): Promise<AdminSecretCatalogItem[]> {
+    const revealPlain = actor?.role === UserRole.GODADMIN;
     const rows = await this.prisma.systemSecret.findMany({
       select: {
         key: true,
@@ -64,7 +67,9 @@ export class AdminSecretKeysService {
 
     return groupAdminSecretCatalog()
       .flatMap((g) => g.keys)
-      .map((def) => this.toCatalogItem(def, rowByKey.get(def.key)));
+      .map((def) =>
+        this.toCatalogItem(def, rowByKey.get(def.key), revealPlain),
+      );
   }
 
   async set(key: string, value: string, actor: AuthenticatedUser) {
@@ -105,7 +110,11 @@ export class AdminSecretKeysService {
       where: { key },
       select: { updatedAt: true, updatedById: true },
     });
-    return this.toCatalogItem(def, row ?? undefined);
+    return this.toCatalogItem(
+      def,
+      row ?? undefined,
+      actor.role === UserRole.GODADMIN,
+    );
   }
 
   async clear(key: string, actor: AuthenticatedUser) {
@@ -122,7 +131,7 @@ export class AdminSecretKeysService {
     this.logSecretAudit(actor, key, 'clear');
 
     const def = assertAdminSecretKey(key);
-    return this.toCatalogItem(def);
+    return this.toCatalogItem(def, undefined, actor.role === UserRole.GODADMIN);
   }
 
   async reveal(key: string, actor: AuthenticatedUser): Promise<{ key: string; value: string }> {
@@ -159,6 +168,7 @@ export class AdminSecretKeysService {
   private toCatalogItem(
     def: AdminSecretKeyDef,
     row?: { updatedAt: Date; updatedById: string | null },
+    revealPlain = false,
   ): AdminSecretCatalogItem {
     const source = this.resolver.resolveSource(def.key);
     const rawValue = source === 'none' ? '' : this.resolver.get(def.key);
@@ -168,6 +178,7 @@ export class AdminSecretKeysService {
       maskedValue: rawValue
         ? maskAdminSecretValue(rawValue, def.kind)
         : '',
+      value: revealPlain && rawValue ? rawValue : null,
       source,
       updatedAt: row?.updatedAt?.toISOString() ?? null,
       updatedById: row?.updatedById ?? null,

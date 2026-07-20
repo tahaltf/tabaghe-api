@@ -227,8 +227,8 @@ export class AdminSettingsController {
 
   @Get('secrets')
   @RequirePermission('settings_secrets.view')
-  listSecrets() {
-    return this.secretKeys.list();
+  listSecrets(@CurrentUser() actor: AuthenticatedUser) {
+    return this.secretKeys.list(actor);
   }
 
   @Put('secrets/:key')
