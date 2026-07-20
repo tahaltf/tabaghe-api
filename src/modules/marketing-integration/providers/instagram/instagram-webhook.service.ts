@@ -34,7 +34,9 @@ export class InstagramWebhookService {
   }
 
   verifySignature(rawBody: Buffer | string, signatureHeader?: string): boolean {
-    const secret = this.secrets.get('META_APP_SECRET')?.trim();
+    const secret =
+      this.secrets.get('META_INSTAGRAM_APP_SECRET')?.trim() ||
+      this.secrets.get('META_APP_SECRET')?.trim();
     if (!secret || !signatureHeader) return false;
     const expected =
       'sha256=' +

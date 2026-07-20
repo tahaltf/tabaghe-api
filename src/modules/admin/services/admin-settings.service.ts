@@ -115,6 +115,12 @@ export const SETTING_KEYS = {
   SMS_ADMIN_LOGIN_ALERT_RECIPIENTS: 'SMS_ADMIN_LOGIN_ALERT_RECIPIENTS',
   SMS_ADMIN_LOGIN_ALERT_USER_PHONE_PARAMETER:
     'SMS_ADMIN_LOGIN_ALERT_USER_PHONE_PARAMETER',
+  SMS_DEPLOY_ALERT_ENABLED: 'SMS_DEPLOY_ALERT_ENABLED',
+  SMS_DEPLOY_ALERT_RECIPIENTS: 'SMS_DEPLOY_ALERT_RECIPIENTS',
+  SMS_DEPLOY_ALERT_TEMPLATE_ID: 'SMS_DEPLOY_ALERT_TEMPLATE_ID',
+  SMS_DEPLOY_ALERT_TEMPLATE_NAME: 'SMS_DEPLOY_ALERT_TEMPLATE_NAME',
+  SMS_DEPLOY_ALERT_STATUS_PARAMETER: 'SMS_DEPLOY_ALERT_STATUS_PARAMETER',
+  SMS_DEPLOY_ALERT_DETAIL_PARAMETER: 'SMS_DEPLOY_ALERT_DETAIL_PARAMETER',
   SYSTEM_INTRO_CONTENT: 'SYSTEM_INTRO_CONTENT',
   FOOTER_SOCIAL_LINKS: 'FOOTER_SOCIAL_LINKS',
   AUCTION_DEPOSIT_MIN: 'AUCTION_DEPOSIT_MIN',
@@ -336,6 +342,18 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
     'شماره‌های ادمین برای دریافت هشدار ورود (جدا با ویرگول، مثلاً 0912...,0913...)',
   SMS_ADMIN_LOGIN_ALERT_USER_PHONE_PARAMETER:
     'نام پارامتر قالب هشدار ورود که شمارهٔ کاربر واردشده در آن قرار می‌گیرد (مثلاً PHONE)',
+  SMS_DEPLOY_ALERT_ENABLED:
+    'ارسال پیامک نتیجه دیپلوی به ادمین (true/false یا 1/0، پیش‌فرض true)',
+  SMS_DEPLOY_ALERT_RECIPIENTS:
+    'شماره‌های ادمین برای دریافت نتیجه دیپلوی (جدا با ویرگول؛ در نبود، از گیرندگان هشدار ورود استفاده می‌شود)',
+  SMS_DEPLOY_ALERT_TEMPLATE_ID:
+    'شناسه قالب پیامک نتیجه دیپلوی در sms.ir (با پارامترهای #STATUS و #DETAIL)',
+  SMS_DEPLOY_ALERT_TEMPLATE_NAME:
+    'نام الگوی Lookup نتیجه دیپلوی در کاوه‌نگار (token=STATUS، token2=DETAIL)',
+  SMS_DEPLOY_ALERT_STATUS_PARAMETER:
+    'نام پارامتر وضعیت در قالب دیپلوی (پیش‌فرض STATUS)',
+  SMS_DEPLOY_ALERT_DETAIL_PARAMETER:
+    'نام پارامتر جزئیات در قالب دیپلوی (پیش‌فرض DETAIL؛ خالی = فقط STATUS)',
   SYSTEM_INTRO_CONTENT: 'محتوای صفحه معرفی سامانه',
   FOOTER_SOCIAL_LINKS:
     'لینک‌های شبکه‌های اجتماعی فوتر (JSON آرایه: [{ "network": "instagram", "url": "https://..." }])',

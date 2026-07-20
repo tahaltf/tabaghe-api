@@ -10,6 +10,7 @@ import {
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { ServerSecretConfigService } from '../../../shared/settings/server-secret-config.service';
 import { InstagramProvider } from '../providers/instagram/instagram.provider';
+import { InstagramOAuthService } from '../providers/instagram/instagram-oauth.service';
 import { MarketingTokenCryptoService } from './marketing-token-crypto.service';
 
 @Injectable()
@@ -19,6 +20,7 @@ export class MarketingAccountService {
     private readonly crypto: MarketingTokenCryptoService,
     private readonly instagram: InstagramProvider,
     private readonly secrets: ServerSecretConfigService,
+    private readonly oauth: InstagramOAuthService,
   ) {}
 
   listAccounts() {
@@ -140,6 +142,10 @@ export class MarketingAccountService {
       webhookVerifyConfigured: Boolean(
         this.secrets.get('META_WEBHOOK_VERIFY_TOKEN')?.trim(),
       ),
+      /** باید عین همین مقدار در Meta → Business login settings → OAuth redirect URIs باشد */
+      oauthRedirectUri: this.oauth.getRedirectUri(),
+      frontendReturnBase: this.oauth.getFrontendReturnUrl({ oauth: 'success' }),
+      usesInstagramAppId: this.instagram.usesDedicatedInstagramAppCredentials(),
     };
   }
 }

@@ -35,31 +35,58 @@ export class InstagramProvider implements MarketingProvider {
 
   constructor(private readonly secrets: ServerSecretConfigService) {}
 
+  /**
+   * Instagram Login نیاز به Instagram App ID/Secret دارد
+   * (App Dashboard → Instagram → Business login settings)،
+   * نه لزوماً Facebook App ID از Settings → Basic.
+   */
   private appId(): string {
-    const id = this.secrets.get('META_APP_ID')?.trim();
+    const id =
+      this.secrets.get('META_INSTAGRAM_APP_ID')?.trim() ||
+      this.secrets.get('META_APP_ID')?.trim();
     if (!id) {
       throw new ServiceUnavailableException(
-        'META_APP_ID تنظیم نشده است. ابتدا Meta Developer App را پیکربندی کنید.',
+        'META_INSTAGRAM_APP_ID (یا META_APP_ID) تنظیم نشده است.',
       );
     }
     return id;
   }
 
   private appSecret(): string {
-    const secret = this.secrets.get('META_APP_SECRET')?.trim();
+    const secret =
+      this.secrets.get('META_INSTAGRAM_APP_SECRET')?.trim() ||
+      this.secrets.get('META_APP_SECRET')?.trim();
     if (!secret) {
       throw new ServiceUnavailableException(
-        'META_APP_SECRET تنظیم نشده است.',
+        'META_INSTAGRAM_APP_SECRET (یا META_APP_SECRET) تنظیم نشده است.',
       );
     }
     return secret;
   }
 
   isConfigured(): boolean {
-    return Boolean(
-      this.secrets.get('META_APP_ID')?.trim() &&
-        this.secrets.get('META_APP_SECRET')?.trim(),
+    return Boolean(this.tryAppId() && this.tryAppSecret());
+  }
+
+  private tryAppId(): string | undefined {
+    return (
+      this.secrets.get('META_INSTAGRAM_APP_ID')?.trim() ||
+      this.secrets.get('META_APP_ID')?.trim() ||
+      undefined
     );
+  }
+
+  private tryAppSecret(): string | undefined {
+    return (
+      this.secrets.get('META_INSTAGRAM_APP_SECRET')?.trim() ||
+      this.secrets.get('META_APP_SECRET')?.trim() ||
+      undefined
+    );
+  }
+
+  /** آیا از Instagram App ID اختصاصی استفاده می‌شود (نه فقط Facebook App ID) */
+  usesDedicatedInstagramAppCredentials(): boolean {
+    return Boolean(this.secrets.get('META_INSTAGRAM_APP_ID')?.trim());
   }
 
   buildAuthorizeUrl(state: string, redirectUri: string): string {
@@ -69,20 +96,25 @@ export class InstagramProvider implements MarketingProvider {
       response_type: 'code',
       scope: DEFAULT_SCOPES.join(','),
       state,
+      // جلوگیری از لاگین فیسبوک شخصی که اغلب flow را به instagram.com می‌برد
+      enable_fb_login: '0',
+      force_reauth: 'true',
     });
-    return `${AUTH_URL}?${params.toString()}`;
+    // #weblink جلوی باز شدن اپ موبایل اینستاگرام (که redirect را می‌شکند) را می‌گیرد
+    return `${AUTH_URL}?${params.toString()}#weblink`;
   }
 
   async exchangeCode(
     code: string,
     redirectUri: string,
   ): Promise<MarketingOAuthResult> {
+    const cleanCode = code.replace(/#_$/, '').trim();
     const form = new URLSearchParams({
       client_id: this.appId(),
       client_secret: this.appSecret(),
       grant_type: 'authorization_code',
       redirect_uri: redirectUri,
-      code,
+      code: cleanCode,
     });
 
     const shortRes = await fetch(TOKEN_URL, {
@@ -93,31 +125,58 @@ export class InstagramProvider implements MarketingProvider {
     const shortJson = (await shortRes.json()) as {
       access_token?: string;
       user_id?: number | string;
-      permissions?: string[];
+      permissions?: string[] | string;
       error_message?: string;
       error_type?: string;
+      error?: { message?: string };
+      data?: Array<{
+        access_token?: string;
+        user_id?: number | string;
+        permissions?: string[] | string;
+      }>;
     };
-    if (!shortRes.ok || !shortJson.access_token) {
+
+    const tokenPayload = Array.isArray(shortJson.data)
+      ? shortJson.data[0]
+      : shortJson;
+    const accessToken = tokenPayload?.access_token;
+    const userId = tokenPayload?.user_id;
+    const rawPermissions = tokenPayload?.permissions;
+
+    if (!shortRes.ok || !accessToken) {
       this.logger.warn(`IG token exchange failed: ${JSON.stringify(shortJson)}`);
       throw new BadRequestException(
-        shortJson.error_message || 'خطا در دریافت توکن اینستاگرام',
+        shortJson.error_message ||
+          shortJson.error?.message ||
+          'خطا در دریافت توکن اینستاگرام',
       );
     }
 
-    const longLived = await this.exchangeLongLived(shortJson.access_token);
+    const longLived = await this.exchangeLongLived(accessToken);
     const profile = await this.fetchProfile(longLived.accessToken);
 
+    const scopes = this.normalizePermissions(rawPermissions);
+
     return {
-      externalId: String(profile.id || shortJson.user_id),
-      username: profile.username || `user_${shortJson.user_id}`,
+      externalId: String(profile.id || userId),
+      username: profile.username || `user_${userId}`,
       displayName: profile.name || profile.username || null,
       profilePicture: profile.profile_picture_url || null,
       accessToken: longLived.accessToken,
       tokenExpiresAt: longLived.expiresAt,
-      scopes: shortJson.permissions?.length
-        ? shortJson.permissions
-        : DEFAULT_SCOPES,
+      scopes: scopes.length ? scopes : DEFAULT_SCOPES,
     };
+  }
+
+  private normalizePermissions(
+    raw: string[] | string | undefined,
+  ): string[] {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw.filter(Boolean);
+    return raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
 
   async refreshAccessToken(accessToken: string): Promise<{

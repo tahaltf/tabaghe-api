@@ -293,6 +293,8 @@ export const ADMIN_ROUTE_PERMISSIONS = {
     '/admin/customer-club': 'customer_club.view',
     '/admin/marketing': 'marketing.view',
     '/admin/marketing/accounts': 'marketing.view',
+    '/admin/marketing/oauth-callback': 'marketing.view',
+    '/admin/marketing/a': 'marketing.view',
     '/admin/marketing/content': 'marketing.view',
     '/admin/marketing/content/new': 'marketing.view',
     '/admin/marketing/inbox': 'marketing.view',

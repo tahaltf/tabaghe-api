@@ -103,18 +103,36 @@ export const ADMIN_SECRET_KEYS_REGISTRY: AdminSecretKeyDef[] = [
     placeholder: 'https://api.example.com/api/v1/payments/callback/zibal',
   },
   {
+    key: 'META_INSTAGRAM_APP_ID',
+    category: 'marketing',
+    categoryLabel: 'مارکتینگ',
+    label: 'Instagram App ID',
+    description:
+      'از App Dashboard → Instagram → Business login settings (نه Facebook App ID)',
+    kind: 'text',
+  },
+  {
+    key: 'META_INSTAGRAM_APP_SECRET',
+    category: 'marketing',
+    categoryLabel: 'مارکتینگ',
+    label: 'Instagram App Secret',
+    description: 'از همان صفحه Business login settings',
+    kind: 'secret',
+  },
+  {
     key: 'META_APP_ID',
     category: 'marketing',
     categoryLabel: 'مارکتینگ',
-    label: 'Meta App ID',
-    description: 'شناسه اپ Meta Developer برای Instagram Graph API',
+    label: 'Meta App ID (fallback)',
+    description:
+      'اگر Instagram App ID جداگانه ندارید؛ ترجیحاً META_INSTAGRAM_APP_ID را پر کنید',
     kind: 'text',
   },
   {
     key: 'META_APP_SECRET',
     category: 'marketing',
     categoryLabel: 'مارکتینگ',
-    label: 'Meta App Secret',
+    label: 'Meta App Secret (fallback)',
     kind: 'secret',
   },
   {

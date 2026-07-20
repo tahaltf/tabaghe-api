@@ -47,13 +47,13 @@ export class InstagramOAuthService {
       this.secrets.get('FRONTEND_APP_URL') || 'http://localhost:4200'
     ).replace(/\/$/, '');
     const qs = new URLSearchParams(query).toString();
-    return `${base}/admin/marketing/accounts?${qs}`;
+    return `${base}/admin/marketing/oauth-callback?${qs}`;
   }
 
   startOAuth(adminUserId: string): { authorizeUrl: string } {
     if (!this.instagram.isConfigured()) {
       throw new BadRequestException(
-        'Meta App هنوز پیکربندی نشده است. META_APP_ID و META_APP_SECRET را تنظیم کنید.',
+        'Meta App هنوز پیکربندی نشده است. META_INSTAGRAM_APP_ID و META_INSTAGRAM_APP_SECRET را از Business login settings تنظیم کنید.',
       );
     }
     if (!this.crypto.isReady()) {
@@ -66,9 +66,11 @@ export class InstagramOAuthService {
       nonce: randomBytes(8).toString('hex'),
       exp: Date.now() + 15 * 60 * 1000,
     });
+    const redirectUri = this.getRedirectUri();
+    this.logger.log(`Instagram OAuth start — redirect_uri=${redirectUri}`);
     const authorizeUrl = this.instagram.buildAuthorizeUrl(
       state,
-      this.getRedirectUri(),
+      redirectUri,
     );
     return { authorizeUrl };
   }
@@ -219,6 +221,7 @@ export class InstagramOAuthService {
 
   private stateSecret(): string {
     return (
+      this.secrets.get('META_INSTAGRAM_APP_SECRET') ||
       this.secrets.get('META_APP_SECRET') ||
       process.env.JWT_SECRET?.trim() ||
       'marketing-oauth-fallback'

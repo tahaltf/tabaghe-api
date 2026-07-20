@@ -38,6 +38,12 @@ export const SMS_SETTING_KEYS = {
   ADMIN_LOGIN_ALERT_RECIPIENTS: 'SMS_ADMIN_LOGIN_ALERT_RECIPIENTS',
   ADMIN_LOGIN_ALERT_USER_PHONE_PARAMETER:
     'SMS_ADMIN_LOGIN_ALERT_USER_PHONE_PARAMETER',
+  DEPLOY_ALERT_ENABLED: 'SMS_DEPLOY_ALERT_ENABLED',
+  DEPLOY_ALERT_RECIPIENTS: 'SMS_DEPLOY_ALERT_RECIPIENTS',
+  DEPLOY_ALERT_TEMPLATE_ID: 'SMS_DEPLOY_ALERT_TEMPLATE_ID',
+  DEPLOY_ALERT_TEMPLATE_NAME: 'SMS_DEPLOY_ALERT_TEMPLATE_NAME',
+  DEPLOY_ALERT_STATUS_PARAMETER: 'SMS_DEPLOY_ALERT_STATUS_PARAMETER',
+  DEPLOY_ALERT_DETAIL_PARAMETER: 'SMS_DEPLOY_ALERT_DETAIL_PARAMETER',
 } as const;
 
 const DEFAULT_OTP_TEMPLATE_ID = 591069;
@@ -46,6 +52,8 @@ const DEFAULT_WITHDRAW_OTP_TEMPLATE_ID = 591069;
 const DEFAULT_WITHDRAW_OTP_CODE_PARAMETER = 'CONTACTS';
 const DEFAULT_ADMIN_LOGIN_TEMPLATE_ID = 176584;
 const DEFAULT_ADMIN_USER_PHONE_PARAMETER = 'PHONE';
+const DEFAULT_DEPLOY_STATUS_PARAMETER = 'STATUS';
+const DEFAULT_DEPLOY_DETAIL_PARAMETER = 'DETAIL';
 
 @Injectable()
 export class SmsService {
@@ -304,5 +312,110 @@ export class SmsService {
         ),
       ),
     );
+  }
+
+  private async resolveDeployAlertTemplate(
+    provider: SmsProviderName,
+  ): Promise<SmsTemplateRef> {
+    if (provider === 'kavenegar') {
+      const name =
+        (
+          await this.resolveSetting(SMS_SETTING_KEYS.DEPLOY_ALERT_TEMPLATE_NAME)
+        )?.trim() || '';
+      return { templateName: name };
+    }
+
+    const tidRaw = await this.resolveSetting(
+      SMS_SETTING_KEYS.DEPLOY_ALERT_TEMPLATE_ID,
+    );
+    const templateId = Number.parseInt(tidRaw ?? '', 10);
+    if (!Number.isFinite(templateId) || templateId <= 0) {
+      throw new InternalServerErrorException(
+        'شناسه قالب پیامک نتیجه دیپلوی تنظیم نشده است (SMS_DEPLOY_ALERT_TEMPLATE_ID)',
+      );
+    }
+    return { templateId };
+  }
+
+  /**
+   * پس از دیپلوی (موفق/ناموفق)، به شماره‌های ادمین اطلاع می‌دهد.
+   * تنظیمات از پنل ادمین (`SystemSetting`) یا در نبود، از `.env`.
+   */
+  async sendDeployAlert(statusFa: string, detail: string): Promise<{
+    sent: number;
+    recipients: number;
+  }> {
+    const enabledRaw =
+      (await this.resolveSetting(SMS_SETTING_KEYS.DEPLOY_ALERT_ENABLED)) ?? '1';
+    const off =
+      enabledRaw === 'false' ||
+      enabledRaw === '0' ||
+      enabledRaw.toLowerCase() === 'no';
+    if (off) {
+      this.logger.debug('Deploy alert SMS disabled by setting.');
+      return { sent: 0, recipients: 0 };
+    }
+
+    const provider = await this.resolveActiveSmsProvider();
+    const template = await this.resolveDeployAlertTemplate(provider);
+
+    const statusParam =
+      (
+        await this.resolveSetting(SMS_SETTING_KEYS.DEPLOY_ALERT_STATUS_PARAMETER)
+      )?.trim() || DEFAULT_DEPLOY_STATUS_PARAMETER;
+    const detailParamRaw = await this.resolveSetting(
+      SMS_SETTING_KEYS.DEPLOY_ALERT_DETAIL_PARAMETER,
+    );
+    const detailParam =
+      detailParamRaw === undefined
+        ? DEFAULT_DEPLOY_DETAIL_PARAMETER
+        : detailParamRaw.trim();
+
+    let recipientsRaw = await this.resolveSetting(
+      SMS_SETTING_KEYS.DEPLOY_ALERT_RECIPIENTS,
+    );
+    if (!recipientsRaw?.trim()) {
+      recipientsRaw = await this.resolveSetting(
+        SMS_SETTING_KEYS.ADMIN_LOGIN_ALERT_RECIPIENTS,
+      );
+    }
+    const recipients = this.parseRecipientList(recipientsRaw);
+    if (!recipients.length) {
+      this.logger.warn(
+        'Deploy alert SMS skipped: set SMS_DEPLOY_ALERT_RECIPIENTS (or SMS_ADMIN_LOGIN_ALERT_RECIPIENTS) in admin settings.',
+      );
+      return { sent: 0, recipients: 0 };
+    }
+
+    const stamp = new Date().toISOString().slice(5, 16).replace('T', ' ');
+    let detailValue = String(detail ?? '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 70);
+    detailValue = detailValue ? `${stamp} ${detailValue}` : stamp;
+
+    const statusValue = String(statusFa ?? '').trim() || 'نامشخص';
+    const parameters: SmsTemplateParameter[] = [
+      { name: statusParam, value: statusValue },
+    ];
+    if (detailParam) {
+      parameters.push({ name: detailParam, value: detailValue });
+    }
+
+    const results = await Promise.allSettled(
+      recipients.map((mobile) =>
+        this.sendByTemplate(mobile, template, parameters, provider),
+      ),
+    );
+    const sent = results.filter((r) => r.status === 'fulfilled').length;
+    for (const r of results) {
+      if (r.status === 'rejected') {
+        this.logger.warn(
+          `Deploy alert SMS failed: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`,
+        );
+      }
+    }
+    this.logger.log(`Deploy alert SMS: ${sent}/${recipients.length} sent`);
+    return { sent, recipients: recipients.length };
   }
 }

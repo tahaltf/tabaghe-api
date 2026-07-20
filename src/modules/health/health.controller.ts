@@ -1,5 +1,16 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { UserRole } from '@prisma/client';
+import type { Request } from 'express';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { RawResponse } from '../../common/decorators/raw-response.decorator';
 import { buildSmsWebOtpTemplateGuide } from '../../common/sms/web-otp-template.util';
@@ -7,10 +18,26 @@ import { SELLER_LANDING_SECTION_COUNT } from '../../common/landing/seller-landin
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { SmsService } from '../sms/sms.service';
+
+class DeploySmsAlertDto {
+  @IsString()
+  @MaxLength(40)
+  status!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  detail?: string;
+}
 
 @Controller('health')
 export class HealthController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sms: SmsService,
+    private readonly config: ConfigService,
+  ) {}
 
   @Get()
   @RawResponse()
@@ -22,6 +49,50 @@ export class HealthController {
       status: 'up',
       time: new Date().toISOString(),
     };
+  }
+
+  /**
+   * فراخوانی از post-deploy-verify.sh (معمولاً داخل کانتینر روی localhost).
+   * تنظیمات قالب/گیرنده از پنل ادمین خوانده می‌شود.
+   */
+  @Post('deploy-sms-alert')
+  @RawResponse()
+  async deploySmsAlert(@Body() dto: DeploySmsAlertDto, @Req() req: Request) {
+    this.assertDeployNotifyAllowed(req);
+
+    const result = await this.sms.sendDeployAlert(
+      dto.status,
+      dto.detail?.trim() || '',
+    );
+
+    return {
+      ok: result.sent > 0,
+      ...result,
+    };
+  }
+
+  private assertDeployNotifyAllowed(req: Request): void {
+    const token = this.config.get<string>('DEPLOY_NOTIFY_TOKEN')?.trim();
+    const header = String(
+      req.headers['x-deploy-notify-token'] ?? '',
+    ).trim();
+    if (token) {
+      if (header !== token) {
+        throw new ForbiddenException('توکن اطلاع‌رسانی دیپلوی نامعتبر است');
+      }
+      return;
+    }
+
+    const ip = String(req.ip || req.socket?.remoteAddress || '')
+      .replace(/^::ffff:/, '')
+      .trim();
+    if (ip === '127.0.0.1' || ip === '::1') {
+      return;
+    }
+
+    throw new ForbiddenException(
+      'این endpoint فقط از localhost یا با DEPLOY_NOTIFY_TOKEN قابل فراخوانی است',
+    );
   }
 
   @Get('ops-checklist')

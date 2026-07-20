@@ -15,7 +15,7 @@
 #   HEALTH_TIMEOUT_SEC=90
 #   HEALTH_URL / GATEWAY_URL / CHECK_GATEWAY
 #
-# SMS (searched in multiple .env files — production often uses api/.env):
+# SMS (prefer panel via API; .env is fallback when API is down):
 #   ACTIVE_SMS_PROVIDER=smsir
 #   SMS_IR_API_KEY=...
 #   SMS_IR_LINE_NUMBER=3000...              (optional plain-SMS fallback if no template)
@@ -24,6 +24,7 @@
 #   SMS_DEPLOY_ALERT_STATUS_PARAMETER=STATUS  (default STATUS)
 #   SMS_DEPLOY_ALERT_DETAIL_PARAMETER=DETAIL  (default DETAIL; empty = only STATUS)
 #   SMS_DEPLOY_ALERT_TEMPLATE_NAME=...        (kavenegar lookup name; token=STATUS, token2=DETAIL)
+#   DEPLOY_NOTIFY_TOKEN=...                   (optional; required if calling API from non-localhost)
 set -euo pipefail
 
 ROOT="${ROOT:-/app/tabagheh}"
@@ -202,6 +203,50 @@ wait_for_health() {
   return 1
 }
 
+# Prefer Nest endpoint (reads panel SystemSetting + encrypted SMS keys).
+# Called from inside API container so loopback auth works.
+notify_via_api() {
+  local status_fa="$1"
+  local detail="$2"
+  local status_esc detail_esc payload token hdr_args resp svc
+
+  status_esc="$(json_escape "$status_fa")"
+  detail_esc="$(json_escape "$detail")"
+  payload="$(printf '{"status":"%s","detail":"%s"}' "$status_esc" "$detail_esc")"
+  token="$(load_env_var DEPLOY_NOTIFY_TOKEN)"
+
+  cd "$ROOT" 2>/dev/null || true
+  for svc in backend tabagheh-api; do
+    if ! docker compose ps --status running "$svc" >/dev/null 2>&1; then
+      continue
+    fi
+    if [[ -n "$token" ]]; then
+      resp="$(docker compose exec -T "$svc" curl -sS --max-time 25 \
+        -X POST "http://127.0.0.1:3000/api/v1/health/deploy-sms-alert" \
+        -H "Content-Type: application/json" \
+        -H "Accept: application/json" \
+        -H "X-Deploy-Notify-Token: ${token}" \
+        -d "$payload" 2>&1)" || true
+    else
+      resp="$(docker compose exec -T "$svc" curl -sS --max-time 25 \
+        -X POST "http://127.0.0.1:3000/api/v1/health/deploy-sms-alert" \
+        -H "Content-Type: application/json" \
+        -H "Accept: application/json" \
+        -d "$payload" 2>&1)" || true
+    fi
+    if echo "$resp" | grep -qE '"sent"[[:space:]]*:[[:space:]]*[1-9]'; then
+      log "SMS via API (panel settings): $(echo "$resp" | tr '\n' ' ' | cut -c1-160)"
+      return 0
+    fi
+    if echo "$resp" | grep -qE '"recipients"[[:space:]]*:'; then
+      warn "API deploy-sms-alert پاسخ داد ولی ارسال نشد: $(echo "$resp" | tr '\n' ' ' | cut -c1-200)"
+      return 1
+    fi
+    warn "API deploy-sms-alert ($svc): $(echo "$resp" | tr '\n' ' ' | cut -c1-200)"
+  done
+  return 1
+}
+
 # sms.ir verify — parameters: STATUS (+ optional DETAIL)
 send_sms_smsir_verify() {
   local api_key="$1"
@@ -297,10 +342,19 @@ notify_admins_sms() {
   local status_fa="$1"
   local detail="$2"
 
-  if [[ "$SMS_DEPLOY_ALERT_ENABLED" == "0" || "$SMS_DEPLOY_ALERT_ENABLED" == "false" ]]; then
+  local enabled_env
+  enabled_env="$(load_env_var SMS_DEPLOY_ALERT_ENABLED)"
+  enabled_env="${enabled_env:-$SMS_DEPLOY_ALERT_ENABLED}"
+  if [[ "$enabled_env" == "0" || "$enabled_env" == "false" ]]; then
     warn "SMS_DEPLOY_ALERT_ENABLED=0 — SMS ارسال نشد"
     return 0
   fi
+
+  # 1) Panel-driven path (DB settings + panel secrets)
+  if notify_via_api "$status_fa" "$detail"; then
+    return 0
+  fi
+  warn "ارسال از API/پنل ناموفق — fallback به .env"
 
   local recipients_raw
   recipients_raw="$(load_env_var SMS_DEPLOY_ALERT_RECIPIENTS)"
@@ -308,7 +362,7 @@ notify_admins_sms() {
     recipients_raw="$(load_env_var SMS_ADMIN_LOGIN_ALERT_RECIPIENTS)"
   fi
   if [[ -z "${recipients_raw// /}" ]]; then
-    warn "SMS ارسال نشد: SMS_DEPLOY_ALERT_RECIPIENTS یا SMS_ADMIN_LOGIN_ALERT_RECIPIENTS را در api/.env بگذارید"
+    warn "SMS ارسال نشد: SMS_DEPLOY_ALERT_RECIPIENTS را در پنل (پیامک ورود و دیپلوی) یا api/.env بگذارید"
     return 0
   fi
 
@@ -345,12 +399,12 @@ notify_admins_sms() {
 
   if [[ "$provider" != "kavenegar" ]]; then
     if [[ -z "$template_id" || "$template_id" == "0" ]] && [[ -z "$line_number" ]]; then
-      warn "SMS ارسال نشد: SMS_DEPLOY_ALERT_TEMPLATE_ID (قالب با #STATUS و #DETAIL) یا SMS_IR_LINE_NUMBER را در api/.env ست کنید"
+      warn "SMS ارسال نشد: SMS_DEPLOY_ALERT_TEMPLATE_ID (قالب با #STATUS و #DETAIL) را در پنل یا api/.env ست کنید"
       return 0
     fi
   fi
 
-  log "ارسال SMS دیپلوی (وضعیت=${status_fa}) به ${#mobiles[@]} ادمین via ${provider}..."
+  log "ارسال SMS دیپلوی (وضعیت=${status_fa}) به ${#mobiles[@]} ادمین via ${provider} (.env fallback)..."
   local ok=0 m api_key plain_msg
   plain_msg="دیپلوی طبقه: ${status_fa} — ${detail}"
   for m in "${mobiles[@]}"; do
@@ -364,7 +418,7 @@ notify_admins_sms() {
       fi
     else
       api_key="$(load_env_var SMS_IR_API_KEY)"
-      [[ -n "$api_key" ]] || { warn "SMS_IR_API_KEY missing (در api/.env یا .env ریشه)"; return 0; }
+      [[ -n "$api_key" ]] || { warn "SMS_IR_API_KEY missing (در پنل کلیدهای سرور یا api/.env)"; return 0; }
       if [[ -n "$template_id" && "$template_id" != "0" ]] \
         && send_sms_smsir_verify "$api_key" "$m" "$template_id" \
           "$status_param" "$status_fa" "$detail_param" "$detail"; then
