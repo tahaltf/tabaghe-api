@@ -165,7 +165,10 @@ export class AuctionSettlementService {
         ListingType.AUCTION,
         auction.listing.categoryId,
         totalAmount,
-        { sellerId: auction.listing.authorId },
+        {
+          sellerId: auction.listing.authorId,
+          condition: auction.listing.condition,
+        },
       );
 
       await this.walletService.payAuctionFinal(

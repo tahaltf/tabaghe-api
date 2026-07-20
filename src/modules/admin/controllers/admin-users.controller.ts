@@ -10,6 +10,7 @@ import {
   Patch,
   ParseIntPipe,
   Post,
+  Put,
   Query,
   UploadedFile,
   UseGuards,
@@ -27,7 +28,9 @@ import { Roles } from '../../auth/decorators/roles.decorator';
 import { RequirePermission } from '../../auth/decorators/require-permission.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { AdminUsersQueryService } from '../services/admin-users-query.service';
+import { AdminUserCategoryFeesService } from '../services/admin-user-category-fees.service';
 import { AdminUserListQueryDto } from '../dto/admin-query.dto';
+import { UpsertUserCategoryFeesDto } from '../dto/admin-user-category-fees.dto';
 import { TokenService } from '../../auth/services/token.service';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { AdminSetUserPasswordDto } from '../dto/admin-user-password.dto';
@@ -46,6 +49,7 @@ import { AuthenticatedUser } from '../../../shared/contracts/auth';
 export class AdminUsersQueryController {
   constructor(
     private readonly service: AdminUsersQueryService,
+    private readonly categoryFees: AdminUserCategoryFeesService,
     private readonly tokens: TokenService,
     private readonly prisma: PrismaService,
   ) {}
@@ -176,6 +180,20 @@ export class AdminUsersQueryController {
     @Param('id') id: string,
   ) {
     return this.service.getUserPlanInfo(actor, id);
+  }
+
+  @Get(':id/category-fees')
+  getCategoryFees(@Param('id') id: string) {
+    return this.categoryFees.list(id);
+  }
+
+  @Put(':id/category-fees')
+  @RequirePermission('users.update')
+  upsertCategoryFees(
+    @Param('id') id: string,
+    @Body() dto: UpsertUserCategoryFeesDto,
+  ) {
+    return this.categoryFees.upsert(id, dto);
   }
 
   @Patch(':id/plan')

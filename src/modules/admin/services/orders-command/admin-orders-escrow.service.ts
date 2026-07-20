@@ -61,6 +61,7 @@ export class AdminOrdersEscrowService {
               title: true,
               sellerRequiresVerification: true,
               categoryId: true,
+              condition: true,
             },
           },
           finalPrice: true,
@@ -409,7 +410,10 @@ export class AdminOrdersEscrowService {
                     : ListingType.DIRECT,
                   order.listing.categoryId,
                   recalculatedFinalPrice,
-                  { sellerId: order.sellerId },
+                  {
+                    sellerId: order.sellerId,
+                    condition: order.listing.condition,
+                  },
                 ),
               );
         const recalculatedSellerRevenue = Math.max(

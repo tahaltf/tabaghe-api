@@ -10,6 +10,7 @@ import {
   AuctionSettlementStatus,
   AuctionStatus,
   ExchangeOfferStatus,
+  ItemCondition,
   ListingStatus,
   ListingType,
   NotificationType,
@@ -165,6 +166,7 @@ export class OrdersCheckoutService {
       let sellerId = '';
       const buyerId = userId;
       let categoryId = '';
+      let itemCondition: ItemCondition | null = null;
       let verificationFee = 0;
       let platformAddress = null;
       let sellerRequestedVerification = false;
@@ -635,6 +637,7 @@ export class OrdersCheckoutService {
 
         sellerId = listing.authorId;
         categoryId = listing.categoryId;
+        itemCondition = listing.condition;
         if (sellerId === userId)
           throw new ForbiddenException('شما نمی‌توانید آگهی خودتان را بخرید.');
 
@@ -677,6 +680,7 @@ export class OrdersCheckoutService {
         finalPrice = unitPrice * orderQuantity;
         sellerId = listing.authorId;
         categoryId = listing.categoryId;
+        itemCondition = listing.condition;
         if (sellerId === userId)
           throw new ForbiddenException('شما نمی‌توانید آگهی خودتان را بخرید.');
 
@@ -810,7 +814,7 @@ export class OrdersCheckoutService {
                 : ListingType.DIRECT,
               categoryId,
               finalPrice,
-              { sellerId },
+              { sellerId, condition: itemCondition },
             );
 
       // 🎯 لاجیک طلایی واریزی فروشنده

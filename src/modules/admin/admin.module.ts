@@ -40,6 +40,7 @@ import { AdminRolesController } from './controllers/admin-roles.controller';
 // Services
 import { AdminDashboardService } from './services/admin-dashboard.service';
 import { AdminUsersQueryService } from './services/admin-users-query.service';
+import { AdminUserCategoryFeesService } from './services/admin-user-category-fees.service';
 import { AdminUserPlanLookupService } from './services/admin-user-plan-lookup.service';
 import { AdminListingsQueryService } from './services/admin-listings-query.service';
 import { AdminOrdersQueryService } from './services/admin-orders-query.service';
@@ -140,6 +141,7 @@ import { ReferralModule } from '../referral/referral.module';
     AdminDashboardService,
     AdminUserPlanLookupService,
     AdminUsersQueryService,
+    AdminUserCategoryFeesService,
     AdminListingsQueryService,
     AdminOrdersQueryService,
     AdminOrdersNotifyService,

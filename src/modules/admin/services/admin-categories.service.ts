@@ -28,6 +28,12 @@ const CATEGORY_SELECT = {
   feePercentageAuction: true,
   feeCapAuction: true,
   auctionDepositPercent: true,
+  feePercentageDirectNew: true,
+  feePercentageDirectUsed: true,
+  feePercentageAuctionNew: true,
+  feePercentageAuctionUsed: true,
+  auctionDepositPercentNew: true,
+  auctionDepositPercentUsed: true,
   isActive: true,
   createdAt: true,
   parent: { select: { id: true, title: true, isActive: true } },
@@ -83,8 +89,30 @@ export class AdminCategoriesService {
     if (dto.parentId) {
       await this.ensureParentExists(dto.parentId);
     }
-    const feeDirect = dto.feePercentageDirect ?? dto.feePercentage ?? 5;
-    const feeAuction = dto.feePercentageAuction ?? dto.feePercentage ?? 5;
+    const feeDirectNew =
+      dto.feePercentageDirectNew ??
+      dto.feePercentageDirect ??
+      dto.feePercentage ??
+      5;
+    const feeDirectUsed =
+      dto.feePercentageDirectUsed ??
+      dto.feePercentageDirect ??
+      dto.feePercentage ??
+      feeDirectNew;
+    const feeAuctionNew =
+      dto.feePercentageAuctionNew ??
+      dto.feePercentageAuction ??
+      dto.feePercentage ??
+      5;
+    const feeAuctionUsed =
+      dto.feePercentageAuctionUsed ??
+      dto.feePercentageAuction ??
+      dto.feePercentage ??
+      feeAuctionNew;
+    const depositNew =
+      dto.auctionDepositPercentNew ?? dto.auctionDepositPercent ?? 10;
+    const depositUsed =
+      dto.auctionDepositPercentUsed ?? dto.auctionDepositPercent ?? depositNew;
     const capDirect = dto.feeCapDirect ?? dto.feeCap ?? 10_000_000;
     const capAuction = dto.feeCapAuction ?? dto.feeCap ?? 500000;
     const created = await this.prisma.category.create({
@@ -93,13 +121,19 @@ export class AdminCategoriesService {
         slug: dto.slug,
         icon: dto.icon ?? null,
         parentId: dto.parentId ?? null,
-        feePercentage: dto.feePercentage ?? feeDirect,
+        feePercentage: dto.feePercentage ?? feeDirectNew,
         feeCap: dto.feeCap ?? capDirect,
-        feePercentageDirect: feeDirect,
+        feePercentageDirect: feeDirectNew,
         feeCapDirect: capDirect,
-        feePercentageAuction: feeAuction,
+        feePercentageAuction: feeAuctionNew,
         feeCapAuction: capAuction,
-        auctionDepositPercent: dto.auctionDepositPercent ?? 10,
+        auctionDepositPercent: depositNew,
+        feePercentageDirectNew: feeDirectNew,
+        feePercentageDirectUsed: feeDirectUsed,
+        feePercentageAuctionNew: feeAuctionNew,
+        feePercentageAuctionUsed: feeAuctionUsed,
+        auctionDepositPercentNew: depositNew,
+        auctionDepositPercentUsed: depositUsed,
         isActive: dto.isActive ?? true,
       },
       select: CATEGORY_SELECT,
@@ -162,11 +196,27 @@ export class AdminCategoriesService {
         parentId: dto.parentId === undefined ? undefined : dto.parentId,
         feePercentage: dto.feePercentage ?? undefined,
         feeCap: dto.feeCap ?? undefined,
-        feePercentageDirect: dto.feePercentageDirect ?? undefined,
         feeCapDirect: dto.feeCapDirect ?? undefined,
-        feePercentageAuction: dto.feePercentageAuction ?? undefined,
         feeCapAuction: dto.feeCapAuction ?? undefined,
-        auctionDepositPercent: dto.auctionDepositPercent ?? undefined,
+        feePercentageDirectNew: dto.feePercentageDirectNew ?? undefined,
+        feePercentageDirectUsed: dto.feePercentageDirectUsed ?? undefined,
+        feePercentageAuctionNew: dto.feePercentageAuctionNew ?? undefined,
+        feePercentageAuctionUsed: dto.feePercentageAuctionUsed ?? undefined,
+        auctionDepositPercentNew: dto.auctionDepositPercentNew ?? undefined,
+        auctionDepositPercentUsed: dto.auctionDepositPercentUsed ?? undefined,
+        // Keep legacy single fields in sync with New when New is updated
+        feePercentageDirect:
+          dto.feePercentageDirectNew ??
+          dto.feePercentageDirect ??
+          undefined,
+        feePercentageAuction:
+          dto.feePercentageAuctionNew ??
+          dto.feePercentageAuction ??
+          undefined,
+        auctionDepositPercent:
+          dto.auctionDepositPercentNew ??
+          dto.auctionDepositPercent ??
+          undefined,
         isActive: dto.isActive ?? undefined,
       },
       select: CATEGORY_SELECT,

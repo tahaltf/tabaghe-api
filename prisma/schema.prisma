@@ -345,6 +345,7 @@ model User {
   referrals           User[]         @relation("UserReferrals")
   referralRewardsAsReferrer ReferralReward[] @relation("ReferralRewardReferrer")
   referralRewardsAsSeller   ReferralReward[] @relation("ReferralRewardSeller")
+  categoryFees        UserCategoryFee[]
 
   /** نقش سفارشی پنل ادمین — فقط برای role=ADMIN معنا دارد */
   adminRoleId         String?
@@ -935,6 +936,7 @@ model Category {
   children  Category[] @relation("CategoryTree")
   listings  Listing[]
   feeRules  FeeRule[]
+  userFees  UserCategoryFee[]
   isActive  Boolean    @default(true)
   createdAt DateTime   @default(now())
 
@@ -942,19 +944,48 @@ model Category {
   feePercentage Float   @default(5.0)
   feeCap        Decimal @default(500000)
 
-  // Direct-sale commission
+  // Direct-sale commission (legacy single value; synced from New for compat)
   feePercentageDirect Float   @default(5.0)
   feeCapDirect        Decimal @default(10000000)
 
-  // Auction commission (charged to seller when auction completes)
+  // Auction commission (legacy single value; synced from New for compat)
   feePercentageAuction Float   @default(5.0)
   feeCapAuction        Decimal @default(500000)
 
-  // Percentage of the starting price that must be blocked in the bidder's
-  // wallet in order to participate in an auction for this category.
+  // Auction deposit % (legacy single value; synced from New for compat)
   auctionDepositPercent Float  @default(10.0)
 
+  // Condition-specific percentages (NEW / USED)
+  feePercentageDirectNew  Float @default(5.0)
+  feePercentageDirectUsed Float @default(5.0)
+  feePercentageAuctionNew  Float @default(5.0)
+  feePercentageAuctionUsed Float @default(5.0)
+  auctionDepositPercentNew  Float @default(10.0)
+  auctionDepositPercentUsed Float @default(10.0)
+
   @@index([isActive])
+}
+
+/** Override کارمزد/ودیعه هر کاربر به ازای هر دسته — null = استفاده از پیش‌فرض دسته */
+model UserCategoryFee {
+  id        String   @id @default(cuid())
+  userId    String
+  categoryId String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category  Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  feePercentageDirectNew   Float?
+  feePercentageDirectUsed  Float?
+  feePercentageAuctionNew  Float?
+  feePercentageAuctionUsed Float?
+  auctionDepositPercentNew  Float?
+  auctionDepositPercentUsed Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, categoryId])
+  @@index([categoryId])
 }
 
 model Location {

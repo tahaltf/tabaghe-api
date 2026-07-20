@@ -5,7 +5,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
-import { ListingType } from '@prisma/client';
+import { ListingType, ItemCondition } from '@prisma/client';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../shared/contracts/auth';
@@ -18,6 +18,7 @@ interface FeePreviewBody {
   listingType: ListingType;
   categoryId?: string | null;
   amount: number | string;
+  condition?: ItemCondition | null;
 }
 
 @Controller('fees')
@@ -49,6 +50,7 @@ export class FeesController {
       body.categoryId ?? null,
       amount,
       actor?.id,
+      body.condition ?? null,
     );
   }
 }

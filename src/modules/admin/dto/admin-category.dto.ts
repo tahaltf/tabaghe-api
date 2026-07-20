@@ -25,7 +25,64 @@ class BaseCategoryFields {
   @IsString()
   parentId?: string | null;
 
-  // Direct sale
+  // Direct sale — condition-specific
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  feePercentageDirectNew?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  feePercentageDirectUsed?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  feeCapDirect?: number;
+
+  // Auction — condition-specific
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  feePercentageAuctionNew?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  feePercentageAuctionUsed?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  feeCapAuction?: number;
+
+  // Deposit % — condition-specific
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  auctionDepositPercentNew?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  auctionDepositPercentUsed?: number;
+
+  // Legacy single-value fields (kept for compat; synced from New when set)
   @IsOptional()
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
@@ -37,13 +94,6 @@ class BaseCategoryFields {
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
-  feeCapDirect?: number;
-
-  // Auction
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0)
   @Max(100)
   feePercentageAuction?: number;
 
@@ -51,17 +101,9 @@ class BaseCategoryFields {
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
-  feeCapAuction?: number;
-
-  // Deposit %
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0)
   @Max(100)
   auctionDepositPercent?: number;
 
-  // Legacy
   @IsOptional()
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })

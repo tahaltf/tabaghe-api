@@ -8,6 +8,7 @@ import {
   AuctionBidStatus,
   AuctionStatus,
   AuctionSettlementStatus,
+  ItemCondition,
   ListingType,
   SecondChanceOfferStatus,
 } from '@prisma/client';
@@ -158,7 +159,15 @@ export class AuctionSupportService {
       where: { id: listingId },
       select: {
         categoryId: true,
-        category: { select: { auctionDepositPercent: true } },
+        condition: true,
+        sellerId: true,
+        category: {
+          select: {
+            auctionDepositPercent: true,
+            auctionDepositPercentNew: true,
+            auctionDepositPercentUsed: true,
+          },
+        },
       },
     });
     if (!listing) throw new NotFoundException('آگهی یافت نشد');
@@ -173,10 +182,45 @@ export class AuctionSupportService {
       select: { auctionDepositPercent: true },
     });
 
-    const percent =
-      feeRule?.auctionDepositPercent ??
-      listing.category?.auctionDepositPercent ??
-      10;
+    // User override
+    if (listing.sellerId && listing.categoryId) {
+      const userFee = await tx.userCategoryFee.findUnique({
+        where: {
+          userId_categoryId: {
+            userId: listing.sellerId,
+            categoryId: listing.categoryId,
+          },
+        },
+        select: {
+          auctionDepositPercentNew: true,
+          auctionDepositPercentUsed: true,
+        },
+      });
+      const isUsed = listing.condition === ItemCondition.USED;
+      const fromUser = isUsed
+        ? userFee?.auctionDepositPercentUsed
+        : userFee?.auctionDepositPercentNew;
+      if (fromUser != null && Number.isFinite(fromUser) && fromUser >= 0) {
+        const dec = new Decimal(fromUser);
+        return dec.gt(0) ? dec : new Decimal(10);
+      }
+    }
+
+    if (
+      feeRule?.auctionDepositPercent != null &&
+      Number.isFinite(feeRule.auctionDepositPercent) &&
+      feeRule.auctionDepositPercent > 0
+    ) {
+      return new Decimal(feeRule.auctionDepositPercent);
+    }
+
+    const isUsed = listing.condition === ItemCondition.USED;
+    const fromCategory = isUsed
+      ? listing.category?.auctionDepositPercentUsed ??
+        listing.category?.auctionDepositPercent
+      : listing.category?.auctionDepositPercentNew ??
+        listing.category?.auctionDepositPercent;
+    const percent = fromCategory ?? 10;
     const dec = new Decimal(percent);
     return dec.gt(0) ? dec : new Decimal(10);
   }
