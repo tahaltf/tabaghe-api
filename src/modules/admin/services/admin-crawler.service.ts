@@ -7,13 +7,18 @@ import {
 } from '@nestjs/common';
 import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 import { Response } from 'express';
+import { ServerSecretConfigService } from '../../../shared/settings/server-secret-config.service';
 
 @Injectable()
 export class AdminCrawlerService {
   private readonly logger = new Logger(AdminCrawlerService.name);
 
+  constructor(private readonly secrets: ServerSecretConfigService) {}
+
   private get baseUrl(): string {
-    return (process.env.CRAWLER_SERVICE_URL || 'http://127.0.0.1:5050').replace(/\/$/, '');
+    return (
+      this.secrets.get('CRAWLER_SERVICE_URL') || 'http://127.0.0.1:5050'
+    ).replace(/\/$/, '');
   }
 
   async getStatus() {

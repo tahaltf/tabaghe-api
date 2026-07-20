@@ -15,7 +15,9 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
+import { PermissionsGuard } from '../../auth/guards/permissions.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
+import { RequirePermission } from '../../auth/decorators/require-permission.decorator';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { RawResponse } from '../../../common/decorators/raw-response.decorator';
 import { CommonEngagementService } from '../../../common-module/services/common-engagement.service';
@@ -67,8 +69,9 @@ const CUSTOMER_CLUB_SAMPLE_PHONES = [
 ];
 
 @Controller('admin/customer-club')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.ADMIN)
+@RequirePermission('customer_club.view')
 export class AdminCustomerClubController {
   constructor(
     private readonly prisma: PrismaService,
@@ -153,6 +156,7 @@ export class AdminCustomerClubController {
   }
 
   @Post()
+  @RequirePermission('customer_club.update')
   async addOne(@Body() dto: AdminAddCustomerClubDto) {
     const contact =
       dto.contact?.trim() || dto.phone?.trim() || '';
@@ -170,6 +174,7 @@ export class AdminCustomerClubController {
   }
 
   @Post('import')
+  @RequirePermission('customer_club.update')
   async importText(@Body() dto: AdminImportCustomerClubDto) {
     const text = dto.text?.trim() ?? '';
     if (!text) {
@@ -183,6 +188,7 @@ export class AdminCustomerClubController {
   }
 
   @Post('import-file')
+  @RequirePermission('customer_club.update')
   @UseInterceptors(FileInterceptor('file'))
   async importFile(@UploadedFile() file?: Express.Multer.File) {
     if (!file) {

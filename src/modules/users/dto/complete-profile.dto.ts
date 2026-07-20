@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import {
   IsNotEmpty,
   IsOptional,
@@ -39,8 +40,14 @@ export class CompleteProfileDto {
   @IsDateString()
   birthDate?: string | null;
 
-  /** کد معرف (اختیاری) — فقط یک‌بار قابل ثبت */
+  /** کد معرف (اختیاری) — اگر وارد شود باید معتبر باشد؛ وگرنه خطا می‌دهد */
   @IsOptional()
+  @Transform(({ value }) => {
+    if (value == null || value === '') return undefined;
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim().slice(0, 32);
+    return trimmed || undefined;
+  })
   @IsString()
   @MaxLength(32, { message: 'کد معرف نامعتبر است' })
   referralCode?: string;

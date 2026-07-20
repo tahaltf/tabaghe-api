@@ -15,7 +15,9 @@ import type { Express } from 'express';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
+import { PermissionsGuard } from '../../auth/guards/permissions.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
+import { RequirePermission } from '../../auth/decorators/require-permission.decorator';
 import { AdminTicketsService } from '../services/admin-tickets.service';
 import { AdminTicketListQueryDto } from '../dto/admin-query.dto';
 import {
@@ -26,8 +28,9 @@ import {
 import { ticketAttachmentMulterOptions } from '../../../common/upload/ticket-attachment-upload.config';
 
 @Controller('admin/tickets')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.ADMIN)
+@RequirePermission('tickets.view')
 export class AdminTicketsController {
   constructor(private readonly service: AdminTicketsService) {}
 
@@ -42,6 +45,7 @@ export class AdminTicketsController {
   }
 
   @Post('user/:userId')
+  @RequirePermission('tickets.update')
   @UseInterceptors(FileInterceptor('attachment', ticketAttachmentMulterOptions))
   createForUser(
     @Param('userId') userId: string,
@@ -52,6 +56,7 @@ export class AdminTicketsController {
   }
 
   @Post(':id/reply')
+  @RequirePermission('tickets.update')
   @UseInterceptors(FileInterceptor('attachment', ticketAttachmentMulterOptions))
   reply(
     @Param('id') id: string,
@@ -62,6 +67,7 @@ export class AdminTicketsController {
   }
 
   @Patch(':id/status')
+  @RequirePermission('tickets.update')
   updateStatus(@Param('id') id: string, @Body() dto: AdminUpdateTicketDto) {
     return this.service.updateStatus(id, dto);
   }

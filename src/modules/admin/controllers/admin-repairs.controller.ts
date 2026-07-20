@@ -13,7 +13,9 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
+import { PermissionsGuard } from '../../auth/guards/permissions.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
+import { RequirePermission } from '../../auth/decorators/require-permission.decorator';
 import { AdminRepairsService } from '../services/admin-repairs.service';
 import { AdminRepairListQueryDto } from '../dto/admin-query.dto';
 import {
@@ -26,8 +28,9 @@ import { repairShipVideoMulterOptions } from '../../../common/upload/repair-medi
 import { Throttle } from '@nestjs/throttler';
 
 @Controller('admin/repair-requests')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.ADMIN)
+@RequirePermission('repairs.view')
 export class AdminRepairsController {
   constructor(private readonly service: AdminRepairsService) {}
 
@@ -44,42 +47,49 @@ export class AdminRepairsController {
   }
 
   @Patch(':id/approve')
+  @RequirePermission('repairs.update')
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   approve(@Param('id') id: string, @Body() dto: AdminApproveRepairDto) {
     return this.service.approve(id, dto);
   }
 
   @Patch(':id/reject')
+  @RequirePermission('repairs.update')
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   reject(@Param('id') id: string, @Body() dto: AdminRejectRepairDto) {
     return this.service.reject(id, dto);
   }
 
   @Patch(':id/mark-received')
+  @RequirePermission('repairs.update')
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   markReceived(@Param('id') id: string) {
     return this.service.markReceived(id);
   }
 
   @Patch(':id/start-inspection')
+  @RequirePermission('repairs.update')
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   startInspection(@Param('id') id: string) {
     return this.service.startInspection(id);
   }
 
   @Patch(':id/set-result')
+  @RequirePermission('repairs.update')
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   setResult(@Param('id') id: string, @Body() dto: AdminSetResultDto) {
     return this.service.setResult(id, dto);
   }
 
   @Patch(':id/ready-to-ship')
+  @RequirePermission('repairs.update')
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   readyToShip(@Param('id') id: string) {
     return this.service.markReadyToShip(id);
   }
 
   @Patch(':id/ship-back')
+  @RequirePermission('repairs.update')
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @UseInterceptors(FileInterceptor('video', repairShipVideoMulterOptions))
   shipBack(
@@ -91,12 +101,14 @@ export class AdminRepairsController {
   }
 
   @Patch(':id/cancel')
+  @RequirePermission('repairs.update')
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   cancel(@Param('id') id: string, @Body('reason') reason?: string) {
     return this.service.cancel(id, reason);
   }
 
   @Patch(':id/complete')
+  @RequirePermission('repairs.update')
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   complete(@Param('id') id: string) {
     return this.service.complete(id);

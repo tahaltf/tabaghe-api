@@ -12,7 +12,9 @@ import {
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
+import { PermissionsGuard } from '../../auth/guards/permissions.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
+import { RequirePermission } from '../../auth/decorators/require-permission.decorator';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 
 interface ContactMessagePayload {
@@ -57,8 +59,9 @@ function serializeItem(item: {
 }
 
 @Controller('admin/contact-messages')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.ADMIN)
+@RequirePermission('contact_messages.view')
 export class AdminContactMessagesController {
   constructor(private readonly prisma: PrismaService) {}
 
@@ -105,6 +108,7 @@ export class AdminContactMessagesController {
   }
 
   @Patch(':id/read')
+  @RequirePermission('contact_messages.update')
   async toggleRead(
     @Param('id') id: string,
     @Body() body: { isRead?: boolean },
@@ -130,6 +134,7 @@ export class AdminContactMessagesController {
   }
 
   @Delete(':id')
+  @RequirePermission('contact_messages.update')
   async remove(@Param('id') id: string) {
     const existing = await this.prisma.systemSetting.findUnique({
       where: { id },

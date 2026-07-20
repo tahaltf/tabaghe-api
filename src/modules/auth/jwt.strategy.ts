@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { resolveJwtAccessSecret } from '../../config/jwt-secrets.util';
+import { UserRole } from '@prisma/client';
 import { AuthenticatedUser, JwtPayload } from '../../shared/contracts/auth';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 
@@ -59,17 +60,36 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         status: true,
         isVerified: true,
         isActive: true,
+        adminRoleId: true,
+        adminRole: {
+          select: {
+            isActive: true,
+            permissions: {
+              select: { permission: { select: { key: true } } },
+            },
+          },
+        },
       },
     });
     if (!user || !user.isActive) {
       throw new UnauthorizedException('حساب کاربری غیرفعال است');
     }
+
+    let permissions: string[] = [];
+    if (user.role === UserRole.GODADMIN) {
+      permissions = ['*'];
+    } else if (user.role === UserRole.ADMIN && user.adminRole?.isActive) {
+      permissions = user.adminRole.permissions.map((p) => p.permission.key);
+    }
+
     const authUser: AuthenticatedUser = {
       id: user.id,
       phone: user.phone,
       role: user.role,
       status: user.status,
       isVerified: user.isVerified,
+      adminRoleId: user.adminRoleId,
+      permissions,
     };
     this.validateCache.set(payload.sub, { user: authUser, cachedAt: now });
     this.pruneValidateCache(now);

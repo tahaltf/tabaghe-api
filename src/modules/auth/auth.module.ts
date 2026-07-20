@@ -14,6 +14,7 @@ import { SmsModule } from '../sms/sms.module';
 import { SmsTemplateBootstrapService } from '../sms/sms-template-bootstrap.service';
 import { PlanLifecycleModule } from '../plans/plan-lifecycle.module';
 import { ReferralModule } from '../referral/referral.module';
+import { PermissionsGuard } from './guards/permissions.guard';
 
 @Module({
   imports: [
@@ -39,7 +40,8 @@ import { ReferralModule } from '../referral/referral.module';
     SmsTemplateBootstrapService,
     GodadminBootstrapService,
     RegistrationPlanService,
+    PermissionsGuard,
   ],
-  exports: [AuthService, TokenService, OtpService],
+  exports: [AuthService, TokenService, OtpService, PermissionsGuard],
 })
 export class AuthModule {}

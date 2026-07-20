@@ -35,6 +35,7 @@ import { AdminServerStorageController } from './controllers/admin-server-storage
 import { AdminServerMonitorController } from './controllers/admin-server-monitor.controller';
 import { AdminSystemJobsController } from './controllers/admin-system-jobs.controller';
 import { AdminCrawlerController } from './controllers/admin-crawler.controller';
+import { AdminRolesController } from './controllers/admin-roles.controller';
 
 // Services
 import { AdminDashboardService } from './services/admin-dashboard.service';
@@ -52,6 +53,7 @@ import { AdminTransactionsService } from './services/admin-transactions.service'
 import { AdminCategoriesService } from './services/admin-categories.service';
 import { AdminLocationsService } from './services/admin-locations.service';
 import { AdminSettingsService } from './services/admin-settings.service';
+import { AdminSecretKeysService } from './services/admin-secret-keys.service';
 import { AdminPlansService } from './services/admin-plans.service';
 import { AdminFeeRulesService } from './services/admin-fee-rules.service';
 import { AdminRepairsService } from './services/admin-repairs.service';
@@ -75,6 +77,8 @@ import { AdminServerMonitorService } from './services/admin-server-monitor.servi
 import { AdminCrawlerService } from './services/admin-crawler.service';
 import { AdminBackupScheduler } from './services/admin-backup.scheduler';
 import { AdminSystemJobsService } from './services/admin-system-jobs.service';
+import { AdminRolesService } from './services/admin-roles.service';
+import { AdminRbacBootstrapService } from './services/admin-rbac-bootstrap.service';
 import { OrdersModule } from '../orders/orders.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { ListingModule } from '../listing/listing.module';
@@ -130,6 +134,7 @@ import { ReferralModule } from '../referral/referral.module';
     AdminServerMonitorController,
     AdminSystemJobsController,
     AdminCrawlerController,
+    AdminRolesController,
   ],
   providers: [
     AdminDashboardService,
@@ -147,6 +152,7 @@ import { ReferralModule } from '../referral/referral.module';
     AdminCategoriesService,
     AdminLocationsService,
     AdminSettingsService,
+    AdminSecretKeysService,
     AdminPlansService,
     AdminFeeRulesService,
     AdminRepairsService,
@@ -170,6 +176,8 @@ import { ReferralModule } from '../referral/referral.module';
     AdminBackupScheduler,
     AdminSystemJobsService,
     UserRatingHistoryService,
+    AdminRolesService,
+    AdminRbacBootstrapService,
   ],
 })
 export class AdminModule {}

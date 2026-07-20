@@ -11,27 +11,36 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
+import { PermissionsGuard } from '../../auth/guards/permissions.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
+import { RequirePermission } from '../../auth/decorators/require-permission.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../../shared/contracts/auth';
 import { AdminSettingsService } from '../services/admin-settings.service';
+import { AdminSecretKeysService } from '../services/admin-secret-keys.service';
 import {
   BulkUpsertSettingsDto,
   UpsertSettingDto,
 } from '../dto/admin-setting.dto';
+import { SetAdminSecretDto } from '../dto/admin-secret.dto';
 import { bannerMulterOptions } from '../../../common/upload/banner-upload.config';
 import { brandLogoMulterOptions } from '../../../common/upload/brand-logo-upload.config';
 import { inspectionCertificateAssetMulterOptions } from '../../../common/upload/inspection-certificate-asset-upload.config';
 
 @Controller('admin/settings')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.ADMIN)
+@RequirePermission('settings.view')
 export class AdminSettingsController {
-  constructor(private readonly service: AdminSettingsService) {}
+  constructor(
+    private readonly service: AdminSettingsService,
+    private readonly secretKeys: AdminSecretKeysService,
+  ) {}
 
   @Get()
   list() {
@@ -44,11 +53,13 @@ export class AdminSettingsController {
   }
 
   @Put()
+  @RequirePermission('settings.update')
   upsert(@Body() dto: UpsertSettingDto, @CurrentUser() actor: AuthenticatedUser) {
     return this.service.upsert(dto, actor);
   }
 
   @Put('bulk')
+  @RequirePermission('settings.update')
   upsertMany(
     @Body() dto: BulkUpsertSettingsDto,
     @CurrentUser() actor: AuthenticatedUser,
@@ -57,6 +68,7 @@ export class AdminSettingsController {
   }
 
   @Post('banner')
+  @RequirePermission('settings.update')
   @UseInterceptors(FileInterceptor('banner', bannerMulterOptions))
   async uploadBanner(@UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('فایلی ارسال نشده است');
@@ -64,6 +76,7 @@ export class AdminSettingsController {
   }
 
   @Delete('banner')
+  @RequirePermission('settings.update')
   removeBanner() {
     return this.service.removeBanner();
   }
@@ -185,11 +198,13 @@ export class AdminSettingsController {
   }
 
   @Get('homepage-layout')
+  @RequirePermission('homepage.view')
   homepageLayout() {
     return this.service.getHomepageLayout();
   }
 
   @Put('homepage-layout')
+  @RequirePermission('homepage.update')
   upsertHomepageLayout(
     @Body() body: { layout: unknown },
     @CurrentUser() actor: AuthenticatedUser,
@@ -199,8 +214,51 @@ export class AdminSettingsController {
   }
 
   @Delete('homepage-layout')
+  @RequirePermission('homepage.update')
   resetHomepageLayout(@CurrentUser() actor: AuthenticatedUser) {
     return this.service.resetHomepageLayout(actor);
+  }
+
+  @Get('secrets/catalog')
+  @RequirePermission('settings_secrets.view')
+  secretCatalog() {
+    return this.secretKeys.getCatalog();
+  }
+
+  @Get('secrets')
+  @RequirePermission('settings_secrets.view')
+  listSecrets() {
+    return this.secretKeys.list();
+  }
+
+  @Put('secrets/:key')
+  @RequirePermission('settings_secrets.update')
+  setSecret(
+    @Param('key') key: string,
+    @Body() dto: SetAdminSecretDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.secretKeys.set(key, dto.value, actor);
+  }
+
+  @Delete('secrets/:key')
+  @RequirePermission('settings_secrets.update')
+  clearSecret(
+    @Param('key') key: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.secretKeys.clear(key, actor);
+  }
+
+  @Post('secrets/:key/reveal')
+  @Roles(UserRole.GODADMIN)
+  @RequirePermission('settings_secrets.view')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  revealSecret(
+    @Param('key') key: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.secretKeys.reveal(key, actor);
   }
 
   @Delete(':key')

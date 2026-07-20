@@ -10,14 +10,17 @@ import {
 import { AuctionService } from './auction.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { randomUUID } from 'crypto';
 
 @Controller('admin/auctions')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.ADMIN)
+@RequirePermission('auction_ops.view')
 export class AdminAuctionController {
   constructor(
     private readonly auctionService: AuctionService,
@@ -90,6 +93,7 @@ export class AdminAuctionController {
   // Force settle (admin override)
   // -----------------------------------
   @Post(':listingId/force-settle')
+  @RequirePermission('auction_ops.update')
   async forceSettle(
     @Param('listingId') listingId: string,
     @Req() req: any,
@@ -108,6 +112,7 @@ export class AdminAuctionController {
   // Force penalize
   // -----------------------------------
   @Post(':listingId/force-penalize')
+  @RequirePermission('auction_ops.update')
   async forcePenalize(
     @Param('listingId') listingId: string,
     @Req() req: any,
@@ -126,6 +131,7 @@ export class AdminAuctionController {
   // Force refund
   // -----------------------------------
   @Post(':listingId/refund')
+  @RequirePermission('auction_ops.update')
   async refund(
     @Param('listingId') listingId: string,
     @Req() req: any,

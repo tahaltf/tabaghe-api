@@ -53,6 +53,7 @@ export class AuthService {
     phone: string,
     code: string,
     clientMeta: ClientRequestMeta = { ipAddress: null, userAgent: null },
+    referralCode?: string | null,
   ): Promise<AuthSessionResponse> {
     await this.otpService.consume(phone, code);
     const existed = await this.prisma.user.findUnique({
@@ -61,6 +62,26 @@ export class AuthService {
     });
     const user = await this.findOrCreateUser(phone);
     const isNewUser = !existed;
+    // لینک دعوت (?ref=): ثبت خودکار معرف — هر خطایی فقط بایند را رد می‌کند
+    if (referralCode) {
+      try {
+        const bound = await this.referralService.tryBindReferralCode(
+          user.id,
+          referralCode,
+        );
+        if (bound) {
+          this.logger.log(
+            `Referral bound for user ${user.id} via invite link code.`,
+          );
+        }
+      } catch (err) {
+        this.logger.warn(
+          `Referral bind skipped for user ${user.id}: ${String(
+            (err as Error)?.message ?? err,
+          )}`,
+        );
+      }
+    }
     await this.recordSuccessfulLogin(user.id, UserLoginMethod.OTP, clientMeta);
     const session = this.buildSession(user);
     this.notifyAdminAboutLogin(user.phone);

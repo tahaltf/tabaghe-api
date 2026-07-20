@@ -32,6 +32,11 @@ export class AdminCreateUserDto {
   @IsEnum(UserRole, { message: 'نقش انتخاب‌شده معتبر نیست' })
   role?: UserRole;
 
+  /** نقش سفارشی پنل — فقط وقتی role=ADMIN معنا دارد */
+  @IsOptional()
+  @IsString()
+  adminRoleId?: string;
+
   @IsOptional()
   @IsBoolean({ message: 'مقدار فعال/غیرفعال باید بولی باشد' })
   isActive?: boolean;

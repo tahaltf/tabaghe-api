@@ -31,6 +31,7 @@ export class AuthController {
       dto.phone,
       dto.code,
       extractClientRequestMeta(req),
+      dto.referralCode,
     );
   }
 

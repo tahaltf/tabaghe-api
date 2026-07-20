@@ -326,6 +326,10 @@ model User {
   landingPages        LandingPage[]
   wordpressApiTokens  WordPressApiToken[]
   wordpressConnection WordPressConnection?
+  marketingAccounts   MarketingAccount[]
+  marketingMediaAssets MarketingMediaAsset[]
+  marketingPosts      MarketingPost[]
+  marketingMessagesSent MarketingMessage[]
   cart                Cart?
   listingViews        ListingView[]
   couponRedemptions   CouponRedemption[]
@@ -342,10 +346,57 @@ model User {
   referralRewardsAsReferrer ReferralReward[] @relation("ReferralRewardReferrer")
   referralRewardsAsSeller   ReferralReward[] @relation("ReferralRewardSeller")
 
+  /** نقش سفارشی پنل ادمین — فقط برای role=ADMIN معنا دارد */
+  adminRoleId         String?
+  adminRole           AdminRole?     @relation(fields: [adminRoleId], references: [id], onDelete: SetNull)
+
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
 
   @@index([referredById])
+  @@index([adminRoleId])
+}
+
+////////////////////
+/// ADMIN RBAC
+////////////////////
+
+model AdminRole {
+  id          String                @id @default(cuid())
+  name        String
+  slug        String                @unique
+  description String?
+  isSystem    Boolean               @default(false)
+  isActive    Boolean               @default(true)
+  permissions AdminRolePermission[]
+  users       User[]
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+}
+
+model AdminPermission {
+  id          String                @id @default(cuid())
+  key         String                @unique
+  group       String
+  groupLabel  String
+  action      String
+  label       String
+  description String?
+  sortOrder   Int                   @default(0)
+  roles       AdminRolePermission[]
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  @@index([group])
+}
+
+model AdminRolePermission {
+  roleId       String
+  permissionId String
+  role         AdminRole       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   AdminPermission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
 }
 
 enum UserLoginMethod {
@@ -1102,6 +1153,18 @@ model SystemSetting {
   updatedAt   DateTime @updatedAt
 }
 
+/// کلیدهای integration سرور — مقادیر رمزنگاری‌شده (AES-256-GCM) و مدیریت از پنل ادمین
+model SystemSecret {
+  id             String   @id @default(cuid())
+  key            String   @unique
+  encryptedValue String   @db.Text
+  updatedById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([updatedAt])
+}
+
 model FeeRule {
   id          String      @id @default(cuid())
   listingType ListingType
@@ -1415,4 +1478,173 @@ model CouponRedemption {
 
   @@index([couponId, userId])
   @@index([checkoutSessionId])
+}
+
+////////////////////
+/// MARKETING / SOCIAL
+////////////////////
+
+enum MarketingPlatform {
+  INSTAGRAM
+}
+
+enum MarketingAccountStatus {
+  ACTIVE
+  TOKEN_EXPIRED
+  REVOKED
+  ERROR
+}
+
+enum MarketingPostStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+}
+
+enum MarketingMediaType {
+  IMAGE
+  VIDEO
+  CAROUSEL
+  REEL
+  STORY
+}
+
+enum MarketingMessageDirection {
+  IN
+  OUT
+}
+
+model MarketingAccount {
+  id             String                 @id @default(cuid())
+  platform       MarketingPlatform
+  externalId     String
+  username       String
+  displayName    String?
+  profilePicture String?
+  status         MarketingAccountStatus @default(ACTIVE)
+  lastError      String?
+  connectedById  String
+  connectedBy    User                   @relation(fields: [connectedById], references: [id], onDelete: Cascade)
+  token          MarketingAccountToken?
+  mediaAssets    MarketingMediaAsset[]
+  posts          MarketingPost[]
+  conversations  MarketingConversation[]
+  insightSnapshots MarketingInsightSnapshot[]
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  @@unique([platform, externalId])
+  @@index([platform, status])
+  @@index([connectedById])
+}
+
+model MarketingAccountToken {
+  id              String           @id @default(cuid())
+  accountId       String           @unique
+  account         MarketingAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  accessTokenEnc  String
+  tokenExpiresAt  DateTime?
+  scopes          String[]
+  lastRefreshedAt DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+}
+
+model MarketingMediaAsset {
+  id           String              @id @default(cuid())
+  accountId    String?
+  account      MarketingAccount?   @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  fileName     String
+  mimeType     String
+  localPath    String
+  publicUrl    String
+  mediaType    MarketingMediaType  @default(IMAGE)
+  caption      String?
+  altText      String?
+  width        Int?
+  height       Int?
+  durationSec  Float?
+  fileSize     Int?
+  createdById  String
+  createdBy    User                @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  posts        MarketingPost[]
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@index([accountId, createdAt])
+  @@index([createdById])
+}
+
+model MarketingPost {
+  id              String              @id @default(cuid())
+  accountId       String
+  account         MarketingAccount    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  mediaAssetId    String?
+  mediaAsset      MarketingMediaAsset? @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
+  /** IDs of additional media assets for carousel */
+  mediaAssetIds   String[]            @default([])
+  platformMediaId String?
+  containerId     String?
+  mediaType       MarketingMediaType
+  caption         String?
+  status          MarketingPostStatus @default(DRAFT)
+  scheduledAt     DateTime?
+  publishedAt     DateTime?
+  errorMessage    String?
+  createdById     String
+  createdBy       User                @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([accountId, status])
+  @@index([status, scheduledAt])
+  @@index([createdById])
+}
+
+model MarketingConversation {
+  id                 String            @id @default(cuid())
+  accountId          String
+  account            MarketingAccount  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  externalThreadId   String
+  participantName    String?
+  participantAvatar  String?
+  lastMessageAt      DateTime?
+  unreadCount        Int               @default(0)
+  messages           MarketingMessage[]
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@unique([accountId, externalThreadId])
+  @@index([accountId, lastMessageAt])
+}
+
+model MarketingMessage {
+  id                String                    @id @default(cuid())
+  conversationId    String
+  conversation      MarketingConversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  externalMessageId String?
+  direction         MarketingMessageDirection
+  text              String?
+  attachments       Json?
+  sentAt            DateTime                  @default(now())
+  sentByAdminId     String?
+  sentByAdmin       User?                     @relation(fields: [sentByAdminId], references: [id], onDelete: SetNull)
+
+  @@unique([conversationId, externalMessageId])
+  @@index([conversationId, sentAt])
+}
+
+model MarketingInsightSnapshot {
+  id         String           @id @default(cuid())
+  accountId  String
+  account    MarketingAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  metricKey  String
+  value      Float
+  period     String           @default("day")
+  capturedAt DateTime         @default(now())
+
+  @@index([accountId, metricKey, capturedAt])
+  @@index([accountId, capturedAt])
 }

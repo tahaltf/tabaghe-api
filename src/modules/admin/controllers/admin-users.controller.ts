@@ -22,7 +22,9 @@ import { validateUploadedFileSignature } from '../../../common/upload/validate-u
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
+import { PermissionsGuard } from '../../auth/guards/permissions.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
+import { RequirePermission } from '../../auth/decorators/require-permission.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { AdminUsersQueryService } from '../services/admin-users-query.service';
 import { AdminUserListQueryDto } from '../dto/admin-query.dto';
@@ -38,8 +40,9 @@ import { AdminUpdateUserProfileDto } from '../dto/admin-update-user-profile.dto'
 import { AuthenticatedUser } from '../../../shared/contracts/auth';
 
 @Controller('admin/users')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.ADMIN)
+@RequirePermission('users.view')
 export class AdminUsersQueryController {
   constructor(
     private readonly service: AdminUsersQueryService,
@@ -88,11 +91,13 @@ export class AdminUsersQueryController {
   }
 
   @Patch(':id/toggle-role')
+  @RequirePermission('users.update')
   toggleRole(@CurrentUser() actor: AuthenticatedUser, @Param('id') id: string) {
     return this.service.toggleRole(actor, id);
   }
 
   @Patch(':id/profile')
+  @RequirePermission('users.update')
   @UseInterceptors(
     FileInterceptor('nationalCardImage', nationalCardMulterOptions),
   )
@@ -107,6 +112,7 @@ export class AdminUsersQueryController {
   }
 
   @Patch(':id/password')
+  @RequirePermission('users.update')
   setPassword(
     @CurrentUser() actor: AuthenticatedUser,
     @Param('id') id: string,
@@ -116,6 +122,7 @@ export class AdminUsersQueryController {
   }
 
   @Patch(':id/activation')
+  @RequirePermission('users.update')
   setActivation(
     @CurrentUser() actor: AuthenticatedUser,
     @Param('id') id: string,
@@ -125,6 +132,7 @@ export class AdminUsersQueryController {
   }
 
   @Patch(':id/approved')
+  @RequirePermission('users.update')
   setApproved(
     @CurrentUser() actor: AuthenticatedUser,
     @Param('id') id: string,
@@ -134,6 +142,7 @@ export class AdminUsersQueryController {
   }
 
   @Patch(':id/rating')
+  @RequirePermission('users.update')
   setRating(
     @CurrentUser() actor: AuthenticatedUser,
     @Param('id') id: string,
@@ -143,6 +152,7 @@ export class AdminUsersQueryController {
   }
 
   @Patch(':id/trust-score')
+  @RequirePermission('users.update')
   setTrustScore(
     @CurrentUser() actor: AuthenticatedUser,
     @Param('id') id: string,
@@ -152,6 +162,7 @@ export class AdminUsersQueryController {
   }
 
   @Post()
+  @RequirePermission('users.create')
   create(
     @CurrentUser() actor: AuthenticatedUser,
     @Body() dto: AdminCreateUserDto,
@@ -168,6 +179,7 @@ export class AdminUsersQueryController {
   }
 
   @Patch(':id/plan')
+  @RequirePermission('users.update')
   setUserPlan(
     @CurrentUser() actor: AuthenticatedUser,
     @Param('id') id: string,
@@ -184,6 +196,7 @@ export class AdminUsersQueryController {
   }
 
   @Delete(':id/plan')
+  @RequirePermission('users.update')
   cancelUserPlan(
     @CurrentUser() actor: AuthenticatedUser,
     @Param('id') id: string,

@@ -1,0 +1,326 @@
+export type AdminSecretKeyCategory =
+  | 'sms'
+  | 'payment'
+  | 'marketing'
+  | 'web_push'
+  | 'crawler'
+  | 'general';
+
+export type AdminSecretValueKind = 'secret' | 'url' | 'text';
+
+export interface AdminSecretKeyDef {
+  key: string;
+  category: AdminSecretKeyCategory;
+  categoryLabel: string;
+  label: string;
+  description?: string;
+  kind: AdminSecretValueKind;
+  placeholder?: string;
+  /** اگر false باشد فقط از DB خوانده می‌شود (بدون fallback env) */
+  envFallback?: boolean;
+}
+
+/** کلیدهای بحرانی که هرگز در این سیستم مدیریت نمی‌شوند */
+export const BLOCKED_SECRET_ENV_KEYS = new Set([
+  'DATABASE_URL',
+  'JWT_SECRET',
+  'JWT_REFRESH_SECRET',
+  'JWT_ACCESS_TTL_SECONDS',
+  'JWT_REFRESH_TTL_SECONDS',
+  'ADMIN_SECRETS_ENC_KEY',
+  'MARKETING_TOKEN_ENC_KEY',
+  'NODE_ENV',
+  'PORT',
+]);
+
+/**
+ * Whitelist کلیدهای integration قابل مدیریت از پنل ادمین.
+ * هر integration جدید باید entry مربوطه را اینجا اضافه کند.
+ */
+export const ADMIN_SECRET_KEYS_REGISTRY: AdminSecretKeyDef[] = [
+  {
+    key: 'SMS_IR_API_KEY',
+    category: 'sms',
+    categoryLabel: 'پیامک',
+    label: 'کلید API sms.ir',
+    description: 'کلید webservice از پنل sms.ir',
+    kind: 'secret',
+    placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+  },
+  {
+    key: 'KAVENEGAR_API_KEY',
+    category: 'sms',
+    categoryLabel: 'پیامک',
+    label: 'کلید API کاوه‌نگار',
+    kind: 'secret',
+  },
+  {
+    key: 'SMS_IR_LINE_NUMBER',
+    category: 'sms',
+    categoryLabel: 'پیامک',
+    label: 'شماره خط sms.ir',
+    description: 'اختیاری — برای ارسال متنی بدون قالب',
+    kind: 'text',
+  },
+  {
+    key: 'ZIBAL_MERCHANT',
+    category: 'payment',
+    categoryLabel: 'درگاه پرداخت',
+    label: 'Merchant زیبال',
+    kind: 'text',
+    placeholder: 'zibal',
+  },
+  {
+    key: 'ZIBAL_REQUEST_URL',
+    category: 'payment',
+    categoryLabel: 'درگاه پرداخت',
+    label: 'URL درخواست زیبال',
+    kind: 'url',
+    placeholder: 'https://gateway.zibal.ir/v1/request',
+  },
+  {
+    key: 'ZIBAL_VERIFY_URL',
+    category: 'payment',
+    categoryLabel: 'درگاه پرداخت',
+    label: 'URL تأیید زیبال',
+    kind: 'url',
+    placeholder: 'https://gateway.zibal.ir/v1/verify',
+  },
+  {
+    key: 'ZIBAL_START_PAY_URL',
+    category: 'payment',
+    categoryLabel: 'درگاه پرداخت',
+    label: 'URL شروع پرداخت زیبال',
+    kind: 'url',
+    placeholder: 'https://gateway.zibal.ir/start',
+  },
+  {
+    key: 'ZIBAL_CALLBACK_URL',
+    category: 'payment',
+    categoryLabel: 'درگاه پرداخت',
+    label: 'Callback زیبال',
+    kind: 'url',
+    placeholder: 'https://api.example.com/api/v1/payments/callback/zibal',
+  },
+  {
+    key: 'META_APP_ID',
+    category: 'marketing',
+    categoryLabel: 'مارکتینگ',
+    label: 'Meta App ID',
+    description: 'شناسه اپ Meta Developer برای Instagram Graph API',
+    kind: 'text',
+  },
+  {
+    key: 'META_APP_SECRET',
+    category: 'marketing',
+    categoryLabel: 'مارکتینگ',
+    label: 'Meta App Secret',
+    kind: 'secret',
+  },
+  {
+    key: 'META_WEBHOOK_VERIFY_TOKEN',
+    category: 'marketing',
+    categoryLabel: 'مارکتینگ',
+    label: 'Webhook Verify Token',
+    description: 'توکن تأیید webhook اینستاگرام در Meta Developer',
+    kind: 'secret',
+  },
+  {
+    key: 'MARKETING_OAUTH_REDIRECT_URI',
+    category: 'marketing',
+    categoryLabel: 'مارکتینگ',
+    label: 'OAuth Redirect URI',
+    kind: 'url',
+    placeholder:
+      'https://api.example.com/api/v1/integrations/marketing/instagram/oauth/callback',
+  },
+  {
+    key: 'API_PUBLIC_URL',
+    category: 'marketing',
+    categoryLabel: 'مارکتینگ',
+    label: 'URL عمومی API',
+    description: 'برای URL رسانه‌ای که Instagram باید بتواند دانلود کند',
+    kind: 'url',
+  },
+  {
+    key: 'WEB_PUSH_VAPID_PUBLIC_KEY',
+    category: 'web_push',
+    categoryLabel: 'Web Push',
+    label: 'VAPID Public Key',
+    kind: 'secret',
+  },
+  {
+    key: 'WEB_PUSH_VAPID_PRIVATE_KEY',
+    category: 'web_push',
+    categoryLabel: 'Web Push',
+    label: 'VAPID Private Key',
+    kind: 'secret',
+  },
+  {
+    key: 'WEB_PUSH_VAPID_SUBJECT',
+    category: 'web_push',
+    categoryLabel: 'Web Push',
+    label: 'VAPID Subject',
+    kind: 'text',
+    placeholder: 'mailto:support@example.com',
+  },
+  {
+    key: 'CRAWLER_SERVICE_URL',
+    category: 'crawler',
+    categoryLabel: 'خزشگر',
+    label: 'آدرس سرویس خزشگر',
+    kind: 'url',
+    placeholder: 'http://127.0.0.1:5050',
+  },
+  {
+    key: 'API_URL',
+    category: 'general',
+    categoryLabel: 'عمومی',
+    label: 'آدرس API',
+    kind: 'url',
+    placeholder: 'https://api.example.com',
+  },
+  {
+    key: 'FRONTEND_APP_URL',
+    category: 'general',
+    categoryLabel: 'عمومی',
+    label: 'آدرس فرانت',
+    kind: 'url',
+    placeholder: 'https://example.com',
+  },
+  {
+    key: 'PAYMENT_RETURN_URL',
+    category: 'general',
+    categoryLabel: 'عمومی',
+    label: 'URL بازگشت پرداخت',
+    kind: 'url',
+  },
+  {
+    key: 'FRONTEND_ORIGINS',
+    category: 'general',
+    categoryLabel: 'عمومی',
+    label: 'Origins مجاز CORS',
+    description: 'با کاما جدا شوند',
+    kind: 'text',
+    placeholder: 'https://example.com,https://www.example.com',
+  },
+];
+
+const registryByKey = new Map(
+  ADMIN_SECRET_KEYS_REGISTRY.map((def) => [def.key, def]),
+);
+
+export function getAdminSecretKeyDef(key: string): AdminSecretKeyDef | undefined {
+  return registryByKey.get(key);
+}
+
+export function assertAdminSecretKey(key: string): AdminSecretKeyDef {
+  const def = getAdminSecretKeyDef(key);
+  if (!def) {
+    throw new Error(`Secret key "${key}" is not registered`);
+  }
+  return def;
+}
+
+export function isRegisteredAdminSecretKey(key: string): boolean {
+  return registryByKey.has(key);
+}
+
+export function maskAdminSecretValue(
+  value: string,
+  kind: AdminSecretValueKind = 'secret',
+): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+
+  if (kind === 'url') {
+    try {
+      const url = new URL(trimmed);
+      const host = url.host;
+      if (host.length <= 6) return '***';
+      return `${url.protocol}//***${host.slice(-4)}${url.pathname !== '/' ? '/…' : ''}`;
+    } catch {
+      // fall through
+    }
+  }
+
+  if (trimmed.length <= 4) {
+    return '*'.repeat(Math.max(4, trimmed.length));
+  }
+  return `${'*'.repeat(8)}${trimmed.slice(-4)}`;
+}
+
+export function validateAdminSecretValue(
+  def: AdminSecretKeyDef,
+  value: string,
+): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return 'مقدار نمی‌تواند خالی باشد';
+  }
+
+  if (def.kind === 'url') {
+    try {
+      const url = new URL(trimmed);
+      if (!['http:', 'https:'].includes(url.protocol)) {
+        return 'URL باید با http:// یا https:// شروع شود';
+      }
+    } catch {
+      return 'URL نامعتبر است';
+    }
+  }
+
+  if (def.key === 'WEB_PUSH_VAPID_SUBJECT' && !/^mailto:.+@.+/.test(trimmed)) {
+    return 'Subject باید به صورت mailto:email@domain.com باشد';
+  }
+
+  if (def.key === 'FRONTEND_ORIGINS') {
+    const parts = trimmed.split(',').map((p) => p.trim()).filter(Boolean);
+    if (!parts.length) {
+      return 'حداقل یک origin لازم است';
+    }
+    for (const part of parts) {
+      try {
+        // eslint-disable-next-line no-new
+        new URL(part);
+      } catch {
+        return `Origin نامعتبر: ${part}`;
+      }
+    }
+  }
+
+  if (def.kind === 'secret' && trimmed.length < 4) {
+    return 'کلید secret باید حداقل ۴ کاراکتر باشد';
+  }
+
+  return null;
+}
+
+export function groupAdminSecretCatalog(): Array<{
+  category: AdminSecretKeyCategory;
+  categoryLabel: string;
+  keys: AdminSecretKeyDef[];
+}> {
+  const groups = new Map<
+    AdminSecretKeyCategory,
+    { categoryLabel: string; keys: AdminSecretKeyDef[] }
+  >();
+
+  for (const def of ADMIN_SECRET_KEYS_REGISTRY) {
+    const existing = groups.get(def.category);
+    if (existing) {
+      existing.keys.push(def);
+      continue;
+    }
+    groups.set(def.category, {
+      categoryLabel: def.categoryLabel,
+      keys: [def],
+    });
+  }
+
+  return [...groups.entries()].map(([category, value]) => ({
+    category,
+    categoryLabel: value.categoryLabel,
+    keys: value.keys,
+  }));
+}

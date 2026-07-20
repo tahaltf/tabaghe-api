@@ -12,7 +12,9 @@ import { UserRole } from '@prisma/client';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
+import { PermissionsGuard } from '../../auth/guards/permissions.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
+import { RequirePermission } from '../../auth/decorators/require-permission.decorator';
 import { AdminDisputesService } from '../services/admin-disputes.service';
 import {
   AdminDisputeListQueryDto,
@@ -20,8 +22,9 @@ import {
 } from '../dto/admin-dispute.dto';
 
 @Controller('admin/disputes')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.ADMIN)
+@RequirePermission('disputes.view')
 export class AdminDisputesController {
   constructor(private readonly service: AdminDisputesService) {}
 
@@ -41,6 +44,7 @@ export class AdminDisputesController {
   }
 
   @Patch(':id/resolve')
+  @RequirePermission('disputes.update')
   resolve(
     @Param('id') id: string,
     @Body() dto: ResolveDisputeDto,

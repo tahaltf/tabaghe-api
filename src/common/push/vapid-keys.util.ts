@@ -6,6 +6,12 @@ export type VapidKeySet = {
   subject: string;
 };
 
+type VapidEnvSource = Record<string, string | undefined> | undefined;
+
+function readPushEnv(key: string, source?: VapidEnvSource): string {
+  return (source?.[key] ?? process.env[key] ?? '').trim();
+}
+
 /** کلید خصوصی VAPID: base64url (خروجی web-push) یا PEM PKCS#8 */
 export function normalizeVapidPrivateKey(raw: string): string {
   const trimmed = raw.trim().replace(/\\n/g, '\n');
@@ -37,12 +43,33 @@ export function deriveVapidPublicKeyFromPrivate(privateKeyBase64Url: string): st
   return publicKey.toString('base64url');
 }
 
-export function validateVapidKeyPair(): {
+export function resolveVapidKeys(source?: VapidEnvSource): VapidKeySet | null {
+  const publicKey = readPushEnv('WEB_PUSH_VAPID_PUBLIC_KEY', source);
+  const privateRaw = readPushEnv('WEB_PUSH_VAPID_PRIVATE_KEY', source);
+  const subject =
+    readPushEnv('WEB_PUSH_VAPID_SUBJECT', source) ||
+    'mailto:support@tabagheh.com';
+
+  if (!publicKey || !privateRaw) return null;
+
+  try {
+    const privateKey = normalizeVapidPrivateKey(privateRaw);
+    return { publicKey, privateKey, subject };
+  } catch {
+    return null;
+  }
+}
+
+export function isVapidConfigured(source?: VapidEnvSource): boolean {
+  return resolveVapidKeys(source) !== null;
+}
+
+export function validateVapidKeyPair(source?: VapidEnvSource): {
   ok: boolean;
   error?: string;
   publicKey?: string;
 } {
-  const vapid = resolveVapidKeys();
+  const vapid = resolveVapidKeys(source);
   if (!vapid) return { ok: false, error: 'missing_env' };
   try {
     const derived = deriveVapidPublicKeyFromPrivate(vapid.privateKey);
@@ -57,25 +84,4 @@ export function validateVapidKeyPair(): {
   } catch (e) {
     return { ok: false, error: String((e as Error)?.message ?? e) };
   }
-}
-
-export function resolveVapidKeys(): VapidKeySet | null {
-  const publicKey = (process.env.WEB_PUSH_VAPID_PUBLIC_KEY || '').trim();
-  const privateRaw = (process.env.WEB_PUSH_VAPID_PRIVATE_KEY || '').trim();
-  const subject =
-    (process.env.WEB_PUSH_VAPID_SUBJECT || '').trim() ||
-    'mailto:support@tabagheh.com';
-
-  if (!publicKey || !privateRaw) return null;
-
-  try {
-    const privateKey = normalizeVapidPrivateKey(privateRaw);
-    return { publicKey, privateKey, subject };
-  } catch {
-    return null;
-  }
-}
-
-export function isVapidConfigured(): boolean {
-  return resolveVapidKeys() !== null;
 }

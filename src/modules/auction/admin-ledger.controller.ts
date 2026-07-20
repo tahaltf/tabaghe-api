@@ -2,13 +2,16 @@ import { Controller, Get, UseGuards } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { UserRole } from '@prisma/client';
 import Decimal from 'decimal.js';
 
 @Controller('admin/ledger')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.ADMIN)
+@RequirePermission('auction_ops.view')
 export class AdminLedgerController {
   constructor(private readonly prisma: PrismaService) {}
 

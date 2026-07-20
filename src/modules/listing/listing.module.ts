@@ -14,6 +14,7 @@ import { ListingAdminService } from './services/listing-admin.service';
 import { ListingSearchService } from './listing-search.service';
 import { ListingExpiryService } from './services/listing-expiry.service';
 import { AnalyticsModule } from '../analytics/analytics.module';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { AnalyticsModule } from '../analytics/analytics.module';
     ExchangeModule,
     NotificationModule,
     AnalyticsModule,
+    AuthModule,
   ],
   controllers: [
     ListingController,

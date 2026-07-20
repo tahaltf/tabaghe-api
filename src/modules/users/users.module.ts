@@ -6,9 +6,15 @@ import { AdminUsersService } from './admin-users.service';
 import { NotificationModule } from '../notification/notification.module';
 import { PlanLifecycleModule } from '../plans/plan-lifecycle.module';
 import { ReferralModule } from '../referral/referral.module';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
-  imports: [NotificationModule, PlanLifecycleModule, ReferralModule],
+  imports: [
+    NotificationModule,
+    PlanLifecycleModule,
+    ReferralModule,
+    AuthModule,
+  ],
   controllers: [UsersController, AdminUsersController],
   providers: [UsersService, AdminUsersService],
   exports: [UsersService],

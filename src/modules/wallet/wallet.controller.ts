@@ -17,7 +17,9 @@ import { UserRole } from '@prisma/client';
 import { WalletService } from './wallet.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { depositReceiptMulterOptions } from '../../common/upload/deposit-receipt-upload.config';
 
 @Controller('wallet')
@@ -102,8 +104,9 @@ export class WalletController {
   // ==========================================
 
   @Get('admin/withdraw-requests')
-  @UseGuards(RolesGuard)
+  @UseGuards(RolesGuard, PermissionsGuard)
   @Roles(UserRole.ADMIN)
+  @RequirePermission('wallet_requests.view')
   async getWithdrawRequests(
     @Query('status') status?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL',
     @Query('page') page?: string,
@@ -119,8 +122,9 @@ export class WalletController {
   }
 
   @Patch('admin/process-withdraw/:id')
-  @UseGuards(RolesGuard)
+  @UseGuards(RolesGuard, PermissionsGuard)
   @Roles(UserRole.ADMIN)
+  @RequirePermission('wallet_requests.approve')
   async processWithdraw(
     @Param('id') id: string,
     @Body() body: { action: 'APPROVE' | 'REJECT'; adminNote?: string },
@@ -129,8 +133,9 @@ export class WalletController {
   }
 
   @Get('admin/deposit-requests')
-  @UseGuards(RolesGuard)
+  @UseGuards(RolesGuard, PermissionsGuard)
   @Roles(UserRole.ADMIN)
+  @RequirePermission('wallet_requests.view')
   async getDepositRequests(
     @Query('status') status?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL',
     @Query('page') page?: string,
@@ -146,8 +151,9 @@ export class WalletController {
   }
 
   @Patch('admin/process-deposit/:id')
-  @UseGuards(RolesGuard)
+  @UseGuards(RolesGuard, PermissionsGuard)
   @Roles(UserRole.ADMIN)
+  @RequirePermission('wallet_requests.approve')
   async processDeposit(
     @Param('id') id: string,
     @Body() body: { action: 'APPROVE' | 'REJECT'; adminNote?: string },

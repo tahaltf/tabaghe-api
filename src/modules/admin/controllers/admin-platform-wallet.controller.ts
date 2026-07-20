@@ -10,7 +10,9 @@ import {
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
+import { PermissionsGuard } from '../../auth/guards/permissions.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
+import { RequirePermission } from '../../auth/decorators/require-permission.decorator';
 import {
   PlatformCreditUserDto,
   PlatformProfitWithdrawDto,
@@ -18,8 +20,9 @@ import {
 import { AdminPlatformWalletService } from '../services/admin-platform-wallet.service';
 
 @Controller('admin/platform-wallet')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.ADMIN)
+@RequirePermission('platform_wallet.view')
 export class AdminPlatformWalletController {
   constructor(private readonly service: AdminPlatformWalletService) {}
 

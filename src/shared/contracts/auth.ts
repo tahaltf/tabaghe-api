@@ -22,6 +22,10 @@ export interface AuthenticatedUser {
   role: UserRole;
   status: UserStatus;
   isVerified: boolean;
+  /** نقش سفارشی پنل ادمین (فقط برای ADMIN) */
+  adminRoleId?: string | null;
+  /** کلید پرمیشن‌ها؛ برای GODADMIN برابر ['*'] */
+  permissions?: string[];
 }
 
 export interface TokenPair {

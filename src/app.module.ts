@@ -56,6 +56,7 @@ import { PaymentsModule } from './modules/payments/payments.module';
 import { SitemapModule } from './modules/sitemap/sitemap.module';
 import { TrackingModule } from './modules/tracking/tracking.module';
 import { WordPressIntegrationModule } from './modules/wordpress-integration/wordpress-integration.module';
+import { MarketingIntegrationModule } from './modules/marketing-integration/marketing-integration.module';
 import { FilesModule } from './modules/files/files.module';
 import { CartModule } from './modules/cart/cart.module';
 import { CouponsModule } from './modules/coupons/coupons.module';
@@ -125,6 +126,7 @@ import { AppService } from './app.service';
     SitemapModule,
     TrackingModule,
     WordPressIntegrationModule,
+    MarketingIntegrationModule,
     CartModule,
     CouponsModule,
     AnalyticsModule,

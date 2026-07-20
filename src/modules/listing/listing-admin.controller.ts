@@ -10,7 +10,9 @@ import {
 import { ListingStatus, UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { ListingAdminService } from './services/listing-admin.service';
 import { RejectListingDto } from './dto/reject-listing.dto';
 import { SetListingStatusDto } from './dto/set-listing-status.dto';
@@ -18,8 +20,9 @@ import { AdminListingCorrectionsDto } from './dto/admin-listing-corrections.dto'
 import { AdminListingUpdateDto } from './dto/admin-listing-update.dto';
 
 @Controller('admin/listings')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.ADMIN)
+@RequirePermission('listings.view')
 export class ListingAdminController {
   constructor(private readonly adminService: ListingAdminService) {}
 
@@ -29,6 +32,7 @@ export class ListingAdminController {
   }
 
   @Patch(':id/corrections')
+  @RequirePermission('listings.update')
   applyCorrections(
     @Param('id') id: string,
     @Body() dto: AdminListingCorrectionsDto,
@@ -37,6 +41,7 @@ export class ListingAdminController {
   }
 
   @Patch(':id/update')
+  @RequirePermission('listings.update')
   applyAdminUpdate(
     @Param('id') id: string,
     @Body() dto: AdminListingUpdateDto,
@@ -45,11 +50,13 @@ export class ListingAdminController {
   }
 
   @Patch(':id/approve')
+  @RequirePermission('listings.approve')
   approve(@Param('id') id: string, @Body() dto: AdminListingCorrectionsDto) {
     return this.adminService.approve(id, dto);
   }
 
   @Patch(':id/reject')
+  @RequirePermission('listings.approve')
   reject(@Param('id') id: string, @Body() dto: RejectListingDto) {
     return this.adminService.reject(id, dto);
   }

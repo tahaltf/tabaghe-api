@@ -83,6 +83,10 @@ const USER_LIST_SELECT = {
   trustScore: true,
   status: true,
   role: true,
+  adminRoleId: true,
+  adminRole: {
+    select: { id: true, name: true, slug: true },
+  },
   isActive: true,
   isVerified: true,
   isApproved: true,
@@ -115,6 +119,9 @@ const USER_DETAIL_INCLUDE = {
       balanceBlocked: true,
       balanceCredit: true,
     },
+  },
+  adminRole: {
+    select: { id: true, name: true, slug: true },
   },
   referredBy: {
     select: {
@@ -578,7 +585,7 @@ export class AdminUsersQueryService {
   async toggleRole(
     actor: AuthenticatedUser,
     userId: string,
-  ): Promise<{ id: string; role: UserRole }> {
+  ): Promise<{ id: string; role: UserRole; adminRoleId: string | null }> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, role: true, passwordHash: true },
@@ -596,12 +603,22 @@ export class AdminUsersQueryService {
       );
     }
 
+    let adminRoleId: string | null = null;
+    if (nextRole === UserRole.ADMIN) {
+      const fullOps = await this.prisma.adminRole.findUnique({
+        where: { slug: 'full-ops' },
+        select: { id: true },
+      });
+      adminRoleId = fullOps?.id ?? null;
+    }
+
     return this.prisma.user.update({
       where: { id: userId },
       data: {
         role: nextRole,
+        adminRoleId,
       },
-      select: { id: true, role: true },
+      select: { id: true, role: true, adminRoleId: true },
     });
   }
 
@@ -754,9 +771,16 @@ export class AdminUsersQueryService {
       firstName?: string;
       lastName?: string;
       role?: UserRole;
+      adminRoleId?: string;
       isActive?: boolean;
     },
-  ): Promise<{ id: string; phone: string; role: UserRole; isActive: boolean }> {
+  ): Promise<{
+    id: string;
+    phone: string;
+    role: UserRole;
+    isActive: boolean;
+    adminRoleId: string | null;
+  }> {
     const phone = input.phone.trim();
     const requestedRole = input.role ?? UserRole.USER;
     const role =
@@ -773,6 +797,26 @@ export class AdminUsersQueryService {
       throw new BadRequestException(
         'کاربری با این شماره موبایل قبلاً ثبت شده است',
       );
+    }
+
+    let adminRoleId: string | null = null;
+    if (role === UserRole.ADMIN) {
+      if (input.adminRoleId) {
+        const customRole = await this.prisma.adminRole.findFirst({
+          where: { id: input.adminRoleId, isActive: true },
+          select: { id: true },
+        });
+        if (!customRole) {
+          throw new BadRequestException('نقش ادمین انتخاب‌شده معتبر نیست');
+        }
+        adminRoleId = customRole.id;
+      } else {
+        const fullOps = await this.prisma.adminRole.findUnique({
+          where: { slug: 'full-ops' },
+          select: { id: true },
+        });
+        adminRoleId = fullOps?.id ?? null;
+      }
     }
 
     const rawPassword = resolveNewAdminPassword(input.password);
@@ -799,12 +843,19 @@ export class AdminUsersQueryService {
           firstName: input.firstName?.trim() || null,
           lastName: input.lastName?.trim() || null,
           role,
+          adminRoleId,
           isActive: input.isActive ?? true,
           status: UserStatus.INCOMPLETE,
           passwordHash,
           inviteCode,
         },
-        select: { id: true, phone: true, role: true, isActive: true },
+        select: {
+          id: true,
+          phone: true,
+          role: true,
+          isActive: true,
+          adminRoleId: true,
+        },
       });
       await tx.wallet.create({ data: { userId: user.id } });
       return user;

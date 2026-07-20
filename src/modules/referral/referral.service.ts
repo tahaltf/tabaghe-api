@@ -114,6 +114,46 @@ export class ReferralService {
     return referrer.id;
   }
 
+  /**
+   * Soft-bind referral from invite link during login/registration.
+   * NEVER throws — any referral problem is ignored so auth can continue.
+   * Returns true when referredById was newly set.
+   */
+  async tryBindReferralCode(
+    userId: string,
+    referralCodeRaw: string | null | undefined,
+  ): Promise<boolean> {
+    const code = normalizeInviteCode(referralCodeRaw);
+    if (!code) return false;
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const current = await tx.user.findUnique({
+          where: { id: userId },
+          select: { referredById: true },
+        });
+        if (!current || current.referredById) return false;
+
+        const referredById = await this.resolveReferrerId(
+          tx,
+          userId,
+          code,
+          current.referredById,
+        );
+        if (!referredById) return false;
+
+        await tx.user.update({
+          where: { id: userId },
+          data: { referredById },
+        });
+        return true;
+      });
+    } catch {
+      // کد نامعتبر، معرف غیرفعال، خودمعرفی، خطای DB، … — ورود/ثبت‌نام قطع نمی‌شود
+      return false;
+    }
+  }
+
   async getReferralInfo(userId: string): Promise<UserReferralInfo> {
     const inviteCode = await this.ensureInviteCode(userId);
 

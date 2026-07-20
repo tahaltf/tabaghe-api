@@ -25,7 +25,12 @@ import {
 } from '../../common/notification/listing-title-meta.util';
 import webpush = require('web-push');
 import { getFrontendAppOrigin } from '../../common/pwa-brand-icon.util';
-import { isVapidConfigured, resolveVapidKeys, validateVapidKeyPair } from '../../common/push/vapid-keys.util';
+import {
+  isVapidConfigured,
+  resolveVapidKeys,
+  validateVapidKeyPair,
+} from '../../common/push/vapid-keys.util';
+import { ServerSecretConfigService } from '../../shared/settings/server-secret-config.service';
 
 type SmsTemplateConfig = {
   templateId?: number;
@@ -85,7 +90,16 @@ export class NotificationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly smsService: SmsService,
+    private readonly serverSecrets: ServerSecretConfigService,
   ) {}
+
+  private vapidEnvSource(): Record<string, string> {
+    return this.serverSecrets.buildEnvMap([
+      'WEB_PUSH_VAPID_PUBLIC_KEY',
+      'WEB_PUSH_VAPID_PRIVATE_KEY',
+      'WEB_PUSH_VAPID_SUBJECT',
+    ]);
+  }
 
   async create(params: {
     userId: string;
@@ -1020,9 +1034,10 @@ export class NotificationService {
         hasSubscription = false;
       }
     }
-    const vapidConfigured = isVapidConfigured();
+    const vapidSource = this.vapidEnvSource();
+    const vapidConfigured = isVapidConfigured(vapidSource);
     const notifyPush = user?.notifyPush ?? true;
-    const vapidPair = validateVapidKeyPair();
+    const vapidPair = validateVapidKeyPair(vapidSource);
     const hints: string[] = [];
     if (!vapidConfigured) {
       hints.push(
@@ -1123,7 +1138,7 @@ export class NotificationService {
     if (!subscription?.endpoint) return { ok: false, reason: 'no_subscription' };
     subscription = this.normalizePushSubscription(subscription);
 
-    const vapid = resolveVapidKeys();
+    const vapid = resolveVapidKeys(this.vapidEnvSource());
     if (!vapid) {
       this.logger.error(
         `WebPush skipped for user ${userId}: invalid or missing WEB_PUSH_VAPID_* on API`,

@@ -10,15 +10,18 @@ import {
 import { Prisma, UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
+import { PermissionsGuard } from '../../auth/guards/permissions.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
+import { RequirePermission } from '../../auth/decorators/require-permission.decorator';
 import { NotificationService } from '../../notification/notification.service';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { BroadcastNotificationDto } from '../dto/admin-notification.dto';
 import { resolveAdminRecipientUserIds } from '../utils/admin-recipient.util';
 
 @Controller('admin/notifications')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.ADMIN)
+@RequirePermission('notifications.view')
 export class AdminNotificationsController {
   constructor(
     private readonly notifications: NotificationService,
@@ -67,6 +70,7 @@ export class AdminNotificationsController {
   }
 
   @Post('broadcast')
+  @RequirePermission('notifications.create')
   async broadcast(@Body() dto: BroadcastNotificationDto) {
     const userIds = await resolveAdminRecipientUserIds(
       this.prisma,

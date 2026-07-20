@@ -11,7 +11,9 @@ import {
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
+import { PermissionsGuard } from '../../auth/guards/permissions.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
+import { RequirePermission } from '../../auth/decorators/require-permission.decorator';
 import { AdminOrdersQueryService } from '../services/admin-orders-query.service';
 import { AdminOrdersCommandService } from '../services/admin-orders-command.service';
 import { AdminOrderListQueryDto } from '../dto/admin-query.dto';
@@ -27,8 +29,9 @@ import {
 } from '../dto/admin-order.dto';
 
 @Controller('admin/orders')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.ADMIN)
+@RequirePermission('orders.view')
 export class AdminOrdersQueryController {
   constructor(
     private readonly query: AdminOrdersQueryService,
@@ -51,6 +54,7 @@ export class AdminOrdersQueryController {
 
   /** تعمیر دسته‌ای امانت خرید برای سفارش‌های خراب */
   @Post('repair-missing-purchase-escrow')
+  @RequirePermission('orders.update')
   repairAllMissingPurchaseEscrow(
     @Body() body?: { force?: boolean; limit?: number },
   ) {
@@ -67,12 +71,14 @@ export class AdminOrdersQueryController {
 
   /** ثبت دستی تراکنش بازگشت وجه خریدار اگر سفارش لغوشده ولی لاگ مالی ندارد */
   @Post(':id/repair-buyer-refund')
+  @RequirePermission('orders.update')
   repairBuyerRefund(@Param('id') id: string) {
     return this.command.repairBuyerRefundForCancelledOrder(id);
   }
 
   /** ثبت امانت خرید (بلوکه فروشنده + لاگ خریدار) اگر بعد از پرداخت درگاه جا افتاده */
   @Post(':id/repair-purchase-escrow')
+  @RequirePermission('orders.update')
   repairPurchaseEscrow(
     @Param('id') id: string,
     @Body() body?: { force?: boolean },
@@ -81,6 +87,7 @@ export class AdminOrdersQueryController {
   }
 
   @Patch(':id/status')
+  @RequirePermission('orders.update')
   updateStatus(@Param('id') id: string, @Body() dto: UpdateOrderStatusDto) {
     return this.command.updateStatus(
       id,
@@ -91,6 +98,7 @@ export class AdminOrdersQueryController {
   }
 
   @Patch(':id/exchange-hub-inspection')
+  @RequirePermission('orders.update')
   finalizeExchangeHubInspection(
     @Param('id') id: string,
     @Body() dto: FinalizeExchangeHubInspectionDto,
@@ -99,11 +107,13 @@ export class AdminOrdersQueryController {
   }
 
   @Patch(':id/tracking-code')
+  @RequirePermission('orders.update')
   setTrackingCode(@Param('id') id: string, @Body() dto: UpdateTrackingCodeDto) {
     return this.command.setTrackingCode(id, dto.trackingCode);
   }
 
   @Patch(':id/participant-shipping')
+  @RequirePermission('orders.update')
   setParticipantShipping(
     @Param('id') id: string,
     @Body() dto: SetParticipantShippingDto,
@@ -112,6 +122,7 @@ export class AdminOrdersQueryController {
   }
 
   @Patch(':id/exchange-hub-receipt')
+  @RequirePermission('orders.update')
   setExchangeHubReceipt(
     @Param('id') id: string,
     @Body() dto: SetExchangeHubReceiptDto,
@@ -120,6 +131,7 @@ export class AdminOrdersQueryController {
   }
 
   @Patch(':id/exchange-reject-fake-shipment')
+  @RequirePermission('orders.update')
   rejectExchangeFakeShipment(
     @Param('id') id: string,
     @Body() dto: RejectExchangeFakeShipmentDto,
@@ -128,6 +140,7 @@ export class AdminOrdersQueryController {
   }
 
   @Patch(':id/hub-shipping')
+  @RequirePermission('orders.update')
   setHubShippingCodes(
     @Param('id') id: string,
     @Body() dto: SetHubShippingCodesDto,
@@ -136,6 +149,7 @@ export class AdminOrdersQueryController {
   }
 
   @Patch(':id/escrow')
+  @RequirePermission('orders.update')
   resolveEscrow(@Param('id') id: string, @Body() dto: ResolveOrderEscrowDto) {
     return this.command.resolveEscrow(id, dto);
   }

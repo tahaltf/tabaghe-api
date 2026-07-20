@@ -16,7 +16,9 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AuctionScheduler } from './auction.scheduler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import {
   AuctionSettlementStatus,
   AuctionStatus,
@@ -28,8 +30,9 @@ import Decimal from 'decimal.js';
 import { readRecentJsonLogs } from '../../common/logging/app-log.util';
 
 @Controller('admin/auctions')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.ADMIN)
+@RequirePermission('auction_ops.view')
 export class AdminAuctionAuditController {
   constructor(
     private readonly prisma: PrismaService,
