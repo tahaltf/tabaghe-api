@@ -183,7 +183,7 @@ export class AdminUserCategoryFeesService {
     if (v === undefined || v === null) return null;
     const n = Number(v);
     if (!Number.isFinite(n)) return null;
-    return n;
+    return Math.round(Math.min(100, Math.max(0, n)) * 100) / 100;
   }
 
   private buildDepthMap(

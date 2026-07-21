@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsNumber,
@@ -9,6 +9,14 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
+
+/** Round percentage to 2 decimal places (e.g. 1.8, 3.25). */
+function toPercent({ value }: { value: unknown }): number | undefined {
+  if (value === null || value === undefined || value === '') return undefined;
+  const n = Number(String(value).trim().replace(',', '.'));
+  if (!Number.isFinite(n)) return undefined;
+  return Math.round(Math.min(100, Math.max(0, n)) * 100) / 100;
+}
 
 class BaseCategoryFields {
   @IsOptional()
@@ -27,14 +35,14 @@ class BaseCategoryFields {
 
   // Direct sale — condition-specific
   @IsOptional()
-  @Type(() => Number)
+  @Transform(toPercent)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @Max(100)
   feePercentageDirectNew?: number;
 
   @IsOptional()
-  @Type(() => Number)
+  @Transform(toPercent)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @Max(100)
@@ -48,14 +56,14 @@ class BaseCategoryFields {
 
   // Auction — condition-specific
   @IsOptional()
-  @Type(() => Number)
+  @Transform(toPercent)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @Max(100)
   feePercentageAuctionNew?: number;
 
   @IsOptional()
-  @Type(() => Number)
+  @Transform(toPercent)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @Max(100)
@@ -69,14 +77,14 @@ class BaseCategoryFields {
 
   // Deposit % — condition-specific
   @IsOptional()
-  @Type(() => Number)
+  @Transform(toPercent)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @Max(100)
   auctionDepositPercentNew?: number;
 
   @IsOptional()
-  @Type(() => Number)
+  @Transform(toPercent)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @Max(100)
@@ -84,28 +92,28 @@ class BaseCategoryFields {
 
   // Legacy single-value fields (kept for compat; synced from New when set)
   @IsOptional()
-  @Type(() => Number)
+  @Transform(toPercent)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @Max(100)
   feePercentageDirect?: number;
 
   @IsOptional()
-  @Type(() => Number)
+  @Transform(toPercent)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @Max(100)
   feePercentageAuction?: number;
 
   @IsOptional()
-  @Type(() => Number)
+  @Transform(toPercent)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @Max(100)
   auctionDepositPercent?: number;
 
   @IsOptional()
-  @Type(() => Number)
+  @Transform(toPercent)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @Max(100)
