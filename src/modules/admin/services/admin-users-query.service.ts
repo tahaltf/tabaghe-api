@@ -72,6 +72,32 @@ function auctionBidStatusLabelFa(status: string): string {
   return AUCTION_BID_STATUS_LABELS_FA[status] ?? status;
 }
 
+function formatUserDisplayName(user: {
+  displayName: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  phone: string;
+}): string {
+  const fromDisplay = user.displayName?.trim();
+  if (fromDisplay) return fromDisplay;
+  const fromName = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim();
+  return fromName || user.phone;
+}
+
+export type AdminUserChatItem = {
+  id: string;
+  listingId: string;
+  listingTitle: string;
+  role: 'buyer' | 'seller';
+  otherParty: {
+    id: string;
+    name: string;
+    phone: string;
+  };
+  lastMessagePreview: string | null;
+  updatedAt: Date;
+};
+
 const USER_LIST_SELECT = {
   id: true,
   phone: true,
@@ -1021,6 +1047,69 @@ export class AdminUsersQueryService {
     return items
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       .slice(0, take);
+  }
+
+  async listUserChats(
+    actor: AuthenticatedUser,
+    userId: string,
+  ): Promise<AdminUserChatItem[]> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true },
+    });
+    if (!user) throw new NotFoundException('کاربر یافت نشد');
+    this.assertCanManageTarget(actor, user.role);
+
+    const conversations = await this.prisma.conversation.findMany({
+      where: {
+        OR: [{ buyerId: userId }, { sellerId: userId }],
+      },
+      include: {
+        listing: { select: { id: true, title: true } },
+        buyer: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            displayName: true,
+            phone: true,
+          },
+        },
+        seller: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            displayName: true,
+            phone: true,
+          },
+        },
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { content: true },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    return conversations.map((conversation) => {
+      const isBuyer = conversation.buyerId === userId;
+      const other = isBuyer ? conversation.seller : conversation.buyer;
+      return {
+        id: conversation.id,
+        listingId: conversation.listingId,
+        listingTitle: conversation.listing.title,
+        role: isBuyer ? 'buyer' : 'seller',
+        otherParty: {
+          id: other.id,
+          name: formatUserDisplayName(other),
+          phone: other.phone,
+        },
+        lastMessagePreview: conversation.messages[0]?.content ?? null,
+        updatedAt: conversation.updatedAt,
+      };
+    });
   }
 
   async loginLogs(

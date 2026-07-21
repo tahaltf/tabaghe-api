@@ -341,10 +341,10 @@ export class SmsService {
    * پس از دیپلوی (موفق/ناموفق)، به شماره‌های ادمین اطلاع می‌دهد.
    * تنظیمات از پنل ادمین (`SystemSetting`) یا در نبود، از `.env`.
    */
-  async sendDeployAlert(statusFa: string, detail: string): Promise<{
-    sent: number;
-    recipients: number;
-  }> {
+  async sendDeployAlert(
+    statusFa: string,
+    detail: string,
+  ): Promise<{ sent: number; recipients: number; reason?: string }> {
     const enabledRaw =
       (await this.resolveSetting(SMS_SETTING_KEYS.DEPLOY_ALERT_ENABLED)) ?? '1';
     const off =
@@ -353,11 +353,16 @@ export class SmsService {
       enabledRaw.toLowerCase() === 'no';
     if (off) {
       this.logger.debug('Deploy alert SMS disabled by setting.');
-      return { sent: 0, recipients: 0 };
+      return { sent: 0, recipients: 0, reason: 'disabled' };
     }
 
     const provider = await this.resolveActiveSmsProvider();
-    const template = await this.resolveDeployAlertTemplate(provider);
+    let template: SmsTemplateRef;
+    try {
+      template = await this.resolveDeployAlertTemplate(provider);
+    } catch {
+      return { sent: 0, recipients: 0, reason: 'template_not_configured' };
+    }
 
     const statusParam =
       (
@@ -384,7 +389,7 @@ export class SmsService {
       this.logger.warn(
         'Deploy alert SMS skipped: set SMS_DEPLOY_ALERT_RECIPIENTS (or SMS_ADMIN_LOGIN_ALERT_RECIPIENTS) in admin settings.',
       );
-      return { sent: 0, recipients: 0 };
+      return { sent: 0, recipients: 0, reason: 'no_recipients' };
     }
 
     const stamp = new Date().toISOString().slice(5, 16).replace('T', ' ');
@@ -416,6 +421,13 @@ export class SmsService {
       }
     }
     this.logger.log(`Deploy alert SMS: ${sent}/${recipients.length} sent`);
+    if (sent === 0) {
+      return {
+        sent: 0,
+        recipients: recipients.length,
+        reason: 'provider_send_failed',
+      };
+    }
     return { sent, recipients: recipients.length };
   }
 }

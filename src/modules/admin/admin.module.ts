@@ -88,6 +88,7 @@ import { PlansModule } from '../plans/plans.module';
 import { UserRatingHistoryService } from '../users/user-rating-history.service';
 import { CommonModuleModule } from '../../common-module/common-module.module';
 import { ReferralModule } from '../referral/referral.module';
+import { UsersModule } from '../users/users.module';
 
 @Module({
   imports: [
@@ -103,6 +104,7 @@ import { ReferralModule } from '../referral/referral.module';
     SupportModule,
     PlansModule,
     ReferralModule,
+    UsersModule,
   ],
   controllers: [
     AdminDashboardController,

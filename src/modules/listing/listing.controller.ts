@@ -24,6 +24,8 @@ import { AuthenticatedUser } from '../../shared/contracts/auth';
 import { AuctionService } from '../auction/auction.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { IsVerifiedGuard } from '../auth/guards/is-verified.guard';
+import { UserPanelAccessGuard } from '../auth/guards/user-panel-access.guard';
+import { RequirePanelAccess } from '../auth/decorators/require-panel-access.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { CreateListingDto } from './dto/create-listing.dto';
@@ -172,7 +174,8 @@ export class ListingController {
     return this.savedService.toggle(user.id, id);
   }
 
-  @UseGuards(JwtAuthGuard, IsVerifiedGuard)
+  @UseGuards(JwtAuthGuard, IsVerifiedGuard, UserPanelAccessGuard)
+  @RequirePanelAccess('listing.auction')
   @Post(':id/bid')
   async placeBid(
     @CurrentUser() user: AuthenticatedUser,
@@ -188,7 +191,8 @@ export class ListingController {
     return this.auctionService.placeBid(user.id, id, body.amount);
   }
 
-  @UseGuards(JwtAuthGuard, IsVerifiedGuard)
+  @UseGuards(JwtAuthGuard, IsVerifiedGuard, UserPanelAccessGuard)
+  @RequirePanelAccess('listing.create')
   @Post()
   @UseInterceptors(FilesInterceptor('images', 10, listingImagesMulterOptions))
   async create(

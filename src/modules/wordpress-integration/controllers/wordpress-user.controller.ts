@@ -11,6 +11,8 @@ import {
 import { Response } from 'express';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { IsVerifiedGuard } from '../../auth/guards/is-verified.guard';
+import { UserPanelAccessGuard } from '../../auth/guards/user-panel-access.guard';
+import { RequirePanelAccess } from '../../auth/decorators/require-panel-access.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../../shared/contracts/auth';
 import { WordPressApiTokenService } from '../services/api-token.service';
@@ -30,7 +32,8 @@ export class WordPressUserController {
   ) {}
 
   @Post('tokens')
-  @UseGuards(IsVerifiedGuard)
+  @UseGuards(IsVerifiedGuard, UserPanelAccessGuard)
+  @RequirePanelAccess('settings.wordpress')
   createToken(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateWordPressTokenDto,
@@ -62,7 +65,8 @@ export class WordPressUserController {
   }
 
   @Post('sync-store')
-  @UseGuards(IsVerifiedGuard)
+  @UseGuards(IsVerifiedGuard, UserPanelAccessGuard)
+  @RequirePanelAccess('settings.wordpress')
   syncFromStore(@CurrentUser() user: AuthenticatedUser) {
     return this.storeSyncService.syncFromStore(user.id);
   }

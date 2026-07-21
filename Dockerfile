@@ -39,6 +39,8 @@ RUN apk add --no-cache \
     ca-certificates \
     ttf-freefont \
     bash \
+    curl \
+    wget \
     docker-cli \
     postgresql-client \
     coreutils

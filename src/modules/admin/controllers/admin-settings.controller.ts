@@ -31,6 +31,7 @@ import { SetAdminSecretDto } from '../dto/admin-secret.dto';
 import { bannerMulterOptions } from '../../../common/upload/banner-upload.config';
 import { brandLogoMulterOptions } from '../../../common/upload/brand-logo-upload.config';
 import { inspectionCertificateAssetMulterOptions } from '../../../common/upload/inspection-certificate-asset-upload.config';
+import { SmsService } from '../../sms/sms.service';
 
 @Controller('admin/settings')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
@@ -40,6 +41,7 @@ export class AdminSettingsController {
   constructor(
     private readonly service: AdminSettingsService,
     private readonly secretKeys: AdminSecretKeysService,
+    private readonly sms: SmsService,
   ) {}
 
   @Get()
@@ -217,6 +219,19 @@ export class AdminSettingsController {
   @RequirePermission('homepage.update')
   resetHomepageLayout(@CurrentUser() actor: AuthenticatedUser) {
     return this.service.resetHomepageLayout(actor);
+  }
+
+  /**
+   * ارسال آزمایشی SMS نتیجه دیپلوی با تنظیمات پنل (گیرنده/قالب/کلید).
+   */
+  @Post('test-deploy-sms')
+  @RequirePermission('settings.update')
+  async testDeploySms() {
+    const result = await this.sms.sendDeployAlert(
+      'تست',
+      'ارسال آزمایشی از پنل',
+    );
+    return { ok: result.sent > 0, ...result };
   }
 
   @Get('secrets/catalog')

@@ -62,6 +62,7 @@ import { CartModule } from './modules/cart/cart.module';
 import { CouponsModule } from './modules/coupons/coupons.module';
 import { SurveysModule } from './modules/surveys/surveys.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { AiContentModule } from './modules/ai-content/ai-content.module';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -131,6 +132,7 @@ import { AppService } from './app.service';
     CouponsModule,
     AnalyticsModule,
     SurveysModule,
+    AiContentModule,
   ],
   controllers: [AppController],
   providers: [

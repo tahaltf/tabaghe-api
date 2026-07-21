@@ -11,6 +11,8 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { UserPanelAccessGuard } from '../auth/guards/user-panel-access.guard';
+import { RequirePanelAccess } from '../auth/decorators/require-panel-access.decorator';
 import { ExchangeService } from './exchange.service';
 import { CreateExchangeOfferDto } from './create-exchange-offer.dto';
 import { FilesInterceptor } from '@nestjs/platform-express';
@@ -20,7 +22,8 @@ import { listingImagesMulterOptions } from '../../common/upload/listing-images-u
 export class ExchangeController {
   constructor(private readonly service: ExchangeService) {}
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, UserPanelAccessGuard)
+  @RequirePanelAccess('listing.exchange')
   @Post(':listingId/offers')
   @UseInterceptors(FilesInterceptor('images', 5, listingImagesMulterOptions))
   createOffer(

@@ -3,6 +3,7 @@ import { NotificationType, QuotaAction, QuotaReason } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { BUILTIN_FREE_PLAN_ID } from './builtin-free-plan-display';
+import { AiTokenService } from '../ai-content/services/ai-token.service';
 
 export const DEFAULT_REGISTRATION_PLAN_SETTING_KEY = 'DEFAULT_REGISTRATION_PLAN_ID';
 export const KYC_APPROVAL_PLAN_SETTING_KEY = 'KYC_APPROVAL_PLAN_ID';
@@ -47,6 +48,7 @@ export class PlanLifecycleService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
+    private readonly aiTokens: AiTokenService,
   ) {}
 
   /**
@@ -111,6 +113,15 @@ export class PlanLifecycleService {
         if (quotaEntries.length > 0) {
           await tx.quotaLedger.createMany({ data: quotaEntries });
         }
+      }
+
+      if (plan.aiTokensPerMonth > 0) {
+        await this.aiTokens.resetPlanTokens(
+          userId,
+          plan.aiTokensPerMonth,
+          purchase.id,
+          tx,
+        );
       }
 
       return {
@@ -305,6 +316,7 @@ export class PlanLifecycleService {
         planTitle: purchase.plan?.title ?? 'پلن',
         remainingActivePlanTitle: remaining?.plan?.title ?? null,
       });
+      await this.aiTokens.expirePlanTokens(purchase.userId);
       notified += 1;
     }
 

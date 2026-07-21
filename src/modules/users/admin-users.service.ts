@@ -3,6 +3,8 @@ import { NotificationType, Prisma, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { PlanLifecycleService } from '../plans/plan-lifecycle.service';
+import { AiTokenService } from '../ai-content/services/ai-token.service';
+import { AiContentSettingsService } from '../ai-content/services/ai-content-settings.service';
 
 const KYC_REQUEST_SELECT = {
   id: true,
@@ -26,6 +28,8 @@ export class AdminUsersService {
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
     private readonly planLifecycle: PlanLifecycleService,
+    private readonly aiTokens: AiTokenService,
+    private readonly aiSettings: AiContentSettingsService,
   ) {}
 
   listPendingKyc(): Promise<KycRequest[]> {
@@ -60,7 +64,22 @@ export class AdminUsersService {
 
     void this.planLifecycle.assignKycGiftPlan(targetUserId);
 
+    void this.grantKycAiTokens(targetUserId);
+
     return updatedUser;
+  }
+
+  private async grantKycAiTokens(userId: string): Promise<void> {
+    const amount = await this.aiSettings.getKycWelcomeTokens();
+    const granted = await this.aiTokens.grantKycWelcome(userId, amount);
+    if (!granted) return;
+
+    await this.notificationService.create({
+      userId,
+      type: NotificationType.SYSTEM,
+      title: 'هدیه توکن تولید محتوا',
+      message: `${amount} توکن تولید محتوا به حساب شما اضافه شد. از بخش «تولید محتوا» در پنل استفاده کنید.`,
+    });
   }
 
   reject(

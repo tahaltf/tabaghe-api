@@ -18,6 +18,7 @@ import {
   parseBuiltinFreePlanDisplay,
 } from './builtin-free-plan-display';
 import { PlanLifecycleService } from './plan-lifecycle.service';
+import { AiTokenService } from '../ai-content/services/ai-token.service';
 
 function addDaysUtc(base: Date, days: number): Date {
   const d = new Date(base.getTime());
@@ -33,6 +34,7 @@ export class PlansService {
     private readonly prisma: PrismaService,
     private readonly walletService: WalletService,
     private readonly planLifecycle: PlanLifecycleService,
+    private readonly aiTokens: AiTokenService,
   ) {}
 
   // تغییر نام برای هماهنگی با Controller
@@ -222,6 +224,15 @@ export class PlansService {
         await tx.quotaLedger.createMany({
           data: quotaEntries,
         });
+      }
+
+      if (plan.aiTokensPerMonth > 0) {
+        await this.aiTokens.resetPlanTokens(
+          userId,
+          plan.aiTokensPerMonth,
+          purchase.id,
+          tx,
+        );
       }
 
       return { purchase, planTitle: plan.title };

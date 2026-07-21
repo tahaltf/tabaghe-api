@@ -205,10 +205,11 @@ wait_for_health() {
 
 # Prefer Nest endpoint (reads panel SystemSetting + encrypted SMS keys).
 # Called from inside API container so loopback auth works.
+# Tries wget first (always in the Alpine image), falls back to curl, then node fetch.
 notify_via_api() {
   local status_fa="$1"
   local detail="$2"
-  local status_esc detail_esc payload token hdr_args resp svc
+  local status_esc detail_esc payload token resp svc
 
   status_esc="$(json_escape "$status_fa")"
   detail_esc="$(json_escape "$detail")"
@@ -220,30 +221,89 @@ notify_via_api() {
     if ! docker compose ps --status running "$svc" >/dev/null 2>&1; then
       continue
     fi
-    if [[ -n "$token" ]]; then
-      resp="$(docker compose exec -T "$svc" curl -sS --max-time 25 \
-        -X POST "http://127.0.0.1:3000/api/v1/health/deploy-sms-alert" \
-        -H "Content-Type: application/json" \
-        -H "Accept: application/json" \
-        -H "X-Deploy-Notify-Token: ${token}" \
-        -d "$payload" 2>&1)" || true
-    else
-      resp="$(docker compose exec -T "$svc" curl -sS --max-time 25 \
-        -X POST "http://127.0.0.1:3000/api/v1/health/deploy-sms-alert" \
-        -H "Content-Type: application/json" \
-        -H "Accept: application/json" \
-        -d "$payload" 2>&1)" || true
-    fi
+
+    # Build the HTTP request using wget (always present in Alpine), curl, or node fetch —
+    # in that priority order.  The health endpoint returns JSON with {"sent":N,...}.
+    resp="$(_exec_api_post "$svc" "$payload" "$token")" || true
+
     if echo "$resp" | grep -qE '"sent"[[:space:]]*:[[:space:]]*[1-9]'; then
       log "SMS via API (panel settings): $(echo "$resp" | tr '\n' ' ' | cut -c1-160)"
       return 0
     fi
     if echo "$resp" | grep -qE '"recipients"[[:space:]]*:'; then
-      warn "API deploy-sms-alert پاسخ داد ولی ارسال نشد: $(echo "$resp" | tr '\n' ' ' | cut -c1-200)"
+      local reason
+      reason="$(echo "$resp" | grep -oE '"reason"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 || true)"
+      warn "API deploy-sms-alert پاسخ داد ولی ارسال نشد${reason:+ ($reason)}: $(echo "$resp" | tr '\n' ' ' | cut -c1-200)"
       return 1
     fi
-    warn "API deploy-sms-alert ($svc): $(echo "$resp" | tr '\n' ' ' | cut -c1-200)"
+    warn "API deploy-sms-alert ($svc) — پاسخ نامعتبر: $(echo "$resp" | tr '\n' ' ' | cut -c1-200)"
   done
+  return 1
+}
+
+# Execute a POST to the health endpoint inside the named compose service.
+# Tries wget → curl → node in order.  Returns the response body on stdout.
+_exec_api_post() {
+  local svc="$1"
+  local payload="$2"
+  local token="$3"
+  local url="http://127.0.0.1:3000/api/v1/health/deploy-sms-alert"
+  local tok_header=""
+  [[ -n "$token" ]] && tok_header="X-Deploy-Notify-Token: ${token}"
+
+  # --- wget (BusyBox / Alpine standard) ---
+  if docker compose exec -T "$svc" sh -c 'command -v wget' >/dev/null 2>&1; then
+    local wget_cmd
+    if [[ -n "$tok_header" ]]; then
+      wget_cmd="wget -qO- --timeout=25 \
+        --header='Content-Type: application/json' \
+        --header='Accept: application/json' \
+        --header='${tok_header}' \
+        --post-data='${payload}' '${url}'"
+    else
+      wget_cmd="wget -qO- --timeout=25 \
+        --header='Content-Type: application/json' \
+        --header='Accept: application/json' \
+        --post-data='${payload}' '${url}'"
+    fi
+    docker compose exec -T "$svc" sh -c "$wget_cmd" 2>/dev/null && return 0
+    warn "wget inside $svc failed; trying curl"
+  fi
+
+  # --- curl (may not be installed in slim images) ---
+  if docker compose exec -T "$svc" sh -c 'command -v curl' >/dev/null 2>&1; then
+    if [[ -n "$token" ]]; then
+      docker compose exec -T "$svc" curl -sS --max-time 25 \
+        -X POST "$url" \
+        -H "Content-Type: application/json" \
+        -H "Accept: application/json" \
+        -H "X-Deploy-Notify-Token: ${token}" \
+        -d "$payload" 2>/dev/null && return 0
+    else
+      docker compose exec -T "$svc" curl -sS --max-time 25 \
+        -X POST "$url" \
+        -H "Content-Type: application/json" \
+        -H "Accept: application/json" \
+        -d "$payload" 2>/dev/null && return 0
+    fi
+    warn "curl inside $svc failed; trying node fetch"
+  fi
+
+  # --- node (always present since the image is node:20-alpine) ---
+  # Pass payload via env to avoid shell-quoting issues with Persian/JSON.
+  local node_cmd
+  if [[ -n "$token" ]]; then
+    node_cmd="node -e \"fetch(process.env.U,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-Deploy-Notify-Token':process.env.T},body:process.env.P}).then(r=>r.text()).then(t=>process.stdout.write(t)).catch(e=>{process.stderr.write(String(e));process.exit(1)})\""
+  else
+    node_cmd="node -e \"fetch(process.env.U,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:process.env.P}).then(r=>r.text()).then(t=>process.stdout.write(t)).catch(e=>{process.stderr.write(String(e));process.exit(1)})\""
+  fi
+  docker compose exec -T \
+    -e "U=${url}" \
+    -e "P=${payload}" \
+    -e "T=${token}" \
+    "$svc" sh -c "$node_cmd" 2>/dev/null && return 0
+
+  warn "تمام روش‌های ارسال به API ($svc) شکست خوردند"
   return 1
 }
 

@@ -17,6 +17,8 @@ import {
   FileInterceptor,
 } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { UserPanelAccessGuard } from '../auth/guards/user-panel-access.guard';
+import { RequirePanelAccess } from '../auth/decorators/require-panel-access.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../shared/contracts/auth';
 import { RepairService } from './repair.service';
@@ -47,6 +49,8 @@ export class RepairController {
   // -------------------- User-facing repair endpoints --------------------
 
   @Post()
+  @UseGuards(UserPanelAccessGuard)
+  @RequirePanelAccess('dashboard.repairs')
   @Throttle({ default: { limit: 5, ttl: 10 * 60_000 } })
   @UseInterceptors(
     FileFieldsInterceptor(

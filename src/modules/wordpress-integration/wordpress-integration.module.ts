@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { NotificationModule } from '../notification/notification.module';
 import { ListingModule } from '../listing/listing.module';
+import { UsersModule } from '../users/users.module';
 import { PrismaModule } from '../../infrastructure/prisma/prisma.module';
 import { AdminWordPressPluginController } from './controllers/admin-wordpress-plugin.controller';
 import { WordPressUserController } from './controllers/wordpress-user.controller';
@@ -15,7 +16,7 @@ import { WordPressCategoriesService } from './services/wordpress-categories.serv
 import { ApiTokenGuard } from './guards/api-token.guard';
 
 @Module({
-  imports: [PrismaModule, NotificationModule, ListingModule],
+  imports: [PrismaModule, NotificationModule, ListingModule, UsersModule],
   controllers: [
     WordPressUserController,
     WordPressIngestController,

@@ -40,6 +40,8 @@ import { AdminSetUserTrustScoreDto } from '../dto/admin-user-trust-score.dto';
 import { AdminSetUserApprovedDto } from '../dto/admin-user-approved.dto';
 import { AdminCreateUserDto } from '../dto/admin-create-user.dto';
 import { AdminUpdateUserProfileDto } from '../dto/admin-update-user-profile.dto';
+import { PatchUserPanelAccessDto } from '../../users/dto/patch-user-panel-access.dto';
+import { UserPanelAccessService } from '../../users/user-panel-access.service';
 import { AuthenticatedUser } from '../../../shared/contracts/auth';
 
 @Controller('admin/users')
@@ -52,6 +54,7 @@ export class AdminUsersQueryController {
     private readonly categoryFees: AdminUserCategoryFeesService,
     private readonly tokens: TokenService,
     private readonly prisma: PrismaService,
+    private readonly panelAccess: UserPanelAccessService,
   ) {}
 
   @Get()
@@ -92,6 +95,23 @@ export class AdminUsersQueryController {
     @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit: number,
   ) {
     return this.service.ratingHistory(actor, id, limit);
+  }
+
+  @Get(':id/chats')
+  listUserChats(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.service.listUserChats(actor, id);
+  }
+
+  @Patch(':id/panel-access')
+  @RequirePermission('users.update')
+  patchPanelAccess(
+    @Param('id') id: string,
+    @Body() dto: PatchUserPanelAccessDto,
+  ) {
+    return this.panelAccess.updateForUser(id, dto.panelAccess);
   }
 
   @Patch(':id/toggle-role')

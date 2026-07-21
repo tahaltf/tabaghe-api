@@ -167,6 +167,7 @@ export class AdminPlansService {
           feeDiscountAuctionPercent: dto.feeDiscountAuctionPercent ?? 0,
           badgeLabel: normalizePlanBadgeLabel(dto.badgeLabel ?? null),
           badgeColor: sanitizePlanBadgeColor(dto.badgeColor),
+          aiTokensPerMonth: dto.aiTokensPerMonth ?? 0,
           rules: {
             create: merged.map((r) => ({ type: r.type, count: r.count })),
           },
@@ -268,6 +269,7 @@ export class AdminPlansService {
             dto.badgeColor !== undefined
               ? sanitizePlanBadgeColor(dto.badgeColor)
               : undefined,
+          aiTokensPerMonth: dto.aiTokensPerMonth ?? undefined,
         },
       });
 

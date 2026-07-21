@@ -81,6 +81,12 @@ export class CreatePlanDto {
   @MaxLength(16)
   badgeColor?: string | null;
 
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  aiTokensPerMonth?: number;
+
   @IsArray()
   @ArrayNotEmpty()
   @ValidateNested({ each: true })
@@ -145,6 +151,12 @@ export class UpdatePlanDto {
   @IsString()
   @MaxLength(16)
   badgeColor?: string | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  aiTokensPerMonth?: number;
 
   @IsOptional()
   @IsArray()

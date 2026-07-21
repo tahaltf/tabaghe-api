@@ -24,6 +24,8 @@ import { validateUploadedFileSignature } from '../../common/upload/validate-uplo
 import { CompleteProfileDto } from './dto/complete-profile.dto';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { IsVerifiedGuard } from '../auth/guards/is-verified.guard';
+import { UserPanelAccessGuard } from '../auth/guards/user-panel-access.guard';
+import { RequirePanelAccess } from '../auth/decorators/require-panel-access.decorator';
 import {
   DashboardStats,
   MyProfile,
@@ -153,13 +155,15 @@ export class UsersController {
   }
 
   @Post('integrations/telegram/token')
-  @UseGuards(IsVerifiedGuard)
+  @UseGuards(IsVerifiedGuard, UserPanelAccessGuard)
+  @RequirePanelAccess('settings.telegram')
   generateTelegramToken(@CurrentUser() user: AuthenticatedUser) {
     return this.usersService.generateTelegramLinkToken(user.id);
   }
 
   @Delete('integrations/telegram/link')
-  @UseGuards(IsVerifiedGuard)
+  @UseGuards(IsVerifiedGuard, UserPanelAccessGuard)
+  @RequirePanelAccess('settings.telegram')
   unlinkTelegram(@CurrentUser() user: AuthenticatedUser) {
     return this.usersService.unlinkTelegram(user.id);
   }

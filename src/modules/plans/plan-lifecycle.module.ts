@@ -2,13 +2,14 @@ import { Module } from '@nestjs/common';
 import { NotificationModule } from '../notification/notification.module';
 import { PlanLifecycleService } from './plan-lifecycle.service';
 import { PlanExpiryScheduler } from './plan-expiry.scheduler';
+import { AiTokenModule } from '../ai-content/ai-token.module';
 
 /**
  * جدا از PlansModule تا Auth/Users بدون وابستگی به Wallet
  * (جلوگیری از حلقه Auth → Plans → Wallet → Auth) بتوانند پلن اعطا کنند.
  */
 @Module({
-  imports: [NotificationModule],
+  imports: [NotificationModule, AiTokenModule],
   providers: [PlanLifecycleService, PlanExpiryScheduler],
   exports: [PlanLifecycleService],
 })

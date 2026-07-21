@@ -20,6 +20,8 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
+import { UserPanelAccessGuard } from '../auth/guards/user-panel-access.guard';
+import { RequirePanelAccess } from '../auth/decorators/require-panel-access.decorator';
 import { depositReceiptMulterOptions } from '../../common/upload/deposit-receipt-upload.config';
 
 @Controller('wallet')
@@ -80,11 +82,15 @@ export class WalletController {
   }
 
   @Post('withdraw/request-otp')
+  @UseGuards(UserPanelAccessGuard)
+  @RequirePanelAccess('dashboard.wallet.withdraw')
   async requestWithdrawOtp(@Req() req: any) {
     return this.walletService.requestWithdrawOtp(req.user.id);
   }
 
   @Post('withdraw')
+  @UseGuards(UserPanelAccessGuard)
+  @RequirePanelAccess('dashboard.wallet.withdraw')
   async requestWithdraw(
     @Req() req: any,
     @Body()

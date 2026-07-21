@@ -116,6 +116,36 @@ enum WalletTransactionType {
   WITHDRAW_PAID
   REFUND           // برگشت وجه به خریدار در صورت لغو یا حل اختلاف
   REFERRAL_REWARD  // پاداش معرف از کارمزد فروش دعوت‌شده
+  AI_TOKEN_PURCHASE // خرید توکن تولید محتوا از کیف پول
+}
+
+enum AiTokenLedgerAction {
+  GRANT_KYC_WELCOME
+  GRANT_PLAN
+  PURCHASE
+  RESERVE
+  COMMIT
+  RELEASE
+  EXPIRE_PLAN
+  ADMIN_ADJUST
+}
+
+enum AiTokenBucket {
+  PLAN
+  PURCHASED
+}
+
+enum AiContentType {
+  STORY
+  POST
+  CAPTION
+}
+
+enum AiContentRequestStatus {
+  PENDING
+  PROCESSING
+  SUCCESS
+  FAILED
 }
 
 enum WalletTransactionStatus {
@@ -346,10 +376,16 @@ model User {
   referralRewardsAsReferrer ReferralReward[] @relation("ReferralRewardReferrer")
   referralRewardsAsSeller   ReferralReward[] @relation("ReferralRewardSeller")
   categoryFees        UserCategoryFee[]
+  aiTokenBalance      AiTokenBalance?
+  aiTokenLedger       AiTokenLedger[]
+  aiContentRequests   AiContentRequest[]
 
   /** نقش سفارشی پنل ادمین — فقط برای role=ADMIN معنا دارد */
   adminRoleId         String?
   adminRole           AdminRole?     @relation(fields: [adminRoleId], references: [id], onDelete: SetNull)
+
+  /** دسترسی‌های پنل کاربر — null یا کلید ناموجود = فعال؛ فقط false صریح غیرفعال می‌کند */
+  panelAccess         Json?
 
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
@@ -596,6 +632,7 @@ model Listing {
   quotaLedger     QuotaLedger[]
   exchangeOffers  ExchangeOffer[]
   views           ListingView[]
+  aiContentRequests AiContentRequest[]
 
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
@@ -742,6 +779,8 @@ model Plan {
   badgeLabel String?
   /// رنگ برچسب (ترجیحاً هگز مثل #22c55e)
   badgeColor String?
+  /// توکن تولید محتوا در هر دوره اشتراک (با تمدید reset می‌شود)
+  aiTokensPerMonth Int @default(0)
   rules       PlanRule[]
   purchases   UserPlanPurchase[]
   createdAt   DateTime           @default(now())
@@ -770,6 +809,7 @@ model UserPlanPurchase {
   /// زمان ارسال اعلان انقضا (جلوگیری از نوتیف تکراری)
   expiryNotifiedAt DateTime?
   quotaLedger QuotaLedger[]
+  aiTokenLedger AiTokenLedger[]
   createdAt   DateTime      @default(now())
 
   @@index([status, expiresAt])
@@ -790,6 +830,66 @@ model QuotaLedger {
   createdAt      DateTime          @default(now())
 
   @@index([userId, listingType])
+}
+
+////////////////////
+/// AI CONTENT STUDIO
+////////////////////
+
+model AiTokenBalance {
+  userId          String   @id
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planTokens      Int      @default(0)
+  purchasedTokens Int      @default(0)
+  reservedTokens  Int      @default(0)
+  updatedAt       DateTime @updatedAt
+}
+
+model AiTokenLedger {
+  id             String              @id @default(cuid())
+  userId         String
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action         AiTokenLedgerAction
+  bucket         AiTokenBucket?
+  amount         Int
+  balanceAfter   Int?
+  planPurchaseId String?
+  planPurchase   UserPlanPurchase?   @relation(fields: [planPurchaseId], references: [id], onDelete: SetNull)
+  walletTxId     String?
+  requestId      String?
+  request        AiContentRequest?   @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  note           String?
+  createdAt      DateTime            @default(now())
+
+  @@index([userId, createdAt])
+  @@index([requestId])
+}
+
+model AiContentRequest {
+  id              String                 @id @default(cuid())
+  userId          String
+  user            User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listingId       String
+  listing         Listing                @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  type            AiContentType
+  userPrompt      String?
+  status          AiContentRequestStatus @default(PENDING)
+  resultImagePath String?
+  resultCaption   String?
+  tokensCharged   Int                    @default(0)
+  provider        String?
+  model           String?
+  costUsd         Decimal?               @db.Decimal(10, 6)
+  errorMessage    String?
+  parentRequestId String?
+  parentRequest   AiContentRequest?      @relation("AiContentRegenerate", fields: [parentRequestId], references: [id], onDelete: SetNull)
+  childRequests   AiContentRequest[]     @relation("AiContentRegenerate")
+  ledgerEntries   AiTokenLedger[]
+  createdAt       DateTime               @default(now())
+  completedAt     DateTime?
+
+  @@index([userId, createdAt])
+  @@index([listingId])
 }
 
 ////////////////////

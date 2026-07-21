@@ -83,6 +83,7 @@ export class AdminTicketsService {
 
     const where: Prisma.TicketWhereInput = {};
     if (query.status) where.status = query.status;
+    if (query.userId?.trim()) where.userId = query.userId.trim();
     if (query.search) {
       const s = query.search.trim();
       where.OR = [

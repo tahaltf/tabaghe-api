@@ -134,4 +134,8 @@ export class AdminTicketListQueryDto extends AdminListQueryDto {
   @IsOptional()
   @IsEnum(TicketStatus)
   status?: TicketStatus;
+
+  @IsOptional()
+  @IsString()
+  userId?: string;
 }

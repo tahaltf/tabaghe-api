@@ -21,6 +21,8 @@ import { NotificationService } from '../notification/notification.service';
 import { SETTING_KEYS } from '../admin/services/admin-settings.service';
 import { ReferralService } from '../referral/referral.service';
 import type { UserReferralInfo } from '../referral/referral.service';
+import { UserPanelAccessService } from './user-panel-access.service';
+import type { UserPanelAccessMap } from './config/user-panel-access.registry';
 
 const MY_PROFILE_SELECT = {
   id: true,
@@ -47,11 +49,12 @@ const MY_PROFILE_SELECT = {
   birthDate: true,
   inviteCode: true,
   referredById: true,
+  panelAccess: true,
 } satisfies Prisma.UserSelect;
 
 export type MyProfile = Prisma.UserGetPayload<{
   select: typeof MY_PROFILE_SELECT;
-}>;
+}> & { panelAccess: UserPanelAccessMap };
 
 export interface DashboardStats {
   activeAuctions: number;
@@ -110,6 +113,7 @@ export class UsersService {
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationService,
     private readonly referralService: ReferralService,
+    private readonly panelAccessService: UserPanelAccessService,
   ) {}
 
   async getMe(userId: string): Promise<MyProfile> {
@@ -118,7 +122,17 @@ export class UsersService {
       select: MY_PROFILE_SELECT,
     });
     if (!user) throw new NotFoundException('کاربر یافت نشد');
-    return user;
+    return this.toProfile(user);
+  }
+
+  private toProfile(
+    user: Prisma.UserGetPayload<{ select: typeof MY_PROFILE_SELECT }>,
+  ): MyProfile {
+    const { panelAccess: raw, ...profile } = user;
+    return {
+      ...profile,
+      panelAccess: this.panelAccessService.resolveMap(raw),
+    };
   }
 
   async getReferralInfo(userId: string): Promise<UserReferralInfo> {
@@ -559,7 +573,7 @@ export class UsersService {
           meta: { userId },
         })
         .catch(() => undefined);
-      return updated;
+      return this.toProfile(updated);
     } catch (err) {
       if (err instanceof BadRequestException) throw err;
       if (
@@ -625,7 +639,7 @@ export class UsersService {
           })
           .catch(() => undefined);
       }
-      return updated;
+      return this.toProfile(updated);
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
@@ -666,6 +680,6 @@ export class UsersService {
       userAgent: userAgent ?? null,
       event: 'TERMS_ACCEPTED',
     });
-    return updated;
+    return this.toProfile(updated);
   }
 }
