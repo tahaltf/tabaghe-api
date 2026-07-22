@@ -89,6 +89,7 @@ import { AppService } from './app.service';
         const client = redis.getClient();
         return {
           throttlers: [{ ttl: 60_000, limit: 100 }],
+          setHeaders: true,
           ...(client
             ? { storage: new ThrottlerStorageRedisService(client) }
             : {}),

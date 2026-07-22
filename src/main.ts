@@ -211,9 +211,18 @@ async function bootstrap() {
   }
 
   // ۱. امنیت: جلوگیری از حملات رایج وب با تنظیم هدرهای HTTP
+  // CSP for HTML is enforced at the UI/nginx edge; API keeps CORP=cross-origin for /uploads.
+  const isProd = process.env.NODE_ENV === 'production';
   app.use(
     helmet({
-      crossOriginResourcePolicy: { policy: 'cross-origin' }, // برای لود شدن عکس‌ها در فرانت‌اِند
+      hidePoweredBy: true,
+      referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+      crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+      contentSecurityPolicy: false,
+      hsts: isProd
+        ? { maxAge: 31_536_000, includeSubDomains: true }
+        : false,
     }),
   );
 
