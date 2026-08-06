@@ -125,13 +125,55 @@ export class UsersService {
     return this.toProfile(user);
   }
 
-  private toProfile(
+  private async toProfile(
     user: Prisma.UserGetPayload<{ select: typeof MY_PROFILE_SELECT }>,
-  ): MyProfile {
+  ): Promise<MyProfile> {
     const { panelAccess: raw, ...profile } = user;
+    const baseAccess = this.panelAccessService.resolveMap(raw);
+    const [settings, restrictedPanelAccess] = await Promise.all([
+      this.prisma.systemSetting.findMany({
+        where: {
+          key: {
+            in: [
+              'KYC_REQUIRE_IDENTITY_FOR_ORDERS',
+              'KYC_REQUIRE_FINANCIAL_FOR_WALLET',
+              'KYC_REQUIRE_FINANCIAL_FOR_WITHDRAW',
+            ],
+          },
+        },
+        select: { key: true, value: true },
+      }),
+      Promise.resolve(baseAccess),
+    ]);
+    const settingsMap: Record<string, string> = {};
+    for (const item of settings) settingsMap[item.key] = item.value;
+    const isIdentityVerified =
+      user.status === UserStatus.APPROVED && user.isVerified === true;
+    const normalizedShaba = String(user.shabaNumber ?? '')
+      .trim()
+      .replace(/^IR/i, '');
+    const isFinancialVerified = isIdentityVerified && normalizedShaba.length === 24;
+    const requireIdentityForOrders =
+      String(settingsMap.KYC_REQUIRE_IDENTITY_FOR_ORDERS ?? 'true').toLowerCase() !==
+      'false';
+    const requireFinancialForWallet =
+      String(settingsMap.KYC_REQUIRE_FINANCIAL_FOR_WALLET ?? 'true').toLowerCase() !==
+      'false';
+    const requireFinancialForWithdraw =
+      String(settingsMap.KYC_REQUIRE_FINANCIAL_FOR_WITHDRAW ?? 'true').toLowerCase() !==
+      'false';
+    if (requireIdentityForOrders && !isIdentityVerified) {
+      restrictedPanelAccess['dashboard.orders'] = false;
+    }
+    if (requireFinancialForWallet && !isFinancialVerified) {
+      restrictedPanelAccess['dashboard.wallet'] = false;
+    }
+    if (requireFinancialForWithdraw && !isFinancialVerified) {
+      restrictedPanelAccess['dashboard.wallet.withdraw'] = false;
+    }
     return {
       ...profile,
-      panelAccess: this.panelAccessService.resolveMap(raw),
+      panelAccess: restrictedPanelAccess,
     };
   }
 

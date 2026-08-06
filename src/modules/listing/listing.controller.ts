@@ -191,7 +191,7 @@ export class ListingController {
     return this.auctionService.placeBid(user.id, id, body.amount);
   }
 
-  @UseGuards(JwtAuthGuard, IsVerifiedGuard, UserPanelAccessGuard)
+  @UseGuards(JwtAuthGuard, UserPanelAccessGuard)
   @RequirePanelAccess('listing.create')
   @Post()
   @UseInterceptors(FilesInterceptor('images', 10, listingImagesMulterOptions))
@@ -217,7 +217,7 @@ export class ListingController {
     return this.commandService.create(user.id, finalDto);
   }
 
-  @UseGuards(JwtAuthGuard, IsVerifiedGuard)
+  @UseGuards(JwtAuthGuard)
   @Patch(':id')
   @UseInterceptors(FilesInterceptor('images', 10, listingImagesMulterOptions))
   async update(

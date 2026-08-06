@@ -156,6 +156,16 @@ export const SETTING_KEYS = {
   DEFAULT_REGISTRATION_PLAN_ID: 'DEFAULT_REGISTRATION_PLAN_ID',
   /** شناسه پلن هدیه پس از تایید احراز هویت (خالی = بدون تغییر پلن) */
   KYC_APPROVAL_PLAN_ID: 'KYC_APPROVAL_PLAN_ID',
+  /** فعال‌سازی ثبت آگهی با ورود موبایل بدون احراز کامل */
+  KYC_ALLOW_LISTING_WITH_MOBILE: 'KYC_ALLOW_LISTING_WITH_MOBILE',
+  /** سقف تعداد آگهی فعال/درانتظار برای کاربر بدون احراز هویت کامل */
+  KYC_UNVERIFIED_LISTING_LIMIT: 'KYC_UNVERIFIED_LISTING_LIMIT',
+  /** دسترسی سفارش‌ها (خرید/فروش/درخواست‌ها) نیازمند احراز هویت کاربری */
+  KYC_REQUIRE_IDENTITY_FOR_ORDERS: 'KYC_REQUIRE_IDENTITY_FOR_ORDERS',
+  /** دسترسی کیف پول نیازمند احراز مالی */
+  KYC_REQUIRE_FINANCIAL_FOR_WALLET: 'KYC_REQUIRE_FINANCIAL_FOR_WALLET',
+  /** ثبت برداشت/تسویه نیازمند احراز مالی */
+  KYC_REQUIRE_FINANCIAL_FOR_WITHDRAW: 'KYC_REQUIRE_FINANCIAL_FOR_WITHDRAW',
   /** درصد پاداش معرف از کارمزد فروش دعوت‌شده (۰–۱۰۰) */
   REFERRAL_COMMISSION_PERCENT: 'REFERRAL_COMMISSION_PERCENT',
   /** متن پیش‌فرض اشتراک‌گذاری دعوت؛ {inviteCode} و {inviteLink} */
@@ -244,6 +254,16 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
     'شناسه پلن فعال‌شونده برای کاربران تازه‌ثبت‌نام (خالی = فقط سهمیه رایگان)',
   KYC_APPROVAL_PLAN_ID:
     'شناسه پلن هدیه پس از تایید احراز هویت (خالی = بدون تغییر پلن؛ در صورت تنظیم، پلن فعال قبلی لغو و این پلن فعال می‌شود)',
+  KYC_ALLOW_LISTING_WITH_MOBILE:
+    'اگر true باشد، کاربر با ورود موبایل می‌تواند آگهی ثبت کند (بدون نیاز به احراز کامل)',
+  KYC_UNVERIFIED_LISTING_LIMIT:
+    'سقف تعداد آگهی فعال/درانتظار برای کاربر بدون احراز کامل (عدد صحیح >= 0)',
+  KYC_REQUIRE_IDENTITY_FOR_ORDERS:
+    'اگر true باشد، دسترسی به خرید/فروش/درخواست‌ها فقط با احراز هویت کاربری فعال است',
+  KYC_REQUIRE_FINANCIAL_FOR_WALLET:
+    'اگر true باشد، دسترسی به کیف پول فقط با احراز مالی فعال است',
+  KYC_REQUIRE_FINANCIAL_FOR_WITHDRAW:
+    'اگر true باشد، ثبت درخواست برداشت فقط با احراز مالی فعال است',
   REFERRAL_COMMISSION_PERCENT:
     'درصد پاداش معرف از کارمزد فروش کاربر دعوت‌شده (۰ تا ۱۰۰؛ فقط سطح اول)',
   REFERRAL_SHARE_MESSAGE:

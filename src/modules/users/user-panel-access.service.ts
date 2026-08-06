@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import {
   defaultPanelAccessMap,
@@ -11,6 +11,12 @@ import {
 
 type PanelAccessCarrier = {
   panelAccess?: Prisma.JsonValue | null;
+};
+
+type PanelAccessUserShape = {
+  status: UserStatus;
+  isVerified: boolean;
+  shabaNumber: string | null;
 };
 
 /**
@@ -34,6 +40,59 @@ export class UserPanelAccessService {
       else if (value === true) resolved[key] = true;
     }
     return resolved;
+  }
+
+  private applyKycRestrictions(
+    base: UserPanelAccessMap,
+    user: PanelAccessUserShape,
+    settings: Record<string, string>,
+  ): UserPanelAccessMap {
+    const map = { ...base };
+    const identityVerified =
+      user.status === UserStatus.APPROVED && user.isVerified === true;
+    const normalizedShaba = String(user.shabaNumber ?? '')
+      .trim()
+      .replace(/^IR/i, '');
+    const financialVerified = identityVerified && normalizedShaba.length === 24;
+
+    const requireIdentityForOrders =
+      String(settings.KYC_REQUIRE_IDENTITY_FOR_ORDERS ?? 'true').toLowerCase() !==
+      'false';
+    const requireFinancialForWallet =
+      String(settings.KYC_REQUIRE_FINANCIAL_FOR_WALLET ?? 'true').toLowerCase() !==
+      'false';
+    const requireFinancialForWithdraw =
+      String(settings.KYC_REQUIRE_FINANCIAL_FOR_WITHDRAW ?? 'true').toLowerCase() !==
+      'false';
+
+    if (requireIdentityForOrders && !identityVerified) {
+      map['dashboard.orders'] = false;
+    }
+
+    if (requireFinancialForWallet && !financialVerified) {
+      map['dashboard.wallet'] = false;
+    }
+
+    if (requireFinancialForWithdraw && !financialVerified) {
+      map['dashboard.wallet.withdraw'] = false;
+    }
+
+    return map;
+  }
+
+  private async loadKycRestrictionSettings(): Promise<Record<string, string>> {
+    const keys = [
+      'KYC_REQUIRE_IDENTITY_FOR_ORDERS',
+      'KYC_REQUIRE_FINANCIAL_FOR_WALLET',
+      'KYC_REQUIRE_FINANCIAL_FOR_WITHDRAW',
+    ];
+    const rows = await this.prisma.systemSetting.findMany({
+      where: { key: { in: keys } },
+      select: { key: true, value: true },
+    });
+    const result: Record<string, string> = {};
+    for (const row of rows) result[row.key] = row.value;
+    return result;
   }
 
   isAllowed(
@@ -69,10 +128,14 @@ export class UserPanelAccessService {
   async getResolvedForUser(userId: string): Promise<UserPanelAccessMap> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { panelAccess: true },
+      select: { panelAccess: true, status: true, isVerified: true, shabaNumber: true },
     });
     if (!user) throw new NotFoundException('کاربر یافت نشد');
-    return this.resolveMap(user.panelAccess);
+    const [settings, resolved] = await Promise.all([
+      this.loadKycRestrictionSettings(),
+      Promise.resolve(this.resolveMap(user.panelAccess)),
+    ]);
+    return this.applyKycRestrictions(resolved, user, settings);
   }
 
   async updateForUser(

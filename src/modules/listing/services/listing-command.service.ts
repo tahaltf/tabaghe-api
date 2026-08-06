@@ -14,6 +14,7 @@ import {
   NotificationType,
   OrderStatus,
   Prisma,
+  UserStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { normalizeMultilineText } from '../../../common/multiline-text.util';
@@ -97,12 +98,21 @@ export class ListingCommandService {
     const listing = await this.prisma.$transaction(async (tx) => {
       const author = await tx.user.findUnique({
         where: { id: userId },
-        select: { id: true, rating: true },
+        select: {
+          id: true,
+          rating: true,
+          status: true,
+          isVerified: true,
+        },
       });
       if (!author) {
         throw new NotFoundException('کاربر یافت نشد');
       }
       this.assertAuthorCanPublishListing(author.rating);
+      await this.assertUserCanCreateListingByKyc(tx, userId, {
+        status: author.status,
+        isVerified: author.isVerified,
+      });
 
       const listing = await tx.listing.create({
         data: {
@@ -181,6 +191,59 @@ export class ListingCommandService {
     );
 
     return listing;
+  }
+
+  private async assertUserCanCreateListingByKyc(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    user: { status: UserStatus; isVerified: boolean },
+  ): Promise<void> {
+    const rows = await tx.systemSetting.findMany({
+      where: {
+        key: {
+          in: ['KYC_ALLOW_LISTING_WITH_MOBILE', 'KYC_UNVERIFIED_LISTING_LIMIT'],
+        },
+      },
+      select: { key: true, value: true },
+    });
+    const map: Record<string, string> = {};
+    for (const row of rows) map[row.key] = row.value;
+
+    const isIdentityVerified =
+      user.status === UserStatus.APPROVED && user.isVerified === true;
+    if (isIdentityVerified) return;
+
+    const allowMobile =
+      String(map.KYC_ALLOW_LISTING_WITH_MOBILE ?? 'true').toLowerCase() !== 'false';
+    if (!allowMobile) {
+      throw new ForbiddenException(
+        'برای ثبت آگهی باید احراز هویت کاربری را تکمیل کنید.',
+      );
+    }
+
+    const rawLimit = Number(map.KYC_UNVERIFIED_LISTING_LIMIT ?? '1');
+    const limit = Number.isFinite(rawLimit)
+      ? Math.max(0, Math.floor(rawLimit))
+      : 1;
+    if (limit <= 0) {
+      throw new ForbiddenException(
+        'ثبت آگهی برای کاربران بدون احراز کامل غیرفعال است.',
+      );
+    }
+
+    const activeCount = await tx.listing.count({
+      where: {
+        authorId: userId,
+        status: {
+          in: [ListingStatus.PENDING, ListingStatus.APPROVED],
+        },
+      },
+    });
+    if (activeCount >= limit) {
+      throw new ForbiddenException(
+        `برای ثبت بیش از ${limit} آگهی، باید احراز هویت کاربری را تکمیل کنید.`,
+      );
+    }
   }
 
   private dispatchAdminNewListingAlert(
