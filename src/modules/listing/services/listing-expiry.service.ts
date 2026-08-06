@@ -4,11 +4,10 @@ import {
   AuctionStatus,
   ListingStatus,
   ListingType,
-  NotificationType,
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
-import { NotificationService } from '../../notification/notification.service';
+import { ListingNotificationBatchService } from '../../../common/notification/listing-notification-batch.service';
 
 export const LISTING_DISPLAY_DAYS_SETTING_KEY = 'LISTING_DISPLAY_DAYS';
 
@@ -20,7 +19,7 @@ export class ListingExpiryService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly notificationService: NotificationService,
+    private readonly listingNotificationBatch: ListingNotificationBatchService,
   ) {}
 
   async getDisplayDays(): Promise<number> {
@@ -164,33 +163,38 @@ export class ListingExpiryService {
       include: { auction: true },
     });
 
+    const reminderItems: Array<{
+      listingId: string;
+      listingTitle: string;
+      authorId: string;
+      expiresAt: string;
+    }> = [];
+
     for (const listing of candidates) {
       if (this.isActiveAuctionListing(listing)) continue;
 
-      const expiresFa = listing.expiresAt!.toLocaleString('fa-IR', {
-        dateStyle: 'short',
-        timeZone: 'Asia/Tehran',
-      });
-
-      await this.notificationService.create({
-        userId: listing.authorId,
-        type: NotificationType.LISTING_EXPIRY_REMINDER,
-        title: 'پایان نمایش آگهی فردا',
-        message:
-          `فردا آگهی «${listing.title}» به‌دلیل پایان مدت نمایش از سایت حذف می‌شود. ` +
-          `اگر کالا هنوز فروخته نشده و مایل به نمایش روی سایت هستید، آگهی خود را ویرایش کنید تا پس از تایید ادمین مجدداً روی سایت قرار گیرد. ` +
-          `(پایان نمایش: ${expiresFa})`,
-        meta: {
-          listingId: listing.id,
-          expiresAt: listing.expiresAt!.toISOString(),
-        },
-      });
-
-      await this.prisma.listing.update({
-        where: { id: listing.id },
-        data: { expiryReminderSentAt: new Date() },
+      reminderItems.push({
+        listingId: listing.id,
+        listingTitle: listing.title,
+        authorId: listing.authorId,
+        expiresAt: listing.expiresAt!.toISOString(),
       });
     }
+
+    if (!reminderItems.length) return;
+
+    await this.prisma.$transaction(
+      reminderItems.map((item) =>
+        this.prisma.listing.update({
+          where: { id: item.listingId },
+          data: { expiryReminderSentAt: new Date() },
+        }),
+      ),
+    );
+
+    await this.listingNotificationBatch.flushUserListingExpiryReminderAlerts(
+      reminderItems,
+    );
   }
 
   private async archiveExpiredListings(): Promise<void> {
@@ -203,23 +207,35 @@ export class ListingExpiryService {
       include: { auction: true },
     });
 
+    const expiredItems: Array<{
+      listingId: string;
+      listingTitle: string;
+      authorId: string;
+    }> = [];
+
     for (const listing of expired) {
       if (this.isActiveAuctionListing(listing)) continue;
 
-      await this.prisma.listing.update({
-        where: { id: listing.id },
-        data: { status: ListingStatus.ARCHIVED },
-      });
-
-      await this.notificationService.create({
-        userId: listing.authorId,
-        type: NotificationType.LISTING_EXPIRED,
-        title: 'آگهی از سایت برداشته شد',
-        message:
-          `آگهی «${listing.title}» به‌دلیل پایان مدت نمایش از سایت برداشته شد. ` +
-          `اگر کالا هنوز فروخته نشده و مایل به نمایش مجدد هستید، آگهی خود را ویرایش کنید تا پس از تایید ادمین دوباره روی سایت قرار گیرد.`,
-        meta: { listingId: listing.id },
+      expiredItems.push({
+        listingId: listing.id,
+        listingTitle: listing.title,
+        authorId: listing.authorId,
       });
     }
+
+    if (!expiredItems.length) return;
+
+    await this.prisma.$transaction(
+      expiredItems.map((item) =>
+        this.prisma.listing.update({
+          where: { id: item.listingId },
+          data: { status: ListingStatus.ARCHIVED },
+        }),
+      ),
+    );
+
+    await this.listingNotificationBatch.flushUserListingExpiredAlerts(
+      expiredItems,
+    );
   }
 }

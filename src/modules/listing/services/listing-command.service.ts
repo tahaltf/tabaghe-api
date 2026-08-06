@@ -20,6 +20,7 @@ import { normalizeMultilineText } from '../../../common/multiline-text.util';
 import { validateListingSalePricing } from '../../../common/listing/listing-price.util';
 import { NotificationService } from '../../notification/notification.service';
 import { QuotaService } from '../../quota/quota.service';
+import { ListingExpiryService } from './listing-expiry.service';
 import { CreateListingDto } from '../dto/create-listing.dto';
 import { UpdateListingDto } from '../dto/update-listing.dto';
 import { DeleteListingDto } from '../dto/delete-listing.dto';
@@ -77,6 +78,7 @@ export class ListingCommandService {
     private readonly prisma: PrismaService,
     private readonly quotaService: QuotaService,
     private readonly notifications: NotificationService,
+    private readonly listingExpiry: ListingExpiryService,
   ) {}
 
   async create(
@@ -303,8 +305,15 @@ export class ListingCommandService {
         data.exchangeOffersSince = new Date();
       }
       notifyPendingReview = true;
-    } else if (shouldRestoreApproved) {
+    } else if (listing.status === ListingStatus.APPROVED || shouldRestoreApproved) {
+      const approvedAt = new Date();
+      const expiryFields = await this.listingExpiry.approvalExpiryFields(approvedAt);
       data.status = ListingStatus.APPROVED;
+      data.approvedAt = approvedAt;
+      data.expiresAt = expiryFields.expiresAt as Date;
+      data.expiryReminderSentAt = null;
+      data.rejectionReason = null;
+      data.rejectedAt = null;
     }
 
     const updated = await this.prisma.listing.update({

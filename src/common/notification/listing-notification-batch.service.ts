@@ -162,6 +162,103 @@ export class ListingNotificationBatchService {
       });
     }
   }
+
+  async flushUserListingExpiryReminderAlerts(
+    items: Array<{
+      listingId: string;
+      listingTitle: string;
+      authorId: string;
+      expiresAt: string;
+    }>,
+  ): Promise<void> {
+    if (!items.length) return;
+
+    const byAuthor = groupByAuthorId(items);
+    for (const [authorId, group] of byAuthor) {
+      if (group.length <= LISTING_NOTIFICATION_BATCH_THRESHOLD) {
+        for (const item of group) {
+          const expiresFa = new Date(item.expiresAt).toLocaleString('fa-IR', {
+            dateStyle: 'short',
+            timeZone: 'Asia/Tehran',
+          });
+          await this.notifications.create({
+            userId: authorId,
+            type: NotificationType.LISTING_EXPIRY_REMINDER,
+            title: 'پایان نمایش آگهی فردا',
+            message:
+              `فردا آگهی «${item.listingTitle}» به‌دلیل پایان مدت نمایش از سایت حذف می‌شود. ` +
+              `اگر کالا هنوز فروخته نشده و مایل به نمایش روی سایت هستید، آگهی خود را ویرایش کنید تا پس از تایید ادمین مجدداً روی سایت قرار گیرد. ` +
+              `(پایان نمایش: ${expiresFa})`,
+            meta: {
+              listingId: item.listingId,
+              listingTitle: item.listingTitle,
+              expiresAt: item.expiresAt,
+            },
+          });
+        }
+        continue;
+      }
+
+      await this.notifications.create({
+        userId: authorId,
+        type: NotificationType.LISTING_EXPIRY_REMINDER,
+        title: 'پایان نمایش آگهی‌های شما فردا',
+        message:
+          `${group.length} آگهی شما فردا به‌دلیل پایان مدت نمایش از سایت حذف می‌شود. ` +
+          `اگر کالا هنوز فروخته نشده و مایل به نمایش روی سایت هستید، آگهی‌های خود را ویرایش کنید تا پس از تایید ادمین مجدداً روی سایت قرار گیرند.`,
+        meta: {
+          isBatch: true,
+          batchCount: group.length,
+          listingIds: group.map((g) => g.listingId),
+        },
+      });
+    }
+  }
+
+  async flushUserListingExpiredAlerts(
+    items: Array<{
+      listingId: string;
+      listingTitle: string;
+      authorId: string;
+    }>,
+  ): Promise<void> {
+    if (!items.length) return;
+
+    const byAuthor = groupByAuthorId(items);
+    for (const [authorId, group] of byAuthor) {
+      if (group.length <= LISTING_NOTIFICATION_BATCH_THRESHOLD) {
+        for (const item of group) {
+          await this.notifications.create({
+            userId: authorId,
+            type: NotificationType.LISTING_EXPIRED,
+            title: 'آگهی از سایت برداشته شد',
+            message:
+              `آگهی «${item.listingTitle}» به‌دلیل پایان مدت نمایش از سایت برداشته شد. ` +
+              `اگر کالا هنوز فروخته نشده و مایل به نمایش مجدد هستید، آگهی خود را ویرایش کنید تا پس از تایید ادمین دوباره روی سایت قرار گیرد.`,
+            meta: {
+              listingId: item.listingId,
+              listingTitle: item.listingTitle,
+            },
+          });
+        }
+        continue;
+      }
+
+      await this.notifications.create({
+        userId: authorId,
+        type: NotificationType.LISTING_EXPIRED,
+        title: 'آگهی‌های شما از سایت برداشته شد',
+        message:
+          `${group.length} آگهی شما به‌دلیل پایان مدت نمایش از سایت برداشته شد. ` +
+          `اگر کالا هنوز فروخته نشده و مایل به نمایش مجدد هستید، آگهی‌های خود را ویرایش کنید تا پس از تایید ادمین دوباره روی سایت قرار گیرند.`,
+        meta: {
+          isBatch: true,
+          batchCount: group.length,
+          listingIds: group.map((g) => g.listingId),
+        },
+      });
+    }
+  }
 }
 
 function groupByUserId(
