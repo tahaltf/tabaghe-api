@@ -8,6 +8,7 @@ export const USER_PANEL_ACCESS_KEYS = [
   'dashboard.invite',
   'dashboard.plans',
   'dashboard.support',
+  'dashboard.contentStudio',
   'listing.create',
   'listing.auction',
   'listing.exchange',

@@ -133,7 +133,15 @@ export class UsersService {
     user: Prisma.UserGetPayload<{ select: typeof MY_PROFILE_SELECT }>,
   ): Promise<MyProfile> {
     const { panelAccess: raw, ...profile } = user;
-    const baseAccess = this.panelAccessService.resolveMap(raw);
+    const aiEnabledRow = await this.prisma.systemSetting.findUnique({
+      where: { key: 'AI_ENABLED' },
+    });
+    const aiEnabled = ['1', 'true', 'yes', 'on'].includes(
+      (aiEnabledRow?.value ?? 'false').trim().toLowerCase(),
+    );
+    const baseAccess = this.panelAccessService.resolveMap(raw, {
+      aiContentDefault: aiEnabled,
+    });
     const [settings, restrictedPanelAccess] = await Promise.all([
       this.prisma.systemSetting.findMany({
         where: {

@@ -26,14 +26,22 @@ type PanelAccessUserShape = {
 
 /**
  * Stores the full resolved boolean map in DB for clarity (every known key present).
- * Missing keys and null still resolve to enabled (true) when reading legacy rows.
+ * Missing keys resolve to enabled (true), except `dashboard.contentStudio`
+ * whose default follows global AI_ENABLED (so global-off + per-user-on works).
  */
 @Injectable()
 export class UserPanelAccessService {
   constructor(private readonly prisma: PrismaService) {}
 
-  resolveMap(raw: Prisma.JsonValue | null | undefined): UserPanelAccessMap {
+  resolveMap(
+    raw: Prisma.JsonValue | null | undefined,
+    options?: { aiContentDefault?: boolean },
+  ): UserPanelAccessMap {
     const resolved = defaultPanelAccessMap();
+    if (options?.aiContentDefault === false) {
+      resolved['dashboard.contentStudio'] = false;
+    }
+
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
       return resolved;
     }
@@ -96,6 +104,14 @@ export class UserPanelAccessService {
     return result;
   }
 
+  private async isAiContentGloballyEnabled(): Promise<boolean> {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { key: 'AI_ENABLED' },
+    });
+    const raw = (row?.value ?? 'false').trim().toLowerCase();
+    return ['1', 'true', 'yes', 'on'].includes(raw);
+  }
+
   isAllowed(
     rawOrUser: Prisma.JsonValue | null | undefined | PanelAccessCarrier,
     key: UserPanelAccessKey,
@@ -114,7 +130,8 @@ export class UserPanelAccessService {
     const patch: Partial<UserPanelAccessMap> = {};
     for (const [key, value] of Object.entries(body)) {
       if (!isUserPanelAccessKey(key)) {
-        throw new BadRequestException(`کلید دسترسی نامعتبر: ${key}`);
+        // ignore unknown nested leftovers; only accept registry keys
+        continue;
       }
       if (typeof value !== 'boolean') {
         throw new BadRequestException(
@@ -122,6 +139,9 @@ export class UserPanelAccessService {
         );
       }
       patch[key] = value;
+    }
+    if (!Object.keys(patch).length) {
+      throw new BadRequestException('هیچ دسترسی معتبری ارسال نشده است');
     }
     return patch;
   }
@@ -138,10 +158,13 @@ export class UserPanelAccessService {
       },
     });
     if (!user) throw new NotFoundException('کاربر یافت نشد');
-    const [settings, resolved] = await Promise.all([
+    const [settings, aiEnabled] = await Promise.all([
       this.loadKycRestrictionSettings(),
-      Promise.resolve(this.resolveMap(user.panelAccess)),
+      this.isAiContentGloballyEnabled(),
     ]);
+    const resolved = this.resolveMap(user.panelAccess, {
+      aiContentDefault: aiEnabled,
+    });
     return this.applyKycRestrictions(resolved, user, settings);
   }
 
@@ -156,8 +179,9 @@ export class UserPanelAccessService {
     });
     if (!user) throw new NotFoundException('کاربر یافت نشد');
 
+    const aiEnabled = await this.isAiContentGloballyEnabled();
     const next = {
-      ...this.resolveMap(user.panelAccess),
+      ...this.resolveMap(user.panelAccess, { aiContentDefault: aiEnabled }),
       ...validatedPatch,
     };
 
@@ -166,6 +190,6 @@ export class UserPanelAccessService {
       data: { panelAccess: next as Prisma.InputJsonValue },
     });
 
-    return next;
+    return this.getResolvedForUser(userId);
   }
 }

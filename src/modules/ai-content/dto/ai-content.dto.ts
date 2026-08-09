@@ -7,6 +7,7 @@ import {
   IsString,
   MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 
@@ -58,6 +59,7 @@ export class AiStoryStyleDto {
   @IsBoolean()
   enabled!: boolean;
 
+  @Type(() => Number)
   @IsInt()
   @Min(0)
   sortOrder!: number;
@@ -69,21 +71,27 @@ export class UpdateAiContentSettingsDto {
   enabled?: boolean;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(0)
   kycWelcomeTokens?: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   storyTokenCost?: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(0)
   tokenPriceToman?: number;
 
   @IsOptional()
+  @IsArray()
+  @Type(() => Number)
+  @IsInt({ each: true })
   tokenPacks?: number[];
 
   @IsOptional()
@@ -96,9 +104,12 @@ export class UpdateAiContentSettingsDto {
   @MaxLength(8000)
   storyConstraints?: string;
 
+  /** خالی یا null یعنی حذف مسیر لوگو در تنظیمات متنی */
   @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
   @IsString()
-  storyBrandLogoUrl?: string;
+  @MaxLength(500)
+  storyBrandLogoUrl?: string | null;
 
   @IsOptional()
   @IsString()
@@ -109,6 +120,7 @@ export class UpdateAiContentSettingsDto {
   imageModel?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   dailyLimitPerUser?: number;

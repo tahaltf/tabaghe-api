@@ -105,6 +105,11 @@ export class AdminUsersQueryController {
     return this.service.listUserChats(actor, id);
   }
 
+  @Get(':id/panel-access')
+  getPanelAccess(@Param('id') id: string) {
+    return this.panelAccess.getResolvedForUser(id);
+  }
+
   @Patch(':id/panel-access')
   @RequirePermission('users.update')
   patchPanelAccess(

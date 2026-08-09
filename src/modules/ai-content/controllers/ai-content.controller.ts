@@ -33,8 +33,8 @@ export class AiContentController {
   ) {}
 
   @Get('config')
-  getPublicConfig() {
-    return this.settings.getPublicConfig();
+  getPublicConfig(@CurrentUser() user: AuthenticatedUser) {
+    return this.settings.getPublicConfig(user.id);
   }
 
   @Get('tokens/balance')

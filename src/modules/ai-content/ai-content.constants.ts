@@ -75,4 +75,25 @@ export const DEFAULT_AI_STORY_STYLES: AiStoryStyleDef[] = [
 ];
 
 export const DEFAULT_AI_TEXT_MODEL = 'openai/gpt-4o-mini';
-export const DEFAULT_AI_IMAGE_MODEL = 'openai/gpt-image-1';
+export const DEFAULT_AI_IMAGE_MODEL = 'openai/gpt-image-1-mini';
+
+export type AiModelOption = {
+  id: string;
+  label: string;
+};
+
+/** مدل‌های متن پیشنهادی لیارا (OpenAI) برای کپشن */
+export const AI_TEXT_MODEL_OPTIONS: AiModelOption[] = [
+  { id: 'openai/gpt-4o-mini', label: 'GPT-4o Mini (پیشنهادی)' },
+  { id: 'openai/gpt-4o', label: 'GPT-4o' },
+  { id: 'openai/gpt-4.1-mini', label: 'GPT-4.1 Mini' },
+  { id: 'openai/gpt-4.1', label: 'GPT-4.1' },
+  { id: 'openai/o4-mini', label: 'o4 Mini' },
+];
+
+/** مدل‌های تصویر پیشنهادی لیارا برای استوری */
+export const AI_IMAGE_MODEL_OPTIONS: AiModelOption[] = [
+  { id: 'openai/gpt-image-1-mini', label: 'GPT Image 1 Mini (پیشنهادی)' },
+  { id: 'openai/gpt-image-1', label: 'GPT Image 1' },
+  { id: 'openai/gpt-image-1.5', label: 'GPT Image 1.5' },
+];

@@ -79,8 +79,8 @@ export class AiContentStoryService {
     userPrompt?: string,
     parentRequestId?: string,
   ) {
-    if (!(await this.settings.isEnabled())) {
-      throw new BadRequestException('تولید محتوا موقتاً غیرفعال است');
+    if (!(await this.settings.isEnabledForUser(userId))) {
+      throw new BadRequestException('تولید محتوا برای حساب شما فعال نیست');
     }
 
     await this.assertDailyLimit(userId);

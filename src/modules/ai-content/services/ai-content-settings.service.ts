@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { ServerSecretConfigService } from '../../../shared/settings/server-secret-config.service';
+import { UserPanelAccessService } from '../../users/user-panel-access.service';
 import {
   AI_CONTENT_SETTING_KEYS,
   DEFAULT_AI_IMAGE_MODEL,
@@ -17,6 +18,7 @@ export class AiContentSettingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly secrets: ServerSecretConfigService,
+    private readonly panelAccess: UserPanelAccessService,
   ) {}
 
   async getString(key: string, fallback = ''): Promise<string> {
@@ -125,6 +127,18 @@ export class AiContentSettingsService {
     return this.getBool(AI_CONTENT_SETTING_KEYS.ENABLED, false);
   }
 
+  /** Global flag + per-user panel access (contentStudio defaults to global flag). */
+  async isEnabledForUser(userId: string): Promise<boolean> {
+    const access = await this.panelAccess.getResolvedForUser(userId);
+    return access['dashboard.contentStudio'] === true;
+  }
+
+  async assertEnabledForUser(userId: string): Promise<void> {
+    if (!(await this.isEnabledForUser(userId))) {
+      throw new BadRequestException('تولید محتوا برای حساب شما فعال نیست');
+    }
+  }
+
   async getStoryTokenCost(): Promise<number> {
     return this.getInt(AI_CONTENT_SETTING_KEYS.STORY_TOKEN_COST, 2);
   }
@@ -185,9 +199,9 @@ export class AiContentSettingsService {
     ).replace(/\/$/, '');
   }
 
-  async getPublicConfig() {
+  async getPublicConfig(userId?: string) {
     const [
-      enabled,
+      globalEnabled,
       storyTokenCost,
       tokenPriceToman,
       tokenPacks,
@@ -202,8 +216,13 @@ export class AiContentSettingsService {
       this.getEnabledStyles(),
     ]);
 
+    const enabled = userId
+      ? await this.isEnabledForUser(userId)
+      : globalEnabled;
+
     return {
       enabled,
+      globalEnabled,
       storyTokenCost,
       tokenPriceToman,
       tokenPacks,

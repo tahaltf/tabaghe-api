@@ -1,5 +1,22 @@
-import { Body, Controller, Get, Param, Put, Query, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+  Query,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
+import { existsSync, unlinkSync } from 'fs';
+import { join } from 'path';
+import { brandLogoMulterOptions } from '../../../common/upload/brand-logo-upload.config';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { PermissionsGuard } from '../../auth/guards/permissions.guard';
@@ -10,6 +27,8 @@ import { AiContentSettingsService } from '../services/ai-content-settings.servic
 import { AiContentStoryService } from '../services/ai-content-story.service';
 import {
   AI_CONTENT_SETTING_KEYS,
+  AI_IMAGE_MODEL_OPTIONS,
+  AI_TEXT_MODEL_OPTIONS,
   DEFAULT_AI_STORY_STYLES,
 } from '../ai-content.constants';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
@@ -69,6 +88,8 @@ export class AdminAiContentController {
       dailyLimitPerUser,
       styles,
       defaultStyles: DEFAULT_AI_STORY_STYLES,
+      textModelOptions: AI_TEXT_MODEL_OPTIONS,
+      imageModelOptions: AI_IMAGE_MODEL_OPTIONS,
       hasOpenAiKey: Boolean(this.settings.getOpenAiApiKey()),
       openAiBaseUrl: this.settings.getOpenAiBaseUrl(),
     };
@@ -124,7 +145,7 @@ export class AdminAiContentController {
     if (dto.storyBrandLogoUrl !== undefined) {
       entries.push({
         key: AI_CONTENT_SETTING_KEYS.STORY_BRAND_LOGO_URL,
-        value: dto.storyBrandLogoUrl,
+        value: dto.storyBrandLogoUrl?.trim() || '',
       });
     }
     if (dto.textModel !== undefined) {
@@ -164,6 +185,45 @@ export class AdminAiContentController {
     return this.getSettings();
   }
 
+  @Post('brand-logo')
+  @RequirePermission('settings.update')
+  @UseInterceptors(FileInterceptor('file', brandLogoMulterOptions))
+  async uploadBrandLogo(@UploadedFile() file?: Express.Multer.File) {
+    if (!file) throw new BadRequestException('فایلی ارسال نشده است');
+
+    const previous = await this.settings.getBrandLogoUrl();
+    const publicPath = `/uploads/brand/${file.filename}`;
+
+    await this.prisma.systemSetting.upsert({
+      where: { key: AI_CONTENT_SETTING_KEYS.STORY_BRAND_LOGO_URL },
+      create: {
+        key: AI_CONTENT_SETTING_KEYS.STORY_BRAND_LOGO_URL,
+        value: publicPath,
+      },
+      update: { value: publicPath },
+    });
+
+    this.tryDeleteBrandLogoFile(previous);
+
+    return this.getSettings();
+  }
+
+  @Delete('brand-logo')
+  @RequirePermission('settings.update')
+  async removeBrandLogo() {
+    const previous = await this.settings.getBrandLogoUrl();
+    await this.prisma.systemSetting.upsert({
+      where: { key: AI_CONTENT_SETTING_KEYS.STORY_BRAND_LOGO_URL },
+      create: {
+        key: AI_CONTENT_SETTING_KEYS.STORY_BRAND_LOGO_URL,
+        value: '',
+      },
+      update: { value: '' },
+    });
+    this.tryDeleteBrandLogoFile(previous);
+    return this.getSettings();
+  }
+
   @Get('users/:userId/activity')
   @RequirePermission('users.view')
   listUserActivity(
@@ -176,5 +236,17 @@ export class AdminAiContentController {
       Number(page) || 1,
       Number(limit) || 30,
     );
+  }
+
+  private tryDeleteBrandLogoFile(stored: string | null): void {
+    if (!stored) return;
+    try {
+      const safeName = stored.split(/[\\/]/).pop();
+      if (!safeName) return;
+      const fullPath = join(process.cwd(), 'uploads', 'brand', safeName);
+      if (existsSync(fullPath)) unlinkSync(fullPath);
+    } catch {
+      // non-fatal
+    }
   }
 }
