@@ -261,9 +261,9 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   KYC_REQUIRE_IDENTITY_FOR_ORDERS:
     'اگر true باشد، دسترسی به خرید/فروش/درخواست‌ها فقط با احراز هویت کاربری فعال است',
   KYC_REQUIRE_FINANCIAL_FOR_WALLET:
-    'اگر true باشد، دسترسی به کیف پول فقط با احراز مالی فعال است',
+    'اگر true باشد، دسترسی به کیف پول فقط با احراز مالی (تایید هویت + شبا + تصویر کارت ملی) فعال است',
   KYC_REQUIRE_FINANCIAL_FOR_WITHDRAW:
-    'اگر true باشد، ثبت درخواست برداشت فقط با احراز مالی فعال است',
+    'اگر true باشد، ثبت درخواست برداشت فقط با احراز مالی (تایید هویت + شبا + تصویر کارت ملی) فعال است',
   REFERRAL_COMMISSION_PERCENT:
     'درصد پاداش معرف از کارمزد فروش کاربر دعوت‌شده (۰ تا ۱۰۰؛ فقط سطح اول)',
   REFERRAL_SHARE_MESSAGE:

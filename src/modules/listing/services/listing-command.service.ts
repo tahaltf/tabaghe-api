@@ -36,6 +36,10 @@ import {
   isCategoryVisibleOnSite,
 } from '../../../common/category-visibility.util';
 import type { ListingAlertItem } from '../../../common/notification/listing-notification-batch.service';
+import {
+  hasBasicListingProfile,
+  isIdentityVerified,
+} from '../../../common/kyc/kyc-profile.util';
 
 /** حداقل امتیاز (rating) برای ثبت یا ارسال مجدد آگهی */
 export const MIN_LISTING_AUTHOR_RATING = 1;
@@ -103,10 +107,18 @@ export class ListingCommandService {
           rating: true,
           status: true,
           isVerified: true,
+          firstName: true,
+          lastName: true,
+          nationalCode: true,
         },
       });
       if (!author) {
         throw new NotFoundException('کاربر یافت نشد');
+      }
+      if (!hasBasicListingProfile(author)) {
+        throw new ForbiddenException(
+          'برای ثبت آگهی باید نام، نام خانوادگی و کد ملی را تکمیل کنید.',
+        );
       }
       this.assertAuthorCanPublishListing(author.rating);
       await this.assertUserCanCreateListingByKyc(tx, userId, {
@@ -209,9 +221,8 @@ export class ListingCommandService {
     const map: Record<string, string> = {};
     for (const row of rows) map[row.key] = row.value;
 
-    const isIdentityVerified =
-      user.status === UserStatus.APPROVED && user.isVerified === true;
-    if (isIdentityVerified) return;
+    const identityOk = isIdentityVerified(user);
+    if (identityOk) return;
 
     const allowMobile =
       String(map.KYC_ALLOW_LISTING_WITH_MOBILE ?? 'true').toLowerCase() !== 'false';

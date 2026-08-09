@@ -10,12 +10,19 @@ import {
   Prisma,
   NotificationType,
   OtpPurpose,
+  UserStatus,
 } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { NotificationService } from '../../../notification/notification.service';
 import { MANUAL_DEPOSIT_KIND } from '../../wallet.constants';
 import { WalletQueryService } from '../query/wallet-query.service';
 import { OtpService, OtpIssueResult } from '../../../auth/services/otp.service';
+import {
+  isFinancialVerified,
+} from '../../../../common/kyc/kyc-profile.util';
+
+const WITHDRAW_KYC_MESSAGE =
+  'برای برداشت وجه باید احراز هویت تایید شده باشد و تصویر کارت ملی به‌همراه شماره شبا در پروفایل ثبت شده باشد.';
 
 @Injectable()
 export class WalletDepositWithdrawService {
@@ -307,11 +314,18 @@ export class WalletDepositWithdrawService {
   > {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { phone: true },
+      select: {
+        phone: true,
+        status: true,
+        isVerified: true,
+        shabaNumber: true,
+        nationalCardImage: true,
+      },
     });
     if (!user?.phone?.trim()) {
       throw new BadRequestException('شماره موبایل حساب کاربری یافت نشد.');
     }
+    this.assertWithdrawKyc(user);
 
     const otpResult = await this.otpService.issue(
       user.phone,
@@ -340,11 +354,18 @@ export class WalletDepositWithdrawService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { phone: true },
+      select: {
+        phone: true,
+        status: true,
+        isVerified: true,
+        shabaNumber: true,
+        nationalCardImage: true,
+      },
     });
     if (!user?.phone?.trim()) {
       throw new BadRequestException('شماره موبایل حساب کاربری یافت نشد.');
     }
+    this.assertWithdrawKyc(user);
 
     await this.otpService.consume(user.phone, otpCode, OtpPurpose.WITHDRAW);
 
@@ -606,6 +627,17 @@ export class WalletDepositWithdrawService {
     }
 
     return { message: result.message };
+  }
+
+  private assertWithdrawKyc(user: {
+    status: UserStatus;
+    isVerified: boolean;
+    shabaNumber: string | null;
+    nationalCardImage: string | null;
+  }): void {
+    if (!isFinancialVerified(user)) {
+      throw new BadRequestException(WITHDRAW_KYC_MESSAGE);
+    }
   }
 
   private maskPhone(phone: string): string {

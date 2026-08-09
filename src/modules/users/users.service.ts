@@ -23,6 +23,10 @@ import { ReferralService } from '../referral/referral.service';
 import type { UserReferralInfo } from '../referral/referral.service';
 import { UserPanelAccessService } from './user-panel-access.service';
 import type { UserPanelAccessMap } from './config/user-panel-access.registry';
+import {
+  isFinancialVerified,
+  isIdentityVerified,
+} from '../../common/kyc/kyc-profile.util';
 
 const MY_PROFILE_SELECT = {
   id: true,
@@ -147,12 +151,8 @@ export class UsersService {
     ]);
     const settingsMap: Record<string, string> = {};
     for (const item of settings) settingsMap[item.key] = item.value;
-    const isIdentityVerified =
-      user.status === UserStatus.APPROVED && user.isVerified === true;
-    const normalizedShaba = String(user.shabaNumber ?? '')
-      .trim()
-      .replace(/^IR/i, '');
-    const isFinancialVerified = isIdentityVerified && normalizedShaba.length === 24;
+    const identityOk = isIdentityVerified(user);
+    const financialOk = isFinancialVerified(user);
     const requireIdentityForOrders =
       String(settingsMap.KYC_REQUIRE_IDENTITY_FOR_ORDERS ?? 'true').toLowerCase() !==
       'false';
@@ -162,13 +162,13 @@ export class UsersService {
     const requireFinancialForWithdraw =
       String(settingsMap.KYC_REQUIRE_FINANCIAL_FOR_WITHDRAW ?? 'true').toLowerCase() !==
       'false';
-    if (requireIdentityForOrders && !isIdentityVerified) {
+    if (requireIdentityForOrders && !identityOk) {
       restrictedPanelAccess['dashboard.orders'] = false;
     }
-    if (requireFinancialForWallet && !isFinancialVerified) {
+    if (requireFinancialForWallet && !financialOk) {
       restrictedPanelAccess['dashboard.wallet'] = false;
     }
-    if (requireFinancialForWithdraw && !isFinancialVerified) {
+    if (requireFinancialForWithdraw && !financialOk) {
       restrictedPanelAccess['dashboard.wallet.withdraw'] = false;
     }
     return {
@@ -572,10 +572,6 @@ export class UsersService {
         throw new BadRequestException('شماره شبا باید ۲۴ رقم باشد.');
       }
       shabaNumber = rawShaba;
-    }
-
-    if (!nationalCardImageFilename && !currentUser.nationalCardImage) {
-      throw new BadRequestException('تصویر کارت ملی الزامی است');
     }
 
     try {

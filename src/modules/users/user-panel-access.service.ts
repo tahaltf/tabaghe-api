@@ -8,6 +8,10 @@ import {
   UserPanelAccessKey,
   UserPanelAccessMap,
 } from './config/user-panel-access.registry';
+import {
+  isFinancialVerified,
+  isIdentityVerified,
+} from '../../common/kyc/kyc-profile.util';
 
 type PanelAccessCarrier = {
   panelAccess?: Prisma.JsonValue | null;
@@ -17,6 +21,7 @@ type PanelAccessUserShape = {
   status: UserStatus;
   isVerified: boolean;
   shabaNumber: string | null;
+  nationalCardImage: string | null;
 };
 
 /**
@@ -48,12 +53,8 @@ export class UserPanelAccessService {
     settings: Record<string, string>,
   ): UserPanelAccessMap {
     const map = { ...base };
-    const identityVerified =
-      user.status === UserStatus.APPROVED && user.isVerified === true;
-    const normalizedShaba = String(user.shabaNumber ?? '')
-      .trim()
-      .replace(/^IR/i, '');
-    const financialVerified = identityVerified && normalizedShaba.length === 24;
+    const identityOk = isIdentityVerified(user);
+    const financialOk = isFinancialVerified(user);
 
     const requireIdentityForOrders =
       String(settings.KYC_REQUIRE_IDENTITY_FOR_ORDERS ?? 'true').toLowerCase() !==
@@ -65,15 +66,15 @@ export class UserPanelAccessService {
       String(settings.KYC_REQUIRE_FINANCIAL_FOR_WITHDRAW ?? 'true').toLowerCase() !==
       'false';
 
-    if (requireIdentityForOrders && !identityVerified) {
+    if (requireIdentityForOrders && !identityOk) {
       map['dashboard.orders'] = false;
     }
 
-    if (requireFinancialForWallet && !financialVerified) {
+    if (requireFinancialForWallet && !financialOk) {
       map['dashboard.wallet'] = false;
     }
 
-    if (requireFinancialForWithdraw && !financialVerified) {
+    if (requireFinancialForWithdraw && !financialOk) {
       map['dashboard.wallet.withdraw'] = false;
     }
 
@@ -128,7 +129,13 @@ export class UserPanelAccessService {
   async getResolvedForUser(userId: string): Promise<UserPanelAccessMap> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { panelAccess: true, status: true, isVerified: true, shabaNumber: true },
+      select: {
+        panelAccess: true,
+        status: true,
+        isVerified: true,
+        shabaNumber: true,
+        nationalCardImage: true,
+      },
     });
     if (!user) throw new NotFoundException('کاربر یافت نشد');
     const [settings, resolved] = await Promise.all([
