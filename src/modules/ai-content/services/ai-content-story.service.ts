@@ -75,6 +75,7 @@ export class AiContentStoryService {
   async generateStory(
     userId: string,
     listingId: string,
+    styleId: string,
     userPrompt?: string,
     parentRequestId?: string,
   ) {
@@ -83,6 +84,8 @@ export class AiContentStoryService {
     }
 
     await this.assertDailyLimit(userId);
+
+    const style = await this.settings.getStyle(styleId);
 
     const listing = await this.prisma.listing.findFirst({
       where: {
@@ -117,6 +120,7 @@ export class AiContentStoryService {
         userId,
         listingId,
         type: AiContentType.STORY,
+        styleId: style.id,
         userPrompt: userPrompt?.trim() || null,
         status: AiContentRequestStatus.PROCESSING,
         parentRequestId: parentRequestId ?? null,
@@ -138,6 +142,8 @@ export class AiContentStoryService {
         userPrompt,
         systemPrompt,
         constraints,
+        stylePromptAddon: style.promptAddon,
+        styleLabel: style.label,
       };
 
       const caption = await this.textProvider.generateStoryCaption(input);
@@ -176,6 +182,7 @@ export class AiContentStoryService {
         id: request.id,
         imageUrl: publicImageUrl,
         caption,
+        styleId: style.id,
         tokensCharged: tokenCost,
         remainingTokens: remaining.totalAvailable,
         provider: imageResult.provider,
@@ -194,7 +201,12 @@ export class AiContentStoryService {
     }
   }
 
-  async regenerate(userId: string, requestId: string, userPrompt?: string) {
+  async regenerate(
+    userId: string,
+    requestId: string,
+    userPrompt?: string,
+    styleId?: string,
+  ) {
     const original = await this.prisma.aiContentRequest.findFirst({
       where: { id: requestId, userId },
     });
@@ -205,9 +217,15 @@ export class AiContentStoryService {
       throw new BadRequestException('این درخواست قابل بازتولید نیست');
     }
 
+    const resolvedStyleId = styleId?.trim() || original.styleId;
+    if (!resolvedStyleId) {
+      throw new BadRequestException('سبک تولید محتوا را انتخاب کنید');
+    }
+
     return this.generateStory(
       userId,
       original.listingId,
+      resolvedStyleId,
       userPrompt ?? original.userPrompt ?? undefined,
       original.id,
     );

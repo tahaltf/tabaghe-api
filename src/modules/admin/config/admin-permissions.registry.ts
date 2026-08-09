@@ -303,6 +303,7 @@ export const ADMIN_ROUTE_PERMISSIONS = {
     '/admin/repair-hub-addresses': 'repair_hub.view',
     '/admin/plans': 'plans.view',
     '/admin/settings': 'settings.view',
+    '/admin/ai-content': 'settings.view',
     '/admin/restrictions': 'settings.view',
     '/admin/notification-settings': 'notification_settings.view',
     '/admin/fee-rules': 'fee_rules.view',

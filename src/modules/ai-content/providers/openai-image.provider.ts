@@ -33,13 +33,18 @@ export class OpenAiImageProvider {
         });
         if (aiBuffer) {
           const withBrand = await this.applyBrandOverlay(aiBuffer);
-          return { buffer: withBrand, provider: 'openai', model };
+          return { buffer: withBrand, provider: 'liara', model };
         }
+        this.logger.warn(
+          `Liara image edit returned empty result for model=${model}; using Sharp fallback`,
+        );
       } catch (err) {
         this.logger.warn(
-          `OpenAI image failed, using fallback composer: ${String((err as Error).message)}`,
+          `Liara image edit failed, using Sharp fallback: ${String((err as Error).message)}`,
         );
       }
+    } else {
+      this.logger.warn('No Liara/OpenAI API key configured; using Sharp fallback');
     }
 
     const buffer = await this.composeFallbackStory({
@@ -102,7 +107,7 @@ export class OpenAiImageProvider {
 
     if (!res.ok) {
       const body = await res.text();
-      this.logger.warn(`OpenAI image edit failed: ${res.status} ${body}`);
+      this.logger.warn(`Liara image edit failed: ${res.status} ${body}`);
       return null;
     }
 

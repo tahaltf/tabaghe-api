@@ -68,7 +68,12 @@ export class AiContentController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: GenerateStoryDto,
   ) {
-    return this.story.generateStory(user.id, dto.listingId, dto.userPrompt);
+    return this.story.generateStory(
+      user.id,
+      dto.listingId,
+      dto.styleId,
+      dto.userPrompt,
+    );
   }
 
   @Post('story/:id/regenerate')
@@ -77,7 +82,7 @@ export class AiContentController {
     @Param('id') id: string,
     @Body() dto: RegenerateStoryDto,
   ) {
-    return this.story.regenerate(user.id, id, dto.userPrompt);
+    return this.story.regenerate(user.id, id, dto.userPrompt, dto.styleId);
   }
 
   @Get('requests')

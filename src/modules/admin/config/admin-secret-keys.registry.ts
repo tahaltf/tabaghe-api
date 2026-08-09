@@ -2,6 +2,7 @@ export type AdminSecretKeyCategory =
   | 'sms'
   | 'payment'
   | 'marketing'
+  | 'ai'
   | 'web_push'
   | 'crawler'
   | 'general';
@@ -159,6 +160,46 @@ export const ADMIN_SECRET_KEYS_REGISTRY: AdminSecretKeyDef[] = [
     label: 'URL عمومی API',
     description: 'برای URL رسانه‌ای که Instagram باید بتواند دانلود کند',
     kind: 'url',
+  },
+  {
+    key: 'LIARA_API_KEY',
+    category: 'ai',
+    categoryLabel: 'هوش مصنوعی',
+    label: 'کلید API لیارا',
+    description: 'کلید سرویس AI لیارا برای تولید محتوا / تصویر',
+    kind: 'secret',
+  },
+  {
+    key: 'LIARA_BASE_URL',
+    category: 'ai',
+    categoryLabel: 'هوش مصنوعی',
+    label: 'Base URL لیارا',
+    description: 'مثلاً https://ai.liara.ir/api/v1 یا آدرس اختصاصی سرویس شما',
+    kind: 'url',
+    placeholder: 'https://ai.liara.ir/api/v1',
+  },
+  {
+    key: 'AI_CONTENT_OPENAI_API_KEY',
+    category: 'ai',
+    categoryLabel: 'هوش مصنوعی',
+    label: 'کلید جایگزین OpenAI-compatible',
+    description: 'اختیاری — اگر LIARA_API_KEY خالی باشد استفاده می‌شود',
+    kind: 'secret',
+  },
+  {
+    key: 'OPENAI_API_KEY',
+    category: 'ai',
+    categoryLabel: 'هوش مصنوعی',
+    label: 'OpenAI API Key (fallback)',
+    kind: 'secret',
+  },
+  {
+    key: 'OPENAI_BASE_URL',
+    category: 'ai',
+    categoryLabel: 'هوش مصنوعی',
+    label: 'OpenAI Base URL (fallback)',
+    kind: 'url',
+    placeholder: 'https://api.openai.com/v1',
   },
   {
     key: 'WEB_PUSH_VAPID_PUBLIC_KEY',

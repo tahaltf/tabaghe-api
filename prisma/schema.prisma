@@ -872,6 +872,7 @@ model AiContentRequest {
   listingId       String
   listing         Listing                @relation(fields: [listingId], references: [id], onDelete: Cascade)
   type            AiContentType
+  styleId         String?
   userPrompt      String?
   status          AiContentRequestStatus @default(PENDING)
   resultImagePath String?

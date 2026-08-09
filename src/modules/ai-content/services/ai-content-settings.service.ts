@@ -1,11 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { ServerSecretConfigService } from '../../../shared/settings/server-secret-config.service';
 import {
   AI_CONTENT_SETTING_KEYS,
+  DEFAULT_AI_IMAGE_MODEL,
   DEFAULT_AI_STORY_CONSTRAINTS,
+  DEFAULT_AI_STORY_STYLES,
   DEFAULT_AI_STORY_SYSTEM_PROMPT,
+  DEFAULT_AI_TEXT_MODEL,
   DEFAULT_AI_TOKEN_PACKS,
+  type AiStoryStyleDef,
 } from '../ai-content.constants';
 
 @Injectable()
@@ -51,6 +55,72 @@ export class AiContentSettingsService {
     }
   }
 
+  normalizeStyles(raw: unknown): AiStoryStyleDef[] {
+    if (!Array.isArray(raw)) return [...DEFAULT_AI_STORY_STYLES];
+
+    const styles: AiStoryStyleDef[] = [];
+    for (const item of raw) {
+      if (!item || typeof item !== 'object') continue;
+      const row = item as Record<string, unknown>;
+      const id = String(row.id ?? '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, '')
+        .slice(0, 64);
+      const label = String(row.label ?? '').trim().slice(0, 80);
+      const promptAddon = String(row.promptAddon ?? '').trim().slice(0, 4000);
+      if (!id || !label) continue;
+      const sortOrderRaw = Number.parseInt(String(row.sortOrder ?? styles.length + 1), 10);
+      styles.push({
+        id,
+        label,
+        promptAddon,
+        enabled: row.enabled !== false && row.enabled !== 'false',
+        sortOrder: Number.isFinite(sortOrderRaw) ? sortOrderRaw : styles.length + 1,
+      });
+    }
+
+    if (!styles.length) return [...DEFAULT_AI_STORY_STYLES];
+
+    const seen = new Set<string>();
+    const unique = styles.filter((s) => {
+      if (seen.has(s.id)) return false;
+      seen.add(s.id);
+      return true;
+    });
+
+    return unique.sort((a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label, 'fa'));
+  }
+
+  async getStyles(): Promise<AiStoryStyleDef[]> {
+    const raw = await this.getString(
+      AI_CONTENT_SETTING_KEYS.STORY_STYLES_JSON,
+      JSON.stringify(DEFAULT_AI_STORY_STYLES),
+    );
+    try {
+      return this.normalizeStyles(JSON.parse(raw) as unknown);
+    } catch {
+      return [...DEFAULT_AI_STORY_STYLES];
+    }
+  }
+
+  async getEnabledStyles(): Promise<AiStoryStyleDef[]> {
+    return (await this.getStyles()).filter((s) => s.enabled);
+  }
+
+  async getStyle(styleId: string): Promise<AiStoryStyleDef> {
+    const id = String(styleId ?? '').trim();
+    if (!id) {
+      throw new BadRequestException('سبک تولید محتوا را انتخاب کنید');
+    }
+    const styles = await this.getStyles();
+    const found = styles.find((s) => s.id === id && s.enabled);
+    if (!found) {
+      throw new BadRequestException('سبک انتخاب‌شده معتبر نیست');
+    }
+    return found;
+  }
+
   async isEnabled(): Promise<boolean> {
     return this.getBool(AI_CONTENT_SETTING_KEYS.ENABLED, false);
   }
@@ -91,37 +161,46 @@ export class AiContentSettingsService {
   }
 
   async getTextModel(): Promise<string> {
-    return this.getString(AI_CONTENT_SETTING_KEYS.TEXT_MODEL, 'gpt-4o-mini');
+    return this.getString(AI_CONTENT_SETTING_KEYS.TEXT_MODEL, DEFAULT_AI_TEXT_MODEL);
   }
 
   async getImageModel(): Promise<string> {
-    return this.getString(AI_CONTENT_SETTING_KEYS.IMAGE_MODEL, 'gpt-image-1');
+    return this.getString(AI_CONTENT_SETTING_KEYS.IMAGE_MODEL, DEFAULT_AI_IMAGE_MODEL);
   }
 
   getOpenAiApiKey(): string {
     return (
-      this.secrets.get('OPENAI_API_KEY') ||
+      this.secrets.get('LIARA_API_KEY') ||
       this.secrets.get('AI_CONTENT_OPENAI_API_KEY') ||
+      this.secrets.get('OPENAI_API_KEY') ||
       ''
     ).trim();
   }
 
   getOpenAiBaseUrl(): string {
     return (
+      this.secrets.get('LIARA_BASE_URL') ||
       this.secrets.get('OPENAI_BASE_URL') ||
-      'https://api.openai.com/v1'
+      'https://ai.liara.ir/api/v1'
     ).replace(/\/$/, '');
   }
 
   async getPublicConfig() {
-    const [enabled, storyTokenCost, tokenPriceToman, tokenPacks, kycWelcomeTokens] =
-      await Promise.all([
-        this.isEnabled(),
-        this.getStoryTokenCost(),
-        this.getTokenPriceToman(),
-        this.getTokenPacks(),
-        this.getKycWelcomeTokens(),
-      ]);
+    const [
+      enabled,
+      storyTokenCost,
+      tokenPriceToman,
+      tokenPacks,
+      kycWelcomeTokens,
+      styles,
+    ] = await Promise.all([
+      this.isEnabled(),
+      this.getStoryTokenCost(),
+      this.getTokenPriceToman(),
+      this.getTokenPacks(),
+      this.getKycWelcomeTokens(),
+      this.getEnabledStyles(),
+    ]);
 
     return {
       enabled,
@@ -129,6 +208,11 @@ export class AiContentSettingsService {
       tokenPriceToman,
       tokenPacks,
       kycWelcomeTokens,
+      styles: styles.map((s) => ({
+        id: s.id,
+        label: s.label,
+        sortOrder: s.sortOrder,
+      })),
     };
   }
 }

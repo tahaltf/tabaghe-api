@@ -40,7 +40,7 @@ export class OpenAiTextProvider {
 
       if (!res.ok) {
         const body = await res.text();
-        this.logger.warn(`OpenAI text failed: ${res.status} ${body}`);
+        this.logger.warn(`Liara text failed: ${res.status} ${body}`);
         return this.fallbackCaption(input);
       }
 
@@ -50,7 +50,7 @@ export class OpenAiTextProvider {
       const text = data.choices?.[0]?.message?.content?.trim();
       return text || this.fallbackCaption(input);
     } catch (err) {
-      this.logger.warn(`OpenAI text error: ${String((err as Error).message)}`);
+      this.logger.warn(`Liara text error: ${String((err as Error).message)}`);
       return this.fallbackCaption(input);
     }
   }

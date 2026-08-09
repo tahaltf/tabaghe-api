@@ -8,7 +8,10 @@ import { RequirePermission } from '../../auth/decorators/require-permission.deco
 import { UpdateAiContentSettingsDto } from '../dto/ai-content.dto';
 import { AiContentSettingsService } from '../services/ai-content-settings.service';
 import { AiContentStoryService } from '../services/ai-content-story.service';
-import { AI_CONTENT_SETTING_KEYS } from '../ai-content.constants';
+import {
+  AI_CONTENT_SETTING_KEYS,
+  DEFAULT_AI_STORY_STYLES,
+} from '../ai-content.constants';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 
 @Controller('admin/ai-content')
@@ -36,6 +39,7 @@ export class AdminAiContentController {
       textModel,
       imageModel,
       dailyLimitPerUser,
+      styles,
     ] = await Promise.all([
       this.settings.isEnabled(),
       this.settings.getKycWelcomeTokens(),
@@ -48,6 +52,7 @@ export class AdminAiContentController {
       this.settings.getTextModel(),
       this.settings.getImageModel(),
       this.settings.getDailyLimit(),
+      this.settings.getStyles(),
     ]);
 
     return {
@@ -62,7 +67,10 @@ export class AdminAiContentController {
       textModel,
       imageModel,
       dailyLimitPerUser,
+      styles,
+      defaultStyles: DEFAULT_AI_STORY_STYLES,
       hasOpenAiKey: Boolean(this.settings.getOpenAiApiKey()),
+      openAiBaseUrl: this.settings.getOpenAiBaseUrl(),
     };
   }
 
@@ -135,6 +143,13 @@ export class AdminAiContentController {
       entries.push({
         key: AI_CONTENT_SETTING_KEYS.DAILY_LIMIT_PER_USER,
         value: String(dto.dailyLimitPerUser),
+      });
+    }
+    if (dto.styles !== undefined) {
+      const styles = this.settings.normalizeStyles(dto.styles);
+      entries.push({
+        key: AI_CONTENT_SETTING_KEYS.STORY_STYLES_JSON,
+        value: JSON.stringify(styles),
       });
     }
 
