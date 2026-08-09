@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { ServerSecretConfigService } from '../../../shared/settings/server-secret-config.service';
-import { UserPanelAccessService } from '../../users/user-panel-access.service';
+import { resolveUserPanelAccessMap } from '../../users/config/user-panel-access.registry';
 import {
   AI_CONTENT_SETTING_KEYS,
   DEFAULT_AI_IMAGE_MODEL,
@@ -18,7 +18,6 @@ export class AiContentSettingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly secrets: ServerSecretConfigService,
-    private readonly panelAccess: UserPanelAccessService,
   ) {}
 
   async getString(key: string, fallback = ''): Promise<string> {
@@ -129,7 +128,17 @@ export class AiContentSettingsService {
 
   /** Global flag + per-user panel access (contentStudio defaults to global flag). */
   async isEnabledForUser(userId: string): Promise<boolean> {
-    const access = await this.panelAccess.getResolvedForUser(userId);
+    const [aiEnabled, user] = await Promise.all([
+      this.isEnabled(),
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { panelAccess: true },
+      }),
+    ]);
+    if (!user) return false;
+    const access = resolveUserPanelAccessMap(user.panelAccess, {
+      aiContentDefault: aiEnabled,
+    });
     return access['dashboard.contentStudio'] === true;
   }
 

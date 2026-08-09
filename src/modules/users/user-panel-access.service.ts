@@ -2,9 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import {
-  defaultPanelAccessMap,
   isUserPanelAccessKey,
-  USER_PANEL_ACCESS_KEYS,
+  resolveUserPanelAccessMap,
   UserPanelAccessKey,
   UserPanelAccessMap,
 } from './config/user-panel-access.registry';
@@ -37,22 +36,7 @@ export class UserPanelAccessService {
     raw: Prisma.JsonValue | null | undefined,
     options?: { aiContentDefault?: boolean },
   ): UserPanelAccessMap {
-    const resolved = defaultPanelAccessMap();
-    if (options?.aiContentDefault === false) {
-      resolved['dashboard.contentStudio'] = false;
-    }
-
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-      return resolved;
-    }
-
-    const stored = raw as Record<string, unknown>;
-    for (const key of USER_PANEL_ACCESS_KEYS) {
-      const value = stored[key];
-      if (value === false) resolved[key] = false;
-      else if (value === true) resolved[key] = true;
-    }
-    return resolved;
+    return resolveUserPanelAccessMap(raw, options);
   }
 
   private applyKycRestrictions(
