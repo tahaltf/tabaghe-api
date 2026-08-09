@@ -73,6 +73,8 @@ export class AiContentController {
       dto.listingId,
       dto.styleId,
       dto.userPrompt,
+      undefined,
+      dto.includeCaption !== false,
     );
   }
 
@@ -82,7 +84,13 @@ export class AiContentController {
     @Param('id') id: string,
     @Body() dto: RegenerateStoryDto,
   ) {
-    return this.story.regenerate(user.id, id, dto.userPrompt, dto.styleId);
+    return this.story.regenerate(
+      user.id,
+      id,
+      dto.userPrompt,
+      dto.styleId,
+      dto.includeCaption,
+    );
   }
 
   @Get('requests')

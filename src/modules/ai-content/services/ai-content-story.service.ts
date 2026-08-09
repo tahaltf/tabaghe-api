@@ -78,6 +78,7 @@ export class AiContentStoryService {
     styleId: string,
     userPrompt?: string,
     parentRequestId?: string,
+    includeCaption = true,
   ) {
     if (!(await this.settings.isEnabledForUser(userId))) {
       throw new BadRequestException('تولید محتوا برای حساب شما فعال نیست');
@@ -146,7 +147,9 @@ export class AiContentStoryService {
         styleLabel: style.label,
       };
 
-      const caption = await this.textProvider.generateStoryCaption(input);
+      const caption = includeCaption
+        ? await this.textProvider.generateStoryCaption(input)
+        : '';
       const fileName = `${request.id}.png`;
       const imageResult = await this.imageProvider.generateStoryImage({
         input,
@@ -168,7 +171,7 @@ export class AiContentStoryService {
           data: {
             status: AiContentRequestStatus.SUCCESS,
             resultImagePath: localPath,
-            resultCaption: caption,
+            resultCaption: caption || null,
             tokensCharged: tokenCost,
             provider: imageResult.provider,
             model: imageResult.model,
@@ -181,7 +184,8 @@ export class AiContentStoryService {
       return {
         id: request.id,
         imageUrl: publicImageUrl,
-        caption,
+        caption: caption || null,
+        includeCaption,
         styleId: style.id,
         tokensCharged: tokenCost,
         remainingTokens: remaining.totalAvailable,
@@ -206,6 +210,7 @@ export class AiContentStoryService {
     requestId: string,
     userPrompt?: string,
     styleId?: string,
+    includeCaption?: boolean,
   ) {
     const original = await this.prisma.aiContentRequest.findFirst({
       where: { id: requestId, userId },
@@ -222,12 +227,18 @@ export class AiContentStoryService {
       throw new BadRequestException('سبک تولید محتوا را انتخاب کنید');
     }
 
+    const wantCaption =
+      includeCaption !== undefined
+        ? includeCaption
+        : Boolean(original.resultCaption);
+
     return this.generateStory(
       userId,
       original.listingId,
       resolvedStyleId,
       userPrompt ?? original.userPrompt ?? undefined,
       original.id,
+      wantCaption,
     );
   }
 

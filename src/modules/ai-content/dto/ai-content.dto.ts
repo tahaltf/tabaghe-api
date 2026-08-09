@@ -29,6 +29,11 @@ export class GenerateStoryDto {
   @IsString()
   @MaxLength(1000)
   userPrompt?: string;
+
+  /** اگر false باشد فقط تصویر ساخته می‌شود */
+  @IsOptional()
+  @IsBoolean()
+  includeCaption?: boolean;
 }
 
 export class RegenerateStoryDto {
@@ -41,6 +46,10 @@ export class RegenerateStoryDto {
   @IsString()
   @MaxLength(1000)
   userPrompt?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  includeCaption?: boolean;
 }
 
 export class AiStoryStyleDto {
