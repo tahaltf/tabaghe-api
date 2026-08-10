@@ -149,8 +149,7 @@ export class OpenAiImageProvider {
       }),
     );
     form.append('size', size);
-    // لیارا/OpenAI — خروجی قابل‌اعتماد بدون وابستگی به URL موقت
-    form.append('response_format', 'b64_json');
+    // gpt-image-* (لیارا/OpenAI) پارامتر response_format را قبول نمی‌کند و همیشه b64_json برمی‌گرداند.
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
