@@ -36,7 +36,9 @@ import {
   AI_IMAGE_MODEL_OPTIONS,
   AI_IMAGE_SIZE_OPTIONS,
   AI_TEXT_MODEL_OPTIONS,
+  DEFAULT_AI_STORY_CONSTRAINTS,
   DEFAULT_AI_STORY_STYLES,
+  DEFAULT_AI_STORY_SYSTEM_PROMPT,
 } from '../ai-content.constants';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 
@@ -105,6 +107,8 @@ export class AdminAiContentController {
       dailyLimitPerUser,
       styles,
       defaultStyles: DEFAULT_AI_STORY_STYLES,
+      defaultStorySystemPrompt: DEFAULT_AI_STORY_SYSTEM_PROMPT,
+      defaultStoryConstraints: DEFAULT_AI_STORY_CONSTRAINTS,
       textModelOptions: AI_TEXT_MODEL_OPTIONS,
       imageModelOptions: AI_IMAGE_MODEL_OPTIONS,
       imageSizeOptions: AI_IMAGE_SIZE_OPTIONS,

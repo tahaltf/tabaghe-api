@@ -43,24 +43,33 @@ export function buildStoryCaptionPrompt(input: StoryGenerationInput): {
   return { system, user };
 }
 
+/**
+ * پرامپت کوتاه و بصری برای images/edits.
+ * درخواست صحنه‌آرایی فروشنده اولویت دارد؛ محصول ورودی حفظ می‌شود ولی می‌تواند در صحنه جدید قرار گیرد.
+ */
 export function buildStoryImagePrompt(input: StoryGenerationInput): string {
-  return [
-    input.systemPrompt,
-    'محدودیت‌ها:',
-    input.constraints,
-    input.stylePromptAddon?.trim()
-      ? `سبک بصری:\n${input.stylePromptAddon.trim()}`
+  const sellerAsk = input.userPrompt?.trim();
+  const style = input.stylePromptAddon?.trim() || input.styleLabel?.trim() || '';
+
+  const parts = [
+    'Create a premium Instagram Story banner, vertical 9:16.',
+    'The attached image is the REAL product. Keep the exact same product (shape, material, details). Do NOT replace it with a different item.',
+    'You MAY restage/recompose that same product in a new professional scene (model hand, lifestyle, clean studio) as requested.',
+    sellerAsk
+      ? `PRIMARY creative direction from seller (must follow): ${sellerAsk}`
+      : 'Place the product as the hero of a clean commercial story frame.',
+    style ? `Visual style: ${style}` : null,
+    'Short readable on-image text only if needed. No phone numbers, WhatsApp, Telegram, or direct contact.',
+    `Product title (optional short label): ${input.listingTitle}`,
+    input.priceLabel ? `Price label if shown: ${input.priceLabel}` : null,
+    'Output must look like a high-end marketplace story ad for "Tabagheh", not a flat photo paste on a solid color.',
+    input.systemPrompt?.trim()
+      ? `Brand brief: ${input.systemPrompt.trim().slice(0, 400)}`
       : null,
-    '',
-    'عکس ورودی همان محصول واقعی فروشنده است. ظاهر و هویت محصول را حفظ کن و آن را به بنر استوری عمودی ۹:۱۶ تبدیل کن.',
-    'پس‌زمینه حرفه‌ای و جذاب مطابق سبک بساز. متن روی تصویر کوتاه، خوانا و بدون شماره تماس باشد.',
-    `عنوان محصول: ${input.listingTitle}`,
-    input.priceLabel ? `قیمت: ${input.priceLabel}` : null,
-    input.styleLabel ? `سبک: ${input.styleLabel}` : null,
-    input.userPrompt?.trim()
-      ? `درخواست فروشنده: ${input.userPrompt.trim()}`
+    input.constraints?.trim()
+      ? `Rules: ${input.constraints.trim().slice(0, 500)}`
       : null,
-  ]
-    .filter(Boolean)
-    .join('\n');
+  ];
+
+  return parts.filter(Boolean).join('\n');
 }

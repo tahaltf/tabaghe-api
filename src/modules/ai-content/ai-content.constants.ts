@@ -22,10 +22,10 @@ export const AI_CONTENT_SETTING_KEYS = {
 export const AI_CONTENT_UPLOAD_DIR = './uploads/ai-content';
 
 export const DEFAULT_AI_STORY_SYSTEM_PROMPT =
-  'تو طراح بنر فروش حرفه‌ای برای پلتفرم بازار آنلاین «طبقه» هستی. خروجی باید مناسب استوری اینستاگرام (عمودی ۹:۱۶) باشد، جذاب، خوانا و قابل اعتماد برای خریدار ایرانی.';
+  'تو طراح استوری فروش حرفه‌ای برای پلتفرم بازار آنلاین «طبقه» هستی. خروجی استوری اینستاگرام عمودی ۹:۱۶، جذاب، خوانا و قابل اعتماد برای خریدار ایرانی باشد.';
 
 export const DEFAULT_AI_STORY_CONSTRAINTS =
-  'شماره تماس، واتساپ، تلگرام و هر راه ارتباطی مستقیم تحت هیچ شرایطی روی تصویر نباشد. بنر باید حس فروش از طریق پلتفرم طبقه را منتقل کند. از ادعاهای گمراه‌کننده پرهیز کن. هویت بصری محصول در عکس ورودی را حفظ کن و آن را جایگزین محصول دیگری نکن.';
+  'شماره تماس، واتساپ، تلگرام و هر راه ارتباطی مستقیم روی تصویر نباشد. حس خرید از «طبقه» را منتقل کن. از ادعاهای گمراه‌کننده پرهیز کن. خودِ محصول ورودی را عوض نکن و محصول دیگری نساز؛ اما اجازه داری همان محصول را در صحنه جدید (مثل دست مدل، استایل لایف‌استایل، نور استودیو) دوباره بچینی و پس‌زمینه حرفه‌ای بسازی.';
 
 export const DEFAULT_AI_TOKEN_PACKS = [1, 5, 10, 20];
 
@@ -84,7 +84,7 @@ export const DEFAULT_AI_TEXT_MODEL = 'openai/gpt-4o-mini';
 export const DEFAULT_AI_IMAGE_MODEL = 'openai/gpt-image-1-mini';
 
 /** پیش‌فرض‌های سرعت — ادمین می‌تواند override کند */
-export const DEFAULT_AI_IMAGE_EDIT_TIMEOUT_MS = 20_000;
+export const DEFAULT_AI_IMAGE_EDIT_TIMEOUT_MS = 30_000;
 export const DEFAULT_AI_IMAGE_SIZE = '1024x1536';
 export const DEFAULT_AI_IMAGE_INPUT_MAX_PX = 768;
 
