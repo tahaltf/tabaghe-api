@@ -123,6 +123,10 @@ export const SETTING_KEYS = {
   SMS_DEPLOY_ALERT_DETAIL_PARAMETER: 'SMS_DEPLOY_ALERT_DETAIL_PARAMETER',
   SMS_UPTIME_ALERT_ENABLED: 'SMS_UPTIME_ALERT_ENABLED',
   SMS_UPTIME_ALERT_RECIPIENTS: 'SMS_UPTIME_ALERT_RECIPIENTS',
+  SMS_UPTIME_ALERT_TEMPLATE_ID: 'SMS_UPTIME_ALERT_TEMPLATE_ID',
+  SMS_UPTIME_ALERT_TEMPLATE_NAME: 'SMS_UPTIME_ALERT_TEMPLATE_NAME',
+  SMS_UPTIME_ALERT_STATUS_PARAMETER: 'SMS_UPTIME_ALERT_STATUS_PARAMETER',
+  SMS_UPTIME_ALERT_DETAIL_PARAMETER: 'SMS_UPTIME_ALERT_DETAIL_PARAMETER',
   SYSTEM_INTRO_CONTENT: 'SYSTEM_INTRO_CONTENT',
   FOOTER_SOCIAL_LINKS: 'FOOTER_SOCIAL_LINKS',
   AUCTION_DEPOSIT_MIN: 'AUCTION_DEPOSIT_MIN',
@@ -380,6 +384,14 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
     'ارسال پیامک قطع/وصل دسترس‌پذیری سامانه (true/false، پیش‌فرض true؛ اسکریپت cron روی سرور)',
   SMS_UPTIME_ALERT_RECIPIENTS:
     'شماره‌های ادمین برای هشدار قطع/وصل (جدا با ویرگول؛ در نبود، از گیرندگان دیپلوی/ورود استفاده می‌شود)',
+  SMS_UPTIME_ALERT_TEMPLATE_ID:
+    'شناسه قالب پیامک مانیتور در sms.ir (جدا از دیپلوی؛ با #STATUS و #DETAIL)',
+  SMS_UPTIME_ALERT_TEMPLATE_NAME:
+    'نام الگوی Lookup مانیتور در کاوه‌نگار (token=STATUS، token2=DETAIL)',
+  SMS_UPTIME_ALERT_STATUS_PARAMETER:
+    'نام پارامتر وضعیت در قالب مانیتور (پیش‌فرض STATUS)',
+  SMS_UPTIME_ALERT_DETAIL_PARAMETER:
+    'نام پارامتر جزئیات در قالب مانیتور (پیش‌فرض DETAIL)',
   SYSTEM_INTRO_CONTENT: 'محتوای صفحه معرفی سامانه',
   FOOTER_SOCIAL_LINKS:
     'لینک‌های شبکه‌های اجتماعی فوتر (JSON آرایه: [{ "network": "instagram", "url": "https://..." }])',

@@ -201,132 +201,17 @@ wait_for_health() {
   return 1
 }
 
-# Resolve DEPLOY_NOTIFY_TOKEN: host .env first, then inside the API container
-# (compose env_file may differ from /app/tabagheh/.env that the script reads).
-_resolve_deploy_notify_token() {
-  local token svc
-  token="$(load_env_var DEPLOY_NOTIFY_TOKEN)"
-  if [[ -n "$token" ]]; then
-    printf '%s' "$token"
-    return 0
-  fi
-  cd "$ROOT" 2>/dev/null || true
-  for svc in backend tabagheh-api; do
-    if ! docker compose ps --status running "$svc" >/dev/null 2>&1; then
-      continue
-    fi
-    token="$(
-      docker compose exec -T "$svc" printenv DEPLOY_NOTIFY_TOKEN 2>/dev/null \
-        | tr -d '\r\n' || true
-    )"
-    if [[ -n "$token" ]]; then
-      printf '%s' "$token"
-      return 0
-    fi
-  done
-  return 0
-}
+# Resolve DEPLOY_NOTIFY_TOKEN + POST helpers — see sms-host-notify.sh
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=sms-host-notify.sh
+source "$SCRIPT_DIR/sms-host-notify.sh"
 
 # Prefer Nest endpoint (reads panel SystemSetting + encrypted SMS keys).
-# Called from inside API container so loopback auth works.
-# Prefers node fetch (UTF-8 / Persian safe via env), then wget, then curl.
 notify_via_api() {
-  local status_fa="$1"
-  local detail="$2"
-  local status_esc detail_esc payload token resp svc
-
-  status_esc="$(json_escape "$status_fa")"
-  detail_esc="$(json_escape "$detail")"
-  payload="$(printf '{"status":"%s","detail":"%s"}' "$status_esc" "$detail_esc")"
-  token="$(_resolve_deploy_notify_token)"
-
-  cd "$ROOT" 2>/dev/null || true
-  for svc in backend tabagheh-api; do
-    if ! docker compose ps --status running "$svc" >/dev/null 2>&1; then
-      continue
-    fi
-
-    log "trying deploy-sms-alert via compose service=$svc ..."
-    resp="$(_exec_api_post "$svc" "$payload" "$token")" || true
-
-    if echo "$resp" | grep -qE '"sent"[[:space:]]*:[[:space:]]*[1-9]'; then
-      log "SMS via API (panel settings): $(echo "$resp" | tr '\n' ' ' | cut -c1-160)"
-      return 0
-    fi
-    if echo "$resp" | grep -qE '"recipients"[[:space:]]*:'; then
-      local reason
-      reason="$(echo "$resp" | grep -oE '"reason"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 || true)"
-      warn "API deploy-sms-alert پاسخ داد ولی ارسال نشد${reason:+ ($reason)}: $(echo "$resp" | tr '\n' ' ' | cut -c1-200)"
-      # Panel reached — caller should NOT fall back to stale host .env
-      return 2
-    fi
-    warn "API deploy-sms-alert ($svc) — پاسخ نامعتبر: $(echo "$resp" | tr '\n' ' ' | cut -c1-200)"
-  done
-  return 1
+  sms_notify_via_api "deploy-sms-alert" "$1" "$2"
 }
 
-# Execute a POST to the health endpoint inside the named compose service.
-# Tries node → wget → curl. Returns the response body on stdout.
-_exec_api_post() {
-  local svc="$1"
-  local payload="$2"
-  local token="$3"
-  local url="http://127.0.0.1:3000/api/v1/health/deploy-sms-alert"
-
-  # --- node first (always in image; env avoids shell-quoting Persian/JSON) ---
-  if docker compose exec -T \
-    -e "U=${url}" \
-    -e "P=${payload}" \
-    -e "T=${token}" \
-    "$svc" \
-    node -e 'const h={"Content-Type":"application/json","Accept":"application/json"};if(process.env.T)h["X-Deploy-Notify-Token"]=process.env.T;fetch(process.env.U,{method:"POST",headers:h,body:process.env.P}).then(r=>r.text()).then(t=>process.stdout.write(t)).catch(e=>{process.stderr.write(String(e));process.exit(1)})' \
-    2>/dev/null; then
-    return 0
-  fi
-  warn "node fetch inside $svc failed; trying wget"
-
-  # --- wget (BusyBox / Alpine) ---
-  if docker compose exec -T "$svc" sh -c 'command -v wget' >/dev/null 2>&1; then
-    # Pass payload via env to avoid breaking on Persian / quotes
-    if docker compose exec -T \
-      -e "P=${payload}" \
-      -e "T=${token}" \
-      -e "U=${url}" \
-      "$svc" sh -c '
-        HDR_T=""
-        [ -n "$T" ] && HDR_T="--header=X-Deploy-Notify-Token: $T"
-        wget -qO- --timeout=25 \
-          --header="Content-Type: application/json" \
-          --header="Accept: application/json" \
-          $HDR_T \
-          --post-data="$P" "$U"
-      ' 2>/dev/null; then
-      return 0
-    fi
-    warn "wget inside $svc failed; trying curl"
-  fi
-
-  # --- curl ---
-  if docker compose exec -T "$svc" sh -c 'command -v curl' >/dev/null 2>&1; then
-    if [[ -n "$token" ]]; then
-      docker compose exec -T "$svc" curl -sS --max-time 25 \
-        -X POST "$url" \
-        -H "Content-Type: application/json" \
-        -H "Accept: application/json" \
-        -H "X-Deploy-Notify-Token: ${token}" \
-        -d "$payload" 2>/dev/null && return 0
-    else
-      docker compose exec -T "$svc" curl -sS --max-time 25 \
-        -X POST "$url" \
-        -H "Content-Type: application/json" \
-        -H "Accept: application/json" \
-        -d "$payload" 2>/dev/null && return 0
-    fi
-  fi
-
-  warn "تمام روش‌های ارسال به API ($svc) شکست خوردند"
-  return 1
-}
+# Legacy names removed — _exec_api_post / _resolve_deploy_notify_token live in sms-host-notify.sh
 
 # sms.ir verify — parameters: STATUS (+ optional DETAIL)
 send_sms_smsir_verify() {
@@ -432,7 +317,7 @@ notify_admins_sms() {
     api_rc=$?
   fi
   if [[ "$api_rc" -eq 2 ]]; then
-    warn "پنل در دسترس بود ولی SMS ارسال نشد — بدون fallback به .env"
+    warn "پنل در دسترس بود ولی SMS دیپلوی ارسال نشد — تنظیمات/قالب/گیرنده را در پنل چک کنید"
     return 0
   fi
   warn "ارسال از API/پنل ناموفق — fallback به .env"
@@ -472,7 +357,7 @@ notify_admins_sms() {
   # sms.ir often limits param length
   detail="$(echo "$detail" | tr '\n' ' ' | cut -c1-70)"
   local stamp
-  stamp="$(date '+%m/%d %H:%M')"
+  stamp="$(TZ=Asia/Tehran date '+%m/%d %H:%M')"
   if [[ -z "$detail" ]]; then
     detail="$stamp"
   else

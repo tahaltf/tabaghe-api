@@ -239,7 +239,7 @@ export class AdminSettingsController {
   async testUptimeSms() {
     const result = await this.sms.sendUptimeAlert(
       'تست',
-      'مانیتور دسترس‌پذیری — ارسال آزمایشی از پنل',
+      'مانیتور دسترس‌پذیری — ارسال آزمایشی',
     );
     return { ok: result.sent > 0, ...result };
   }

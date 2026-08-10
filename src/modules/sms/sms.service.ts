@@ -46,6 +46,10 @@ export const SMS_SETTING_KEYS = {
   DEPLOY_ALERT_DETAIL_PARAMETER: 'SMS_DEPLOY_ALERT_DETAIL_PARAMETER',
   UPTIME_ALERT_ENABLED: 'SMS_UPTIME_ALERT_ENABLED',
   UPTIME_ALERT_RECIPIENTS: 'SMS_UPTIME_ALERT_RECIPIENTS',
+  UPTIME_ALERT_TEMPLATE_ID: 'SMS_UPTIME_ALERT_TEMPLATE_ID',
+  UPTIME_ALERT_TEMPLATE_NAME: 'SMS_UPTIME_ALERT_TEMPLATE_NAME',
+  UPTIME_ALERT_STATUS_PARAMETER: 'SMS_UPTIME_ALERT_STATUS_PARAMETER',
+  UPTIME_ALERT_DETAIL_PARAMETER: 'SMS_UPTIME_ALERT_DETAIL_PARAMETER',
 } as const;
 
 const DEFAULT_OTP_TEMPLATE_ID = 591069;
@@ -56,6 +60,8 @@ const DEFAULT_ADMIN_LOGIN_TEMPLATE_ID = 176584;
 const DEFAULT_ADMIN_USER_PHONE_PARAMETER = 'PHONE';
 const DEFAULT_DEPLOY_STATUS_PARAMETER = 'STATUS';
 const DEFAULT_DEPLOY_DETAIL_PARAMETER = 'DETAIL';
+const DEFAULT_UPTIME_STATUS_PARAMETER = 'STATUS';
+const DEFAULT_UPTIME_DETAIL_PARAMETER = 'DETAIL';
 
 @Injectable()
 export class SmsService {
@@ -131,6 +137,21 @@ export class SmsService {
       }
     }
     return out;
+  }
+
+  /** MM/DD HH:mm در timezone ایران — برای متن SMS دیپلوی/آپ‌تایم */
+  private formatSmsDetailStamp(date = new Date()): string {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Tehran',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(date);
+    const get = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find((p) => p.type === type)?.value ?? '00';
+    return `${get('month')}/${get('day')} ${get('hour')}:${get('minute')}`;
   }
 
   async sendByTemplate(
@@ -339,6 +360,34 @@ export class SmsService {
     return { templateId };
   }
 
+  private async resolveUptimeAlertTemplate(
+    provider: SmsProviderName,
+  ): Promise<SmsTemplateRef> {
+    if (provider === 'kavenegar') {
+      const name =
+        (
+          await this.resolveSetting(SMS_SETTING_KEYS.UPTIME_ALERT_TEMPLATE_NAME)
+        )?.trim() || '';
+      if (!name) {
+        throw new InternalServerErrorException(
+          'نام الگوی پیامک مانیتور تنظیم نشده است (SMS_UPTIME_ALERT_TEMPLATE_NAME)',
+        );
+      }
+      return { templateName: name };
+    }
+
+    const tidRaw = await this.resolveSetting(
+      SMS_SETTING_KEYS.UPTIME_ALERT_TEMPLATE_ID,
+    );
+    const templateId = Number.parseInt(tidRaw ?? '', 10);
+    if (!Number.isFinite(templateId) || templateId <= 0) {
+      throw new InternalServerErrorException(
+        'شناسه قالب پیامک مانیتور تنظیم نشده است (SMS_UPTIME_ALERT_TEMPLATE_ID)',
+      );
+    }
+    return { templateId };
+  }
+
   /**
    * پس از دیپلوی (موفق/ناموفق)، به شماره‌های ادمین اطلاع می‌دهد.
    * تنظیمات از پنل ادمین (`SystemSetting`) یا در نبود، از `.env`.
@@ -394,7 +443,7 @@ export class SmsService {
       return { sent: 0, recipients: 0, reason: 'no_recipients' };
     }
 
-    const stamp = new Date().toISOString().slice(5, 16).replace('T', ' ');
+    const stamp = this.formatSmsDetailStamp();
     let detailValue = String(detail ?? '')
       .replace(/\s+/g, ' ')
       .trim()
@@ -434,7 +483,7 @@ export class SmsService {
   }
 
   /**
-   * مانیتور دسترس‌پذیری (قطع/وصل) — همان قالب STATUS/DETAIL دیپلوی.
+   * مانیتور دسترس‌پذیری (قطع/وصل) — قالب جدا از دیپلوی.
    * گیرنده: SMS_UPTIME_ALERT_RECIPIENTS → دیپلوی → ورود ادمین.
    */
   async sendUptimeAlert(
@@ -455,21 +504,21 @@ export class SmsService {
     const provider = await this.resolveActiveSmsProvider();
     let template: SmsTemplateRef;
     try {
-      template = await this.resolveDeployAlertTemplate(provider);
+      template = await this.resolveUptimeAlertTemplate(provider);
     } catch {
       return { sent: 0, recipients: 0, reason: 'template_not_configured' };
     }
 
     const statusParam =
       (
-        await this.resolveSetting(SMS_SETTING_KEYS.DEPLOY_ALERT_STATUS_PARAMETER)
-      )?.trim() || DEFAULT_DEPLOY_STATUS_PARAMETER;
+        await this.resolveSetting(SMS_SETTING_KEYS.UPTIME_ALERT_STATUS_PARAMETER)
+      )?.trim() || DEFAULT_UPTIME_STATUS_PARAMETER;
     const detailParamRaw = await this.resolveSetting(
-      SMS_SETTING_KEYS.DEPLOY_ALERT_DETAIL_PARAMETER,
+      SMS_SETTING_KEYS.UPTIME_ALERT_DETAIL_PARAMETER,
     );
     const detailParam =
       detailParamRaw === undefined
-        ? DEFAULT_DEPLOY_DETAIL_PARAMETER
+        ? DEFAULT_UPTIME_DETAIL_PARAMETER
         : detailParamRaw.trim();
 
     let recipientsRaw = await this.resolveSetting(
@@ -493,7 +542,7 @@ export class SmsService {
       return { sent: 0, recipients: 0, reason: 'no_recipients' };
     }
 
-    const stamp = new Date().toISOString().slice(5, 16).replace('T', ' ');
+    const stamp = this.formatSmsDetailStamp();
     let detailValue = String(detail ?? '')
       .replace(/\s+/g, ' ')
       .trim()

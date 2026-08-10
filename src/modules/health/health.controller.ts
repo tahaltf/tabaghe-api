@@ -78,7 +78,7 @@ export class HealthController {
 
   /**
    * فراخوانی از uptime-monitor.sh (قطع/وصل دسترس‌پذیری).
-   * قالب همان STATUS/DETAIL دیپلوی؛ فعال‌سازی با SMS_UPTIME_ALERT_ENABLED.
+   * قالب جدا از دیپلوی (SMS_UPTIME_ALERT_TEMPLATE_*).
    */
   @Post('uptime-sms-alert')
   @SkipThrottle()

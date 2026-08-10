@@ -66,7 +66,10 @@ send_deploy_sms() {
     return 0
   fi
   detail="$(echo "$detail" | tr '\n' ' ' | cut -c1-70)"
-  ROOT="$ROOT" SMS_ONLY=1 SMS_STATUS="$status_fa" SMS_DETAIL="$detail" bash "$vs" || true
+  log "sending deploy result SMS (${status_fa})..."
+  ROOT="$ROOT" SMS_ONLY=1 SMS_STATUS="$status_fa" SMS_DETAIL="$detail" bash "$vs" 2>&1 | while IFS= read -r line; do
+    log "$line"
+  done || true
 }
 
 preserve_image_if_exists() {

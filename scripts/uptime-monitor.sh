@@ -17,8 +17,10 @@
 #   CHECK_GATEWAY=1
 #   HEALTH_URL / GATEWAY_URL
 #   SMS_UPTIME_ALERT_ENABLED=0|1   (.env fallback when API down; panel preferred via API)
-#   SMS_UPTIME_ALERT_RECIPIENTS=... (fallback: SMS_DEPLOY / SMS_ADMIN_LOGIN recipients)
-#   SMS_DEPLOY_ALERT_TEMPLATE_*    (same #STATUS #DETAIL template as deploy)
+#   SMS_UPTIME_ALERT_TEMPLATE_ID=...     (sms.ir — جدا از قالب دیپلوی)
+#   SMS_UPTIME_ALERT_TEMPLATE_NAME=...   (kavenegar)
+#   SMS_UPTIME_ALERT_STATUS_PARAMETER=STATUS
+#   SMS_UPTIME_ALERT_DETAIL_PARAMETER=DETAIL
 #   DEPLOY_NOTIFY_TOKEN=...        (optional)
 #
 set -euo pipefail
@@ -209,110 +211,12 @@ write_state() {
   printf 'status=%s\nfail_count=%s\nupdated=%s\n' "$st" "$fc" "$(date -Iseconds 2>/dev/null || date)" > "$STATE_FILE"
 }
 
-_resolve_deploy_notify_token() {
-  local token svc
-  token="$(load_env_var DEPLOY_NOTIFY_TOKEN)"
-  if [[ -n "$token" ]]; then
-    printf '%s' "$token"
-    return 0
-  fi
-  cd "$ROOT" 2>/dev/null || true
-  for svc in backend tabagheh-api; do
-    if ! docker compose ps --status running "$svc" >/dev/null 2>&1; then
-      continue
-    fi
-    token="$(
-      docker compose exec -T "$svc" printenv DEPLOY_NOTIFY_TOKEN 2>/dev/null \
-        | tr -d '\r\n' || true
-    )"
-    if [[ -n "$token" ]]; then
-      printf '%s' "$token"
-      return 0
-    fi
-  done
-  return 0
-}
-
-_exec_api_post() {
-  local svc="$1"
-  local payload="$2"
-  local token="$3"
-  local url="http://127.0.0.1:3000/api/v1/health/uptime-sms-alert"
-
-  if docker compose exec -T \
-    -e "U=${url}" \
-    -e "P=${payload}" \
-    -e "T=${token}" \
-    "$svc" \
-    node -e 'const h={"Content-Type":"application/json","Accept":"application/json"};if(process.env.T)h["X-Deploy-Notify-Token"]=process.env.T;fetch(process.env.U,{method:"POST",headers:h,body:process.env.P}).then(r=>r.text()).then(t=>process.stdout.write(t)).catch(e=>{process.stderr.write(String(e));process.exit(1)})' \
-    2>/dev/null; then
-    return 0
-  fi
-
-  if docker compose exec -T "$svc" sh -c 'command -v wget' >/dev/null 2>&1; then
-    if docker compose exec -T \
-      -e "P=${payload}" \
-      -e "T=${token}" \
-      -e "U=${url}" \
-      "$svc" sh -c '
-        HDR_T=""
-        [ -n "$T" ] && HDR_T="--header=X-Deploy-Notify-Token: $T"
-        wget -qO- --timeout=25 \
-          --header="Content-Type: application/json" \
-          --header="Accept: application/json" \
-          $HDR_T \
-          --post-data="$P" "$U"
-      ' 2>/dev/null; then
-      return 0
-    fi
-  fi
-
-  if docker compose exec -T "$svc" sh -c 'command -v curl' >/dev/null 2>&1; then
-    if [[ -n "$token" ]]; then
-      docker compose exec -T "$svc" curl -sS --max-time 25 \
-        -X POST "$url" \
-        -H "Content-Type: application/json" \
-        -H "Accept: application/json" \
-        -H "X-Deploy-Notify-Token: ${token}" \
-        -d "$payload" 2>/dev/null && return 0
-    else
-      docker compose exec -T "$svc" curl -sS --max-time 25 \
-        -X POST "$url" \
-        -H "Content-Type: application/json" \
-        -H "Accept: application/json" \
-        -d "$payload" 2>/dev/null && return 0
-    fi
-  fi
-  return 1
-}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=sms-host-notify.sh
+source "$SCRIPT_DIR/sms-host-notify.sh"
 
 notify_via_api() {
-  local status_fa="$1"
-  local detail="$2"
-  local status_esc detail_esc payload token resp svc
-
-  status_esc="$(json_escape "$status_fa")"
-  detail_esc="$(json_escape "$detail")"
-  payload="$(printf '{"status":"%s","detail":"%s"}' "$status_esc" "$detail_esc")"
-  token="$(_resolve_deploy_notify_token)"
-
-  cd "$ROOT" 2>/dev/null || true
-  for svc in backend tabagheh-api; do
-    if ! docker compose ps --status running "$svc" >/dev/null 2>&1; then
-      continue
-    fi
-    resp="$(_exec_api_post "$svc" "$payload" "$token")" || true
-    if echo "$resp" | grep -qE '"sent"[[:space:]]*:[[:space:]]*[1-9]'; then
-      log "SMS via API: $(echo "$resp" | tr '\n' ' ' | cut -c1-160)"
-      return 0
-    fi
-    if echo "$resp" | grep -qE '"recipients"[[:space:]]*:'; then
-      warn "API uptime-sms-alert پاسخ داد ولی ارسال نشد: $(echo "$resp" | tr '\n' ' ' | cut -c1-200)"
-      return 2
-    fi
-    warn "API uptime-sms-alert ($svc) نامعتبر: $(echo "$resp" | tr '\n' ' ' | cut -c1-160)"
-  done
-  return 1
+  sms_notify_via_api "uptime-sms-alert" "$1" "$2"
 }
 
 send_sms_smsir_verify() {
@@ -399,17 +303,17 @@ notify_admins_sms() {
   local provider template_id template_name status_param detail_param line_number
   provider="$(load_env_var ACTIVE_SMS_PROVIDER)"
   provider="$(echo "${provider:-smsir}" | tr '[:upper:]' '[:lower:]')"
-  template_id="$(load_env_var SMS_DEPLOY_ALERT_TEMPLATE_ID)"
-  template_name="$(load_env_var SMS_DEPLOY_ALERT_TEMPLATE_NAME)"
+  template_id="$(load_env_var SMS_UPTIME_ALERT_TEMPLATE_ID)"
+  template_name="$(load_env_var SMS_UPTIME_ALERT_TEMPLATE_NAME)"
   line_number="$(load_env_var SMS_IR_LINE_NUMBER)"
-  status_param="$(load_env_var SMS_DEPLOY_ALERT_STATUS_PARAMETER)"
+  status_param="$(load_env_var SMS_UPTIME_ALERT_STATUS_PARAMETER)"
   status_param="${status_param:-STATUS}"
-  detail_param="$(load_env_var SMS_DEPLOY_ALERT_DETAIL_PARAMETER)"
+  detail_param="$(load_env_var SMS_UPTIME_ALERT_DETAIL_PARAMETER)"
   detail_param="${detail_param:-DETAIL}"
 
   detail="$(echo "$detail" | tr '\n' ' ' | cut -c1-70)"
   local stamp
-  stamp="$(date '+%m/%d %H:%M')"
+  stamp="$(TZ=Asia/Tehran date '+%m/%d %H:%M')"
   if [[ -z "$detail" ]]; then
     detail="$stamp"
   else
@@ -423,9 +327,16 @@ notify_admins_sms() {
     return 0
   fi
 
-  log "ارسال SMS uptime (وضعیت=${status_fa}) به ${#mobiles[@]} ادمین via ${provider} (.env)..."
+  if [[ "$provider" != "kavenegar" ]]; then
+    if [[ -z "$template_id" || "$template_id" == "0" ]] && [[ -z "$line_number" ]]; then
+      warn "SMS ارسال نشد: SMS_UPTIME_ALERT_TEMPLATE_ID را در پنل یا api/.env ست کنید"
+      return 0
+    fi
+  fi
+
+  log "ارسال SMS مانیتور (وضعیت=${status_fa}) به ${#mobiles[@]} ادمین via ${provider} (.env)..."
   local ok=0 m api_key plain_msg
-  plain_msg="سامانه طبقه: ${status_fa} — ${detail}"
+  plain_msg="مانیتور طبقه: ${status_fa} — ${detail}"
   for m in "${mobiles[@]}"; do
     if [[ "$provider" == "kavenegar" ]]; then
       api_key="$(load_env_var KAVENEGAR_API_KEY)"
