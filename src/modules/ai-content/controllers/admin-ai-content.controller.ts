@@ -270,6 +270,7 @@ export class AdminAiContentController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('status') status?: string,
+    @Query('provider') provider?: string,
     @Query('userId') userId?: string,
     @Query('q') q?: string,
   ) {
@@ -277,6 +278,7 @@ export class AdminAiContentController {
       page: Number(page) || 1,
       limit: Number(limit) || 20,
       status,
+      provider,
       userId,
       q,
     });

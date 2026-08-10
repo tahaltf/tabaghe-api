@@ -269,6 +269,14 @@ async function bootstrap() {
           'https://www.tabagheh.com',
         ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS', // حتما OPTIONS اضافه شود
+    allowedHeaders: [
+      'Authorization',
+      'Content-Type',
+      'Accept',
+      'Origin',
+      'X-Requested-With',
+      'X-Session-Refreshed',
+    ],
     credentials: true,
   });
 

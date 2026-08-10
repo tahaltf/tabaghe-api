@@ -334,6 +334,7 @@ export class AiContentStoryService {
     page?: number;
     limit?: number;
     status?: string;
+    provider?: string;
     userId?: string;
     q?: string;
   }) {
@@ -341,6 +342,122 @@ export class AiContentStoryService {
     const take = Math.min(Math.max(params.limit ?? 20, 1), 50);
     const skip = (page - 1) * take;
 
+    const baseWhere = this.buildGenerationsWhere({
+      userId: params.userId,
+      q: params.q,
+    });
+    const where = this.buildGenerationsWhere({
+      status: params.status,
+      provider: params.provider,
+      userId: params.userId,
+      q: params.q,
+    });
+
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const [items, total, successCount, failedCount, processingCount, pendingCount, todaySuccess] =
+      await Promise.all([
+        this.prisma.aiContentRequest.findMany({
+          where,
+          skip,
+          take,
+          orderBy: { createdAt: 'desc' },
+          include: {
+            listing: { select: { id: true, title: true } },
+            user: {
+              select: {
+                id: true,
+                phone: true,
+                displayName: true,
+                firstName: true,
+                lastName: true,
+              },
+            },
+          },
+        }),
+        this.prisma.aiContentRequest.count({ where }),
+        this.prisma.aiContentRequest.count({
+          where: { ...baseWhere, status: AiContentRequestStatus.SUCCESS },
+        }),
+        this.prisma.aiContentRequest.count({
+          where: { ...baseWhere, status: AiContentRequestStatus.FAILED },
+        }),
+        this.prisma.aiContentRequest.count({
+          where: { ...baseWhere, status: AiContentRequestStatus.PROCESSING },
+        }),
+        this.prisma.aiContentRequest.count({
+          where: { ...baseWhere, status: AiContentRequestStatus.PENDING },
+        }),
+        this.prisma.aiContentRequest.count({
+          where: {
+            ...baseWhere,
+            status: AiContentRequestStatus.SUCCESS,
+            createdAt: { gte: startOfDay },
+          },
+        }),
+      ]);
+
+    const allMatching = await this.prisma.aiContentRequest.count({ where: baseWhere });
+
+    return {
+      items: items.map((item) => {
+        const completedAt = item.completedAt;
+        const durationMs =
+          completedAt != null
+            ? Math.max(0, completedAt.getTime() - item.createdAt.getTime())
+            : null;
+        return {
+          id: item.id,
+          type: item.type,
+          status: item.status,
+          styleId: item.styleId,
+          userPrompt: item.userPrompt,
+          imagePrompt: item.imagePrompt,
+          resultCaption: item.resultCaption,
+          tokensCharged: item.tokensCharged,
+          provider: item.provider,
+          model: item.model,
+          errorMessage: item.errorMessage,
+          createdAt: item.createdAt,
+          completedAt: item.completedAt,
+          durationMs,
+          listing: item.listing,
+          user: {
+            id: item.user.id,
+            phone: item.user.phone,
+            name:
+              item.user.displayName?.trim() ||
+              [item.user.firstName, item.user.lastName]
+                .filter(Boolean)
+                .join(' ')
+                .trim() ||
+              null,
+          },
+          imageUrl:
+            item.status === AiContentRequestStatus.SUCCESS
+              ? `/uploads/ai-content/${item.id}.png`
+              : null,
+        };
+      }),
+      meta: buildPaginationMeta(page, take, total),
+      summary: {
+        total: allMatching,
+        success: successCount,
+        failed: failedCount,
+        processing: processingCount,
+        pending: pendingCount,
+        todaySuccess,
+      },
+    };
+  }
+
+  private buildGenerationsWhere(params: {
+    status?: string;
+    provider?: string;
+    userId?: string;
+    q?: string;
+  }): Prisma.AiContentRequestWhereInput {
     const where: Prisma.AiContentRequestWhereInput = {};
     if (params.status) {
       const status = params.status.toUpperCase();
@@ -351,6 +468,9 @@ export class AiContentStoryService {
       ) {
         where.status = status as AiContentRequestStatus;
       }
+    }
+    if (params.provider?.trim()) {
+      where.provider = params.provider.trim();
     }
     if (params.userId?.trim()) {
       where.userId = params.userId.trim();
@@ -374,63 +494,7 @@ export class AiContentStoryService {
         },
       ];
     }
-
-    const [items, total] = await Promise.all([
-      this.prisma.aiContentRequest.findMany({
-        where,
-        skip,
-        take,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          listing: { select: { id: true, title: true } },
-          user: {
-            select: {
-              id: true,
-              phone: true,
-              displayName: true,
-              firstName: true,
-              lastName: true,
-            },
-          },
-        },
-      }),
-      this.prisma.aiContentRequest.count({ where }),
-    ]);
-
-    return {
-      items: items.map((item) => ({
-        id: item.id,
-        type: item.type,
-        status: item.status,
-        styleId: item.styleId,
-        userPrompt: item.userPrompt,
-        imagePrompt: item.imagePrompt,
-        resultCaption: item.resultCaption,
-        tokensCharged: item.tokensCharged,
-        provider: item.provider,
-        model: item.model,
-        errorMessage: item.errorMessage,
-        createdAt: item.createdAt,
-        completedAt: item.completedAt,
-        listing: item.listing,
-        user: {
-          id: item.user.id,
-          phone: item.user.phone,
-          name:
-            item.user.displayName?.trim() ||
-            [item.user.firstName, item.user.lastName]
-              .filter(Boolean)
-              .join(' ')
-              .trim() ||
-            null,
-        },
-        imageUrl:
-          item.status === AiContentRequestStatus.SUCCESS
-            ? `/uploads/ai-content/${item.id}.png`
-            : null,
-      })),
-      meta: buildPaginationMeta(page, take, total),
-    };
+    return where;
   }
 
   /** هر ۲ دقیقه: PROCESSINGهای گیرکرده را FAILED کن و توکن رزرو را آزاد کن */
