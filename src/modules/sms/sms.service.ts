@@ -44,6 +44,8 @@ export const SMS_SETTING_KEYS = {
   DEPLOY_ALERT_TEMPLATE_NAME: 'SMS_DEPLOY_ALERT_TEMPLATE_NAME',
   DEPLOY_ALERT_STATUS_PARAMETER: 'SMS_DEPLOY_ALERT_STATUS_PARAMETER',
   DEPLOY_ALERT_DETAIL_PARAMETER: 'SMS_DEPLOY_ALERT_DETAIL_PARAMETER',
+  UPTIME_ALERT_ENABLED: 'SMS_UPTIME_ALERT_ENABLED',
+  UPTIME_ALERT_RECIPIENTS: 'SMS_UPTIME_ALERT_RECIPIENTS',
 } as const;
 
 const DEFAULT_OTP_TEMPLATE_ID = 591069;
@@ -421,6 +423,105 @@ export class SmsService {
       }
     }
     this.logger.log(`Deploy alert SMS: ${sent}/${recipients.length} sent`);
+    if (sent === 0) {
+      return {
+        sent: 0,
+        recipients: recipients.length,
+        reason: 'provider_send_failed',
+      };
+    }
+    return { sent, recipients: recipients.length };
+  }
+
+  /**
+   * مانیتور دسترس‌پذیری (قطع/وصل) — همان قالب STATUS/DETAIL دیپلوی.
+   * گیرنده: SMS_UPTIME_ALERT_RECIPIENTS → دیپلوی → ورود ادمین.
+   */
+  async sendUptimeAlert(
+    statusFa: string,
+    detail: string,
+  ): Promise<{ sent: number; recipients: number; reason?: string }> {
+    const enabledRaw =
+      (await this.resolveSetting(SMS_SETTING_KEYS.UPTIME_ALERT_ENABLED)) ?? '1';
+    const off =
+      enabledRaw === 'false' ||
+      enabledRaw === '0' ||
+      enabledRaw.toLowerCase() === 'no';
+    if (off) {
+      this.logger.debug('Uptime alert SMS disabled by setting.');
+      return { sent: 0, recipients: 0, reason: 'disabled' };
+    }
+
+    const provider = await this.resolveActiveSmsProvider();
+    let template: SmsTemplateRef;
+    try {
+      template = await this.resolveDeployAlertTemplate(provider);
+    } catch {
+      return { sent: 0, recipients: 0, reason: 'template_not_configured' };
+    }
+
+    const statusParam =
+      (
+        await this.resolveSetting(SMS_SETTING_KEYS.DEPLOY_ALERT_STATUS_PARAMETER)
+      )?.trim() || DEFAULT_DEPLOY_STATUS_PARAMETER;
+    const detailParamRaw = await this.resolveSetting(
+      SMS_SETTING_KEYS.DEPLOY_ALERT_DETAIL_PARAMETER,
+    );
+    const detailParam =
+      detailParamRaw === undefined
+        ? DEFAULT_DEPLOY_DETAIL_PARAMETER
+        : detailParamRaw.trim();
+
+    let recipientsRaw = await this.resolveSetting(
+      SMS_SETTING_KEYS.UPTIME_ALERT_RECIPIENTS,
+    );
+    if (!recipientsRaw?.trim()) {
+      recipientsRaw = await this.resolveSetting(
+        SMS_SETTING_KEYS.DEPLOY_ALERT_RECIPIENTS,
+      );
+    }
+    if (!recipientsRaw?.trim()) {
+      recipientsRaw = await this.resolveSetting(
+        SMS_SETTING_KEYS.ADMIN_LOGIN_ALERT_RECIPIENTS,
+      );
+    }
+    const recipients = this.parseRecipientList(recipientsRaw);
+    if (!recipients.length) {
+      this.logger.warn(
+        'Uptime alert SMS skipped: set SMS_UPTIME_ALERT_RECIPIENTS (or deploy/login recipients) in admin settings.',
+      );
+      return { sent: 0, recipients: 0, reason: 'no_recipients' };
+    }
+
+    const stamp = new Date().toISOString().slice(5, 16).replace('T', ' ');
+    let detailValue = String(detail ?? '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 70);
+    detailValue = detailValue ? `${stamp} ${detailValue}` : stamp;
+
+    const statusValue = String(statusFa ?? '').trim() || 'نامشخص';
+    const parameters: SmsTemplateParameter[] = [
+      { name: statusParam, value: statusValue },
+    ];
+    if (detailParam) {
+      parameters.push({ name: detailParam, value: detailValue });
+    }
+
+    const results = await Promise.allSettled(
+      recipients.map((mobile) =>
+        this.sendByTemplate(mobile, template, parameters, provider),
+      ),
+    );
+    const sent = results.filter((r) => r.status === 'fulfilled').length;
+    for (const r of results) {
+      if (r.status === 'rejected') {
+        this.logger.warn(
+          `Uptime alert SMS failed: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`,
+        );
+      }
+    }
+    this.logger.log(`Uptime alert SMS: ${sent}/${recipients.length} sent`);
     if (sent === 0) {
       return {
         sent: 0,

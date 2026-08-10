@@ -234,6 +234,16 @@ export class AdminSettingsController {
     return { ok: result.sent > 0, ...result };
   }
 
+  @Post('test-uptime-sms')
+  @RequirePermission('settings.update')
+  async testUptimeSms() {
+    const result = await this.sms.sendUptimeAlert(
+      'تست',
+      'مانیتور دسترس‌پذیری — ارسال آزمایشی از پنل',
+    );
+    return { ok: result.sent > 0, ...result };
+  }
+
   @Get('secrets/catalog')
   @RequirePermission('settings_secrets.view')
   secretCatalog() {

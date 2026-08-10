@@ -76,6 +76,27 @@ export class HealthController {
     };
   }
 
+  /**
+   * فراخوانی از uptime-monitor.sh (قطع/وصل دسترس‌پذیری).
+   * قالب همان STATUS/DETAIL دیپلوی؛ فعال‌سازی با SMS_UPTIME_ALERT_ENABLED.
+   */
+  @Post('uptime-sms-alert')
+  @SkipThrottle()
+  @RawResponse()
+  async uptimeSmsAlert(@Body() dto: DeploySmsAlertDto, @Req() req: Request) {
+    this.assertDeployNotifyAllowed(req);
+
+    const result = await this.sms.sendUptimeAlert(
+      dto.status,
+      dto.detail?.trim() || '',
+    );
+
+    return {
+      ok: result.sent > 0,
+      ...result,
+    };
+  }
+
   private assertDeployNotifyAllowed(req: Request): void {
     // Prefer socket peer (not req.ip): trust proxy + X-Forwarded-For must not
     // fake "localhost", and docker-exec → 127.0.0.1 must always pass.

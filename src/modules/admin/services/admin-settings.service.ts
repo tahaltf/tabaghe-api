@@ -121,6 +121,8 @@ export const SETTING_KEYS = {
   SMS_DEPLOY_ALERT_TEMPLATE_NAME: 'SMS_DEPLOY_ALERT_TEMPLATE_NAME',
   SMS_DEPLOY_ALERT_STATUS_PARAMETER: 'SMS_DEPLOY_ALERT_STATUS_PARAMETER',
   SMS_DEPLOY_ALERT_DETAIL_PARAMETER: 'SMS_DEPLOY_ALERT_DETAIL_PARAMETER',
+  SMS_UPTIME_ALERT_ENABLED: 'SMS_UPTIME_ALERT_ENABLED',
+  SMS_UPTIME_ALERT_RECIPIENTS: 'SMS_UPTIME_ALERT_RECIPIENTS',
   SYSTEM_INTRO_CONTENT: 'SYSTEM_INTRO_CONTENT',
   FOOTER_SOCIAL_LINKS: 'FOOTER_SOCIAL_LINKS',
   AUCTION_DEPOSIT_MIN: 'AUCTION_DEPOSIT_MIN',
@@ -374,6 +376,10 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
     'نام پارامتر وضعیت در قالب دیپلوی (پیش‌فرض STATUS)',
   SMS_DEPLOY_ALERT_DETAIL_PARAMETER:
     'نام پارامتر جزئیات در قالب دیپلوی (پیش‌فرض DETAIL؛ خالی = فقط STATUS)',
+  SMS_UPTIME_ALERT_ENABLED:
+    'ارسال پیامک قطع/وصل دسترس‌پذیری سامانه (true/false، پیش‌فرض true؛ اسکریپت cron روی سرور)',
+  SMS_UPTIME_ALERT_RECIPIENTS:
+    'شماره‌های ادمین برای هشدار قطع/وصل (جدا با ویرگول؛ در نبود، از گیرندگان دیپلوی/ورود استفاده می‌شود)',
   SYSTEM_INTRO_CONTENT: 'محتوای صفحه معرفی سامانه',
   FOOTER_SOCIAL_LINKS:
     'لینک‌های شبکه‌های اجتماعی فوتر (JSON آرایه: [{ "network": "instagram", "url": "https://..." }])',
