@@ -59,17 +59,52 @@ resolve_verify_script() {
 send_deploy_sms() {
   local status_fa="$1"
   local detail="$2"
-  local vs
+  local vs out ec=0
   vs="$(resolve_verify_script)"
   if [ -z "$vs" ]; then
     log "warning: post-deploy-verify.sh not found — cannot SMS"
     return 0
   fi
   detail="$(echo "$detail" | tr '\n' ' ' | cut -c1-70)"
-  log "sending deploy result SMS (${status_fa})..."
-  ROOT="$ROOT" SMS_ONLY=1 SMS_STATUS="$status_fa" SMS_DETAIL="$detail" bash "$vs" 2>&1 | while IFS= read -r line; do
-    log "$line"
-  done || true
+  log "sending deploy result SMS (${status_fa}) detail=${detail} via ${vs}..."
+  # Do not pipe to `while` (subshell + pipefail can hide failures). Capture, then log.
+  set +e
+  out="$(
+    ROOT="$ROOT" SMS_ONLY=1 SMS_STATUS="$status_fa" SMS_DETAIL="$detail" \
+      bash "$vs" 2>&1
+  )"
+  ec=$?
+  set -e
+  if [ -n "$out" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      log "$line"
+    done <<< "$out"
+  fi
+  if [ "$ec" -ne 0 ]; then
+    log "warning: deploy SMS script exit=${ec}"
+  else
+    log "deploy SMS step finished (exit=0)"
+  fi
+}
+
+# $ROOT/deploy.sh must stay a thin wrapper — never overwrite a running bash script mid-flight.
+install_root_deploy_wrapper() {
+  local next="$ROOT/deploy.sh.next"
+  cat > "$next" <<'WRAP'
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="${TABAGHEH_ROOT:-/app/tabagheh}"
+if [ -f "$ROOT/api/scripts/server-deploy.sh" ]; then
+  exec bash "$ROOT/api/scripts/server-deploy.sh" "$@"
+fi
+if [ -f "$ROOT/tabaghe-api/scripts/server-deploy.sh" ]; then
+  exec bash "$ROOT/tabaghe-api/scripts/server-deploy.sh" "$@"
+fi
+echo "server-deploy.sh not found under $ROOT" >&2
+exit 1
+WRAP
+  chmod +x "$next"
+  mv -f "$next" "$ROOT/deploy.sh"
 }
 
 preserve_image_if_exists() {
@@ -266,31 +301,58 @@ ensure_api_base() {
   fi
 }
 
+# Stage 0: copy this script to /tmp before any git reset — otherwise
+# `sync_repo backend` overwrites the running file and bash skips/breaks the SMS tail.
+if [ "${_TABAGHEH_DEPLOY_BOOTSTRAPPED:-0}" != "1" ] \
+  && [ "${_TABAGHEH_DEPLOY_FROM_TMP:-0}" != "1" ]; then
+  _deploy_tmp="$(mktemp /tmp/tabagheh-deploy.XXXXXX.sh)"
+  cp "${BASH_SOURCE[0]}" "$_deploy_tmp"
+  chmod +x "$_deploy_tmp"
+  export _TABAGHEH_DEPLOY_FROM_TMP=1
+  exec bash "$_deploy_tmp"
+fi
+
+# Stage 1: capture pre-sync HEADs, pull, install thin ./deploy.sh wrapper, then
+# re-exec the synced canonical script (never continue after mutating $0).
+if [ "${_TABAGHEH_DEPLOY_BOOTSTRAPPED:-0}" != "1" ]; then
+  log "bootstrap: sync repos, then re-exec canonical deploy script"
+  _BOOT_OLD_FE="$(repo_head "$FRONTEND")"
+  _BOOT_OLD_BE="$(repo_head "$BACKEND")"
+  _BOOT_OLD_CR=""
+  if [ -d "$CRAWLER/.git" ]; then
+    _BOOT_OLD_CR="$(repo_head "$CRAWLER")"
+  fi
+
+  sync_repo "$FRONTEND" "frontend"
+  sync_repo "$BACKEND" "backend"
+  if [ -d "$CRAWLER/.git" ]; then
+    sync_repo "$CRAWLER" "crawler"
+  fi
+
+  if [ ! -f "$BACKEND/scripts/server-deploy.sh" ]; then
+    log "ERROR: missing $BACKEND/scripts/server-deploy.sh"
+    exit 1
+  fi
+
+  install_root_deploy_wrapper
+  export _TABAGHEH_DEPLOY_BOOTSTRAPPED=1
+  export _DEPLOY_OLD_FE="$_BOOT_OLD_FE"
+  export _DEPLOY_OLD_BE="$_BOOT_OLD_BE"
+  export _DEPLOY_OLD_CR="$_BOOT_OLD_CR"
+  export TABAGHEH_ROOT="$ROOT"
+  export GIT_BRANCH="$BRANCH"
+  export DEPLOY_SERVICES="$DEPLOY_SERVICES"
+  log "re-exec → $BACKEND/scripts/server-deploy.sh"
+  exec bash "$BACKEND/scripts/server-deploy.sh"
+fi
+
 echo "======================================================"
 echo "Tabagheh deploy — $(date '+%Y-%m-%d %H:%M:%S')"
 echo "======================================================"
 
-OLD_FE="$(repo_head "$FRONTEND")"
-OLD_BE="$(repo_head "$BACKEND")"
-OLD_CR=""
-if [ -d "$CRAWLER/.git" ]; then
-  OLD_CR="$(repo_head "$CRAWLER")"
-fi
-
-sync_repo "$FRONTEND" "frontend"
-sync_repo "$BACKEND" "backend"
-if [ -d "$CRAWLER/.git" ]; then
-  sync_repo "$CRAWLER" "crawler"
-fi
-
-# Root /app/tabagheh is not a git repo — keep deploy.sh in sync from API
-if [ -f "$BACKEND/scripts/server-deploy.sh" ]; then
-  if ! cmp -s "$BACKEND/scripts/server-deploy.sh" "$ROOT/deploy.sh" 2>/dev/null; then
-    log "updating $ROOT/deploy.sh from API scripts/server-deploy.sh"
-    cp "$BACKEND/scripts/server-deploy.sh" "$ROOT/deploy.sh"
-    chmod +x "$ROOT/deploy.sh"
-  fi
-fi
+OLD_FE="${_DEPLOY_OLD_FE-}"
+OLD_BE="${_DEPLOY_OLD_BE-}"
+OLD_CR="${_DEPLOY_OLD_CR-}"
 
 NEW_FE="$(repo_head "$FRONTEND")"
 NEW_BE="$(repo_head "$BACKEND")"
