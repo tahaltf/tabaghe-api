@@ -204,9 +204,12 @@ export class AiContentSettingsService {
       AI_CONTENT_SETTING_KEYS.IMAGE_EDIT_TIMEOUT_MS,
       DEFAULT_AI_IMAGE_EDIT_TIMEOUT_MS,
     );
+    // مقادیر قدیمی (۱۵–۳۵ث) برای images/edits واقعی کافی نبودند و باعث خطای کلی کاربر می‌شدند
+    const legacyShort = raw > 0 && raw < 45_000;
+    const effective = legacyShort ? DEFAULT_AI_IMAGE_EDIT_TIMEOUT_MS : raw;
     return Math.min(
       AI_IMAGE_EDIT_TIMEOUT_MS_MAX,
-      Math.max(AI_IMAGE_EDIT_TIMEOUT_MS_MIN, raw),
+      Math.max(AI_IMAGE_EDIT_TIMEOUT_MS_MIN, effective),
     );
   }
 

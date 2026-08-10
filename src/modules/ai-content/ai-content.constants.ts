@@ -83,13 +83,13 @@ export const DEFAULT_AI_STORY_STYLES: AiStoryStyleDef[] = [
 export const DEFAULT_AI_TEXT_MODEL = 'openai/gpt-4o-mini';
 export const DEFAULT_AI_IMAGE_MODEL = 'openai/gpt-image-1-mini';
 
-/** پیش‌فرض‌های سرعت — ادمین می‌تواند override کند */
-export const DEFAULT_AI_IMAGE_EDIT_TIMEOUT_MS = 30_000;
+/** پیش‌فرض‌های سرعت — جاب async است؛ مهلت باید برای images/edits واقعی کافی باشد */
+export const DEFAULT_AI_IMAGE_EDIT_TIMEOUT_MS = 90_000;
 export const DEFAULT_AI_IMAGE_SIZE = '1024x1536';
 export const DEFAULT_AI_IMAGE_INPUT_MAX_PX = 768;
 
-export const AI_IMAGE_EDIT_TIMEOUT_MS_MIN = 8_000;
-export const AI_IMAGE_EDIT_TIMEOUT_MS_MAX = 90_000;
+export const AI_IMAGE_EDIT_TIMEOUT_MS_MIN = 15_000;
+export const AI_IMAGE_EDIT_TIMEOUT_MS_MAX = 180_000;
 export const AI_IMAGE_INPUT_MAX_PX_MIN = 512;
 export const AI_IMAGE_INPUT_MAX_PX_MAX = 1536;
 
