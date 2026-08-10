@@ -74,7 +74,7 @@ export class AiContentController {
       dto.styleId,
       dto.userPrompt,
       undefined,
-      dto.includeCaption !== false,
+      dto.includeCaption === true,
     );
   }
 

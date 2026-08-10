@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -23,6 +24,8 @@ import { AiTokenService } from './ai-token.service';
 
 @Injectable()
 export class AiContentStoryService {
+  private readonly logger = new Logger(AiContentStoryService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: AiContentSettingsService,
@@ -53,7 +56,9 @@ export class AiContentStoryService {
           description: true,
           thumbnail: true,
           gallery: true,
-          direct: { select: { price: true, compareAtPrice: true, salePrice: true } },
+          direct: {
+            select: { price: true, compareAtPrice: true, salePrice: true },
+          },
         },
       }),
       this.prisma.listing.count({ where }),
@@ -78,7 +83,7 @@ export class AiContentStoryService {
     styleId: string,
     userPrompt?: string,
     parentRequestId?: string,
-    includeCaption = true,
+    includeCaption = false,
   ) {
     if (!(await this.settings.isEnabledForUser(userId))) {
       throw new BadRequestException('تولید محتوا برای حساب شما فعال نیست');
@@ -138,7 +143,7 @@ export class AiContentStoryService {
 
       const input = {
         listingTitle: listing.title,
-        listingDescription: listing.description,
+        listingDescription: this.toPlainDescription(listing.description),
         priceLabel: this.formatPrice(listing.direct),
         userPrompt,
         systemPrompt,
@@ -192,16 +197,47 @@ export class AiContentStoryService {
         provider: imageResult.provider,
       };
     } catch (err) {
-      await this.tokens.release(userId, tokenCost, request.id);
-      await this.prisma.aiContentRequest.update({
-        where: { id: request.id },
-        data: {
-          status: AiContentRequestStatus.FAILED,
-          errorMessage: String((err as Error).message ?? err),
-          completedAt: new Date(),
-        },
-      });
-      throw err;
+      const message = String((err as Error)?.message ?? err);
+      this.logger.error(
+        `generateStory failed request=${request.id}: ${message}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+
+      try {
+        await this.tokens.release(userId, tokenCost, request.id);
+      } catch (releaseErr) {
+        this.logger.warn(
+          `token release failed for ${request.id}: ${String((releaseErr as Error)?.message ?? releaseErr)}`,
+        );
+      }
+
+      try {
+        await this.prisma.aiContentRequest.update({
+          where: { id: request.id },
+          data: {
+            status: AiContentRequestStatus.FAILED,
+            errorMessage: message.slice(0, 2000),
+            completedAt: new Date(),
+          },
+        });
+      } catch (updateErr) {
+        this.logger.warn(
+          `failed to mark request ${request.id} as FAILED: ${String((updateErr as Error)?.message ?? updateErr)}`,
+        );
+      }
+
+      if (
+        err instanceof BadRequestException ||
+        err instanceof NotFoundException
+      ) {
+        throw err;
+      }
+
+      throw new BadRequestException(
+        message.includes('تصویر') || message.includes('ساخت تصویر')
+          ? message
+          : 'ساخت استوری ناموفق بود. لطفاً دوباره تلاش کنید یا محصول دیگری انتخاب کنید.',
+      );
     }
   }
 
@@ -253,7 +289,8 @@ export class AiContentStoryService {
     return {
       ...request,
       imageUrl:
-        request.status === AiContentRequestStatus.SUCCESS && request.resultImagePath
+        request.status === AiContentRequestStatus.SUCCESS &&
+        request.resultImagePath
           ? `/uploads/ai-content/${request.id}.png`
           : null,
     };
@@ -312,7 +349,12 @@ export class AiContentStoryService {
       where: {
         userId,
         createdAt: { gte: start },
-        status: { in: [AiContentRequestStatus.SUCCESS, AiContentRequestStatus.PROCESSING] },
+        status: {
+          in: [
+            AiContentRequestStatus.SUCCESS,
+            AiContentRequestStatus.PROCESSING,
+          ],
+        },
       },
     });
 
@@ -328,7 +370,23 @@ export class AiContentStoryService {
     if (normalized.startsWith('uploads/')) {
       return join('.', normalized).replace(/\\/g, '/');
     }
-    return join(LISTING_UPLOAD_DIR, basenameOnly(normalized)).replace(/\\/g, '/');
+    return join(LISTING_UPLOAD_DIR, basenameOnly(normalized)).replace(
+      /\\/g,
+      '/',
+    );
+  }
+
+  private toPlainDescription(raw: string | null | undefined): string {
+    return String(raw ?? '')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 1200);
   }
 
   private formatPrice(

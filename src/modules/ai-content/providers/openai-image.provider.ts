@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createReadStream, existsSync, mkdirSync, writeFileSync } from 'fs';
-import { basename, join } from 'path';
+import { join } from 'path';
 import sharp from 'sharp';
 import { AiContentSettingsService } from '../services/ai-content-settings.service';
 import type { StoryGenerationInput } from '../utils/story-prompt.builder';
@@ -47,13 +47,23 @@ export class OpenAiImageProvider {
       this.logger.warn('No Liara/OpenAI API key configured; using Sharp fallback');
     }
 
-    const buffer = await this.composeFallbackStory({
-      productImagePath: params.productImagePath,
-      title: params.input.listingTitle,
-      caption: params.caption,
-      priceLabel: params.input.priceLabel,
-    });
-    return { buffer, provider: 'sharp-fallback', model: 'local-compose' };
+    try {
+      const buffer = await this.composeFallbackStory({
+        productImagePath: params.productImagePath,
+        title: params.input.listingTitle,
+        caption: params.caption,
+        priceLabel: params.input.priceLabel,
+      });
+      return { buffer, provider: 'sharp-fallback', model: 'local-compose' };
+    } catch (err) {
+      this.logger.error(
+        `Sharp fallback failed: ${String((err as Error).message)}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      throw new Error(
+        `ساخت تصویر استوری ناموفق بود: ${String((err as Error).message ?? err)}`,
+      );
+    }
   }
 
   saveToUploads(fileName: string, buffer: Buffer): string {
@@ -85,17 +95,18 @@ export class OpenAiImageProvider {
   }): Promise<Buffer | null> {
     const baseUrl = this.settings.getOpenAiBaseUrl();
     const imageBuffer = await sharp(params.productImagePath)
+      .rotate()
       .resize(1024, 1024, { fit: 'inside', withoutEnlargement: true })
       .png()
       .toBuffer();
 
     const form = new FormData();
     form.append('model', params.model);
-    form.append('prompt', params.prompt);
+    form.append('prompt', params.prompt.slice(0, 3500));
     form.append(
       'image',
       new Blob([new Uint8Array(imageBuffer)], { type: 'image/png' }),
-      basename(params.productImagePath, '.jpg') + '.png',
+      'product.png',
     );
     form.append('size', '1024x1536');
 
@@ -147,15 +158,21 @@ export class OpenAiImageProvider {
       </svg>`;
 
     const product = await sharp(params.productImagePath)
-      .resize(760, 760, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .rotate()
+      .resize(760, 760, {
+        fit: 'contain',
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      })
       .png()
       .toBuffer();
 
-    const title = this.escapeXml(params.title.slice(0, 48));
+    const title = this.escapeXml(this.sanitizeDisplayText(params.title, 48));
     const price = params.priceLabel
-      ? this.escapeXml(params.priceLabel)
+      ? this.escapeXml(this.sanitizeDisplayText(params.priceLabel, 40))
       : '';
-    const subtitle = this.escapeXml(params.caption.slice(0, 90));
+    const subtitle = this.escapeXml(
+      this.sanitizeDisplayText(params.caption, 90),
+    );
 
     const textSvg = `
       <svg width="${width}" height="${height}">
@@ -167,8 +184,8 @@ export class OpenAiImageProvider {
         </style>
         <text x="60" y="1500" class="title">${title}</text>
         ${price ? `<text x="60" y="1565" class="price">${price}</text>` : ''}
-        <text x="60" y="1640" class="sub">${subtitle}</text>
-        <text x="60" y="1860" class="brand">فروش در طبقه</text>
+        ${subtitle ? `<text x="60" y="1640" class="sub">${subtitle}</text>` : ''}
+        <text x="60" y="1860" class="brand">Tabagheh</text>
       </svg>`;
 
     let pipeline = sharp(Buffer.from(gradientSvg))
@@ -195,22 +212,39 @@ export class OpenAiImageProvider {
     width: number,
     height: number,
   ): Promise<sharp.Sharp> {
-    const logoUrl = await this.settings.getBrandLogoUrl();
-    if (!logoUrl) return pipeline;
+    try {
+      const logoUrl = await this.settings.getBrandLogoUrl();
+      if (!logoUrl) return pipeline;
 
-    const localPath = logoUrl.startsWith('/uploads/')
-      ? `.${logoUrl}`
-      : logoUrl.replace(/^https?:\/\/[^/]+/, '.');
-    if (!existsSync(localPath)) return pipeline;
+      const localPath = logoUrl.startsWith('/uploads/')
+        ? `.${logoUrl}`
+        : logoUrl.replace(/^https?:\/\/[^/]+/, '.');
+      if (!existsSync(localPath)) return pipeline;
 
-    const logo = await sharp(localPath)
-      .resize(140, 140, { fit: 'inside' })
-      .png()
-      .toBuffer();
+      const logo = await sharp(localPath)
+        .rotate()
+        .resize(140, 140, { fit: 'inside' })
+        .png()
+        .toBuffer();
 
-    return pipeline.composite([
-      { input: logo, top: height - 180, left: width - 180 },
-    ]);
+      return pipeline.composite([
+        { input: logo, top: height - 180, left: width - 180 },
+      ]);
+    } catch (err) {
+      this.logger.warn(
+        `Brand logo overlay skipped: ${String((err as Error).message)}`,
+      );
+      return pipeline;
+    }
+  }
+
+  private sanitizeDisplayText(value: string, maxLen: number): string {
+    return String(value ?? '')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/[\u0000-\u001F\u007F]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, maxLen);
   }
 
   private escapeXml(value: string): string {

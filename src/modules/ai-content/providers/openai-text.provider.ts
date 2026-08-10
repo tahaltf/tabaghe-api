@@ -56,7 +56,14 @@ export class OpenAiTextProvider {
   }
 
   private fallbackCaption(input: StoryGenerationInput): string {
-    const price = input.priceLabel ? `\n💰 ${input.priceLabel}` : '';
-    return `✨ ${input.listingTitle}${price}\n\n${input.listingDescription.slice(0, 120)}...\n\n🛒 همین حالا در طبقه ببین و بخر!`;
+    const desc = String(input.listingDescription ?? '')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const price = input.priceLabel ? `\n${input.priceLabel}` : '';
+    const descPart = desc
+      ? `\n\n${desc.slice(0, 120)}${desc.length > 120 ? '...' : ''}`
+      : '';
+    return `${input.listingTitle}${price}${descPart}\n\nهمین حالا در طبقه ببین و بخر!`;
   }
 }
