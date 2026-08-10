@@ -10,6 +10,10 @@ set -euo pipefail
 #   DEPLOY_SERVICES=backend ./deploy.sh
 #   DEPLOY_SERVICES=crawler ./deploy.sh
 #   FORCE_BASE_BUILD=1 ./deploy.sh      rebuild Chromium base image
+#
+# Auto-rollback: before rebuild, :latest is tagged :previous. If migrate or
+# post-deploy health/gateway checks fail, :previous is restored to :latest and
+# those containers are recreated, then admins get an SMS (ناموفق).
 
 ROOT="${TABAGHEH_ROOT:-/app/tabagheh}"
 BRANCH="${GIT_BRANCH:-main}"
@@ -23,8 +27,148 @@ CRAWLER_IMAGE="tabagheh-crawler:latest"
 API_BASE_IMAGE="tabagheh-api-base:latest"
 
 BASE_HASH_FILE="$ROOT/.deploy-api-base-hash"
+DEPLOY_STATUS_FILE="$ROOT/.deploy-last-status"
 
 log() { echo "[deploy] $*"; }
+
+RECREATE=()
+CONTAINERS_RECREATED=0
+MIGRATE_ATTEMPTED=0
+_DEPLOY_FAIL_HANDLED=0
+_DEPLOY_ERR_SMS=1
+
+previous_tag() {
+  # tabagheh-backend:latest → tabagheh-backend:previous
+  local latest="$1"
+  echo "${latest%:latest}:previous"
+}
+
+resolve_verify_script() {
+  local be="${BACKEND:-}"
+  if [ -n "$be" ] && [ -f "$be/scripts/post-deploy-verify.sh" ]; then
+    echo "$be/scripts/post-deploy-verify.sh"
+  elif [ -f "$ROOT/api/scripts/post-deploy-verify.sh" ]; then
+    echo "$ROOT/api/scripts/post-deploy-verify.sh"
+  elif [ -f "$ROOT/tabaghe-api/scripts/post-deploy-verify.sh" ]; then
+    echo "$ROOT/tabaghe-api/scripts/post-deploy-verify.sh"
+  else
+    echo ""
+  fi
+}
+
+send_deploy_sms() {
+  local status_fa="$1"
+  local detail="$2"
+  local vs
+  vs="$(resolve_verify_script)"
+  if [ -z "$vs" ]; then
+    log "warning: post-deploy-verify.sh not found — cannot SMS"
+    return 0
+  fi
+  detail="$(echo "$detail" | tr '\n' ' ' | cut -c1-70)"
+  ROOT="$ROOT" SMS_ONLY=1 SMS_STATUS="$status_fa" SMS_DETAIL="$detail" bash "$vs" || true
+}
+
+preserve_image_if_exists() {
+  local latest="$1"
+  local prev
+  prev="$(previous_tag "$latest")"
+  if image_exists "$latest"; then
+    log "preserving $latest → $prev"
+    docker tag "$latest" "$prev"
+  else
+    log "no existing $latest to preserve as :previous"
+  fi
+}
+
+# Returns 0 if at least one service was retagged from :previous.
+rollback_recreated_services() {
+  if [ ${#RECREATE[@]} -eq 0 ]; then
+    log "rollback skipped — no recreated services"
+    return 1
+  fi
+
+  local svc latest prev rolled=0
+  for svc in "${RECREATE[@]}"; do
+    case "$svc" in
+      backend|tabagheh-api) latest="$BACKEND_IMAGE" ;;
+      frontend) latest="$FRONTEND_IMAGE" ;;
+      crawler) latest="$CRAWLER_IMAGE" ;;
+      *)
+        log "warning: unknown service for rollback: $svc"
+        continue
+        ;;
+    esac
+    prev="$(previous_tag "$latest")"
+    if image_exists "$prev"; then
+      log "rollback image: $prev → $latest"
+      docker tag "$prev" "$latest"
+      rolled=1
+    else
+      log "warning: missing $prev — cannot rollback $svc"
+    fi
+  done
+
+  if [ "$rolled" = "0" ]; then
+    log "rollback failed — no :previous images available"
+    return 1
+  fi
+
+  log "recreating rolled-back containers: ${RECREATE[*]}"
+  docker compose up -d --force-recreate "${RECREATE[@]}"
+  return 0
+}
+
+# reason: migrate | health | exit N | ...
+handle_deploy_failure() {
+  local reason="$1"
+  _DEPLOY_FAIL_HANDLED=1
+  _DEPLOY_ERR_SMS=0
+  trap - ERR
+
+  local rb_status="skipped"
+  if [ "${CONTAINERS_RECREATED}" = "1" ] && [ ${#RECREATE[@]} -gt 0 ]; then
+    if rollback_recreated_services; then
+      rb_status="rbOK"
+      local vs
+      vs="$(resolve_verify_script)"
+      if [ -n "$vs" ]; then
+        log "post-rollback health check (best-effort)..."
+        if ROOT="$ROOT" SKIP_SMS=1 DEPLOY_STATUS_FILE="$DEPLOY_STATUS_FILE" \
+          bash "$vs"; then
+          rb_status="rbOK+up"
+        else
+          rb_status="rbOK+down"
+        fi
+      fi
+    else
+      rb_status="rbFail"
+    fi
+  fi
+
+  local detail="${reason}; ${rb_status}"
+  if [ "$MIGRATE_ATTEMPTED" = "1" ]; then
+    detail="${detail}; DB not reverted"
+  fi
+
+  log "ERROR: deploy failed — ${detail}"
+  send_deploy_sms "ناموفق" "$detail"
+  docker compose ps || true
+  exit 1
+}
+
+on_deploy_err() {
+  local ec=$?
+  [[ "${_DEPLOY_FAIL_HANDLED}" = "0" ]] || return 0
+  if [ "${CONTAINERS_RECREATED}" = "1" ]; then
+    handle_deploy_failure "exit ${ec}"
+  fi
+  [[ "${_DEPLOY_ERR_SMS}" = "1" ]] || return 0
+  _DEPLOY_FAIL_HANDLED=1
+  log "ERROR: deploy aborted (exit=$ec) — attempting failure SMS..."
+  send_deploy_sms "ناموفق" "deploy exit ${ec}"
+}
+trap 'on_deploy_err' ERR
 
 resolve_dir() {
   local primary="$1"
@@ -176,6 +320,11 @@ fi
 
 cd "$ROOT"
 
+# Snapshot current :latest before overwrite so we can roll back on bad deploy
+if [ "$BUILD_BE" = "1" ]; then preserve_image_if_exists "$BACKEND_IMAGE"; fi
+if [ "$BUILD_FE" = "1" ]; then preserve_image_if_exists "$FRONTEND_IMAGE"; fi
+if [ "$BUILD_CR" = "1" ]; then preserve_image_if_exists "$CRAWLER_IMAGE"; fi
+
 if [ "$BUILD_BE" = "1" ]; then
   # Optional: pre-build tagged base so Chromium layer survives `docker builder prune`.
   # Backend Dockerfile embeds api-base inline; --cache-from reuses it when present.
@@ -210,6 +359,7 @@ RECREATE=()
 if [ ${#RECREATE[@]} -gt 0 ]; then
   log "recreating containers: ${RECREATE[*]}"
   docker compose up -d --force-recreate "${RECREATE[@]}"
+  CONTAINERS_RECREATED=1
 else
   log "containers unchanged"
 fi
@@ -219,29 +369,41 @@ docker compose up -d db gateway 2>/dev/null || docker compose up -d tabagheh-pos
 
 if [ "$BUILD_BE" = "1" ]; then
   log "database migrate..."
+  MIGRATE_ATTEMPTED=1
   if docker compose ps --status running backend >/dev/null 2>&1; then
-    docker compose exec -T backend npx prisma migrate deploy
-    docker compose exec -T backend npx prisma generate
+    if ! docker compose exec -T backend npx prisma migrate deploy; then
+      handle_deploy_failure "migrate"
+    fi
+    docker compose exec -T backend npx prisma generate || true
   elif docker compose ps --status running tabagheh-api >/dev/null 2>&1; then
-    docker compose exec -T tabagheh-api npx prisma migrate deploy
-    docker compose exec -T tabagheh-api npx prisma generate
+    if ! docker compose exec -T tabagheh-api npx prisma migrate deploy; then
+      handle_deploy_failure "migrate"
+    fi
+    docker compose exec -T tabagheh-api npx prisma generate || true
   else
     log "warning: backend container not running — skip migrate"
+    MIGRATE_ATTEMPTED=0
   fi
 fi
 
-# Health check + SMS to admins (success or failure) — always after deploy
-VERIFY_SCRIPT="$BACKEND/scripts/post-deploy-verify.sh"
-if [ -f "$VERIFY_SCRIPT" ]; then
-  log "post-deploy verify + admin SMS..."
-  # Server compose uses api/.env; script also searches root/.env and tabaghe-api/.env
-  ROOT="$ROOT" bash "$VERIFY_SCRIPT" || {
-    log "ERROR: post-deploy verify failed (admin SMS should have been attempted)"
-    docker compose ps
-    exit 1
-  }
+# Health check — SMS owned by this script (success here, or failure after rollback)
+_DEPLOY_ERR_SMS=0
+trap - ERR
+VERIFY_SCRIPT="$(resolve_verify_script)"
+if [ -n "$VERIFY_SCRIPT" ]; then
+  log "post-deploy verify (SMS deferred to deploy.sh)..."
+  rm -f "$DEPLOY_STATUS_FILE" 2>/dev/null || true
+  if ! ROOT="$ROOT" SKIP_SMS=1 DEPLOY_STATUS_FILE="$DEPLOY_STATUS_FILE" bash "$VERIFY_SCRIPT"; then
+    fail_reason="health"
+    if [ -f "$DEPLOY_STATUS_FILE" ]; then
+      fail_reason="$(tr -d '\r\n' < "$DEPLOY_STATUS_FILE" | cut -c1-40)"
+      [ -n "$fail_reason" ] || fail_reason="health"
+    fi
+    handle_deploy_failure "$fail_reason"
+  fi
+  send_deploy_sms "موفق" "API+Gateway OK"
 else
-  log "warning: $VERIFY_SCRIPT not found — skip verify/SMS"
+  log "warning: post-deploy-verify.sh not found — skip verify/SMS"
 fi
 
 log "done."

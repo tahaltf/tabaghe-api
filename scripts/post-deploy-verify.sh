@@ -11,27 +11,30 @@
 #
 # Env:
 #   SKIP_HEALTH_CHECK=1
-#   SMS_DEPLOY_ALERT_ENABLED=0|1          (default 1)
+#   SKIP_SMS=1                            (health only; deploy.sh sends SMS after rollback)
+#   SMS_ONLY=1 SMS_STATUS=ناموفق SMS_DETAIL=...   (notify only; used by deploy.sh)
+#   DEPLOY_STATUS_FILE=/path              (write ok|API|Gateway|API+Gateway for deploy.sh)
+#   SMS_DEPLOY_ALERT_ENABLED=0|1          (host .env: only affects .env fallback; panel is source of truth for API path)
 #   HEALTH_TIMEOUT_SEC=90
 #   HEALTH_URL / GATEWAY_URL / CHECK_GATEWAY
+#   DEPLOY_NOTIFY_TOKEN=...               (optional; only for non-localhost callers — docker exec is always allowed)
 #
-# SMS (prefer panel via API; .env is fallback when API is down):
+# SMS (prefer panel via API; .env is fallback when API is unreachable):
 #   ACTIVE_SMS_PROVIDER=smsir
 #   SMS_IR_API_KEY=...
-#   SMS_IR_LINE_NUMBER=3000...              (optional plain-SMS fallback if no template)
-#   SMS_DEPLOY_ALERT_RECIPIENTS=09...,09...   (fallback: SMS_ADMIN_LOGIN_ALERT_RECIPIENTS)
-#   SMS_DEPLOY_ALERT_TEMPLATE_ID=123456       (sms.ir template with #STATUS #DETAIL)
-#   SMS_DEPLOY_ALERT_STATUS_PARAMETER=STATUS  (default STATUS)
-#   SMS_DEPLOY_ALERT_DETAIL_PARAMETER=DETAIL  (default DETAIL; empty = only STATUS)
-#   SMS_DEPLOY_ALERT_TEMPLATE_NAME=...        (kavenegar lookup name; token=STATUS, token2=DETAIL)
-#   DEPLOY_NOTIFY_TOKEN=...                   (optional; required if calling API from non-localhost)
+#   SMS_IR_LINE_NUMBER=3000...
+#   SMS_DEPLOY_ALERT_RECIPIENTS=09...,09...
+#   SMS_DEPLOY_ALERT_TEMPLATE_ID=123456
+#   SMS_DEPLOY_ALERT_TEMPLATE_NAME=...
 set -euo pipefail
 
 ROOT="${ROOT:-/app/tabagheh}"
 SKIP_HEALTH_CHECK="${SKIP_HEALTH_CHECK:-0}"
+SKIP_SMS="${SKIP_SMS:-0}"
 SMS_DEPLOY_ALERT_ENABLED="${SMS_DEPLOY_ALERT_ENABLED:-1}"
 HEALTH_TIMEOUT_SEC="${HEALTH_TIMEOUT_SEC:-90}"
 CHECK_GATEWAY="${CHECK_GATEWAY:-1}"
+DEPLOY_STATUS_FILE="${DEPLOY_STATUS_FILE:-$ROOT/.deploy-last-status}"
 
 log() { echo "[post-deploy] $*"; }
 warn() { echo "[post-deploy] WARN: $*" >&2; }
@@ -85,11 +88,6 @@ _http_port="$(load_env_var HTTP_PORT)"
 _http_port="${_http_port:-80}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:${_http_port}/api/v1/health}"
 GATEWAY_URL="${GATEWAY_URL:-http://127.0.0.1:${_http_port}/}"
-
-if [[ "$SKIP_HEALTH_CHECK" == "1" ]]; then
-  log "SKIP_HEALTH_CHECK=1 — skipping"
-  exit 0
-fi
 
 normalize_mobile() {
   local raw="$1"
@@ -203,9 +201,35 @@ wait_for_health() {
   return 1
 }
 
+# Resolve DEPLOY_NOTIFY_TOKEN: host .env first, then inside the API container
+# (compose env_file may differ from /app/tabagheh/.env that the script reads).
+_resolve_deploy_notify_token() {
+  local token svc
+  token="$(load_env_var DEPLOY_NOTIFY_TOKEN)"
+  if [[ -n "$token" ]]; then
+    printf '%s' "$token"
+    return 0
+  fi
+  cd "$ROOT" 2>/dev/null || true
+  for svc in backend tabagheh-api; do
+    if ! docker compose ps --status running "$svc" >/dev/null 2>&1; then
+      continue
+    fi
+    token="$(
+      docker compose exec -T "$svc" printenv DEPLOY_NOTIFY_TOKEN 2>/dev/null \
+        | tr -d '\r\n' || true
+    )"
+    if [[ -n "$token" ]]; then
+      printf '%s' "$token"
+      return 0
+    fi
+  done
+  return 0
+}
+
 # Prefer Nest endpoint (reads panel SystemSetting + encrypted SMS keys).
 # Called from inside API container so loopback auth works.
-# Tries wget first (always in the Alpine image), falls back to curl, then node fetch.
+# Prefers node fetch (UTF-8 / Persian safe via env), then wget, then curl.
 notify_via_api() {
   local status_fa="$1"
   local detail="$2"
@@ -214,7 +238,7 @@ notify_via_api() {
   status_esc="$(json_escape "$status_fa")"
   detail_esc="$(json_escape "$detail")"
   payload="$(printf '{"status":"%s","detail":"%s"}' "$status_esc" "$detail_esc")"
-  token="$(load_env_var DEPLOY_NOTIFY_TOKEN)"
+  token="$(_resolve_deploy_notify_token)"
 
   cd "$ROOT" 2>/dev/null || true
   for svc in backend tabagheh-api; do
@@ -222,8 +246,7 @@ notify_via_api() {
       continue
     fi
 
-    # Build the HTTP request using wget (always present in Alpine), curl, or node fetch —
-    # in that priority order.  The health endpoint returns JSON with {"sent":N,...}.
+    log "trying deploy-sms-alert via compose service=$svc ..."
     resp="$(_exec_api_post "$svc" "$payload" "$token")" || true
 
     if echo "$resp" | grep -qE '"sent"[[:space:]]*:[[:space:]]*[1-9]'; then
@@ -234,7 +257,8 @@ notify_via_api() {
       local reason
       reason="$(echo "$resp" | grep -oE '"reason"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 || true)"
       warn "API deploy-sms-alert پاسخ داد ولی ارسال نشد${reason:+ ($reason)}: $(echo "$resp" | tr '\n' ' ' | cut -c1-200)"
-      return 1
+      # Panel reached — caller should NOT fall back to stale host .env
+      return 2
     fi
     warn "API deploy-sms-alert ($svc) — پاسخ نامعتبر: $(echo "$resp" | tr '\n' ' ' | cut -c1-200)"
   done
@@ -242,35 +266,47 @@ notify_via_api() {
 }
 
 # Execute a POST to the health endpoint inside the named compose service.
-# Tries wget → curl → node in order.  Returns the response body on stdout.
+# Tries node → wget → curl. Returns the response body on stdout.
 _exec_api_post() {
   local svc="$1"
   local payload="$2"
   local token="$3"
   local url="http://127.0.0.1:3000/api/v1/health/deploy-sms-alert"
-  local tok_header=""
-  [[ -n "$token" ]] && tok_header="X-Deploy-Notify-Token: ${token}"
 
-  # --- wget (BusyBox / Alpine standard) ---
+  # --- node first (always in image; env avoids shell-quoting Persian/JSON) ---
+  if docker compose exec -T \
+    -e "U=${url}" \
+    -e "P=${payload}" \
+    -e "T=${token}" \
+    "$svc" \
+    node -e 'const h={"Content-Type":"application/json","Accept":"application/json"};if(process.env.T)h["X-Deploy-Notify-Token"]=process.env.T;fetch(process.env.U,{method:"POST",headers:h,body:process.env.P}).then(r=>r.text()).then(t=>process.stdout.write(t)).catch(e=>{process.stderr.write(String(e));process.exit(1)})' \
+    2>/dev/null; then
+    return 0
+  fi
+  warn "node fetch inside $svc failed; trying wget"
+
+  # --- wget (BusyBox / Alpine) ---
   if docker compose exec -T "$svc" sh -c 'command -v wget' >/dev/null 2>&1; then
-    local wget_cmd
-    if [[ -n "$tok_header" ]]; then
-      wget_cmd="wget -qO- --timeout=25 \
-        --header='Content-Type: application/json' \
-        --header='Accept: application/json' \
-        --header='${tok_header}' \
-        --post-data='${payload}' '${url}'"
-    else
-      wget_cmd="wget -qO- --timeout=25 \
-        --header='Content-Type: application/json' \
-        --header='Accept: application/json' \
-        --post-data='${payload}' '${url}'"
+    # Pass payload via env to avoid breaking on Persian / quotes
+    if docker compose exec -T \
+      -e "P=${payload}" \
+      -e "T=${token}" \
+      -e "U=${url}" \
+      "$svc" sh -c '
+        HDR_T=""
+        [ -n "$T" ] && HDR_T="--header=X-Deploy-Notify-Token: $T"
+        wget -qO- --timeout=25 \
+          --header="Content-Type: application/json" \
+          --header="Accept: application/json" \
+          $HDR_T \
+          --post-data="$P" "$U"
+      ' 2>/dev/null; then
+      return 0
     fi
-    docker compose exec -T "$svc" sh -c "$wget_cmd" 2>/dev/null && return 0
     warn "wget inside $svc failed; trying curl"
   fi
 
-  # --- curl (may not be installed in slim images) ---
+  # --- curl ---
   if docker compose exec -T "$svc" sh -c 'command -v curl' >/dev/null 2>&1; then
     if [[ -n "$token" ]]; then
       docker compose exec -T "$svc" curl -sS --max-time 25 \
@@ -286,22 +322,7 @@ _exec_api_post() {
         -H "Accept: application/json" \
         -d "$payload" 2>/dev/null && return 0
     fi
-    warn "curl inside $svc failed; trying node fetch"
   fi
-
-  # --- node (always present since the image is node:20-alpine) ---
-  # Pass payload via env to avoid shell-quoting issues with Persian/JSON.
-  local node_cmd
-  if [[ -n "$token" ]]; then
-    node_cmd="node -e \"fetch(process.env.U,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-Deploy-Notify-Token':process.env.T},body:process.env.P}).then(r=>r.text()).then(t=>process.stdout.write(t)).catch(e=>{process.stderr.write(String(e));process.exit(1)})\""
-  else
-    node_cmd="node -e \"fetch(process.env.U,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:process.env.P}).then(r=>r.text()).then(t=>process.stdout.write(t)).catch(e=>{process.stderr.write(String(e));process.exit(1)})\""
-  fi
-  docker compose exec -T \
-    -e "U=${url}" \
-    -e "P=${payload}" \
-    -e "T=${token}" \
-    "$svc" sh -c "$node_cmd" 2>/dev/null && return 0
 
   warn "تمام روش‌های ارسال به API ($svc) شکست خوردند"
   return 1
@@ -402,19 +423,27 @@ notify_admins_sms() {
   local status_fa="$1"
   local detail="$2"
 
+  # 1) Panel-driven path first (DB settings). Host .env ENABLED=0 must NOT skip this —
+  # panel test uses the same Nest path; deploy must too.
+  local api_rc=0
+  if notify_via_api "$status_fa" "$detail"; then
+    return 0
+  else
+    api_rc=$?
+  fi
+  if [[ "$api_rc" -eq 2 ]]; then
+    warn "پنل در دسترس بود ولی SMS ارسال نشد — بدون fallback به .env"
+    return 0
+  fi
+  warn "ارسال از API/پنل ناموفق — fallback به .env"
+
   local enabled_env
   enabled_env="$(load_env_var SMS_DEPLOY_ALERT_ENABLED)"
   enabled_env="${enabled_env:-$SMS_DEPLOY_ALERT_ENABLED}"
   if [[ "$enabled_env" == "0" || "$enabled_env" == "false" ]]; then
-    warn "SMS_DEPLOY_ALERT_ENABLED=0 — SMS ارسال نشد"
+    warn "SMS_DEPLOY_ALERT_ENABLED=0 در .env هاست — fallback SMS ارسال نشد"
     return 0
   fi
-
-  # 1) Panel-driven path (DB settings + panel secrets)
-  if notify_via_api "$status_fa" "$detail"; then
-    return 0
-  fi
-  warn "ارسال از API/پنل ناموفق — fallback به .env"
 
   local recipients_raw
   recipients_raw="$(load_env_var SMS_DEPLOY_ALERT_RECIPIENTS)"
@@ -496,7 +525,23 @@ notify_admins_sms() {
   fi
 }
 
-# --- run checks ---
+write_deploy_status() {
+  local status="$1"
+  printf '%s\n' "$status" > "$DEPLOY_STATUS_FILE" 2>/dev/null || true
+}
+
+# --- run checks (or SMS-only mode for deploy.sh) ---
+if [[ "${SMS_ONLY:-0}" == "1" ]]; then
+  notify_admins_sms "${SMS_STATUS:-ناموفق}" "${SMS_DETAIL:-deploy failed}"
+  exit 0
+fi
+
+if [[ "$SKIP_HEALTH_CHECK" == "1" ]]; then
+  log "SKIP_HEALTH_CHECK=1 — skipping"
+  write_deploy_status "skipped"
+  exit 0
+fi
+
 failures=()
 
 if ! wait_for_health "$HEALTH_URL" "API health"; then
@@ -514,11 +559,17 @@ fi
 
 if [[ ${#failures[@]} -eq 0 ]]; then
   log "all checks passed"
-  notify_admins_sms "موفق" "API+Gateway OK"
+  write_deploy_status "ok"
+  if [[ "$SKIP_SMS" != "1" ]]; then
+    notify_admins_sms "موفق" "API+Gateway OK"
+  fi
   exit 0
 fi
 
 reason="$(IFS=+; echo "${failures[*]}")"
 log "ERROR: post-deploy checks failed: $reason"
-notify_admins_sms "ناموفق" "$reason"
+write_deploy_status "$reason"
+if [[ "$SKIP_SMS" != "1" ]]; then
+  notify_admins_sms "ناموفق" "$reason"
+fi
 exit 1

@@ -8,6 +8,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { SkipThrottle } from '@nestjs/throttler';
 import { UserRole } from '@prisma/client';
 import type { Request } from 'express';
 import { IsOptional, IsString, MaxLength } from 'class-validator';
@@ -54,8 +55,12 @@ export class HealthController {
   /**
    * فراخوانی از post-deploy-verify.sh (معمولاً داخل کانتینر روی localhost).
    * تنظیمات قالب/گیرنده از پنل ادمین خوانده می‌شود.
+   *
+   * localhost همیشه مجاز است (docker exec)، حتی اگر DEPLOY_NOTIFY_TOKEN ست باشد —
+   * توکن فقط برای فراخوانی غیرمحلی (مثلاً از طریق gateway) لازم است.
    */
   @Post('deploy-sms-alert')
+  @SkipThrottle()
   @RawResponse()
   async deploySmsAlert(@Body() dto: DeploySmsAlertDto, @Req() req: Request) {
     this.assertDeployNotifyAllowed(req);
@@ -72,21 +77,20 @@ export class HealthController {
   }
 
   private assertDeployNotifyAllowed(req: Request): void {
+    // Prefer socket peer (not req.ip): trust proxy + X-Forwarded-For must not
+    // fake "localhost", and docker-exec → 127.0.0.1 must always pass.
+    const remote = String(req.socket?.remoteAddress || '')
+      .replace(/^::ffff:/, '')
+      .trim();
+    if (remote === '127.0.0.1' || remote === '::1') {
+      return;
+    }
+
     const token = this.config.get<string>('DEPLOY_NOTIFY_TOKEN')?.trim();
     const header = String(
       req.headers['x-deploy-notify-token'] ?? '',
     ).trim();
-    if (token) {
-      if (header !== token) {
-        throw new ForbiddenException('توکن اطلاع‌رسانی دیپلوی نامعتبر است');
-      }
-      return;
-    }
-
-    const ip = String(req.ip || req.socket?.remoteAddress || '')
-      .replace(/^::ffff:/, '')
-      .trim();
-    if (ip === '127.0.0.1' || ip === '::1') {
+    if (token && header === token) {
       return;
     }
 
