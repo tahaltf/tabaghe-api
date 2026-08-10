@@ -110,11 +110,26 @@ export class OpenAiImageProvider {
     );
     form.append('size', '1024x1536');
 
-    const res = await fetch(`${baseUrl}/images/edits`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${params.apiKey}` },
-      body: form,
-    });
+    // سقف کوتاه‌تر از تایم‌اوت رایج پروکسی (۶۰s) تا قبل از 504 به Sharp برگردیم
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 45_000);
+    let res: Response;
+    try {
+      res = await fetch(`${baseUrl}/images/edits`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${params.apiKey}` },
+        body: form,
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if ((err as Error)?.name === 'AbortError') {
+        this.logger.warn('Liara image edit timed out after 45s');
+        return null;
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (!res.ok) {
       const body = await res.text();
@@ -130,7 +145,9 @@ export class OpenAiImageProvider {
       return Buffer.from(item.b64_json, 'base64');
     }
     if (item?.url) {
-      const imgRes = await fetch(item.url);
+      const imgRes = await fetch(item.url, {
+        signal: AbortSignal.timeout(20_000),
+      });
       if (!imgRes.ok) return null;
       return Buffer.from(await imgRes.arrayBuffer());
     }
