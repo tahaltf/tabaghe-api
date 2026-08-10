@@ -5,6 +5,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { BUILTIN_FREE_PLAN_ID } from './builtin-free-plan';
 import { PlanLifecycleService } from './plan-lifecycle.service';
+import { AiTokenService } from '../ai-content/services/ai-token.service';
 
 describe('PlansService', () => {
   let service: PlansService;
@@ -47,6 +48,13 @@ describe('PlansService', () => {
         {
           provide: PlanLifecycleService,
           useValue: { notifyPlanChange: jest.fn().mockResolvedValue(undefined) },
+        },
+        {
+          provide: AiTokenService,
+          useValue: {
+            resetPlanTokens: jest.fn().mockResolvedValue(undefined),
+            expirePlanTokens: jest.fn().mockResolvedValue(undefined),
+          },
         },
       ],
     }).compile();

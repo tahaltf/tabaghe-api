@@ -22,9 +22,15 @@ import { RolesGuard } from '../../auth/guards/roles.guard';
 import { PermissionsGuard } from '../../auth/guards/permissions.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { RequirePermission } from '../../auth/decorators/require-permission.decorator';
-import { UpdateAiContentSettingsDto } from '../dto/ai-content.dto';
+import { CurrentUser } from '../../auth/decorators/current-user.decorator';
+import { AuthenticatedUser } from '../../../shared/contracts/auth';
+import {
+  AdminAdjustAiTokensDto,
+  UpdateAiContentSettingsDto,
+} from '../dto/ai-content.dto';
 import { AiContentSettingsService } from '../services/ai-content-settings.service';
 import { AiContentStoryService } from '../services/ai-content-story.service';
+import { AiTokenService } from '../services/ai-token.service';
 import {
   AI_CONTENT_SETTING_KEYS,
   AI_IMAGE_MODEL_OPTIONS,
@@ -41,6 +47,7 @@ export class AdminAiContentController {
   constructor(
     private readonly settings: AiContentSettingsService,
     private readonly story: AiContentStoryService,
+    private readonly tokens: AiTokenService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -236,6 +243,30 @@ export class AdminAiContentController {
       Number(page) || 1,
       Number(limit) || 30,
     );
+  }
+
+  @Get('users/:userId/tokens')
+  @RequirePermission('users.view')
+  async getUserTokens(@Param('userId') userId: string) {
+    await this.tokens.assertUserExists(userId);
+    return this.tokens.getBalance(userId);
+  }
+
+  @Post('users/:userId/tokens')
+  @RequirePermission('users.update')
+  async adjustUserTokens(
+    @Param('userId') userId: string,
+    @Body() dto: AdminAdjustAiTokensDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    if (!Number.isInteger(dto.amount) || dto.amount === 0) {
+      throw new BadRequestException('مقدار توکن باید عدد صحیح غیرصفر باشد');
+    }
+    const balance = await this.tokens.adminAdjust(userId, dto.amount, {
+      note: dto.note,
+      adminId: actor.id,
+    });
+    return { balance };
   }
 
   private tryDeleteBrandLogoFile(stored: string | null): void {

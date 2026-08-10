@@ -121,6 +121,7 @@ async function main() {
         feeDiscountAuctionPercent: number;
         badgeLabel: string | null;
         badgeColor: string | null;
+        aiTokensPerMonth: number;
         direct: number;
         exchange: number;
         auction: number;
@@ -136,6 +137,7 @@ async function main() {
             feeDiscountAuctionPercent: 10,
             badgeLabel: 'محبوب‌ترین انتخاب',
             badgeColor: '#f97316',
+            aiTokensPerMonth: 10,
             direct: 15,
             exchange: 5,
             auction: 5,
@@ -151,6 +153,7 @@ async function main() {
             feeDiscountAuctionPercent: 30,
             badgeLabel: null,
             badgeColor: null,
+            aiTokensPerMonth: 30,
             direct: 50,
             exchange: 20,
             auction: 20,
@@ -170,6 +173,7 @@ async function main() {
                 feeDiscountAuctionPercent: p.feeDiscountAuctionPercent,
                 badgeLabel: p.badgeLabel,
                 badgeColor: p.badgeColor,
+                aiTokensPerMonth: p.aiTokensPerMonth,
                 rules: {
                     create: [
                         { type: ListingType.DIRECT, count: p.direct },

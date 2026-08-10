@@ -83,6 +83,7 @@ export class PlansService {
           feeDiscountAuctionPercent: true,
           badgeLabel: true,
           badgeColor: true,
+          aiTokensPerMonth: true,
           createdAt: true,
           updatedAt: true,
           rules: {
@@ -138,6 +139,7 @@ export class PlansService {
         feeDiscountAuctionPercent: true;
         badgeLabel: true;
         badgeColor: true;
+        aiTokensPerMonth: true;
         createdAt: true;
         updatedAt: true;
         rules: {
@@ -159,6 +161,7 @@ export class PlansService {
       feeDiscountAuctionPercent: plan.feeDiscountAuctionPercent,
       badgeLabel: plan.badgeLabel,
       badgeColor: plan.badgeColor,
+      aiTokensPerMonth: plan.aiTokensPerMonth,
       createdAt: plan.createdAt.toISOString(),
       updatedAt: plan.updatedAt.toISOString(),
       rules: plan.rules.map((r) => ({
@@ -226,14 +229,12 @@ export class PlansService {
         });
       }
 
-      if (plan.aiTokensPerMonth > 0) {
-        await this.aiTokens.resetPlanTokens(
-          userId,
-          plan.aiTokensPerMonth,
-          purchase.id,
-          tx,
-        );
-      }
+      await this.aiTokens.resetPlanTokens(
+        userId,
+        Math.max(0, plan.aiTokensPerMonth ?? 0),
+        purchase.id,
+        tx,
+      );
 
       return { purchase, planTitle: plan.title };
     }).then(async ({ purchase, planTitle }) => {

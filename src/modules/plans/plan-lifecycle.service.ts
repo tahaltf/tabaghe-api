@@ -115,14 +115,12 @@ export class PlanLifecycleService {
         }
       }
 
-      if (plan.aiTokensPerMonth > 0) {
-        await this.aiTokens.resetPlanTokens(
-          userId,
-          plan.aiTokensPerMonth,
-          purchase.id,
-          tx,
-        );
-      }
+      await this.aiTokens.resetPlanTokens(
+        userId,
+        Math.max(0, plan.aiTokensPerMonth ?? 0),
+        purchase.id,
+        tx,
+      );
 
       return {
         id: purchase.id,
@@ -273,7 +271,38 @@ export class PlanLifecycleService {
   }
 
   /**
+   * پس از لغو/انقضای یک خرید، توکن پلن را با پلن ACTIVE باقی‌مانده هم‌تراز می‌کند.
+   * اگر چیزی نمانده باشد، توکن پلن سوزانده می‌شود (برگشت به پلن پایه).
+   */
+  async syncAiPlanTokensForUser(
+    userId: string,
+    now: Date = new Date(),
+  ): Promise<void> {
+    const remaining = await this.prisma.userPlanPurchase.findFirst({
+      where: {
+        userId,
+        status: 'ACTIVE',
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      },
+      include: {
+        plan: { select: { aiTokensPerMonth: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const amount = Math.max(0, remaining?.plan?.aiTokensPerMonth ?? 0);
+    if (!remaining || amount <= 0) {
+      await this.aiTokens.expirePlanTokens(userId);
+      return;
+    }
+
+    await this.aiTokens.resetPlanTokens(userId, amount, remaining.id);
+  }
+
+  /**
    * پلن‌های ACTIVE منقضی‌شده را لغو می‌کند و به کاربر اطلاع می‌دهد.
+   * اعتبار باقی‌مانده‌ی خرید منقضی‌شده از بین می‌رود؛ اگر خرید ACTIVE دیگری
+   * مانده باشد همان پلن تا پایان مهلتش فعال می‌ماند، وگرنه به پلن پایه برمی‌گردد.
    */
   async processExpiredPlans(): Promise<{ expired: number; notified: number }> {
     const now = new Date();
@@ -316,7 +345,7 @@ export class PlanLifecycleService {
         planTitle: purchase.plan?.title ?? 'پلن',
         remainingActivePlanTitle: remaining?.plan?.title ?? null,
       });
-      await this.aiTokens.expirePlanTokens(purchase.userId);
+      await this.syncAiPlanTokensForUser(purchase.userId, now);
       notified += 1;
     }
 

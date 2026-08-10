@@ -17,6 +17,17 @@ export class PurchaseAiTokensDto {
   packSize!: number;
 }
 
+export class AdminAdjustAiTokensDto {
+  @Type(() => Number)
+  @IsInt()
+  amount!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  note?: string;
+}
+
 export class GenerateStoryDto {
   @IsString()
   listingId!: string;

@@ -250,6 +250,61 @@ export class AiTokenService {
     return this.prisma.$transaction(run);
   }
 
+  /**
+   * شارژ / کسر دستی توکن توسط ادمین (روی سطل purchased).
+   * amount مثبت = افزایش، منفی = کاهش.
+   */
+  async adminAdjust(
+    userId: string,
+    amount: number,
+    meta?: { note?: string; adminId?: string },
+  ): Promise<AiTokenBalanceView> {
+    if (!Number.isInteger(amount) || amount === 0) {
+      throw new BadRequestException('مقدار توکن نامعتبر است');
+    }
+
+    await this.assertUserExists(userId);
+
+    return this.prisma.$transaction(async (tx) => {
+      const balance = await this.ensureBalanceRow(tx, userId);
+      const nextPurchased = balance.purchasedTokens + amount;
+      if (nextPurchased < 0) {
+        throw new BadRequestException('موجودی توکن خریداری‌شده کافی نیست');
+      }
+
+      await tx.aiTokenBalance.update({
+        where: { userId },
+        data: { purchasedTokens: nextPurchased },
+      });
+
+      const noteParts = [
+        meta?.note?.trim() || 'تعدیل دستی توسط ادمین',
+        meta?.adminId ? `admin:${meta.adminId}` : null,
+      ].filter(Boolean);
+
+      await tx.aiTokenLedger.create({
+        data: {
+          userId,
+          action: AiTokenLedgerAction.ADMIN_ADJUST,
+          bucket: AiTokenBucket.PURCHASED,
+          amount,
+          balanceAfter: this.computeAvailable({
+            planTokens: balance.planTokens,
+            purchasedTokens: nextPurchased,
+            reservedTokens: balance.reservedTokens,
+          }),
+          note: noteParts.join(' · '),
+        },
+      });
+
+      return this.toView({
+        planTokens: balance.planTokens,
+        purchasedTokens: nextPurchased,
+        reservedTokens: balance.reservedTokens,
+      });
+    });
+  }
+
   async reserve(
     userId: string,
     amount: number,

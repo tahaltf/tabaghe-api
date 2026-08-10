@@ -498,6 +498,8 @@ export class AdminUsersQueryService {
         planTitle: previous?.plan?.title ?? 'پلن',
         previousPlanTitle: previous?.plan?.title ?? null,
       });
+      // همه ACTIVEها لغو شده‌اند → توکن پلن بسوزد و به پایه برگردد
+      await this.planLifecycle.syncAiPlanTokensForUser(userId);
     }
 
     return { cancelled: result.count };
