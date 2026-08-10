@@ -25,29 +25,12 @@ RUN DATABASE_URL=$DATABASE_URL npx prisma generate && \
     cp prisma/seed-data/*.json dist/prisma/seed-data/
 
 # -----------------------------------------------------------------------------
-# Stage 2: Chromium runtime (mirrors Dockerfile.base; cached by BuildKit)
+# Stage 2: Chromium runtime — prebuilt by deploy (Dockerfile.base → tabagheh-api-base)
+# Do NOT use --cache-from on this image; BuildKit needs a real FROM, not a cache manifest.
+# Local first-time build:
+#   docker build -f Dockerfile.base -t tabagheh-api-base:latest .
 # -----------------------------------------------------------------------------
-FROM node:20-alpine AS api-base
-
-WORKDIR /app
-
-RUN apk add --no-cache \
-    chromium \
-    nss \
-    freetype \
-    harfbuzz \
-    ca-certificates \
-    ttf-freefont \
-    bash \
-    curl \
-    wget \
-    docker-cli \
-    postgresql-client \
-    coreutils
-
-ENV PUPPETEER_SKIP_DOWNLOAD=true \
-    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+FROM tabagheh-api-base:latest AS api-base
 
 # -----------------------------------------------------------------------------
 # Stage 3: Production

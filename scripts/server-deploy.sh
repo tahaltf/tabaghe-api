@@ -391,15 +391,11 @@ if [ "$BUILD_FE" = "1" ]; then preserve_image_if_exists "$FRONTEND_IMAGE"; fi
 if [ "$BUILD_CR" = "1" ]; then preserve_image_if_exists "$CRAWLER_IMAGE"; fi
 
 if [ "$BUILD_BE" = "1" ]; then
-  # Optional: pre-build tagged base so Chromium layer survives `docker builder prune`.
-  # Backend Dockerfile embeds api-base inline; --cache-from reuses it when present.
+  # Required: Dockerfile FROM tabagheh-api-base:latest (Chromium survives builder prune).
+  # Do not pass --cache-from on that tag — BuildKit looks for a cache manifest and errors.
   ensure_api_base
   log "building backend image..."
-  CACHE_FROM=()
-  if image_exists "$API_BASE_IMAGE"; then
-    CACHE_FROM=(--cache-from "$API_BASE_IMAGE")
-  fi
-  docker build "${CACHE_FROM[@]}" -t "$BACKEND_IMAGE" "$BACKEND"
+  docker build -t "$BACKEND_IMAGE" "$BACKEND"
 fi
 
 if [ "$BUILD_FE" = "1" ]; then
