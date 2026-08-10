@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createReadStream, existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import sharp from 'sharp';
+import sharp = require('sharp');
 import { AiContentSettingsService } from '../services/ai-content-settings.service';
 import type { StoryGenerationInput } from '../utils/story-prompt.builder';
 import { buildStoryImagePrompt } from '../utils/story-prompt.builder';

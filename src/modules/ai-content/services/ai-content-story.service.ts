@@ -19,6 +19,7 @@ import {
 } from '../../../shared/contracts/pagination';
 import { OpenAiImageProvider } from '../providers/openai-image.provider';
 import { OpenAiTextProvider } from '../providers/openai-text.provider';
+import { buildStoryImagePrompt } from '../utils/story-prompt.builder';
 import { AiContentSettingsService } from './ai-content-settings.service';
 import { AiTokenService } from './ai-token.service';
 
@@ -73,7 +74,7 @@ export class AiContentStoryService {
         gallery: item.gallery,
         priceLabel: this.formatPrice(item.direct),
       })),
-      meta: buildPaginationMeta(total, page, take),
+      meta: buildPaginationMeta(page, take, total),
     };
   }
 
@@ -135,6 +136,8 @@ export class AiContentStoryService {
 
     await this.tokens.reserve(userId, tokenCost, request.id);
 
+    let imagePrompt: string | null = null;
+
     try {
       const [systemPrompt, constraints] = await Promise.all([
         this.settings.getStorySystemPrompt(),
@@ -151,6 +154,8 @@ export class AiContentStoryService {
         stylePromptAddon: style.promptAddon,
         styleLabel: style.label,
       };
+
+      imagePrompt = buildStoryImagePrompt(input);
 
       const caption = includeCaption
         ? await this.textProvider.generateStoryCaption(input)
@@ -177,6 +182,7 @@ export class AiContentStoryService {
             status: AiContentRequestStatus.SUCCESS,
             resultImagePath: localPath,
             resultCaption: caption || null,
+            imagePrompt,
             tokensCharged: tokenCost,
             provider: imageResult.provider,
             model: imageResult.model,
@@ -216,6 +222,7 @@ export class AiContentStoryService {
           where: { id: request.id },
           data: {
             status: AiContentRequestStatus.FAILED,
+            imagePrompt: imagePrompt ?? undefined,
             errorMessage: message.slice(0, 2000),
             completedAt: new Date(),
           },
@@ -319,7 +326,7 @@ export class AiContentStoryService {
             ? `/uploads/ai-content/${item.id}.png`
             : null,
       })),
-      meta: buildPaginationMeta(total, page, take),
+      meta: buildPaginationMeta(page, take, total),
     };
   }
 
@@ -338,6 +345,110 @@ export class AiContentStoryService {
 
   async listUserActivity(userId: string, page = 1, limit = 30) {
     return this.listRequests(userId, page, limit);
+  }
+
+  /** لیست سراسری تولیدهای AI برای مانیتور ادمین */
+  async listGenerations(params: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    userId?: string;
+    q?: string;
+  }) {
+    const page = Math.max(1, params.page ?? 1);
+    const take = Math.min(Math.max(params.limit ?? 20, 1), 50);
+    const skip = (page - 1) * take;
+
+    const where: Prisma.AiContentRequestWhereInput = {};
+    if (params.status) {
+      const status = params.status.toUpperCase();
+      if (
+        Object.values(AiContentRequestStatus).includes(
+          status as AiContentRequestStatus,
+        )
+      ) {
+        where.status = status as AiContentRequestStatus;
+      }
+    }
+    if (params.userId?.trim()) {
+      where.userId = params.userId.trim();
+    }
+    const q = params.q?.trim();
+    if (q) {
+      where.OR = [
+        { userPrompt: { contains: q, mode: 'insensitive' } },
+        { imagePrompt: { contains: q, mode: 'insensitive' } },
+        { errorMessage: { contains: q, mode: 'insensitive' } },
+        { listing: { title: { contains: q, mode: 'insensitive' } } },
+        {
+          user: {
+            OR: [
+              { phone: { contains: q } },
+              { displayName: { contains: q, mode: 'insensitive' } },
+              { firstName: { contains: q, mode: 'insensitive' } },
+              { lastName: { contains: q, mode: 'insensitive' } },
+            ],
+          },
+        },
+      ];
+    }
+
+    const [items, total] = await Promise.all([
+      this.prisma.aiContentRequest.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          listing: { select: { id: true, title: true } },
+          user: {
+            select: {
+              id: true,
+              phone: true,
+              displayName: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+      }),
+      this.prisma.aiContentRequest.count({ where }),
+    ]);
+
+    return {
+      items: items.map((item) => ({
+        id: item.id,
+        type: item.type,
+        status: item.status,
+        styleId: item.styleId,
+        userPrompt: item.userPrompt,
+        imagePrompt: item.imagePrompt,
+        resultCaption: item.resultCaption,
+        tokensCharged: item.tokensCharged,
+        provider: item.provider,
+        model: item.model,
+        errorMessage: item.errorMessage,
+        createdAt: item.createdAt,
+        completedAt: item.completedAt,
+        listing: item.listing,
+        user: {
+          id: item.user.id,
+          phone: item.user.phone,
+          name:
+            item.user.displayName?.trim() ||
+            [item.user.firstName, item.user.lastName]
+              .filter(Boolean)
+              .join(' ')
+              .trim() ||
+            null,
+        },
+        imageUrl:
+          item.status === AiContentRequestStatus.SUCCESS
+            ? `/uploads/ai-content/${item.id}.png`
+            : null,
+      })),
+      meta: buildPaginationMeta(page, take, total),
+    };
   }
 
   private async assertDailyLimit(userId: string): Promise<void> {

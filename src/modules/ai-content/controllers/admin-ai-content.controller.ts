@@ -231,6 +231,24 @@ export class AdminAiContentController {
     return this.getSettings();
   }
 
+  @Get('generations')
+  @RequirePermission('settings.view')
+  listGenerations(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('status') status?: string,
+    @Query('userId') userId?: string,
+    @Query('q') q?: string,
+  ) {
+    return this.story.listGenerations({
+      page: Number(page) || 1,
+      limit: Number(limit) || 20,
+      status,
+      userId,
+      q,
+    });
+  }
+
   @Get('users/:userId/activity')
   @RequirePermission('users.view')
   listUserActivity(

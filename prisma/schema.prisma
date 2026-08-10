@@ -874,6 +874,8 @@ model AiContentRequest {
   type            AiContentType
   styleId         String?
   userPrompt      String?
+  /// پرامپت نهایی ارسال‌شده برای ساخت تصویر (برای مانیتور ادمین)
+  imagePrompt     String?
   status          AiContentRequestStatus @default(PENDING)
   resultImagePath String?
   resultCaption   String?
