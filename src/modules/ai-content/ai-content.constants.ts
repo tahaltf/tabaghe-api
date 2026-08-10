@@ -11,6 +11,12 @@ export const AI_CONTENT_SETTING_KEYS = {
   TEXT_MODEL: 'AI_TEXT_MODEL',
   IMAGE_MODEL: 'AI_IMAGE_MODEL',
   DAILY_LIMIT_PER_USER: 'AI_DAILY_LIMIT_PER_USER',
+  /** حداکثر انتظار برای images/edits لیارا (میلی‌ثانیه) */
+  IMAGE_EDIT_TIMEOUT_MS: 'AI_IMAGE_EDIT_TIMEOUT_MS',
+  /** سایز خروجی مدل تصویر (مثلاً 1024x1536) */
+  IMAGE_SIZE: 'AI_IMAGE_SIZE',
+  /** حداکثر ضلع عکس ورودی قبل از ارسال به لیارا */
+  IMAGE_INPUT_MAX_PX: 'AI_IMAGE_INPUT_MAX_PX',
 } as const;
 
 export const AI_CONTENT_UPLOAD_DIR = './uploads/ai-content';
@@ -77,7 +83,22 @@ export const DEFAULT_AI_STORY_STYLES: AiStoryStyleDef[] = [
 export const DEFAULT_AI_TEXT_MODEL = 'openai/gpt-4o-mini';
 export const DEFAULT_AI_IMAGE_MODEL = 'openai/gpt-image-1-mini';
 
+/** پیش‌فرض‌های سرعت — ادمین می‌تواند override کند */
+export const DEFAULT_AI_IMAGE_EDIT_TIMEOUT_MS = 20_000;
+export const DEFAULT_AI_IMAGE_SIZE = '1024x1536';
+export const DEFAULT_AI_IMAGE_INPUT_MAX_PX = 768;
+
+export const AI_IMAGE_EDIT_TIMEOUT_MS_MIN = 8_000;
+export const AI_IMAGE_EDIT_TIMEOUT_MS_MAX = 90_000;
+export const AI_IMAGE_INPUT_MAX_PX_MIN = 512;
+export const AI_IMAGE_INPUT_MAX_PX_MAX = 1536;
+
 export type AiModelOption = {
+  id: string;
+  label: string;
+};
+
+export type AiImageSizeOption = {
   id: string;
   label: string;
 };
@@ -97,3 +118,21 @@ export const AI_IMAGE_MODEL_OPTIONS: AiModelOption[] = [
   { id: 'openai/gpt-image-1', label: 'GPT Image 1' },
   { id: 'openai/gpt-image-1.5', label: 'GPT Image 1.5' },
 ];
+
+/** سایزهای مجاز images/edits */
+export const AI_IMAGE_SIZE_OPTIONS: AiImageSizeOption[] = [
+  {
+    id: '1024x1536',
+    label: '۱۰۲۴×۱۵۳۶ عمودی (کیفیت استوری — کندتر)',
+  },
+  {
+    id: '1024x1024',
+    label: '۱۰۲۴×۱۰۲۴ مربع (سریع‌تر؛ بعداً به ۹:۱۶ کشیده می‌شود)',
+  },
+  {
+    id: '1536x1024',
+    label: '۱۵۳۶×۱۰۲۴ افقی',
+  },
+];
+
+export const AI_IMAGE_SIZE_IDS = AI_IMAGE_SIZE_OPTIONS.map((o) => o.id);

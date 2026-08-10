@@ -94,9 +94,15 @@ export class OpenAiImageProvider {
     productImagePath: string;
   }): Promise<Buffer | null> {
     const baseUrl = this.settings.getOpenAiBaseUrl();
+    const [timeoutMs, size, inputMaxPx] = await Promise.all([
+      this.settings.getImageEditTimeoutMs(),
+      this.settings.getImageSize(),
+      this.settings.getImageInputMaxPx(),
+    ]);
+
     const imageBuffer = await sharp(params.productImagePath)
       .rotate()
-      .resize(1024, 1024, { fit: 'inside', withoutEnlargement: true })
+      .resize(inputMaxPx, inputMaxPx, { fit: 'inside', withoutEnlargement: true })
       .png()
       .toBuffer();
 
@@ -108,11 +114,10 @@ export class OpenAiImageProvider {
       new Blob([new Uint8Array(imageBuffer)], { type: 'image/png' }),
       'product.png',
     );
-    form.append('size', '1024x1536');
+    form.append('size', size);
 
-    // سقف کوتاه‌تر از تایم‌اوت رایج پروکسی (۶۰s) تا قبل از 504 به Sharp برگردیم
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 45_000);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     let res: Response;
     try {
       res = await fetch(`${baseUrl}/images/edits`, {
@@ -123,7 +128,7 @@ export class OpenAiImageProvider {
       });
     } catch (err) {
       if ((err as Error)?.name === 'AbortError') {
-        this.logger.warn('Liara image edit timed out after 45s');
+        this.logger.warn(`Liara image edit timed out after ${timeoutMs}ms`);
         return null;
       }
       throw err;

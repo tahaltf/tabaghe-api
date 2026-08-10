@@ -36,6 +36,7 @@ export class OpenAiTextProvider {
             { role: 'user', content: user },
           ],
         }),
+        signal: AbortSignal.timeout(20_000),
       });
 
       if (!res.ok) {

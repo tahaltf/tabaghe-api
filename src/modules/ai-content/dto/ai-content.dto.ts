@@ -2,14 +2,23 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
+import {
+  AI_IMAGE_EDIT_TIMEOUT_MS_MAX,
+  AI_IMAGE_EDIT_TIMEOUT_MS_MIN,
+  AI_IMAGE_INPUT_MAX_PX_MAX,
+  AI_IMAGE_INPUT_MAX_PX_MIN,
+  AI_IMAGE_SIZE_IDS,
+} from '../ai-content.constants';
 
 export class PurchaseAiTokensDto {
   @IsInt()
@@ -138,6 +147,25 @@ export class UpdateAiContentSettingsDto {
   @IsOptional()
   @IsString()
   imageModel?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(AI_IMAGE_EDIT_TIMEOUT_MS_MIN)
+  @Max(AI_IMAGE_EDIT_TIMEOUT_MS_MAX)
+  imageEditTimeoutMs?: number;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(AI_IMAGE_SIZE_IDS)
+  imageSize?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(AI_IMAGE_INPUT_MAX_PX_MIN)
+  @Max(AI_IMAGE_INPUT_MAX_PX_MAX)
+  imageInputMaxPx?: number;
 
   @IsOptional()
   @Type(() => Number)

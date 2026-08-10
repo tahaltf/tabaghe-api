@@ -4,7 +4,15 @@ import { ServerSecretConfigService } from '../../../shared/settings/server-secre
 import { resolveUserPanelAccessMap } from '../../users/config/user-panel-access.registry';
 import {
   AI_CONTENT_SETTING_KEYS,
+  AI_IMAGE_EDIT_TIMEOUT_MS_MAX,
+  AI_IMAGE_EDIT_TIMEOUT_MS_MIN,
+  AI_IMAGE_INPUT_MAX_PX_MAX,
+  AI_IMAGE_INPUT_MAX_PX_MIN,
+  AI_IMAGE_SIZE_IDS,
+  DEFAULT_AI_IMAGE_EDIT_TIMEOUT_MS,
+  DEFAULT_AI_IMAGE_INPUT_MAX_PX,
   DEFAULT_AI_IMAGE_MODEL,
+  DEFAULT_AI_IMAGE_SIZE,
   DEFAULT_AI_STORY_CONSTRAINTS,
   DEFAULT_AI_STORY_STYLES,
   DEFAULT_AI_STORY_SYSTEM_PROMPT,
@@ -189,6 +197,36 @@ export class AiContentSettingsService {
 
   async getImageModel(): Promise<string> {
     return this.getString(AI_CONTENT_SETTING_KEYS.IMAGE_MODEL, DEFAULT_AI_IMAGE_MODEL);
+  }
+
+  async getImageEditTimeoutMs(): Promise<number> {
+    const raw = await this.getInt(
+      AI_CONTENT_SETTING_KEYS.IMAGE_EDIT_TIMEOUT_MS,
+      DEFAULT_AI_IMAGE_EDIT_TIMEOUT_MS,
+    );
+    return Math.min(
+      AI_IMAGE_EDIT_TIMEOUT_MS_MAX,
+      Math.max(AI_IMAGE_EDIT_TIMEOUT_MS_MIN, raw),
+    );
+  }
+
+  async getImageSize(): Promise<string> {
+    const raw = await this.getString(
+      AI_CONTENT_SETTING_KEYS.IMAGE_SIZE,
+      DEFAULT_AI_IMAGE_SIZE,
+    );
+    return AI_IMAGE_SIZE_IDS.includes(raw) ? raw : DEFAULT_AI_IMAGE_SIZE;
+  }
+
+  async getImageInputMaxPx(): Promise<number> {
+    const raw = await this.getInt(
+      AI_CONTENT_SETTING_KEYS.IMAGE_INPUT_MAX_PX,
+      DEFAULT_AI_IMAGE_INPUT_MAX_PX,
+    );
+    return Math.min(
+      AI_IMAGE_INPUT_MAX_PX_MAX,
+      Math.max(AI_IMAGE_INPUT_MAX_PX_MIN, raw),
+    );
   }
 
   getOpenAiApiKey(): string {

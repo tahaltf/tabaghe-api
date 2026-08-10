@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Param,
   Post,
   Query,
@@ -64,11 +65,12 @@ export class AiContentController {
   }
 
   @Post('story/generate')
+  @HttpCode(202)
   generateStory(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: GenerateStoryDto,
   ) {
-    return this.story.generateStory(
+    return this.story.enqueueStory(
       user.id,
       dto.listingId,
       dto.styleId,
@@ -79,6 +81,7 @@ export class AiContentController {
   }
 
   @Post('story/:id/regenerate')
+  @HttpCode(202)
   regenerateStory(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,

@@ -34,6 +34,7 @@ import { AiTokenService } from '../services/ai-token.service';
 import {
   AI_CONTENT_SETTING_KEYS,
   AI_IMAGE_MODEL_OPTIONS,
+  AI_IMAGE_SIZE_OPTIONS,
   AI_TEXT_MODEL_OPTIONS,
   DEFAULT_AI_STORY_STYLES,
 } from '../ai-content.constants';
@@ -64,6 +65,9 @@ export class AdminAiContentController {
       storyBrandLogoUrl,
       textModel,
       imageModel,
+      imageEditTimeoutMs,
+      imageSize,
+      imageInputMaxPx,
       dailyLimitPerUser,
       styles,
     ] = await Promise.all([
@@ -77,6 +81,9 @@ export class AdminAiContentController {
       this.settings.getBrandLogoUrl(),
       this.settings.getTextModel(),
       this.settings.getImageModel(),
+      this.settings.getImageEditTimeoutMs(),
+      this.settings.getImageSize(),
+      this.settings.getImageInputMaxPx(),
       this.settings.getDailyLimit(),
       this.settings.getStyles(),
     ]);
@@ -92,11 +99,15 @@ export class AdminAiContentController {
       storyBrandLogoUrl,
       textModel,
       imageModel,
+      imageEditTimeoutMs,
+      imageSize,
+      imageInputMaxPx,
       dailyLimitPerUser,
       styles,
       defaultStyles: DEFAULT_AI_STORY_STYLES,
       textModelOptions: AI_TEXT_MODEL_OPTIONS,
       imageModelOptions: AI_IMAGE_MODEL_OPTIONS,
+      imageSizeOptions: AI_IMAGE_SIZE_OPTIONS,
       hasOpenAiKey: Boolean(this.settings.getOpenAiApiKey()),
       openAiBaseUrl: this.settings.getOpenAiBaseUrl(),
     };
@@ -165,6 +176,24 @@ export class AdminAiContentController {
       entries.push({
         key: AI_CONTENT_SETTING_KEYS.IMAGE_MODEL,
         value: dto.imageModel,
+      });
+    }
+    if (dto.imageEditTimeoutMs !== undefined) {
+      entries.push({
+        key: AI_CONTENT_SETTING_KEYS.IMAGE_EDIT_TIMEOUT_MS,
+        value: String(dto.imageEditTimeoutMs),
+      });
+    }
+    if (dto.imageSize !== undefined) {
+      entries.push({
+        key: AI_CONTENT_SETTING_KEYS.IMAGE_SIZE,
+        value: dto.imageSize,
+      });
+    }
+    if (dto.imageInputMaxPx !== undefined) {
+      entries.push({
+        key: AI_CONTENT_SETTING_KEYS.IMAGE_INPUT_MAX_PX,
+        value: String(dto.imageInputMaxPx),
       });
     }
     if (dto.dailyLimitPerUser !== undefined) {
