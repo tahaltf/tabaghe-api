@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { CouponScopeMode, Prisma } from '@prisma/client';
+import { CouponScopeMode, ListingStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CreateCouponDto, UpdateCouponDto } from './dto/coupon.dto';
 
@@ -202,7 +202,11 @@ export class CouponsService {
   /** دسته‌ها و آگهی‌های فروشنده برای فرم محدوده اعمال */
   async getSellerScopeOptions(sellerId: string) {
     const listings = await this.prisma.listing.findMany({
-      where: { authorId: sellerId, deletedAt: null },
+      where: {
+        authorId: sellerId,
+        deletedAt: null,
+        status: ListingStatus.APPROVED,
+      },
       select: {
         id: true,
         title: true,
