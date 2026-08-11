@@ -23,6 +23,7 @@ export class ValidateCouponDto {
     quantity: number;
     unitPrice: number;
     categoryId: string;
+    sellerId?: string;
     onSale?: boolean;
   }>;
 
@@ -106,7 +107,17 @@ export class CreateCouponDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
+  excludedListingIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
   userIds?: string[];
+
+  /** فقط برای ادمین — ساخت کد برای فروشنده مشخص */
+  @IsOptional()
+  @IsString()
+  sellerId?: string | null;
 }
 
 export class UpdateCouponDto extends PartialType(CreateCouponDto) {}

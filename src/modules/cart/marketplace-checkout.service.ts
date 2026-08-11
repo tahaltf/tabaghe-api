@@ -22,6 +22,7 @@ export type MarketplaceCheckoutLine = {
   lineTotal: number;
   shippingCost: number;
   categoryId: string;
+  sellerId?: string;
   onSale?: boolean;
 };
 
@@ -379,6 +380,7 @@ export class MarketplaceCheckoutService {
       lineTotal: unitPrice * qty,
       shippingCost,
       categoryId: listing.categoryId,
+      sellerId: listing.authorId,
       onSale:
         listing.direct.salePrice != null &&
         Number(listing.direct.salePrice) > 0,

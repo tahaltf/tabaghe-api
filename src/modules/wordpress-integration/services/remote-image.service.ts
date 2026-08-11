@@ -8,8 +8,12 @@ import { extname } from 'path';
 import { randomUUID } from 'crypto';
 import { pipeline } from 'stream/promises';
 import { Readable } from 'stream';
+import {
+  LISTING_UPLOAD_DIR,
+  processListingImageAtPath,
+} from '../../../common/upload/listing-image-process.util';
 
-const UPLOAD_PATH = './uploads/listings';
+const UPLOAD_PATH = LISTING_UPLOAD_DIR;
 const ALLOWED_EXT = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp']);
 const MAX_BYTES = 10 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 30_000;
@@ -84,7 +88,17 @@ export class RemoteImageService {
       });
 
       await pipeline(nodeStream, createWriteStream(dest));
-      return filename;
+
+      // Same Sharp pipeline as manual uploads so public pages get -thumb/-card variants.
+      try {
+        return await processListingImageAtPath(dest, filename, UPLOAD_PATH);
+      } catch (err) {
+        this.logger.warn(
+          `Failed to process listing image ${filename}, keeping original: ${String((err as Error)?.message ?? err)}`,
+        );
+        // Keep the raw download so admin/public can still show a plain `src`.
+        return filename;
+      }
     } finally {
       clearTimeout(timer);
     }

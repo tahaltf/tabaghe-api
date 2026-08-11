@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
@@ -25,8 +26,8 @@ export class AdminCouponsController {
   constructor(private readonly couponsService: CouponsService) {}
 
   @Get()
-  list() {
-    return this.couponsService.listAdmin();
+  list(@Query('sellerId') sellerId?: string) {
+    return this.couponsService.listAdmin(sellerId || undefined);
   }
 
   @Post()

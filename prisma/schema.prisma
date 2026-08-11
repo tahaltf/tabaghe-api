@@ -363,6 +363,7 @@ model User {
   cart                Cart?
   listingViews        ListingView[]
   couponRedemptions   CouponRedemption[]
+  sellerCoupons       Coupon[]         @relation("SellerCoupons")
   checkoutSessions    CheckoutSession[]
   loginLogs           UserLoginLog[]
   paymentInitLogs     PaymentInitLog[]
@@ -1572,29 +1573,35 @@ enum CouponScopeMode {
 }
 
 model Coupon {
-  id                String             @id @default(cuid())
-  code              String             @unique
-  isActive          Boolean            @default(true)
-  startsAt          DateTime?
-  expiresAt         DateTime?
-  discountType      CouponDiscountType
-  discountValue     Decimal
-  maxDiscountAmount Decimal?
-  minOrderAmount    Decimal?
-  maxUsesTotal      Int?
-  maxUsesPerUser    Int?
-  allowOnSaleItems  Boolean            @default(true)
-  scopeMode         CouponScopeMode    @default(ALL)
-  categoryIds       String[]           @default([])
-  listingIds        String[]           @default([])
-  userIds           String[]           @default([])
-  usedCount         Int                @default(0)
-  checkoutSessions  CheckoutSession[]
-  redemptions       CouponRedemption[]
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+  id                 String             @id @default(cuid())
+  code               String             @unique
+  isActive           Boolean            @default(true)
+  startsAt           DateTime?
+  expiresAt          DateTime?
+  discountType       CouponDiscountType
+  discountValue      Decimal
+  maxDiscountAmount  Decimal?
+  minOrderAmount     Decimal?
+  maxUsesTotal       Int?
+  maxUsesPerUser     Int?
+  allowOnSaleItems   Boolean            @default(true)
+  scopeMode          CouponScopeMode    @default(ALL)
+  categoryIds        String[]           @default([])
+  listingIds         String[]           @default([])
+  /** محصولات مستثنی از تخفیف (حتی اگر در دسته/محدوده باشند) */
+  excludedListingIds String[]           @default([])
+  userIds            String[]           @default([])
+  /** مالک فروشنده — null یعنی کوپن سراسری ادمین */
+  sellerId           String?
+  seller             User?              @relation("SellerCoupons", fields: [sellerId], references: [id], onDelete: Cascade)
+  usedCount          Int                @default(0)
+  checkoutSessions   CheckoutSession[]
+  redemptions        CouponRedemption[]
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
 
   @@index([isActive, code])
+  @@index([sellerId, createdAt])
 }
 
 model CouponRedemption {

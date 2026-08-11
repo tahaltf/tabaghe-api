@@ -105,6 +105,7 @@ export class CartCheckoutService {
         lineTotal,
         shippingCost,
         categoryId: listing.categoryId,
+        sellerId: listing.authorId,
         onSale:
           listing.direct.salePrice != null &&
           Number(listing.direct.salePrice) > 0,

@@ -1,5 +1,5 @@
-import { unlink } from 'fs/promises';
-import { join, parse } from 'path';
+import { rename, unlink } from 'fs/promises';
+import { join, parse, resolve } from 'path';
 import sharp = require('sharp');
 
 export const LISTING_UPLOAD_DIR = './uploads/listings';
@@ -14,18 +14,21 @@ export const LISTING_IMAGE_VARIANTS = {
 export type ListingImageVariant = keyof typeof LISTING_IMAGE_VARIANTS;
 
 /**
- * Process a Multer disk file into WebP variants.
+ * Process an on-disk image into WebP variants (full / card / thumb).
  * Returns the canonical gallery filename (`{id}.webp`).
- * Deletes the original upload when conversion succeeds.
+ * Deletes the source file when it is not already the canonical name.
  */
-export async function processListingImageUpload(
-  file: Express.Multer.File,
+export async function processListingImageAtPath(
+  srcPath: string,
+  originalFilename: string,
   uploadDir = LISTING_UPLOAD_DIR,
 ): Promise<string> {
-  const srcPath = file.path || join(uploadDir, file.filename);
-  const { name } = parse(file.filename);
+  const { name } = parse(originalFilename);
   const canonical = `${name}.webp`;
   const fullPath = join(uploadDir, canonical);
+  // Sharp cannot read+write the same path; use a temp file when overwriting.
+  const samePath = resolve(srcPath) === resolve(fullPath);
+  const fullOutPath = samePath ? join(uploadDir, `${name}.full.tmp.webp`) : fullPath;
 
   const base = sharp(srcPath, { animated: false, failOn: 'none' }).rotate();
 
@@ -38,7 +41,7 @@ export async function processListingImageUpload(
         fit: 'inside',
       })
       .webp({ quality: 82 })
-      .toFile(fullPath),
+      .toFile(fullOutPath),
     base
       .clone()
       .resize({
@@ -59,7 +62,9 @@ export async function processListingImageUpload(
       .toFile(join(uploadDir, `${name}-thumb.webp`)),
   ]);
 
-  if (file.filename !== canonical) {
+  if (samePath) {
+    await rename(fullOutPath, fullPath);
+  } else {
     try {
       await unlink(srcPath);
     } catch {
@@ -68,6 +73,18 @@ export async function processListingImageUpload(
   }
 
   return canonical;
+}
+
+/**
+ * Process a Multer disk file into WebP variants.
+ * Returns the canonical gallery filename (`{id}.webp`).
+ */
+export async function processListingImageUpload(
+  file: Express.Multer.File,
+  uploadDir = LISTING_UPLOAD_DIR,
+): Promise<string> {
+  const srcPath = file.path || join(uploadDir, file.filename);
+  return processListingImageAtPath(srcPath, file.filename, uploadDir);
 }
 
 export async function processListingImageUploads(

@@ -17,6 +17,7 @@ describe('CouponsService', () => {
     },
     couponRedemption: { count: jest.fn() },
     listing: { findUnique: jest.fn() },
+    category: { findMany: jest.fn().mockResolvedValue([]) },
   };
 
   const activePercentCoupon = {
@@ -36,7 +37,9 @@ describe('CouponsService', () => {
     scopeMode: CouponScopeMode.ALL,
     categoryIds: [] as string[],
     listingIds: [] as string[],
+    excludedListingIds: [] as string[],
     userIds: [] as string[],
+    sellerId: null as string | null,
   };
 
   beforeEach(async () => {
@@ -164,5 +167,68 @@ describe('CouponsService', () => {
         },
       ]),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('seller coupon only applies to that seller products', async () => {
+    prismaMock.coupon.findUnique.mockResolvedValue({
+      ...activePercentCoupon,
+      sellerId: 'seller-a',
+    });
+    prismaMock.couponRedemption.count.mockResolvedValue(0);
+
+    const result = await service.validateForCart('buyer-1', 'SAVE10', [
+      {
+        listingId: 'l-1',
+        quantity: 1,
+        unitPrice: 100_000,
+        categoryId: 'cat-1',
+        sellerId: 'seller-b',
+        onSale: false,
+      },
+      {
+        listingId: 'l-2',
+        quantity: 1,
+        unitPrice: 200_000,
+        categoryId: 'cat-1',
+        sellerId: 'seller-a',
+        onSale: false,
+      },
+    ]);
+
+    expect(result.eligibleSubtotal).toBe(200_000);
+    expect(result.discountAmount).toBe(20_000);
+  });
+
+  it('excludedListingIds are skipped even when category matches', async () => {
+    prismaMock.coupon.findUnique.mockResolvedValue({
+      ...activePercentCoupon,
+      scopeMode: CouponScopeMode.INCLUDE,
+      categoryIds: ['cat-1'],
+      excludedListingIds: ['l-skip'],
+      sellerId: 'seller-a',
+    });
+    prismaMock.couponRedemption.count.mockResolvedValue(0);
+
+    const result = await service.validateForCart('buyer-1', 'SAVE10', [
+      {
+        listingId: 'l-skip',
+        quantity: 1,
+        unitPrice: 100_000,
+        categoryId: 'cat-1',
+        sellerId: 'seller-a',
+        onSale: false,
+      },
+      {
+        listingId: 'l-ok',
+        quantity: 1,
+        unitPrice: 150_000,
+        categoryId: 'cat-1',
+        sellerId: 'seller-a',
+        onSale: false,
+      },
+    ]);
+
+    expect(result.eligibleSubtotal).toBe(150_000);
+    expect(result.discountAmount).toBe(15_000);
   });
 });
