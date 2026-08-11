@@ -46,7 +46,7 @@ export class OpenAiImageProvider {
     const prompt = buildStoryImagePrompt(params.input);
     let lastError: LiaraImageEditError | null = null;
 
-    // یک بار تلاش مجدد برای timeout/شبکه — جاب async است و کاربر منتظر poll است
+    // فقط شبکه را یک‌بار retry کن؛ timeout را با مهلت بلندتر جبران می‌کنیم
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         const aiBuffer = await this.tryOpenAiEdit({
@@ -64,9 +64,7 @@ export class OpenAiImageProvider {
         this.logger.warn(
           `Liara image edit attempt=${attempt} reason=${mapped.reason}: ${mapped.message}`,
         );
-        const retryable =
-          mapped.reason === 'timeout' || mapped.reason === 'network';
-        if (!retryable || attempt === 2) break;
+        if (mapped.reason !== 'network' || attempt === 2) break;
       }
     }
 
@@ -99,7 +97,7 @@ export class OpenAiImageProvider {
       return 'ساخت تصویر با هوش مصنوعی انجام نشد. لطفاً چند لحظه بعد دوباره تلاش کنید.';
     }
     if (err.reason === 'timeout') {
-      return 'ساخت تصویر بیشتر از حد انتظار طول کشید. لطفاً دوباره تلاش کنید یا در پنل ادمین مهلت لیارا را افزایش دهید.';
+      return 'ساخت تصویر کمی طولانی شد و به نتیجه نرسید. لطفاً دوباره تلاش کنید.';
     }
     if (err.reason === 'http') {
       return `سرویس تصویر لیارا پاسخ نامعتبر داد. ${err.message}`.slice(0, 400);

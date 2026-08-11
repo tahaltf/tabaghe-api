@@ -8,6 +8,7 @@ import {
   AI_IMAGE_EDIT_TIMEOUT_MS_MIN,
   AI_IMAGE_INPUT_MAX_PX_MAX,
   AI_IMAGE_INPUT_MAX_PX_MIN,
+  AI_IMAGE_MODEL_PREF_SEED,
   AI_IMAGE_SIZE_IDS,
   AI_STORY_STYLES_SEED_VERSION,
   DEFAULT_AI_IMAGE_EDIT_TIMEOUT_MS,
@@ -310,6 +311,8 @@ export class AiContentSettingsService {
   }
 
   async getImageModel(): Promise<string> {
+    await this.ensureImageModelPrefSeed();
+
     const raw = (
       await this.getString(
         AI_CONTENT_SETTING_KEYS.IMAGE_MODEL,
@@ -317,25 +320,43 @@ export class AiContentSettingsService {
       )
     ).trim();
 
-    // مدل‌های قدیمی پیش‌فرض را به gpt-image-2 ارتقا بده
-    const legacyDefaults = new Set([
-      'openai/gpt-image-1-mini',
-      'openai/gpt-image-1',
-    ]);
-    if (!raw || legacyDefaults.has(raw)) {
-      if (legacyDefaults.has(raw)) {
-        await this.prisma.systemSetting.upsert({
-          where: { key: AI_CONTENT_SETTING_KEYS.IMAGE_MODEL },
-          create: {
-            key: AI_CONTENT_SETTING_KEYS.IMAGE_MODEL,
-            value: DEFAULT_AI_IMAGE_MODEL,
-          },
-          update: { value: DEFAULT_AI_IMAGE_MODEL },
-        });
-      }
-      return DEFAULT_AI_IMAGE_MODEL;
+    return raw || DEFAULT_AI_IMAGE_MODEL;
+  }
+
+  /**
+   * یک‌بار: پیش‌فرض اجباری قدیمی image-2 / mini را به 1.5 بیاور.
+   * بعد از این seed، هر مدلی که ادمین انتخاب کند حفظ می‌شود (از جمله image-1 و image-2).
+   */
+  private async ensureImageModelPrefSeed(): Promise<void> {
+    const seedKey = 'AI_IMAGE_MODEL_PREF_SEED';
+    const seed = await this.getString(seedKey, '');
+    if (seed === AI_IMAGE_MODEL_PREF_SEED) return;
+
+    const raw = (
+      await this.getString(AI_CONTENT_SETTING_KEYS.IMAGE_MODEL, '')
+    ).trim();
+
+    const shouldResetToDefault =
+      !raw ||
+      raw === 'openai/gpt-image-2' ||
+      raw === 'openai/gpt-image-1-mini';
+
+    if (shouldResetToDefault) {
+      await this.prisma.systemSetting.upsert({
+        where: { key: AI_CONTENT_SETTING_KEYS.IMAGE_MODEL },
+        create: {
+          key: AI_CONTENT_SETTING_KEYS.IMAGE_MODEL,
+          value: DEFAULT_AI_IMAGE_MODEL,
+        },
+        update: { value: DEFAULT_AI_IMAGE_MODEL },
+      });
     }
-    return raw;
+
+    await this.prisma.systemSetting.upsert({
+      where: { key: seedKey },
+      create: { key: seedKey, value: AI_IMAGE_MODEL_PREF_SEED },
+      update: { value: AI_IMAGE_MODEL_PREF_SEED },
+    });
   }
 
   async getImageEditTimeoutMs(): Promise<number> {
@@ -343,8 +364,8 @@ export class AiContentSettingsService {
       AI_CONTENT_SETTING_KEYS.IMAGE_EDIT_TIMEOUT_MS,
       DEFAULT_AI_IMAGE_EDIT_TIMEOUT_MS,
     );
-    // مقادیر قدیمی (۱۵–۳۵ث) برای images/edits واقعی کافی نبودند و باعث خطای کلی کاربر می‌شدند
-    const legacyShort = raw > 0 && raw < 45_000;
+    // مقادیر قدیمی کوتاه برای gpt-image-2 کافی نبودند
+    const legacyShort = raw > 0 && raw < 120_000;
     const effective = legacyShort ? DEFAULT_AI_IMAGE_EDIT_TIMEOUT_MS : raw;
     return Math.min(
       AI_IMAGE_EDIT_TIMEOUT_MS_MAX,

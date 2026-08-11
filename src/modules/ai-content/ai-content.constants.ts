@@ -89,20 +89,26 @@ export const DEFAULT_AI_STORY_STYLES: AiStoryStyleDef[] = [
 ];
 
 export const DEFAULT_AI_TEXT_MODEL = 'openai/gpt-4o-mini';
-/** مدل تصویر پیشنهادی لیارا — gpt-image-2 */
-export const DEFAULT_AI_IMAGE_MODEL = 'openai/gpt-image-2';
+/** مدل تصویر پیشنهادی لیارا — تعادل کیفیت/هزینه */
+export const DEFAULT_AI_IMAGE_MODEL = 'openai/gpt-image-1.5';
+
+/**
+ * با عوض شدن این مقدار، یک‌بار مدل ذخیره‌شده از پیش‌فرض‌های اجباری قدیمی
+ * (مثل image-2) به DEFAULT مهاجرت می‌کند؛ انتخاب بعدی ادمین دست‌نخورده می‌ماند.
+ */
+export const AI_IMAGE_MODEL_PREF_SEED = '1.5-default-2026-08';
 
 /** Base URL پیش‌فرض سرویس AI لیارا (workspace طبقه) */
 export const DEFAULT_LIARA_BASE_URL =
   'https://ai.liara.ir/api/6a787a10332d5f922cf9083c/v1';
 
-/** پیش‌فرض‌های سرعت — جاب async است؛ مهلت باید برای images/edits واقعی کافی باشد */
-export const DEFAULT_AI_IMAGE_EDIT_TIMEOUT_MS = 90_000;
+/** پیش‌فرض‌های سرعت — image 1 / 1.5 معمولاً تا ~۲ دقیقه */
+export const DEFAULT_AI_IMAGE_EDIT_TIMEOUT_MS = 150_000;
 export const DEFAULT_AI_IMAGE_SIZE = '1024x1536';
 export const DEFAULT_AI_IMAGE_INPUT_MAX_PX = 768;
 
 export const AI_IMAGE_EDIT_TIMEOUT_MS_MIN = 15_000;
-export const AI_IMAGE_EDIT_TIMEOUT_MS_MAX = 180_000;
+export const AI_IMAGE_EDIT_TIMEOUT_MS_MAX = 240_000;
 export const AI_IMAGE_INPUT_MAX_PX_MIN = 512;
 export const AI_IMAGE_INPUT_MAX_PX_MAX = 1536;
 
@@ -127,9 +133,12 @@ export const AI_TEXT_MODEL_OPTIONS: AiModelOption[] = [
 
 /** مدل‌های تصویر پیشنهادی لیارا برای استوری */
 export const AI_IMAGE_MODEL_OPTIONS: AiModelOption[] = [
-  { id: 'openai/gpt-image-2', label: 'GPT Image 2 (پیشنهادی)' },
-  { id: 'openai/gpt-image-1.5', label: 'GPT Image 1.5' },
+  {
+    id: 'openai/gpt-image-1.5',
+    label: 'GPT Image 1.5 (پیشنهادی — تعادل کیفیت/هزینه)',
+  },
   { id: 'openai/gpt-image-1', label: 'GPT Image 1' },
+  { id: 'openai/gpt-image-2', label: 'GPT Image 2 (گران‌تر)' },
   { id: 'openai/gpt-image-1-mini', label: 'GPT Image 1 Mini (ارزان‌تر)' },
 ];
 
