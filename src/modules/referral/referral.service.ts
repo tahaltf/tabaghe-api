@@ -9,6 +9,7 @@ import {
   generateInviteCode,
   normalizeInviteCode,
 } from '../../common/referral/invite-code.util';
+import { resolveReferralCommissionPercent } from '../../common/referral/resolve-referral-commission.util';
 import { SETTING_KEYS } from '../admin/services/admin-settings.service';
 
 const DEFAULT_SHARE_MESSAGE =
@@ -19,14 +20,55 @@ const DEFAULT_SHARE_MESSAGE =
   '{inviteLink}\n\n' +
   'منتظرتم!';
 
+/** حداکثر تعداد دوستان و پاداش‌هایی که در صفحه دعوت برگردانده می‌شود */
+const FRIENDS_LIMIT = 30;
+const RECENT_REWARDS_LIMIT = 8;
+const RECENT_WINDOW_DAYS = 30;
+/** درصد کارمزد پیش‌فرض برای ماشین‌حساب تخمینی، وقتی دسته‌بندی فعالی وجود ندارد */
+const FALLBACK_FEE_PERCENT = 5;
+
+export type ReferralFriendStatus = 'EARNING' | 'VERIFIED' | 'JOINED';
+
+export type ReferralFriend = {
+  id: string;
+  /** نام نمایشی ماسک‌شده (نام + حرف اول فامیل) */
+  name: string;
+  /** شماره ماسک‌شده مثل 0912***6789 */
+  maskedPhone: string;
+  joinedAt: string;
+  status: ReferralFriendStatus;
+  /** تعداد فروش‌های تکمیل‌شده‌ای که پاداش تولید کرده */
+  salesCount: number;
+  /** جمع پاداش دریافتی از این دوست (تومان) */
+  earned: number;
+};
+
+export type ReferralRewardItem = {
+  id: string;
+  amount: number;
+  createdAt: string;
+  friendName: string;
+};
+
 export type UserReferralInfo = {
   inviteCode: string;
   inviteLink: string;
   commissionPercent: number;
   shareMessage: string;
   referralCount: number;
+  /** دوستانی که حداقل یک فروش پاداش‌دار داشته‌اند */
+  activeReferralCount: number;
   totalRewardAmount: number;
+  /** جمع پاداش در بازه recentWindowDays روز اخیر */
+  recentRewardAmount: number;
+  recentWindowDays: number;
+  /** میانگین درصد کارمزد پلتفرم — فقط برای تخمین در ماشین‌حساب */
+  estimatedFeePercent: number;
+  friends: ReferralFriend[];
+  friendsTruncated: boolean;
+  recentRewards: ReferralRewardItem[];
   hasReferrer: boolean;
+  referrerName: string | null;
 };
 
 @Injectable()
@@ -156,15 +198,37 @@ export class ReferralService {
 
   async getReferralInfo(userId: string): Promise<UserReferralInfo> {
     const inviteCode = await this.ensureInviteCode(userId);
+    const recentSince = new Date(
+      Date.now() - RECENT_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    );
 
-    const [user, referralCount, rewardAgg, settings] = await Promise.all([
+    const [
+      user,
+      referralCount,
+      rewardAgg,
+      recentRewardAgg,
+      settings,
+      friendRows,
+      rewardsByFriend,
+      recentRewardRows,
+      feePercent,
+    ] = await Promise.all([
       this.prisma.user.findUnique({
         where: { id: userId },
-        select: { referredById: true },
+        select: {
+          referredById: true,
+          referredBy: {
+            select: { firstName: true, lastName: true, displayName: true },
+          },
+        },
       }),
       this.prisma.user.count({ where: { referredById: userId } }),
       this.prisma.referralReward.aggregate({
         where: { referrerId: userId },
+        _sum: { amount: true },
+      }),
+      this.prisma.referralReward.aggregate({
+        where: { referrerId: userId, createdAt: { gte: recentSince } },
         _sum: { amount: true },
       }),
       this.prisma.systemSetting.findMany({
@@ -178,16 +242,41 @@ export class ReferralService {
         },
         select: { key: true, value: true },
       }),
+      this.prisma.user.findMany({
+        where: { referredById: userId },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          displayName: true,
+          phone: true,
+          status: true,
+          isVerified: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: FRIENDS_LIMIT,
+      }),
+      this.prisma.referralReward.groupBy({
+        by: ['sellerId'],
+        where: { referrerId: userId },
+        _sum: { amount: true },
+        _count: { _all: true },
+      }),
+      this.prisma.referralReward.findMany({
+        where: { referrerId: userId },
+        select: { id: true, amount: true, createdAt: true, sellerId: true },
+        orderBy: { createdAt: 'desc' },
+        take: RECENT_REWARDS_LIMIT,
+      }),
+      this.readEstimatedFeePercent(),
     ]);
 
     const byKey = new Map(settings.map((s) => [s.key, s.value]));
-    const percentRaw = Number(
-      String(byKey.get(SETTING_KEYS.REFERRAL_COMMISSION_PERCENT) ?? '').trim(),
+    const commissionPercent = await resolveReferralCommissionPercent(
+      this.prisma,
+      userId,
     );
-    const commissionPercent =
-      Number.isFinite(percentRaw) && percentRaw > 0
-        ? Math.min(100, Math.max(0, percentRaw))
-        : 0;
 
     const inviteLink = this.buildInviteLink(inviteCode);
     const template =
@@ -197,15 +286,107 @@ export class ReferralService {
       .replaceAll('{inviteCode}', inviteCode)
       .replaceAll('{inviteLink}', inviteLink);
 
+    const statsBySeller = new Map(
+      rewardsByFriend.map((row) => [
+        row.sellerId,
+        {
+          earned: Number(row._sum.amount?.toString() ?? '0'),
+          salesCount: row._count._all,
+        },
+      ]),
+    );
+
+    const friends: ReferralFriend[] = friendRows.map((row) => {
+      const stats = statsBySeller.get(row.id);
+      const isApproved = row.status === 'APPROVED' || row.isVerified;
+      return {
+        id: row.id,
+        name: this.maskName(row),
+        maskedPhone: this.maskPhone(row.phone),
+        joinedAt: row.createdAt.toISOString(),
+        status: stats ? 'EARNING' : isApproved ? 'VERIFIED' : 'JOINED',
+        salesCount: stats?.salesCount ?? 0,
+        earned: stats?.earned ?? 0,
+      };
+    });
+
+    const nameById = new Map(friends.map((f) => [f.id, f.name]));
+
     return {
       inviteCode,
       inviteLink,
       commissionPercent,
       shareMessage,
       referralCount,
+      activeReferralCount: statsBySeller.size,
       totalRewardAmount: Number(rewardAgg._sum.amount?.toString() ?? '0'),
+      recentRewardAmount: Number(
+        recentRewardAgg._sum.amount?.toString() ?? '0',
+      ),
+      recentWindowDays: RECENT_WINDOW_DAYS,
+      estimatedFeePercent: feePercent,
+      friends,
+      friendsTruncated: referralCount > friends.length,
+      recentRewards: recentRewardRows.map((row) => ({
+        id: row.id,
+        amount: Number(row.amount.toString()),
+        createdAt: row.createdAt.toISOString(),
+        friendName: nameById.get(row.sellerId) ?? 'کاربر طبقه',
+      })),
       hasReferrer: !!user?.referredById,
+      referrerName: user?.referredBy ? this.maskName(user.referredBy) : null,
     };
+  }
+
+  /**
+   * میانگین درصد کارمزد فروش کالای کارکرده در دسته‌بندی‌های فعال.
+   * فقط برای نمایش تخمینی در ماشین‌حساب صفحه دعوت استفاده می‌شود.
+   */
+  private async readEstimatedFeePercent(): Promise<number> {
+    try {
+      const categories = await this.prisma.category.findMany({
+        where: { isActive: true },
+        select: {
+          feePercentageDirectUsed: true,
+          feePercentageDirect: true,
+          feePercentage: true,
+        },
+      });
+      const values = categories
+        .map(
+          (c) =>
+            c.feePercentageDirectUsed ??
+            c.feePercentageDirect ??
+            c.feePercentage,
+        )
+        .filter((v): v is number => typeof v === 'number' && v > 0);
+      if (!values.length) return FALLBACK_FEE_PERCENT;
+      const avg = values.reduce((sum, v) => sum + v, 0) / values.length;
+      return Math.round(avg * 10) / 10;
+    } catch {
+      return FALLBACK_FEE_PERCENT;
+    }
+  }
+
+  /** نام نمایشی حریم‌خصوصی‌محور: نام کوچک + حرف اول نام خانوادگی */
+  private maskName(user: {
+    firstName?: string | null;
+    lastName?: string | null;
+    displayName?: string | null;
+  }): string {
+    const first = (user.firstName ?? '').trim();
+    const last = (user.lastName ?? '').trim();
+    if (first) return last ? `${first} ${last.charAt(0)}.` : first;
+    const display = (user.displayName ?? '').trim();
+    if (display) return display;
+    return 'کاربر طبقه';
+  }
+
+  /** 09123456789 → 0912***6789 */
+  private maskPhone(phone: string | null | undefined): string {
+    const digits = String(phone ?? '').replace(/\D/g, '');
+    if (digits.length < 8) return '';
+    return `${digits.slice(0, 4)}***${digits.slice(-4)}`;
   }
 
   private buildInviteLink(inviteCode: string): string {

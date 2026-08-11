@@ -38,6 +38,7 @@ import { AdminSetUserActivationDto } from '../dto/admin-user-activation.dto';
 import { AdminSetUserRatingDto } from '../dto/admin-user-rating.dto';
 import { AdminSetUserTrustScoreDto } from '../dto/admin-user-trust-score.dto';
 import { AdminSetUserApprovedDto } from '../dto/admin-user-approved.dto';
+import { AdminUpdateUserReferralSettingsDto } from '../dto/admin-user-referral-settings.dto';
 import { AdminCreateUserDto } from '../dto/admin-create-user.dto';
 import { AdminUpdateUserProfileDto } from '../dto/admin-update-user-profile.dto';
 import { PatchUserPanelAccessDto } from '../../users/dto/patch-user-panel-access.dto';
@@ -188,6 +189,16 @@ export class AdminUsersQueryController {
     @Body() dto: AdminSetUserTrustScoreDto,
   ) {
     return this.service.setUserTrustScore(actor, id, dto.trustScore);
+  }
+
+  @Patch(':id/referral-settings')
+  @RequirePermission('users.update')
+  updateReferralSettings(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: AdminUpdateUserReferralSettingsDto,
+  ) {
+    return this.service.updateUserReferralSettings(actor, id, dto);
   }
 
   @Post()

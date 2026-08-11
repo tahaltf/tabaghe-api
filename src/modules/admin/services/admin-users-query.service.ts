@@ -26,7 +26,7 @@ import { AuthenticatedUser } from '../../../shared/contracts/auth';
 import { getListingStatusLabelFa } from '../../../common/listing/listing-status-labels.util';
 import { getOrderStatusLabelFa } from '../../../common/order/order-status-labels.util';
 import { PlanLifecycleService } from '../../plans/plan-lifecycle.service';
-import { generateInviteCode } from '../../../common/referral/invite-code.util';
+import { generateInviteCode, validateInviteCode } from '../../../common/referral/invite-code.util';
 
 const LISTING_TYPE_LABELS_FA: Record<string, string> = {
   DIRECT: 'فروش مستقیم',
@@ -1160,6 +1160,79 @@ export class AdminUsersQueryService {
     if (actor.role === UserRole.GODADMIN) return;
     if (actor.role === UserRole.ADMIN && targetRole === UserRole.USER) return;
     throw new ForbiddenException('شما اجازه مدیریت این حساب را ندارید');
+  }
+
+  async updateUserReferralSettings(
+    actor: AuthenticatedUser,
+    userId: string,
+    body: {
+      inviteCode?: string;
+      referralCommissionPercent?: number | null;
+    },
+  ): Promise<{
+    id: string;
+    inviteCode: string | null;
+    referralCommissionPercent: number | null;
+  }> {
+    const hasInvite = body.inviteCode !== undefined;
+    const hasCommission = body.referralCommissionPercent !== undefined;
+    if (!hasInvite && !hasCommission) {
+      throw new BadRequestException('حداقل یک فیلد برای به‌روزرسانی لازم است.');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true, inviteCode: true },
+    });
+    if (!user) throw new NotFoundException('کاربر یافت نشد');
+    this.assertCanManageTarget(actor, user.role);
+
+    const data: Prisma.UserUpdateInput = {};
+
+    if (hasInvite) {
+      const validated = validateInviteCode(body.inviteCode);
+      if (!validated.ok) {
+        throw new BadRequestException(
+          'error' in validated ? validated.error : 'کد دعوت نامعتبر است.',
+        );
+      }
+      if (validated.code !== user.inviteCode) {
+        const taken = await this.prisma.user.findFirst({
+          where: {
+            inviteCode: validated.code,
+            NOT: { id: userId },
+          },
+          select: { id: true },
+        });
+        if (taken) {
+          throw new BadRequestException('این کد دعوت قبلاً برای کاربر دیگری ثبت شده است.');
+        }
+        data.inviteCode = validated.code;
+      }
+    }
+
+    if (hasCommission) {
+      const raw = body.referralCommissionPercent;
+      if (raw === null) {
+        data.referralCommissionPercent = null;
+      } else {
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n < 0 || n > 100) {
+          throw new BadRequestException('درصد پاداش باید بین ۰ تا ۱۰۰ باشد.');
+        }
+        data.referralCommissionPercent = Math.round(n * 100) / 100;
+      }
+    }
+
+    return this.prisma.user.update({
+      where: { id: userId },
+      data,
+      select: {
+        id: true,
+        inviteCode: true,
+        referralCommissionPercent: true,
+      },
+    });
   }
 
   private buildOrderBy(

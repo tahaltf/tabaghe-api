@@ -370,6 +370,8 @@ model User {
 
   /** کد دعوت یکتای کاربر برای معرفی دوستان */
   inviteCode          String?        @unique
+  /** درصد پاداش دعوت اختصاصی (null = پیش‌فرض سراسری REFERRAL_COMMISSION_PERCENT) */
+  referralCommissionPercent Float?
   /** معرف مستقیم — فقط یک‌بار قابل تنظیم */
   referredById        String?
   referredBy          User?          @relation("UserReferrals", fields: [referredById], references: [id], onDelete: SetNull)

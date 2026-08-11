@@ -7,6 +7,7 @@ import {
 import Decimal from 'decimal.js';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { SETTING_KEYS } from '../admin/services/admin-settings.service';
+import { resolveReferralCommissionPercent } from '../../common/referral/resolve-referral-commission.util';
 
 type TxClient = Prisma.TransactionClient;
 
@@ -53,7 +54,7 @@ export class ReferralRewardService {
       const platformFee = new Decimal(order.platformFee?.toString() ?? '0');
       if (platformFee.lte(0)) return;
 
-      const percent = await this.readCommissionPercent(client);
+      const percent = await resolveReferralCommissionPercent(client, referrerId);
       if (percent <= 0) return;
 
       const amount = platformFee.mul(percent).div(100).floor();
@@ -123,15 +124,5 @@ export class ReferralRewardService {
         err instanceof Error ? err.stack : String(err),
       );
     }
-  }
-
-  private async readCommissionPercent(client: TxClient): Promise<number> {
-    const row = await client.systemSetting.findUnique({
-      where: { key: SETTING_KEYS.REFERRAL_COMMISSION_PERCENT },
-      select: { value: true },
-    });
-    const n = Number(String(row?.value ?? '').trim());
-    if (!Number.isFinite(n) || n <= 0) return 0;
-    return Math.min(100, Math.max(0, n));
   }
 }
