@@ -8,6 +8,8 @@ export const AI_CONTENT_SETTING_KEYS = {
   STORY_CONSTRAINTS: 'AI_STORY_CONSTRAINTS',
   STORY_BRAND_LOGO_URL: 'AI_STORY_BRAND_LOGO_URL',
   STORY_STYLES_JSON: 'AI_STORY_STYLES_JSON',
+  /** وقتی با کد عوض شد، استایل‌های ذخیره‌شده در DB یک‌بار با پیش‌فرض‌های جدید هم‌تراز می‌شوند */
+  STORY_STYLES_SEED_VERSION: 'AI_STORY_STYLES_SEED_VERSION',
   TEXT_MODEL: 'AI_TEXT_MODEL',
   IMAGE_MODEL: 'AI_IMAGE_MODEL',
   DAILY_LIMIT_PER_USER: 'AI_DAILY_LIMIT_PER_USER',
@@ -19,13 +21,19 @@ export const AI_CONTENT_SETTING_KEYS = {
   IMAGE_INPUT_MAX_PX: 'AI_IMAGE_INPUT_MAX_PX',
 } as const;
 
+/** با هر بازنویسی meaningful سبک‌ها این عدد را بالا ببرید تا پروداکشن یک‌بار sync شود */
+export const AI_STORY_STYLES_SEED_VERSION = '4';
+
 export const AI_CONTENT_UPLOAD_DIR = './uploads/ai-content';
 
+/** لوگوی پیش‌فرض برند طبقه برای واترمارک استوری */
+export const DEFAULT_TABAGHEH_BRAND_LOGO_PATH = './assets/brand/logo-light-theme.png';
+
 export const DEFAULT_AI_STORY_SYSTEM_PROMPT =
-  'تو طراح استوری فروش حرفه‌ای برای پلتفرم بازار آنلاین «طبقه» هستی. خروجی استوری اینستاگرام عمودی ۹:۱۶، جذاب، خوانا و قابل اعتماد برای خریدار ایرانی باشد.';
+  'تو آرت‌دایرکتور و طراح استوری فروش حرفه‌ای برای بازار آنلاین «طبقه» هستی. خروجی باید مثل استوری لوکس اینستاگرام فروشگاهی باشد (۹:۱۶): صحنه لایف‌استایل بازآرایی‌شده + تایپوگرافی ادیتوریال تمیز — نه عکس کاتالوگ با نوار متن.';
 
 export const DEFAULT_AI_STORY_CONSTRAINTS =
-  'شماره تماس، واتساپ، تلگرام و هر راه ارتباطی مستقیم روی تصویر نباشد. حس خرید از «طبقه» را منتقل کن. از ادعاهای گمراه‌کننده پرهیز کن. خودِ محصول ورودی را عوض نکن و محصول دیگری نساز؛ اما اجازه داری همان محصول را در صحنه جدید (مثل دست مدل، استایل لایف‌استایل، نور استودیو) دوباره بچینی و پس‌زمینه حرفه‌ای بسازی.';
+  'شماره تماس، واتساپ، تلگرام و راه ارتباطی مستقیم روی تصویر نباشد. حس خرید از «طبقه» را منتقل کن. محصول ورودی را عوض نکن؛ همان محصول را در صحنه جدید (دست مدل، لایف‌استایل، استودیو) بازآرایی کن. تایپوگرافی، قیمت و برند طبقه را یکپارچه داخل فریم بگذار — هرگز نوار مستطیلی زشت زیر عکس نچسبان.';
 
 export const DEFAULT_AI_TOKEN_PACKS = [1, 5, 10, 20];
 
@@ -42,7 +50,7 @@ export const DEFAULT_AI_STORY_STYLES: AiStoryStyleDef[] = [
     id: 'minimal',
     label: 'مینیمال',
     promptAddon:
-      'سبک مینیمال: فضای خلوت، پس‌زمینه ساده روشن یا خنثی، تایپوگرافی تمیز، تمرکز کامل روی محصول، بدون شلوغی بصری.',
+      'Minimal luxury jewelry-ad Story: soft cream fabric folds, airy negative space, soft daylight, left editorial type stack (cocoa/brown), modern price pill, calm premium — never flat white paste + footer text bar.',
     enabled: true,
     sortOrder: 1,
   },
@@ -50,7 +58,7 @@ export const DEFAULT_AI_STORY_STYLES: AiStoryStyleDef[] = [
     id: 'formal',
     label: 'رسمی',
     promptAddon:
-      'سبک رسمی و لوکس: ترکیب‌بندی مرتب، نورپردازی حرفه‌ای استودیویی، حس اعتماد و کیفیت بالا، رنگ‌های کلاسیک و متین.',
+      'Formal luxury studio Story: polished composition, professional studio light, muted classic palette, trust and quality, elegant typography and price badge — premium marketplace ad.',
     enabled: true,
     sortOrder: 2,
   },
@@ -58,7 +66,7 @@ export const DEFAULT_AI_STORY_STYLES: AiStoryStyleDef[] = [
     id: 'sport',
     label: 'اسپرت',
     promptAddon:
-      'سبک اسپرت و پویا: انرژی بالا، کنتراست قوی، خطوط مورب، حس حرکت و جوانی، مناسب کالای ورزشی یا سبک زندگی فعال.',
+      'Sporty dynamic Story: high energy, strong contrast, diagonal motion, youthful lifestyle, still clear product and readable modern type.',
     enabled: true,
     sortOrder: 3,
   },
@@ -66,7 +74,7 @@ export const DEFAULT_AI_STORY_STYLES: AiStoryStyleDef[] = [
     id: 'classic',
     label: 'کلاسیک',
     promptAddon:
-      'سبک کلاسیک: حس نوستالژیک و اصیل، بافت‌های گرم، ترکیب‌بندی متقارن، مناسب محصولات سنتی یا باکیفیت ماندگار.',
+      'Classic heritage Story: warm textures, balanced layout, timeless materials feel, soft cinematic light, elegant serif/sans mix for titles.',
     enabled: true,
     sortOrder: 4,
   },
@@ -74,14 +82,19 @@ export const DEFAULT_AI_STORY_STYLES: AiStoryStyleDef[] = [
     id: 'fantasy',
     label: 'فانتزی',
     promptAddon:
-      'سبک فانتزی و خلاق: فضای رویایی، رنگ‌های زنده‌تر، المان‌های خلاقانه در پس‌زمینه، بدون مخدوش کردن ظاهر واقعی محصول.',
+      'Creative fantasy Story: dreamy atmosphere, richer accents, imaginative set — keep real product identity and still include clean readable type + price.',
     enabled: true,
     sortOrder: 5,
   },
 ];
 
 export const DEFAULT_AI_TEXT_MODEL = 'openai/gpt-4o-mini';
-export const DEFAULT_AI_IMAGE_MODEL = 'openai/gpt-image-1-mini';
+/** مدل تصویر پیشنهادی لیارا — gpt-image-2 */
+export const DEFAULT_AI_IMAGE_MODEL = 'openai/gpt-image-2';
+
+/** Base URL پیش‌فرض سرویس AI لیارا (workspace طبقه) */
+export const DEFAULT_LIARA_BASE_URL =
+  'https://ai.liara.ir/api/6a787a10332d5f922cf9083c/v1';
 
 /** پیش‌فرض‌های سرعت — جاب async است؛ مهلت باید برای images/edits واقعی کافی باشد */
 export const DEFAULT_AI_IMAGE_EDIT_TIMEOUT_MS = 90_000;
@@ -114,9 +127,10 @@ export const AI_TEXT_MODEL_OPTIONS: AiModelOption[] = [
 
 /** مدل‌های تصویر پیشنهادی لیارا برای استوری */
 export const AI_IMAGE_MODEL_OPTIONS: AiModelOption[] = [
-  { id: 'openai/gpt-image-1-mini', label: 'GPT Image 1 Mini (پیشنهادی)' },
-  { id: 'openai/gpt-image-1', label: 'GPT Image 1' },
+  { id: 'openai/gpt-image-2', label: 'GPT Image 2 (پیشنهادی)' },
   { id: 'openai/gpt-image-1.5', label: 'GPT Image 1.5' },
+  { id: 'openai/gpt-image-1', label: 'GPT Image 1' },
+  { id: 'openai/gpt-image-1-mini', label: 'GPT Image 1 Mini (ارزان‌تر)' },
 ];
 
 /** سایزهای مجاز images/edits */

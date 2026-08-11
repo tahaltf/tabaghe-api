@@ -19,6 +19,7 @@ import {
   AI_IMAGE_INPUT_MAX_PX_MIN,
   AI_IMAGE_SIZE_IDS,
 } from '../ai-content.constants';
+import { AI_USER_PROMPT_MAX_CHARS } from '../utils/story-token-cost.util';
 
 export class PurchaseAiTokensDto {
   @IsInt()
@@ -47,7 +48,7 @@ export class GenerateStoryDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(1000)
+  @MaxLength(AI_USER_PROMPT_MAX_CHARS)
   userPrompt?: string;
 
   /** اگر false باشد فقط تصویر ساخته می‌شود */
@@ -64,7 +65,7 @@ export class RegenerateStoryDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(1000)
+  @MaxLength(AI_USER_PROMPT_MAX_CHARS)
   userPrompt?: string;
 
   @IsOptional()

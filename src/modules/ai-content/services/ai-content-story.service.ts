@@ -19,6 +19,10 @@ import { buildPaginationMeta } from '../../../shared/contracts/pagination';
 import { OpenAiImageProvider } from '../providers/openai-image.provider';
 import { OpenAiTextProvider } from '../providers/openai-text.provider';
 import { buildStoryImagePrompt } from '../utils/story-prompt.builder';
+import {
+  assertUserPromptLength,
+  computeStoryTokenCost,
+} from '../utils/story-token-cost.util';
 import { AiContentSettingsService } from './ai-content-settings.service';
 import { AiTokenService } from './ai-token.service';
 
@@ -130,10 +134,22 @@ export class AiContentStoryService {
       throw new BadRequestException('تصویر محصول در دسترس نیست');
     }
 
-    const tokenCost = await this.settings.getStoryTokenCost();
+    let normalizedPrompt = '';
+    try {
+      normalizedPrompt = assertUserPromptLength(userPrompt);
+    } catch (err) {
+      throw new BadRequestException(
+        String((err as Error)?.message ?? 'توضیح نامعتبر است'),
+      );
+    }
+
+    const baseCost = await this.settings.getStoryTokenCost();
+    const tokenCost = computeStoryTokenCost(baseCost, normalizedPrompt);
     const balance = await this.tokens.getBalance(userId);
     if (balance.totalAvailable < tokenCost) {
-      throw new BadRequestException('توکن کافی برای تولید استوری ندارید');
+      throw new BadRequestException(
+        `توکن کافی ندارید. این ساخت به ${tokenCost} توکن نیاز دارد.`,
+      );
     }
 
     const request = await this.prisma.aiContentRequest.create({
@@ -142,7 +158,7 @@ export class AiContentStoryService {
         listingId,
         type: AiContentType.STORY,
         styleId: style.id,
-        userPrompt: userPrompt?.trim() || null,
+        userPrompt: normalizedPrompt || null,
         status: AiContentRequestStatus.PROCESSING,
         parentRequestId: parentRequestId ?? null,
         /** تا قبل از SUCCESS = مقدار رزروشده برای sweep/release */
@@ -159,7 +175,7 @@ export class AiContentStoryService {
       styleId: style.id,
       stylePromptAddon: style.promptAddon,
       styleLabel: style.label,
-      userPrompt: userPrompt?.trim() || undefined,
+      userPrompt: normalizedPrompt || undefined,
       includeCaption,
       tokenCost,
       productImagePath,

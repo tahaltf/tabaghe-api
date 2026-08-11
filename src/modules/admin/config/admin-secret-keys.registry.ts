@@ -174,9 +174,10 @@ export const ADMIN_SECRET_KEYS_REGISTRY: AdminSecretKeyDef[] = [
     category: 'ai',
     categoryLabel: 'هوش مصنوعی',
     label: 'Base URL لیارا',
-    description: 'مثلاً https://ai.liara.ir/api/v1 یا آدرس اختصاصی سرویس شما',
+    description:
+      'آدرس اختصاصی workspace — مثل https://ai.liara.ir/api/<workspaceId>/v1',
     kind: 'url',
-    placeholder: 'https://ai.liara.ir/api/v1',
+    placeholder: 'https://ai.liara.ir/api/6a787a10332d5f922cf9083c/v1',
   },
   {
     key: 'AI_CONTENT_OPENAI_API_KEY',

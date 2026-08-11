@@ -125,6 +125,7 @@ export class OpenAiImageProvider {
     prompt: string;
     productImagePath: string;
     attempt: number;
+    omitQuality?: boolean;
   }): Promise<Buffer> {
     const baseUrl = this.settings.getOpenAiBaseUrl();
     const [timeoutMs, size, inputMaxPx] = await Promise.all([
@@ -141,7 +142,7 @@ export class OpenAiImageProvider {
 
     const form = new FormData();
     form.append('model', params.model);
-    form.append('prompt', params.prompt.slice(0, 3200));
+    form.append('prompt', params.prompt.slice(0, 4000));
     form.append(
       'image',
       new File([new Uint8Array(imageBuffer)], 'product.png', {
@@ -149,12 +150,17 @@ export class OpenAiImageProvider {
       }),
     );
     form.append('size', size);
-    // gpt-image-* (لیارا/OpenAI) پارامتر response_format را قبول نمی‌کند و همیشه b64_json برمی‌گرداند.
+    // gpt-image: response_format unsupported. quality=high optional (Liara may reject).
+    const sendQuality =
+      !params.omitQuality && /gpt-image/i.test(params.model);
+    if (sendQuality) {
+      form.append('quality', 'high');
+    }
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     this.logger.log(
-      `Liara images/edits attempt=${params.attempt} model=${params.model} size=${size} timeoutMs=${timeoutMs} bytes=${imageBuffer.length}`,
+      `Liara images/edits attempt=${params.attempt} model=${params.model} size=${size} timeoutMs=${timeoutMs} bytes=${imageBuffer.length} quality=${sendQuality}`,
     );
 
     let res: Response;
@@ -183,6 +189,12 @@ export class OpenAiImageProvider {
     if (!res.ok) {
       const body = (await res.text()).slice(0, 500);
       this.logger.warn(`Liara image edit HTTP ${res.status}: ${body}`);
+      if (
+        sendQuality &&
+        /Unknown parameter:\s*['"]?quality['"]?/i.test(body)
+      ) {
+        return this.tryOpenAiEdit({ ...params, omitQuality: true });
+      }
       throw new LiaraImageEditError(
         this.summarizeHttpFailure(res.status, body),
         'http',
@@ -441,23 +453,25 @@ export class OpenAiImageProvider {
     height: number,
   ): Promise<sharp.Sharp> {
     try {
-      const logoUrl = await this.settings.getBrandLogoUrl();
-      if (!logoUrl) return pipeline;
+      const localPath = await this.settings.resolveBrandLogoLocalPath();
+      if (!localPath) return pipeline;
 
-      const localPath = logoUrl.startsWith('/uploads/')
-        ? `.${logoUrl}`
-        : logoUrl.replace(/^https?:\/\/[^/]+/, '.');
-      if (!existsSync(localPath)) return pipeline;
-
+      const maxW = 168;
+      const maxH = 72;
       const logo = await sharp(localPath)
         .rotate()
-        .resize(140, 140, { fit: 'inside' })
+        .resize(maxW, maxH, { fit: 'inside', withoutEnlargement: true })
         .png()
         .toBuffer();
 
-      return pipeline.composite([
-        { input: logo, top: 56, left: Math.round((width - 140) / 2) },
-      ]);
+      const meta = await sharp(logo).metadata();
+      const lw = meta.width ?? maxW;
+      const lh = meta.height ?? maxH;
+      // گوشه پایین-راست — مثل استوری فروشگاهی استاندارد
+      const left = Math.max(24, width - lw - 48);
+      const top = Math.max(24, height - lh - 56);
+
+      return pipeline.composite([{ input: logo, top, left }]);
     } catch (err) {
       this.logger.warn(
         `Brand logo overlay skipped: ${String((err as Error).message)}`,

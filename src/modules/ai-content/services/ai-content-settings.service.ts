@@ -9,6 +9,7 @@ import {
   AI_IMAGE_INPUT_MAX_PX_MAX,
   AI_IMAGE_INPUT_MAX_PX_MIN,
   AI_IMAGE_SIZE_IDS,
+  AI_STORY_STYLES_SEED_VERSION,
   DEFAULT_AI_IMAGE_EDIT_TIMEOUT_MS,
   DEFAULT_AI_IMAGE_INPUT_MAX_PX,
   DEFAULT_AI_IMAGE_MODEL,
@@ -18,8 +19,13 @@ import {
   DEFAULT_AI_STORY_SYSTEM_PROMPT,
   DEFAULT_AI_TEXT_MODEL,
   DEFAULT_AI_TOKEN_PACKS,
+  DEFAULT_LIARA_BASE_URL,
+  DEFAULT_TABAGHEH_BRAND_LOGO_PATH,
   type AiStoryStyleDef,
 } from '../ai-content.constants';
+import { userPromptPricingHints } from '../utils/story-token-cost.util';
+import { existsSync } from 'fs';
+import { basename, join } from 'path';
 
 @Injectable()
 export class AiContentSettingsService {
@@ -106,11 +112,54 @@ export class AiContentSettingsService {
       AI_CONTENT_SETTING_KEYS.STORY_STYLES_JSON,
       JSON.stringify(DEFAULT_AI_STORY_STYLES),
     );
+    let styles: AiStoryStyleDef[];
     try {
-      return this.normalizeStyles(JSON.parse(raw) as unknown);
+      styles = this.normalizeStyles(JSON.parse(raw) as unknown);
     } catch {
-      return [...DEFAULT_AI_STORY_STYLES];
+      styles = [...DEFAULT_AI_STORY_STYLES];
     }
+
+    const seed = await this.getString(
+      AI_CONTENT_SETTING_KEYS.STORY_STYLES_SEED_VERSION,
+      '1',
+    );
+    if (seed !== AI_STORY_STYLES_SEED_VERSION) {
+      styles = this.mergeBuiltinStyleAddons(styles);
+      await this.prisma.systemSetting.upsert({
+        where: { key: AI_CONTENT_SETTING_KEYS.STORY_STYLES_JSON },
+        create: {
+          key: AI_CONTENT_SETTING_KEYS.STORY_STYLES_JSON,
+          value: JSON.stringify(styles),
+        },
+        update: { value: JSON.stringify(styles) },
+      });
+      await this.prisma.systemSetting.upsert({
+        where: { key: AI_CONTENT_SETTING_KEYS.STORY_STYLES_SEED_VERSION },
+        create: {
+          key: AI_CONTENT_SETTING_KEYS.STORY_STYLES_SEED_VERSION,
+          value: AI_STORY_STYLES_SEED_VERSION,
+        },
+        update: { value: AI_STORY_STYLES_SEED_VERSION },
+      });
+    }
+
+    return styles;
+  }
+
+  /** برای idهای پیش‌فرض، promptAddon را از کد تازه می‌کند؛ استایل سفارشی ادمین دست‌نخورده می‌ماند. */
+  private mergeBuiltinStyleAddons(styles: AiStoryStyleDef[]): AiStoryStyleDef[] {
+    const byId = new Map(styles.map((s) => [s.id, { ...s }]));
+    for (const def of DEFAULT_AI_STORY_STYLES) {
+      const existing = byId.get(def.id);
+      if (existing) {
+        byId.set(def.id, { ...existing, promptAddon: def.promptAddon });
+      } else {
+        byId.set(def.id, { ...def });
+      }
+    }
+    return [...byId.values()].sort(
+      (a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label, 'fa'),
+    );
   }
 
   async getEnabledStyles(): Promise<AiStoryStyleDef[]> {
@@ -191,12 +240,102 @@ export class AiContentSettingsService {
     return url || null;
   }
 
+  /**
+   * مسیر محلی لوگو برای واترمارک استوری:
+   * ۱) لوگوی اختصاصی استودیو AI
+   * ۲) لوگوی روشن سایت (تنظیمات ادمین)
+   * ۳) لوگوی پیش‌فرض طبقه در assets/brand
+   */
+  async resolveBrandLogoLocalPath(): Promise<string | null> {
+    const customUrl = await this.getBrandLogoUrl();
+    if (customUrl) {
+      const customPath = this.publicUrlToLocalPath(customUrl);
+      if (customPath && existsSync(customPath)) return customPath;
+    }
+
+    for (const key of ['USER_APP_LOGO_LIGHT', 'USER_APP_LOGO', 'PWA_APP_ICON']) {
+      const filename = (await this.getString(key, '')).trim();
+      if (!filename) continue;
+      const safe = basename(filename);
+      const uploaded = join(process.cwd(), 'uploads', 'brand', safe);
+      if (existsSync(uploaded)) return uploaded;
+    }
+
+    const bundled = join(
+      process.cwd(),
+      DEFAULT_TABAGHEH_BRAND_LOGO_PATH.replace(/^\.\//, ''),
+    );
+    if (existsSync(bundled)) return bundled;
+
+    const alt = join(process.cwd(), 'assets', 'brand', 'pwa-app-icon.png');
+    if (existsSync(alt)) return alt;
+
+    return null;
+  }
+
+  /** آیا لوگوی اختصاصی AI آپلود شده یا از پیش‌فرض/لوگوی سایت استفاده می‌شود */
+  async isCustomBrandLogo(): Promise<boolean> {
+    const url = await this.getBrandLogoUrl();
+    if (!url) return false;
+    const path = this.publicUrlToLocalPath(url);
+    return Boolean(path && existsSync(path));
+  }
+
+  private publicUrlToLocalPath(url: string): string | null {
+    const raw = String(url ?? '').trim();
+    if (!raw) return null;
+    if (raw.startsWith('/uploads/')) {
+      return join(process.cwd(), raw.replace(/^\//, ''));
+    }
+    if (/^https?:\/\//i.test(raw)) {
+      try {
+        const pathname = new URL(raw).pathname;
+        if (pathname.startsWith('/uploads/')) {
+          return join(process.cwd(), pathname.replace(/^\//, ''));
+        }
+      } catch {
+        return null;
+      }
+    }
+    // فقط نام فایل در uploads/brand
+    const safe = basename(raw);
+    if (safe && safe === raw) {
+      return join(process.cwd(), 'uploads', 'brand', safe);
+    }
+    return null;
+  }
+
   async getTextModel(): Promise<string> {
     return this.getString(AI_CONTENT_SETTING_KEYS.TEXT_MODEL, DEFAULT_AI_TEXT_MODEL);
   }
 
   async getImageModel(): Promise<string> {
-    return this.getString(AI_CONTENT_SETTING_KEYS.IMAGE_MODEL, DEFAULT_AI_IMAGE_MODEL);
+    const raw = (
+      await this.getString(
+        AI_CONTENT_SETTING_KEYS.IMAGE_MODEL,
+        DEFAULT_AI_IMAGE_MODEL,
+      )
+    ).trim();
+
+    // مدل‌های قدیمی پیش‌فرض را به gpt-image-2 ارتقا بده
+    const legacyDefaults = new Set([
+      'openai/gpt-image-1-mini',
+      'openai/gpt-image-1',
+    ]);
+    if (!raw || legacyDefaults.has(raw)) {
+      if (legacyDefaults.has(raw)) {
+        await this.prisma.systemSetting.upsert({
+          where: { key: AI_CONTENT_SETTING_KEYS.IMAGE_MODEL },
+          create: {
+            key: AI_CONTENT_SETTING_KEYS.IMAGE_MODEL,
+            value: DEFAULT_AI_IMAGE_MODEL,
+          },
+          update: { value: DEFAULT_AI_IMAGE_MODEL },
+        });
+      }
+      return DEFAULT_AI_IMAGE_MODEL;
+    }
+    return raw;
   }
 
   async getImageEditTimeoutMs(): Promise<number> {
@@ -245,7 +384,7 @@ export class AiContentSettingsService {
     return (
       this.secrets.get('LIARA_BASE_URL') ||
       this.secrets.get('OPENAI_BASE_URL') ||
-      'https://ai.liara.ir/api/v1'
+      DEFAULT_LIARA_BASE_URL
     ).replace(/\/$/, '');
   }
 
@@ -277,6 +416,7 @@ export class AiContentSettingsService {
       tokenPriceToman,
       tokenPacks,
       kycWelcomeTokens,
+      ...userPromptPricingHints(),
       styles: styles.map((s) => ({
         id: s.id,
         label: s.label,
