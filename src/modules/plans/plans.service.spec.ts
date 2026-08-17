@@ -6,6 +6,7 @@ import { WalletService } from '../wallet/wallet.service';
 import { BUILTIN_FREE_PLAN_ID } from './builtin-free-plan';
 import { PlanLifecycleService } from './plan-lifecycle.service';
 import { AiTokenService } from '../ai-content/services/ai-token.service';
+import { AiContentSettingsService } from '../ai-content/services/ai-content-settings.service';
 
 describe('PlansService', () => {
   let service: PlansService;
@@ -56,6 +57,10 @@ describe('PlansService', () => {
             expirePlanTokens: jest.fn().mockResolvedValue(undefined),
           },
         },
+        {
+          provide: AiContentSettingsService,
+          useValue: { isEnabled: jest.fn().mockResolvedValue(false) },
+        },
       ],
     }).compile();
 
@@ -86,6 +91,7 @@ describe('PlansService', () => {
         description: null,
         price: 100_000,
         isActive: true,
+        aiTokensPerMonth: 30,
         rules: [],
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -101,6 +107,9 @@ describe('PlansService', () => {
     expect(first.isBuiltinFree).toBe(true);
     expect(first.rules[0].count).toBe(4);
     expect(rows[1].id).toBe('paid1');
+    expect(
+      (rows[1] as { aiTokensPerMonth?: number }).aiTokensPerMonth,
+    ).toBeUndefined();
   });
 
   it('buyPlan rejects builtin free plan', async () => {

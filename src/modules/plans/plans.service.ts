@@ -19,6 +19,7 @@ import {
 } from './builtin-free-plan-display';
 import { PlanLifecycleService } from './plan-lifecycle.service';
 import { AiTokenService } from '../ai-content/services/ai-token.service';
+import { AiContentSettingsService } from '../ai-content/services/ai-content-settings.service';
 
 function addDaysUtc(base: Date, days: number): Date {
   const d = new Date(base.getTime());
@@ -35,6 +36,7 @@ export class PlansService {
     private readonly walletService: WalletService,
     private readonly planLifecycle: PlanLifecycleService,
     private readonly aiTokens: AiTokenService,
+    private readonly aiSettings: AiContentSettingsService,
   ) {}
 
   // تغییر نام برای هماهنگی با Controller
@@ -59,9 +61,12 @@ export class PlansService {
       ? Math.max(0, Math.floor(rawExchange))
       : 1;
 
-    const displaySetting = await this.prisma.systemSetting.findUnique({
-      where: { key: BUILTIN_FREE_PLAN_DISPLAY_KEY },
-    });
+    const [displaySetting, aiContentEnabled] = await Promise.all([
+      this.prisma.systemSetting.findUnique({
+        where: { key: BUILTIN_FREE_PLAN_DISPLAY_KEY },
+      }),
+      this.aiSettings.isEnabled(),
+    ]);
     const builtinOverrides = parseBuiltinFreePlanDisplay(displaySetting?.value);
     const builtin = buildBuiltinFreePlan(
       { direct: freeDirectLimit, exchange: freeExchangeLimit },
@@ -94,7 +99,9 @@ export class PlansService {
         orderBy: { price: 'asc' },
       });
 
-      const publicDb = dbPlans.map((p) => this.toPublicDbPlan(p));
+      const publicDb = dbPlans.map((p) =>
+        this.toPublicDbPlan(p, aiContentEnabled),
+      );
       if (!builtin.isActive) {
         return publicDb;
       }
@@ -147,6 +154,7 @@ export class PlansService {
         };
       };
     }>,
+    aiContentEnabled = true,
   ) {
     return {
       id: plan.id,
@@ -161,7 +169,9 @@ export class PlansService {
       feeDiscountAuctionPercent: plan.feeDiscountAuctionPercent,
       badgeLabel: plan.badgeLabel,
       badgeColor: plan.badgeColor,
-      aiTokensPerMonth: plan.aiTokensPerMonth,
+      ...(aiContentEnabled
+        ? { aiTokensPerMonth: plan.aiTokensPerMonth }
+        : {}),
       createdAt: plan.createdAt.toISOString(),
       updatedAt: plan.updatedAt.toISOString(),
       rules: plan.rules.map((r) => ({
