@@ -9,17 +9,30 @@ import {
   UseGuards,
   Req,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AddressService } from './address.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { LookupPostalCodeDto } from './dto/lookup-postal-code.dto';
 
 @Controller('addresses')
 @UseGuards(JwtAuthGuard)
 export class AddressController {
   constructor(private readonly addressService: AddressService) {}
 
+  @Get('inquiry-config')
+  getInquiryConfig() {
+    return this.addressService.getInquiryConfig();
+  }
+
   @Get()
   async getMyAddresses(@Req() req) {
     return this.addressService.getMyAddresses(req.user.id);
+  }
+
+  @Post('lookup-postal-code')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  lookupPostalCode(@Body() dto: LookupPostalCodeDto) {
+    return this.addressService.lookupPostalCode(dto.postalCode);
   }
 
   @Post()

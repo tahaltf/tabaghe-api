@@ -53,6 +53,7 @@ export const SETTING_KEYS = {
     'SELLER_RETURN_CONFIRM_DEADLINE_MINUTES',
   BUYER_CONFIRM_DEADLINE_MINUTES: 'BUYER_CONFIRM_DEADLINE_MINUTES',
   LISTING_DISPLAY_DAYS: 'LISTING_DISPLAY_DAYS',
+  LISTING_REVIEW_SLA_HOURS: 'LISTING_REVIEW_SLA_HOURS',
   LISTING_TYPE_DIRECT_ENABLED: LISTING_TYPE_ENABLED_SETTING_KEYS.DIRECT,
   LISTING_TYPE_EXCHANGE_ENABLED: LISTING_TYPE_ENABLED_SETTING_KEYS.EXCHANGE,
   LISTING_TYPE_AUCTION_ENABLED: LISTING_TYPE_ENABLED_SETTING_KEYS.AUCTION,
@@ -88,6 +89,9 @@ export const SETTING_KEYS = {
   BANK_SHABA: 'BANK_SHABA',
   MANUAL_CARD_TRANSFER_MAX: 'MANUAL_CARD_TRANSFER_MAX',
   TERMS_CONDITIONS: 'TERMS_CONDITIONS',
+  TERMS_VERSION: 'TERMS_VERSION',
+  PRIVACY_POLICY: 'PRIVACY_POLICY',
+  SELLER_TERMS: 'SELLER_TERMS',
   ABOUT_US: 'ABOUT_US',
   FOOTER_TAGLINE: 'FOOTER_TAGLINE',
   HEADER_NAV_JSON: 'HEADER_NAV_JSON',
@@ -166,6 +170,7 @@ export const SETTING_KEYS = {
   KYC_ALLOW_LISTING_WITH_MOBILE: 'KYC_ALLOW_LISTING_WITH_MOBILE',
   /** سقف تعداد آگهی فعال/درانتظار برای کاربر بدون احراز هویت کامل */
   KYC_UNVERIFIED_LISTING_LIMIT: 'KYC_UNVERIFIED_LISTING_LIMIT',
+  KYC_UNVERIFIED_MAX_AMOUNT: 'KYC_UNVERIFIED_MAX_AMOUNT',
   /** دسترسی سفارش‌ها (خرید/فروش/درخواست‌ها) نیازمند احراز هویت کاربری */
   KYC_REQUIRE_IDENTITY_FOR_ORDERS: 'KYC_REQUIRE_IDENTITY_FOR_ORDERS',
   /** دسترسی کیف پول نیازمند احراز مالی */
@@ -194,6 +199,13 @@ export const SETTING_KEYS = {
   /** بازه Health-check پروکسی‌ها (ثانیه). */
   TELEGRAM_PROXY_HEALTHCHECK_INTERVAL_SECONDS:
     'TELEGRAM_PROXY_HEALTHCHECK_INTERVAL_SECONDS',
+  ZOHAL_IDENTITY_ENABLED: 'ZOHAL_IDENTITY_ENABLED',
+  ZOHAL_POSTAL_ENABLED: 'ZOHAL_POSTAL_ENABLED',
+  ZOHAL_CARD_MATCH_ENABLED: 'ZOHAL_CARD_MATCH_ENABLED',
+  ZOHAL_IDENTITY_MAX_FAILURES: 'ZOHAL_IDENTITY_MAX_FAILURES',
+  ZOHAL_CARD_MATCH_MAX_FAILURES: 'ZOHAL_CARD_MATCH_MAX_FAILURES',
+  ZOHAL_IDENTITY_FAILURE_COUNT: 'ZOHAL_IDENTITY_FAILURE_COUNT',
+  ZOHAL_CARD_MATCH_FAILURE_COUNT: 'ZOHAL_CARD_MATCH_FAILURE_COUNT',
 } as const;
 
 /**
@@ -235,6 +247,8 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   BUYER_CONFIRM_DEADLINE_MINUTES: 'مهلت تایید/شکایت خریدار پس از ارسال (دقیقه)',
   LISTING_DISPLAY_DAYS:
     'پس از تایید ادمین، آگهی چند روز روی سایت می‌ماند (۱ تا ۳۶۵). یک روز قبل از پایان به فروشنده اطلاع داده می‌شود؛ پس از اتمام آرشیو می‌شود.',
+  LISTING_REVIEW_SLA_HOURS:
+    'زمان تقریبی بررسی آگهی توسط ادمین که به فروشنده نشان داده می‌شود (ساعت، ۱ تا ۱۶۸)',
   LISTING_TYPE_DIRECT_ENABLED:
     'فعال بودن ثبت آگهی فروش مستقیم برای کاربران (true/false)',
   LISTING_TYPE_EXCHANGE_ENABLED:
@@ -264,6 +278,8 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
     'اگر true باشد، کاربر با ورود موبایل می‌تواند آگهی ثبت کند (بدون نیاز به احراز کامل)',
   KYC_UNVERIFIED_LISTING_LIMIT:
     'سقف تعداد آگهی فعال/درانتظار برای کاربر بدون احراز کامل (عدد صحیح >= 0)',
+  KYC_UNVERIFIED_MAX_AMOUNT:
+    'سقف مبلغ آگهی فروش مستقیم برای کاربر بدون احراز کامل (تومان؛ ۰ = بدون سقف)',
   KYC_REQUIRE_IDENTITY_FOR_ORDERS:
     'اگر true باشد، دسترسی به خرید/فروش/درخواست‌ها فقط با احراز هویت کاربری فعال است',
   KYC_REQUIRE_FINANCIAL_FOR_WALLET:
@@ -321,11 +337,28 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
     'لیست پروکسی‌های قابل استفاده برای بات (JSON array یا متن چندخطی؛ هر خط یک URL). اولویت با این لیست است.',
   TELEGRAM_PROXY_HEALTHCHECK_INTERVAL_SECONDS:
     'بازه بررسی سلامت پروکسی‌ها برای بات (ثانیه). پیش‌فرض: 10',
+  ZOHAL_IDENTITY_ENABLED:
+    'فعال بودن احراز هویت خودکار (شاهکار + ثبت احوال) — true/false',
+  ZOHAL_POSTAL_ENABLED:
+    'فعال بودن استعلام کد پستی — true/false',
+  ZOHAL_CARD_MATCH_ENABLED:
+    'فعال بودن تطبیق کارت بانکی با کد ملی هنگام برداشت — true/false',
+  ZOHAL_IDENTITY_MAX_FAILURES:
+    'آستانه خطای سراسری احراز هویت؛ پس از آن fallback به فرم دستی',
+  ZOHAL_CARD_MATCH_MAX_FAILURES:
+    'آستانه خطای سراسری تطبیق کارت؛ پس از آن برداشت بدون استعلام خودکار',
+  ZOHAL_IDENTITY_FAILURE_COUNT:
+    'شمارنده runtime خطاهای احراز هویت (ادمین می‌تواند reset کند)',
+  ZOHAL_CARD_MATCH_FAILURE_COUNT:
+    'شمارنده runtime خطاهای تطبیق کارت (ادمین می‌تواند reset کند)',
   BANK_CARD_NUMBER: 'شماره کارت بانکی واریز',
   BANK_ACCOUNT_HOLDER: 'نام دارنده حساب بانکی',
   BANK_SHABA: 'شماره شبا جهت واریز',
   MANUAL_CARD_TRANSFER_MAX: 'حداکثر مبلغ مجاز کارت‌به‌کارت (تومان)',
   TERMS_CONDITIONS: 'متن قوانین و مقررات (نمایش به کاربران)',
+  TERMS_VERSION: 'نسخه قوانین؛ با تغییر آن کاربران باید دوباره بپذیرند',
+  PRIVACY_POLICY: 'متن حریم خصوصی (نمایش در /privacy)',
+  SELLER_TERMS: 'قرارداد فروشنده هنگام ارسال آگهی',
   ABOUT_US: 'متن صفحه درباره ما',
   FOOTER_TAGLINE: 'معرفی کوتاه فوتر سایت (۱–۲ جمله)',
   HEADER_NAV_JSON:

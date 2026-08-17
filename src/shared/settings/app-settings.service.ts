@@ -80,4 +80,15 @@ export class AppSettingsService {
       `${this.getFrontendAppUrl()}/payment-result`
     );
   }
+
+  getZohalToken(): string {
+    return this.secrets.get('ZOHAL_TOKEN')?.trim() || '';
+  }
+
+  getZohalBaseUrl(): string {
+    return (
+      this.secrets.get('ZOHAL_BASE_URL')?.trim() ||
+      'https://service.zohal.io/api/v0/services'
+    );
+  }
 }

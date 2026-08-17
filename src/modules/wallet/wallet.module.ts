@@ -13,8 +13,10 @@ import { WalletEscrowService } from './services/escrow/wallet-escrow.service';
 import { WalletRefundService } from './services/refund/wallet-refund.service';
 import { WalletDepositWithdrawService } from './services/deposit-withdraw/wallet-deposit-withdraw.service';
 
+import { ZohalModule } from '../zohal/zohal.module';
+
 @Module({
-  imports: [PrismaModule, NotificationModule, AuthModule, UsersModule],
+  imports: [PrismaModule, NotificationModule, AuthModule, UsersModule, ZohalModule],
   controllers: [WalletController, AdminWalletController],
   providers: [
     WalletSupportService,

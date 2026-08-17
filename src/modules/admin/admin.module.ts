@@ -89,6 +89,7 @@ import { UserRatingHistoryService } from '../users/user-rating-history.service';
 import { CommonModuleModule } from '../../common-module/common-module.module';
 import { ReferralModule } from '../referral/referral.module';
 import { UsersModule } from '../users/users.module';
+import { ZohalModule } from '../zohal/zohal.module';
 
 @Module({
   imports: [
@@ -105,6 +106,7 @@ import { UsersModule } from '../users/users.module';
     PlansModule,
     ReferralModule,
     UsersModule,
+    ZohalModule,
   ],
   controllers: [
     AdminDashboardController,

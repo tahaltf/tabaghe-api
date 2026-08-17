@@ -164,6 +164,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     let message = 'درخواست ناموفق بود';
     let fieldErrors: Record<string, string[]> | undefined;
+    let customCode: string | undefined;
 
     if (isHttp) {
       const response = exception.getResponse();
@@ -178,6 +179,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
           message = nestResp.message;
         } else if (typeof nestResp.error === 'string') {
           message = nestResp.error;
+        }
+        if (typeof (nestResp as { code?: unknown }).code === 'string') {
+          customCode = (nestResp as { code: string }).code;
         }
       }
     }
@@ -204,7 +208,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     });
 
     const errorDetails: ApiErrorDetails = {
-      code: mapStatusToCode(status),
+      code: customCode ?? mapStatusToCode(status),
       message,
       ...(fieldErrors ? { fieldErrors } : {}),
       ...(isProd

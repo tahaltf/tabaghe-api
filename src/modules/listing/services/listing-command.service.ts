@@ -92,12 +92,23 @@ export class ListingCommandService {
     options?: CreateListingOptions,
   ): Promise<Listing> {
     await this.assertListingTypeEnabledForCreate(dto.type);
-    this.validateListingPayload(dto, false);
+    const isDraft = dto.asDraft === true;
+    this.validateListingPayload(dto, false, dto.type, isDraft);
     await this.assertCategoriesVisibleOnSite([
       dto.categoryId,
       dto.exchange?.desiredCategoryId,
     ]);
-    const auctionEndDate = this.resolveAuctionEndDate(dto);
+    if (
+      isDraft &&
+      (!String(dto.categoryId ?? '').trim() ||
+        !String(dto.provinceId ?? '').trim() ||
+        !String(dto.cityId ?? '').trim())
+    ) {
+      throw new BadRequestException(
+        'برای ذخیره پیش‌نویس در حساب، دسته، استان و شهر را انتخاب کنید.',
+      );
+    }
+    const auctionEndDate = this.resolveAuctionEndDate(dto, isDraft);
 
     const listing = await this.prisma.$transaction(async (tx) => {
       const author = await tx.user.findUnique({
@@ -121,16 +132,18 @@ export class ListingCommandService {
         );
       }
       this.assertAuthorCanPublishListing(author.rating);
-      await this.assertUserCanCreateListingByKyc(tx, userId, {
-        status: author.status,
-        isVerified: author.isVerified,
-      });
+      if (!isDraft) {
+        await this.assertUserCanCreateListingByKyc(tx, userId, {
+          status: author.status,
+          isVerified: author.isVerified,
+        }, dto);
+      }
 
       const listing = await tx.listing.create({
         data: {
           title: dto.title,
           type: dto.type,
-          status: ListingStatus.PENDING,
+          status: isDraft ? ListingStatus.DRAFT : ListingStatus.PENDING,
           condition: dto.condition,
           description: normalizeMultilineText(dto.description ?? ''),
           shippingPayer: dto.shippingPayer,
@@ -154,9 +167,9 @@ export class ListingCommandService {
               : 1,
           singleItemSale: dto.singleItemSale !== false,
           author: { connect: { id: userId } },
-          category: { connect: { id: dto.categoryId } },
-          province: { connect: { id: dto.provinceId } },
-          city: { connect: { id: dto.cityId } },
+          category: { connect: { id: String(dto.categoryId) } },
+          province: { connect: { id: String(dto.provinceId) } },
+          city: { connect: { id: String(dto.cityId) } },
           direct:
             dto.type === ListingType.DIRECT
               ? {
@@ -191,16 +204,17 @@ export class ListingCommandService {
         },
       });
 
-      await this.quotaService.consumeOnCreate(tx, userId, dto.type, listing.id);
       return listing;
     });
 
-    void this.dispatchAdminNewListingAlert(
-      userId,
-      listing,
-      options,
-      false,
-    );
+    if (!isDraft) {
+      void this.dispatchAdminNewListingAlert(
+        userId,
+        listing,
+        options,
+        false,
+      );
+    }
 
     return listing;
   }
@@ -209,11 +223,16 @@ export class ListingCommandService {
     tx: Prisma.TransactionClient,
     userId: string,
     user: { status: UserStatus; isVerified: boolean },
+    dto: CreateListingDto,
   ): Promise<void> {
     const rows = await tx.systemSetting.findMany({
       where: {
         key: {
-          in: ['KYC_ALLOW_LISTING_WITH_MOBILE', 'KYC_UNVERIFIED_LISTING_LIMIT'],
+          in: [
+            'KYC_ALLOW_LISTING_WITH_MOBILE',
+            'KYC_UNVERIFIED_LISTING_LIMIT',
+            'KYC_UNVERIFIED_MAX_AMOUNT',
+          ],
         },
       },
       select: { key: true, value: true },
@@ -254,6 +273,17 @@ export class ListingCommandService {
       throw new ForbiddenException(
         `برای ثبت بیش از ${limit} آگهی، باید احراز هویت کاربری را تکمیل کنید.`,
       );
+    }
+
+    const rawMax = Number(map.KYC_UNVERIFIED_MAX_AMOUNT ?? '0');
+    const maxAmount = Number.isFinite(rawMax) ? Math.max(0, Math.floor(rawMax)) : 0;
+    if (maxAmount > 0 && dto.type === ListingType.DIRECT) {
+      const price = Number(dto.direct?.price ?? 0);
+      if (price > maxAmount) {
+        throw new ForbiddenException(
+          `سقف مبلغ آگهی برای کاربر بدون احراز کامل ${maxAmount.toLocaleString('fa-IR')} تومان است.`,
+        );
+      }
     }
   }
 
@@ -520,7 +550,9 @@ export class ListingCommandService {
     if (dto.type !== undefined && dto.type !== listing.type) {
       await this.assertListingTypeEnabledForCreate(dto.type);
     }
-    this.validateListingPayload(dto, true, currentType);
+    const keepDraft =
+      dto.asDraft === true && listing.status === ListingStatus.DRAFT;
+    this.validateListingPayload(dto, true, currentType, keepDraft);
     await this.assertCategoriesVisibleOnSite([
       dto.categoryId,
       dto.exchange?.desiredCategoryId,
@@ -531,6 +563,7 @@ export class ListingCommandService {
         : (listing.auction?.endDatetime ?? undefined);
 
     const wasRejected = listing.status === ListingStatus.REJECTED;
+    const wasDraft = listing.status === ListingStatus.DRAFT;
     const updated = await this.prisma.listing.update({
       where: { id: listingId },
       data: {
@@ -554,7 +587,7 @@ export class ListingCommandService {
         thumbnail: dto.thumbnail,
         gallery: dto.gallery,
         type: currentType,
-        status: ListingStatus.PENDING,
+        status: keepDraft ? ListingStatus.DRAFT : ListingStatus.PENDING,
         rejectionReason: null,
         rejectedAt: null,
         ...(wasRejected ? { exchangeOffersSince: new Date() } : {}),
@@ -592,10 +625,14 @@ export class ListingCommandService {
           type: NotificationType.ADMIN_ALERT_NEW_LISTING,
           title: wasRejected
             ? 'آگهی اصلاح‌شده در انتظار تایید'
-            : 'آگهی ویرایش‌شده در انتظار تایید',
+            : wasDraft
+              ? 'آگهی جدید در انتظار تایید'
+              : 'آگهی ویرایش‌شده در انتظار تایید',
           message: wasRejected
             ? `آگهی «${updated.title}» (${listingTypePersianLabel(updated.type)}) پس از رد/اصلاح توسط فروشنده دوباره برای بررسی ارسال شد.`
-            : `آگهی «${updated.title}» (${listingTypePersianLabel(updated.type)}) ویرایش شد و در انتظار بررسی است.`,
+            : wasDraft
+              ? `آگهی «${updated.title}» (${listingTypePersianLabel(updated.type)}) از پیش‌نویس برای بررسی ارسال شد.`
+              : `آگهی «${updated.title}» (${listingTypePersianLabel(updated.type)}) ویرایش شد و در انتظار بررسی است.`,
           meta: {
             listingId: updated.id,
             userId,
@@ -608,6 +645,36 @@ export class ListingCommandService {
     }
 
     return updated;
+  }
+
+  async renewDisplay(
+    userId: string,
+    listingId: string,
+  ): Promise<Listing> {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+    });
+    if (!listing) throw new NotFoundException('آگهی یافت نشد');
+    if (listing.authorId !== userId) {
+      throw new ForbiddenException('شما مالک این آگهی نیستید');
+    }
+    if (
+      listing.status !== ListingStatus.APPROVED &&
+      listing.status !== ListingStatus.ARCHIVED
+    ) {
+      throw new BadRequestException('فقط آگهی منتشر یا آرشیوشده قابل تمدید است.');
+    }
+    const approvedAt = new Date();
+    const expiryFields = await this.listingExpiry.approvalExpiryFields(approvedAt);
+    return this.prisma.listing.update({
+      where: { id: listingId },
+      data: {
+        status: ListingStatus.APPROVED,
+        approvedAt,
+        ...expiryFields,
+        expiryReminderSentAt: null,
+      },
+    });
   }
 
   /**
@@ -698,9 +765,13 @@ export class ListingCommandService {
     });
   }
 
-  private resolveAuctionEndDate(dto: CreateListingDto): Date | undefined {
+  private resolveAuctionEndDate(
+    dto: CreateListingDto,
+    isDraft = false,
+  ): Date | undefined {
     if (dto.type !== ListingType.AUCTION) return undefined;
     if (!dto.auction?.endDatetime) {
+      if (isDraft) return undefined;
       throw new BadRequestException('زمان پایان مزایده الزامی است');
     }
     if (
@@ -771,6 +842,7 @@ export class ListingCommandService {
     dto: CreateListingDto | UpdateListingDto,
     isUpdate: boolean,
     resolvedType?: ListingType,
+    isDraft = false,
   ): void {
     const type = resolvedType ?? dto.type;
     if (!type) {
@@ -786,6 +858,14 @@ export class ListingCommandService {
     if (!isUpdate || dto.title !== undefined) {
       if (!hasText(dto.title)) missing.push('عنوان آگهی');
     }
+    if (isDraft) {
+      if (missing.length) {
+        throw new BadRequestException(
+          `برای ذخیره پیش‌نویس، این موارد را تکمیل کنید: ${missing.join('، ')}`,
+        );
+      }
+      return;
+    }
     if (!isUpdate || dto.categoryId !== undefined) {
       if (!hasText(dto.categoryId)) missing.push('دسته‌بندی');
     }
@@ -794,6 +874,24 @@ export class ListingCommandService {
     }
     if (!isUpdate || dto.cityId !== undefined) {
       if (!hasText(dto.cityId)) missing.push('شهر');
+    }
+
+    const desc = String(dto.description ?? '').trim();
+    if (!isUpdate || dto.description !== undefined) {
+      if (desc.length < 80) {
+        missing.push('توضیحات (حداقل ۸۰ کاراکتر)');
+      }
+    }
+    if (!isUpdate) {
+      const hasImage =
+        Boolean(String(dto.thumbnail ?? '').trim()) ||
+        (Array.isArray(dto.gallery) && dto.gallery.length > 0);
+      if (!hasImage) missing.push('حداقل یک تصویر محصول');
+    } else if (dto.gallery !== undefined) {
+      const hasImage =
+        Boolean(String(dto.thumbnail ?? '').trim()) ||
+        (Array.isArray(dto.gallery) && dto.gallery.length > 0);
+      if (!hasImage) missing.push('حداقل یک تصویر محصول');
     }
 
     if (type === ListingType.DIRECT) {

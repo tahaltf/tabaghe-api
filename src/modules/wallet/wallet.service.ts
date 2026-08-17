@@ -28,6 +28,10 @@ export class WalletService {
     return this.query.getUserWalletTransactions(...args);
   }
 
+  getCommissionReport(...args: Parameters<WalletQueryService['getCommissionReport']>) {
+    return this.query.getCommissionReport(...args);
+  }
+
   blockAmount(...args: Parameters<WalletBlockService['blockAmount']>) {
     return this.block.blockAmount(...args);
   }

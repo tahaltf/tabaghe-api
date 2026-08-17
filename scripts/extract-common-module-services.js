@@ -113,6 +113,8 @@ const publicMethods = [
   ['getRepairCategories', 'category'],
   ['getPublicSiteSettings', 'content'],
   ['getTermsAndConditions', 'content'],
+  ['getPrivacyPolicy', 'content'],
+  ['getSellerTerms', 'content'],
   ['getAboutUs', 'content'],
   ['getFaqs', 'content'],
   ['getIntroduction', 'content'],

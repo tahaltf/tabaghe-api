@@ -36,6 +36,7 @@ enum ListingType {
 }
 
 enum ListingStatus {
+  DRAFT     // پیش‌نویس فروشنده — بدون صف ادمین
   PENDING   // در انتظار تایید ادمین
   APPROVED  // منتشر شده
   REJECTED  // رد شده
@@ -292,9 +293,15 @@ model User {
 
   // 👈 فیلد جدید تایید قوانین
   termsAcceptedAt     DateTime?
+  termsAcceptedVersion String?
+  sellerTermsAcceptedAt DateTime?
+  sellerTermsAcceptedVersion String?
 
   firstName           String?
   lastName            String?
+  fatherName          String?
+  /** پاسخ خام استعلام هویت (شاهکار + ثبت‌احوال)؛ در فرم کاربر نمایش داده نمی‌شود */
+  identityInquiry     Json?
   displayName         String?
   nationalCode        String?        @unique
   nationalCardImage   String?
@@ -512,6 +519,8 @@ model Address {
   fullAddress String
   postalCode  String
   phone       String
+  /** آدرس از استعلام کد پستی آمده؛ استان/شهر/آدرس/کدپستی دیگر قابل ویرایش نیست */
+  fromInquiry Boolean  @default(false)
 
   userId      String
   user        User     @relation(fields: [userId], references: [id])

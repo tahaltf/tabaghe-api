@@ -3,6 +3,7 @@ export type AdminSecretKeyCategory =
   | 'payment'
   | 'marketing'
   | 'ai'
+  | 'kyc'
   | 'web_push'
   | 'crawler'
   | 'general';
@@ -102,6 +103,24 @@ export const ADMIN_SECRET_KEYS_REGISTRY: AdminSecretKeyDef[] = [
     label: 'Callback زیبال',
     kind: 'url',
     placeholder: 'https://api.example.com/api/v1/payments/callback/zibal',
+  },
+  {
+    key: 'ZOHAL_TOKEN',
+    category: 'kyc',
+    categoryLabel: 'احراز هویت و استعلام',
+    label: 'توکن API استعلام',
+    description:
+      'Bearer token سرویس‌دهنده استعلام — برای شاهکار، ثبت‌احوال، کد پستی و تطبیق کارت',
+    kind: 'secret',
+  },
+  {
+    key: 'ZOHAL_BASE_URL',
+    category: 'kyc',
+    categoryLabel: 'احراز هویت و استعلام',
+    label: 'Base URL استعلام',
+    description: 'آدرس پایه API سرویس استعلام (در صورت خالی بودن از مقدار پیش‌فرض استفاده می‌شود)',
+    kind: 'url',
+    placeholder: 'https://example.com/api/v0/services',
   },
   {
     key: 'META_INSTAGRAM_APP_ID',

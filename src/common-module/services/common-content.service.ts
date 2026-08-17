@@ -15,6 +15,8 @@ import {
   DEFAULT_ABOUT_US_FA,
   DEFAULT_FAQ_ITEMS,
   DEFAULT_FOOTER_TAGLINE_FA,
+  DEFAULT_PRIVACY_POLICY_FA,
+  DEFAULT_SELLER_TERMS_FA,
   DEFAULT_SYSTEM_INTRO_FA,
   DEFAULT_TERMS_CONDITIONS_FA,
   parseHeaderNavJson,
@@ -98,6 +100,8 @@ export class CommonContentService {
       'LISTING_TYPE_DIRECT_ENABLED',
       'LISTING_TYPE_EXCHANGE_ENABLED',
       'LISTING_TYPE_AUCTION_ENABLED',
+      'LISTING_REVIEW_SLA_HOURS',
+      'TERMS_VERSION',
       'PWA_APP_NAME',
       'PWA_APP_SHORT_NAME',
       'PWA_APP_ICON',
@@ -282,6 +286,11 @@ export class CommonContentService {
       footerTagline:
         map.FOOTER_TAGLINE?.trim() || DEFAULT_FOOTER_TAGLINE_FA,
       listingTypesEnabled: parseListingTypesEnabledFromMap(map),
+      listingReviewSlaHours: (() => {
+        const n = Number(map.LISTING_REVIEW_SLA_HOURS || '24');
+        return Number.isFinite(n) && n > 0 ? Math.min(168, Math.floor(n)) : 24;
+      })(),
+      termsVersion: map.TERMS_VERSION?.trim() || '1',
       landingPagesUrlPrefix: (() => {
         const raw = map.LANDING_PAGES_URL_PREFIX?.trim()
           .toLowerCase()
@@ -338,6 +347,28 @@ export class CommonContentService {
     });
     return {
       content: row?.value?.trim() || DEFAULT_TERMS_CONDITIONS_FA,
+      updatedAt: row?.updatedAt ?? null,
+    };
+  }
+
+  async getPrivacyPolicy() {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { key: 'PRIVACY_POLICY' },
+      select: { value: true, updatedAt: true },
+    });
+    return {
+      content: row?.value?.trim() || DEFAULT_PRIVACY_POLICY_FA,
+      updatedAt: row?.updatedAt ?? null,
+    };
+  }
+
+  async getSellerTerms() {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { key: 'SELLER_TERMS' },
+      select: { value: true, updatedAt: true },
+    });
+    return {
+      content: row?.value?.trim() || DEFAULT_SELLER_TERMS_FA,
       updatedAt: row?.updatedAt ?? null,
     };
   }

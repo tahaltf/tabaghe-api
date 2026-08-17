@@ -431,15 +431,28 @@ export class ListingAdminService {
   }
 
   private async approveCore(listingId: string): Promise<Listing> {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      select: { id: true, authorId: true, type: true, status: true },
+    });
+    if (!listing) throw new NotFoundException('آگهی یافت نشد');
     const approvedAt = new Date();
     const expiryFields = await this.listingExpiry.approvalExpiryFields(approvedAt);
-    return this.prisma.listing.update({
-      where: { id: listingId },
-      data: {
-        status: ListingStatus.APPROVED,
-        approvedAt,
-        ...expiryFields,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      await this.quotaService.consumeOnCreate(
+        tx,
+        listing.authorId,
+        listing.type,
+        listing.id,
+      );
+      return tx.listing.update({
+        where: { id: listingId },
+        data: {
+          status: ListingStatus.APPROVED,
+          approvedAt,
+          ...expiryFields,
+        },
+      });
     });
   }
 
@@ -590,6 +603,14 @@ export class ListingAdminService {
       status === ListingStatus.APPROVED &&
       before.status !== ListingStatus.APPROVED
     ) {
+      await this.prisma.$transaction(async (tx) => {
+        await this.quotaService.consumeOnCreate(
+          tx,
+          before.authorId,
+          before.type,
+          listingId,
+        );
+      });
       await this.notificationService.create({
         userId: before.authorId,
         type: NotificationType.LISTING_APPROVED,

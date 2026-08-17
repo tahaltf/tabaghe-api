@@ -74,6 +74,14 @@ export class CommonService {
     return this.content.getTermsAndConditions(...args);
   }
 
+  getPrivacyPolicy(...args: Parameters<CommonContentService['getPrivacyPolicy']>) {
+    return this.content.getPrivacyPolicy(...args);
+  }
+
+  getSellerTerms(...args: Parameters<CommonContentService['getSellerTerms']>) {
+    return this.content.getSellerTerms(...args);
+  }
+
   getAboutUs(...args: Parameters<CommonContentService['getAboutUs']>) {
     return this.content.getAboutUs(...args);
   }

@@ -9,15 +9,20 @@ import {
   IsDateString,
   MaxLength,
 } from 'class-validator';
+import { IsIranIban, IsIranNationalCode } from '../../../common/identity/iran-identifiers.util';
 
 export class CompleteProfileDto {
+  @IsOptional()
   @IsString()
+  @ValidateIf((o) => String(o.firstName ?? '').trim().length > 0)
   @IsNotEmpty({ message: 'نام الزامی است' })
-  firstName!: string;
+  firstName?: string;
 
+  @IsOptional()
   @IsString()
+  @ValidateIf((o) => String(o.lastName ?? '').trim().length > 0)
   @IsNotEmpty({ message: 'نام خانوادگی الزامی است' })
-  lastName!: string;
+  lastName?: string;
 
   @IsOptional()
   @IsString()
@@ -27,15 +32,17 @@ export class CompleteProfileDto {
   @IsString()
   @Length(10, 10, { message: 'کد ملی باید ۱۰ رقم باشد' })
   @Matches(/^\d{10}$/, { message: 'کد ملی فقط باید شامل اعداد باشد' })
+  @IsIranNationalCode({ message: 'کد ملی نامعتبر است' })
   nationalCode!: string;
 
   @IsOptional()
   @ValidateIf((o) => o.shabaNumber !== '' && o.shabaNumber != null)
   @IsString()
   @Matches(/^(IR)?\d{24}$/i, { message: 'شماره شبا باید ۲۴ رقم باشد' })
+  @IsIranIban({ message: 'شماره شبا نامعتبر است' })
   shabaNumber?: string;
 
-  /** تاریخ تولد — اختیاری */
+  /** تاریخ تولد — در حالت استعلام خودکار الزامی است */
   @IsOptional()
   @IsDateString()
   birthDate?: string | null;

@@ -126,6 +126,16 @@ export class CommonController {
     return this.commonService.getTermsAndConditions();
   }
 
+  @Get('privacy')
+  async privacy() {
+    return this.commonService.getPrivacyPolicy();
+  }
+
+  @Get('seller-terms')
+  async sellerTerms() {
+    return this.commonService.getSellerTerms();
+  }
+
   @Get('about')
   async about() {
     return this.commonService.getAboutUs();

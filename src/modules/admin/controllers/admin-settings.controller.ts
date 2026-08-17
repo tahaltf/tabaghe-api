@@ -32,6 +32,8 @@ import { bannerMulterOptions } from '../../../common/upload/banner-upload.config
 import { brandLogoMulterOptions } from '../../../common/upload/brand-logo-upload.config';
 import { inspectionCertificateAssetMulterOptions } from '../../../common/upload/inspection-certificate-asset-upload.config';
 import { SmsService } from '../../sms/sms.service';
+import { ZohalSettingsService } from '../../zohal/zohal-settings.service';
+import type { ZohalFailureService } from '../../zohal/zohal-settings.constants';
 
 @Controller('admin/settings')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
@@ -42,6 +44,7 @@ export class AdminSettingsController {
     private readonly service: AdminSettingsService,
     private readonly secretKeys: AdminSecretKeysService,
     private readonly sms: SmsService,
+    private readonly zohalSettings: ZohalSettingsService,
   ) {}
 
   @Get()
@@ -66,7 +69,29 @@ export class AdminSettingsController {
     @Body() dto: BulkUpsertSettingsDto,
     @CurrentUser() actor: AuthenticatedUser,
   ) {
-    return this.service.upsertMany(dto, actor);
+    const hasZohal = dto.items.some((i) => i.key.startsWith('ZOHAL_'));
+    return this.service.upsertMany(dto, actor).then((result) => {
+      if (hasZohal) this.zohalSettings.invalidateCache();
+      return result;
+    });
+  }
+
+  @Get('zohal-status')
+  zohalStatus() {
+    return this.zohalSettings.getAdminStatus();
+  }
+
+  @Post('zohal-reset-failures')
+  @RequirePermission('settings.update')
+  zohalResetFailures(@Body() body: { service?: ZohalFailureService }) {
+    const service = body?.service;
+    if (service !== 'identity' && service !== 'card_match') {
+      throw new BadRequestException('service باید identity یا card_match باشد');
+    }
+    return this.zohalSettings.resetFailureCount(service).then(() => ({
+      message: 'شمارنده خطا ریست شد',
+      service,
+    }));
   }
 
   @Post('banner')

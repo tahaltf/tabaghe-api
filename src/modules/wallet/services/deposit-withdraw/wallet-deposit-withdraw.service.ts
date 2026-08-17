@@ -20,6 +20,9 @@ import { OtpService, OtpIssueResult } from '../../../auth/services/otp.service';
 import {
   isFinancialVerified,
 } from '../../../../common/kyc/kyc-profile.util';
+import { isZohalServiceFailure } from '../../../zohal/zohal.errors';
+import { ZohalService } from '../../../zohal/zohal.service';
+import { ZohalSettingsService } from '../../../zohal/zohal-settings.service';
 
 const WITHDRAW_KYC_MESSAGE =
   'برای برداشت وجه باید احراز هویت تایید شده باشد و تصویر کارت ملی به‌همراه شماره شبا در پروفایل ثبت شده باشد.';
@@ -31,6 +34,8 @@ export class WalletDepositWithdrawService {
     private readonly notificationService: NotificationService,
     private readonly query: WalletQueryService,
     private readonly otpService: OtpService,
+    private readonly zohal: ZohalService,
+    private readonly zohalSettings: ZohalSettingsService,
   ) {}
 
   async deposit(userId: string, amount: number | string | Decimal) {
@@ -360,6 +365,8 @@ export class WalletDepositWithdrawService {
         isVerified: true,
         shabaNumber: true,
         nationalCardImage: true,
+        nationalCode: true,
+        birthDate: true,
       },
     });
     if (!user?.phone?.trim()) {
@@ -368,6 +375,28 @@ export class WalletDepositWithdrawService {
     this.assertWithdrawKyc(user);
 
     await this.otpService.consume(user.phone, otpCode, OtpPurpose.WITHDRAW);
+
+    if (await this.zohalSettings.isCardMatchActive()) {
+      const card = String(dto.card ?? '').replace(/\D/g, '');
+      if (card.length === 16 && user.nationalCode && user.birthDate) {
+        try {
+          await this.zohal.assertCardMatchesNationalCode({
+            nationalCode: user.nationalCode,
+            birthDateRaw: user.birthDate,
+            cardNumber: card,
+          });
+        } catch (err) {
+          if (!isZohalServiceFailure(err)) {
+            throw err;
+          }
+          const { circuitOpen } =
+            await this.zohalSettings.recordCardMatchFailure();
+          if (!circuitOpen) {
+            throw err;
+          }
+        }
+      }
+    }
 
     const amountDec = new Decimal(dto.amount);
     const wallet = await this.query.getWalletByUserId(userId);

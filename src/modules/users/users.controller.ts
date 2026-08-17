@@ -22,6 +22,7 @@ import { AuthenticatedUser } from '../../shared/contracts/auth';
 import { nationalCardMulterOptions } from '../../common/upload/national-card-upload.config';
 import { validateUploadedFileSignature } from '../../common/upload/validate-uploaded-file.util';
 import { CompleteProfileDto } from './dto/complete-profile.dto';
+import { AcceptTermsDto } from './dto/accept-terms.dto';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { IsVerifiedGuard } from '../auth/guards/is-verified.guard';
 import { UserPanelAccessGuard } from '../auth/guards/user-panel-access.guard';
@@ -42,6 +43,11 @@ export class UsersController {
   @Get('me')
   getMe(@CurrentUser() user: AuthenticatedUser): Promise<MyProfile> {
     return this.usersService.getMe(user.id);
+  }
+
+  @Get('kyc-form-config')
+  getKycFormConfig() {
+    return this.usersService.getKycFormConfig();
   }
 
   @Get('referral')
@@ -141,11 +147,13 @@ export class UsersController {
   acceptTerms(
     @CurrentUser() user: AuthenticatedUser,
     @Req() req: Request,
+    @Body() dto: AcceptTermsDto,
   ): Promise<MyProfile> {
     return this.usersService.acceptTerms(
       user.id,
       req.ip,
       String(req.headers['user-agent'] ?? ''),
+      dto?.kind === 'SELLER' ? 'SELLER' : 'TERMS',
     );
   }
 

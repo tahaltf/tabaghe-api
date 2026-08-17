@@ -45,6 +45,7 @@ const LIST_ITEM_SELECT = {
   thumbnail: true,
   createdAt: true,
   approvedAt: true,
+  expiresAt: true,
   authorId: true,
   categoryId: true,
   provinceId: true,
@@ -397,17 +398,33 @@ export class ListingQueryService {
 
   async findAllByUser(
     userId: string,
-    options: { page?: number; pageSize?: number } = {},
+    options: { page?: number; pageSize?: number; status?: string } = {},
   ): Promise<PaginatedResult<ListingListItem>> {
     const page = Math.max(1, options.page ?? 1);
     const pageSize = Math.min(50, Math.max(1, options.pageSize ?? 20));
     const skip = (page - 1) * pageSize;
 
     const where: Prisma.ListingWhereInput = { authorId: userId };
+    const status = String(options.status ?? '').trim().toUpperCase();
+    if (status && status !== 'ALL') {
+      if (status === 'EXPIRED') {
+        where.OR = [
+          { status: ListingStatus.ARCHIVED },
+          { status: ListingStatus.APPROVED, expiresAt: { lte: new Date() } },
+        ];
+      } else if (status === 'NON_DRAFT') {
+        where.status = { not: ListingStatus.DRAFT };
+      } else if (Object.values(ListingStatus).includes(status as ListingStatus)) {
+        where.status = status as ListingStatus;
+      }
+    }
     const [rows, total] = await Promise.all([
       this.prisma.listing.findMany({
         where,
-        select: LIST_ITEM_SELECT,
+        select: {
+          ...LIST_ITEM_SELECT,
+          rejectionReason: true,
+        },
         orderBy: { createdAt: 'desc' },
         skip,
         take: pageSize,
@@ -723,5 +740,68 @@ export class ListingQueryService {
       .replace(/ي/g, 'ی')
       .replace(/ك/g, 'ک')
       .trim();
+  }
+
+  async getOwnerStats(userId: string, listingId: string) {
+    const listing = await this.prisma.listing.findFirst({
+      where: { id: listingId, authorId: userId },
+      select: { id: true },
+    });
+    if (!listing) throw new NotFoundException('آگهی یافت نشد');
+    const [views, saves, messages] = await Promise.all([
+      this.prisma.listingView.count({ where: { listingId } }),
+      this.prisma.savedListing.count({ where: { listingId } }),
+      this.prisma.message.count({
+        where: { conversation: { listingId } },
+      }),
+    ]);
+    return { views, saves, messages };
+  }
+
+  async getPublicSeller(sellerId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: sellerId },
+      select: {
+        id: true,
+        displayName: true,
+        firstName: true,
+        lastName: true,
+        avatar: true,
+        rating: true,
+        isVerified: true,
+      },
+    });
+    if (!user) throw new NotFoundException('فروشنده یافت نشد');
+    const [completedTrades, listings] = await Promise.all([
+      this.prisma.order.count({
+        where: {
+          sellerId,
+          status: OrderStatus.COMPLETED,
+        },
+      }),
+      this.prisma.listing.findMany({
+        where: {
+          authorId: sellerId,
+          status: ListingStatus.APPROVED,
+          deletedAt: null,
+        },
+        select: LIST_ITEM_SELECT,
+        orderBy: { approvedAt: 'desc' },
+        take: 48,
+      }),
+    ]);
+    return {
+      seller: {
+        id: user.id,
+        displayName: user.displayName,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        avatar: user.avatar,
+        rating: user.rating,
+        isVerified: user.isVerified,
+        completedTrades,
+      },
+      listings,
+    };
   }
 }

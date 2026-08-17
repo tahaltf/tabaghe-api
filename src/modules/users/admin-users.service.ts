@@ -42,6 +42,7 @@ export class AdminUsersService {
 
   async approve(
     targetUserId: string,
+    options?: { source?: 'admin' | 'zohal' },
   ): Promise<{ id: string; status: UserStatus; isVerified: boolean }> {
     const updatedUser = await this.prisma.user.update({
       where: { id: targetUserId },
@@ -59,7 +60,9 @@ export class AdminUsersService {
       type: NotificationType.KYC_APPROVED,
       title: 'احراز هویت تایید شد',
       message:
-        'مدارک هویتی شما توسط ادمین تایید شد و اکنون حساب کاربری شما فعال است.',
+        options?.source === 'zohal'
+          ? 'هویت شما از طریق استعلام شاهکار و ثبت احوال تایید شد و حساب کاربری شما فعال است.'
+          : 'مدارک هویتی شما توسط ادمین تایید شد و اکنون حساب کاربری شما فعال است.',
     });
 
     void this.planLifecycle.assignKycGiftPlan(targetUserId);

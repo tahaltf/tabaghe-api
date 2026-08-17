@@ -52,6 +52,14 @@ export class WalletController {
     });
   }
 
+  @Get('commission-report')
+  async getCommissionReport(
+    @Req() req: any,
+    @Query('month') month?: string,
+  ) {
+    return this.walletService.getCommissionReport(req.user.id, { month });
+  }
+
   /**
    * Instant online charge (payment-gateway callback). Kept for backward
    * compatibility – no admin approval.

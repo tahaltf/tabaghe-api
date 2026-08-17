@@ -11,6 +11,8 @@ import { ReferralModule } from '../referral/referral.module';
 import { AuthModule } from '../auth/auth.module';
 import { AiTokenModule } from '../ai-content/ai-token.module';
 
+import { ZohalModule } from '../zohal/zohal.module';
+
 @Module({
   imports: [
     NotificationModule,
@@ -18,6 +20,7 @@ import { AiTokenModule } from '../ai-content/ai-token.module';
     ReferralModule,
     AuthModule,
     AiTokenModule,
+    ZohalModule,
   ],
   controllers: [UsersController, AdminUsersController],
   providers: [UsersService, AdminUsersService, UserPanelAccessService, UserPanelAccessGuard],

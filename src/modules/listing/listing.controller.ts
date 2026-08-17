@@ -100,11 +100,18 @@ export class ListingController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('status') status?: string,
   ) {
     return this.queryService.findAllByUser(user.id, {
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
+      status,
     });
+  }
+
+  @Get('seller/:sellerId')
+  getPublicSeller(@Param('sellerId') sellerId: string) {
+    return this.queryService.getPublicSeller(sellerId);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -128,6 +135,24 @@ export class ListingController {
   ) {
     const available = await this.queryService.checkAvailability(id, user?.id);
     return { available };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/owner-stats')
+  getOwnerStats(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.queryService.getOwnerStats(user.id, id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/renew')
+  renewDisplay(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.commandService.renewDisplay(user.id, id);
   }
 
   @UseGuards(JwtAuthGuard)

@@ -239,8 +239,9 @@ export class CreateListingDto {
   @IsString()
   title!: string;
 
+  @ValidateIf((o) => o.asDraft !== true)
   @IsString()
-  categoryId!: string;
+  categoryId?: string;
 
   @IsEnum(ItemCondition)
   condition!: ItemCondition;
@@ -249,11 +250,13 @@ export class CreateListingDto {
   @IsString()
   description?: string;
 
+  @ValidateIf((o) => o.asDraft !== true)
   @IsString()
-  provinceId!: string;
+  provinceId?: string;
 
+  @ValidateIf((o) => o.asDraft !== true)
   @IsString()
-  cityId!: string;
+  cityId?: string;
 
   @IsOptional()
   @IsEnum(ShippingPayer)
@@ -330,6 +333,12 @@ export class CreateListingDto {
   @ValidateNested()
   @Type(() => AuctionPayloadDto)
   auction?: AuctionPayloadDto;
+
+  /** ذخیره به‌صورت پیش‌نویس؛ بدون صف ادمین و بدون مصرف سهمیه */
+  @IsOptional()
+  @Transform(toBoolean)
+  @IsBoolean()
+  asDraft?: boolean;
 }
 
 export { DirectPayloadDto, ExchangePayloadDto, AuctionPayloadDto };

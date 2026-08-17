@@ -27,6 +27,11 @@ import {
   isFinancialVerified,
   isIdentityVerified,
 } from '../../common/kyc/kyc-profile.util';
+import { isZohalServiceFailure } from '../zohal/zohal.errors';
+import { ZohalService } from '../zohal/zohal.service';
+import { ZohalSettingsService } from '../zohal/zohal-settings.service';
+import type { KycFormConfig } from '../zohal/zohal-settings.constants';
+import { AdminUsersService } from './admin-users.service';
 
 const MY_PROFILE_SELECT = {
   id: true,
@@ -54,6 +59,10 @@ const MY_PROFILE_SELECT = {
   inviteCode: true,
   referredById: true,
   panelAccess: true,
+  termsAcceptedAt: true,
+  termsAcceptedVersion: true,
+  sellerTermsAcceptedAt: true,
+  sellerTermsAcceptedVersion: true,
 } satisfies Prisma.UserSelect;
 
 export type MyProfile = Prisma.UserGetPayload<{
@@ -118,7 +127,14 @@ export class UsersService {
     private readonly notifications: NotificationService,
     private readonly referralService: ReferralService,
     private readonly panelAccessService: UserPanelAccessService,
+    private readonly zohal: ZohalService,
+    private readonly zohalSettings: ZohalSettingsService,
+    private readonly adminUsers: AdminUsersService,
   ) {}
+
+  async getKycFormConfig(): Promise<KycFormConfig> {
+    return this.zohalSettings.getKycFormConfig();
+  }
 
   async getMe(userId: string): Promise<MyProfile> {
     const user = await this.prisma.user.findUnique({
@@ -561,7 +577,13 @@ export class UsersService {
   ): Promise<MyProfile> {
     const currentUser = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { nationalCardImage: true, referredById: true },
+      select: {
+        nationalCardImage: true,
+        referredById: true,
+        phone: true,
+        status: true,
+        isVerified: true,
+      },
     });
     if (!currentUser) throw new NotFoundException('کاربر یافت نشد');
 
@@ -582,6 +604,75 @@ export class UsersService {
       shabaNumber = rawShaba;
     }
 
+    const alreadyApproved =
+      currentUser.status === UserStatus.APPROVED && currentUser.isVerified;
+
+    const useZohalIdentity =
+      !alreadyApproved && (await this.zohalSettings.isIdentityActive());
+
+    let firstName = String(dto.firstName ?? '').trim();
+    let lastName = String(dto.lastName ?? '').trim();
+    let fatherName: string | null = null;
+    let identityInquiry: Prisma.InputJsonValue | undefined;
+    let autoVerified = false;
+
+    if (useZohalIdentity) {
+      if (!dto.birthDate) {
+        throw new BadRequestException(
+          'تاریخ تولد برای استعلام هویت الزامی است.',
+        );
+      }
+      if (!currentUser.phone?.trim()) {
+        throw new BadRequestException('شماره موبایل حساب کاربری یافت نشد.');
+      }
+      try {
+        const shahkar = await this.zohal.assertShahkarMatched(
+          currentUser.phone,
+          dto.nationalCode,
+        );
+        const identity = await this.zohal.inquireNationalIdentity(
+          dto.nationalCode,
+          dto.birthDate,
+        );
+        firstName = identity.firstName;
+        lastName = identity.lastName;
+        fatherName = identity.fatherName;
+        identityInquiry = {
+          shahkar: { matched: shahkar.matched },
+          identity: {
+            alive: identity.raw.alive ?? identity.alive,
+            father_name: identity.fatherName,
+            first_name: identity.firstName,
+            is_dead: identity.raw.is_dead ?? identity.isDead,
+            last_name: identity.lastName,
+            matched: identity.raw.matched ?? true,
+            national_code: identity.nationalCode,
+          },
+        };
+        autoVerified = true;
+      } catch (err) {
+        if (isZohalServiceFailure(err)) {
+          const { circuitOpen } =
+            await this.zohalSettings.recordIdentityFailure();
+          if (circuitOpen) {
+            throw new BadRequestException({
+              message:
+                'استعلام خودکار هویت موقتاً در دسترس نیست. لطفاً اطلاعات را به‌صورت دستی وارد کنید.',
+              code: 'KYC_MANUAL_REQUIRED',
+            });
+          }
+        }
+        throw err;
+      }
+    } else if (!alreadyApproved) {
+      if (firstName.length < 2) {
+        throw new BadRequestException('نام الزامی است.');
+      }
+      if (lastName.length < 2) {
+        throw new BadRequestException('نام خانوادگی الزامی است.');
+      }
+    }
+
     try {
       const updated = await this.prisma.$transaction(async (tx) => {
         const referredById = await this.referralService.resolveReferrerId(
@@ -594,8 +685,10 @@ export class UsersService {
         return tx.user.update({
           where: { id: userId },
           data: {
-            firstName: dto.firstName,
-            lastName: dto.lastName,
+            firstName,
+            lastName,
+            ...(fatherName != null ? { fatherName } : {}),
+            ...(identityInquiry != null ? { identityInquiry } : {}),
             displayName: this.normalizeDisplayName(dto.displayName),
             nationalCode: dto.nationalCode,
             shabaNumber,
@@ -614,11 +707,19 @@ export class UsersService {
       void this.notifications
         .notifyAdminPersonnel({
           type: NotificationType.ADMIN_ALERT_KYC_SUBMISSION,
-          title: 'درخواست احراز هویت جدید',
-          message: `${dto.firstName} ${dto.lastName} مدارک احراز هویت را برای بررسی ارسال کرد.`,
-          meta: { userId },
+          title: autoVerified
+            ? 'احراز هویت خودکار'
+            : 'درخواست احراز هویت جدید',
+          message: autoVerified
+            ? `${firstName} ${lastName} با استعلام شاهکار و ثبت احوال تایید شد.`
+            : `${firstName} ${lastName} مدارک احراز هویت را برای بررسی ارسال کرد.`,
+          meta: { userId, autoVerified },
         })
         .catch(() => undefined);
+      if (autoVerified) {
+        await this.adminUsers.approve(userId, { source: 'zohal' });
+        return this.getMe(userId);
+      }
       return this.toProfile(updated);
     } catch (err) {
       if (err instanceof BadRequestException) throw err;
@@ -712,11 +813,27 @@ export class UsersService {
     userId: string,
     ip?: string,
     userAgent?: string,
+    kind: 'TERMS' | 'SELLER' = 'TERMS',
   ): Promise<MyProfile> {
     const now = new Date();
+    const versionRow = await this.prisma.systemSetting.findUnique({
+      where: { key: 'TERMS_VERSION' },
+      select: { value: true },
+    });
+    const version = versionRow?.value?.trim() || '1';
+    const data =
+      kind === 'SELLER'
+        ? {
+            sellerTermsAcceptedAt: now,
+            sellerTermsAcceptedVersion: version,
+          }
+        : {
+            termsAcceptedAt: now,
+            termsAcceptedVersion: version,
+          };
     const updated = await this.prisma.user.update({
       where: { id: userId },
-      data: { termsAcceptedAt: now },
+      data,
       select: MY_PROFILE_SELECT,
     });
     appendJsonLog('terms-consent.log', {
@@ -724,7 +841,8 @@ export class UsersService {
       userId,
       ip: ip ?? null,
       userAgent: userAgent ?? null,
-      event: 'TERMS_ACCEPTED',
+      event: kind === 'SELLER' ? 'SELLER_TERMS_ACCEPTED' : 'TERMS_ACCEPTED',
+      version,
     });
     return this.toProfile(updated);
   }

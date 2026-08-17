@@ -180,6 +180,13 @@ export const DEFAULT_FOOTER_QUICK_LINKS: FooterQuickLinkItem[] = [
     enabled: true,
   },
   {
+    id: 'privacy',
+    label: 'حریم خصوصی',
+    link: '/privacy',
+    icon: 'heroShieldCheck',
+    enabled: true,
+  },
+  {
     id: 'about',
     label: 'درباره ما',
     link: '/about',

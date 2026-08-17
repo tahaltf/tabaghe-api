@@ -16,6 +16,10 @@ export class QuotaService {
     listingType: ListingType,
     listingId: string,
   ) {
+    const existing = await tx.quotaLedger.findFirst({
+      where: { listingId, action: QuotaAction.COMMIT },
+    });
+    if (existing) return;
     // 1) فروش مستقیم — سهمیه رایگان همکف
     if (listingType === ListingType.DIRECT) {
       const freeLimit = await this.getFreeDirectLimit(tx);

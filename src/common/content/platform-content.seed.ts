@@ -3,6 +3,8 @@ import {
   DEFAULT_ABOUT_US_FA,
   DEFAULT_FAQ_ITEMS,
   DEFAULT_FOOTER_TAGLINE_FA,
+  DEFAULT_PRIVACY_POLICY_FA,
+  DEFAULT_SELLER_TERMS_FA,
   DEFAULT_SYSTEM_INTRO_FA,
   DEFAULT_TERMS_CONDITIONS_FA,
 } from './index';
@@ -16,6 +18,21 @@ const CONTENT_SETTINGS: Array<{
     key: 'TERMS_CONDITIONS',
     value: DEFAULT_TERMS_CONDITIONS_FA,
     description: 'متن قوانین و مقررات (نمایش به کاربران)',
+  },
+  {
+    key: 'TERMS_VERSION',
+    value: '1',
+    description: 'نسخه قوانین؛ با تغییر آن کاربران باید دوباره بپذیرند',
+  },
+  {
+    key: 'PRIVACY_POLICY',
+    value: DEFAULT_PRIVACY_POLICY_FA,
+    description: 'متن حریم خصوصی (نمایش در /privacy)',
+  },
+  {
+    key: 'SELLER_TERMS',
+    value: DEFAULT_SELLER_TERMS_FA,
+    description: 'قرارداد فروشنده هنگام ارسال آگهی',
   },
   {
     key: 'ABOUT_US',
