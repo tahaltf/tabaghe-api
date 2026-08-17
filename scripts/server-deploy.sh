@@ -165,7 +165,15 @@ handle_deploy_failure() {
   trap - ERR
 
   local rb_status="skipped"
-  if [ "${CONTAINERS_RECREATED}" = "1" ] && [ ${#RECREATE[@]} -gt 0 ]; then
+  local only_frontend=0
+  if [ ${#RECREATE[@]} -eq 1 ] && [ "${RECREATE[0]}" = "frontend" ]; then
+    only_frontend=1
+  fi
+
+  if [ "$only_frontend" = "1" ] && [[ "$reason" == "API" ]]; then
+    log "skip rollback of frontend — API health failed independently of this image"
+    rb_status="skipped-fe"
+  elif [ "${CONTAINERS_RECREATED}" = "1" ] && [ ${#RECREATE[@]} -gt 0 ]; then
     if rollback_recreated_services; then
       rb_status="rbOK"
       local vs
@@ -428,24 +436,15 @@ fi
 # Keep infrastructure services running (service names match server compose)
 docker compose up -d db gateway 2>/dev/null || docker compose up -d tabagheh-postgres tabagheh-gateway 2>/dev/null || true
 
-if [ "$BUILD_BE" = "1" ]; then
-  log "database migrate..."
-  MIGRATE_ATTEMPTED=1
-  if docker compose ps --status running backend >/dev/null 2>&1; then
-    if ! docker compose exec -T backend npx prisma migrate deploy; then
-      handle_deploy_failure "migrate"
-    fi
-    docker compose exec -T backend npx prisma generate || true
-  elif docker compose ps --status running tabagheh-api >/dev/null 2>&1; then
-    if ! docker compose exec -T tabagheh-api npx prisma migrate deploy; then
-      handle_deploy_failure "migrate"
-    fi
-    docker compose exec -T tabagheh-api npx prisma generate || true
-  else
-    log "warning: backend container not running — skip migrate"
-    MIGRATE_ATTEMPTED=0
-  fi
+# Always apply pending Prisma migrations when the backend image exists.
+# Frontend-only deploys still ship an API client that expects current columns;
+# skipping migrate leaves Nest crash-looping (P2022).
+log "database migrate..."
+MIGRATE_ATTEMPTED=1
+if ! docker compose run --rm --no-deps --entrypoint npx backend prisma migrate deploy; then
+  handle_deploy_failure "migrate"
 fi
+docker compose exec -T backend npx prisma generate 2>/dev/null || true
 
 # Health check — SMS owned by this script (success here, or failure after rollback)
 _DEPLOY_ERR_SMS=0

@@ -144,24 +144,27 @@ json_escape() {
 http_ok() {
   local url="$1"
   local code
-  code="$(curl -sS -o /tmp/tabagheh-health-body.$$ -w '%{http_code}' --max-time 8 "$url" 2>/dev/null || echo 000)"
+  local bodyf="/tmp/tabagheh-health-body.$$"
+  code="$(curl -sS -o "$bodyf" -w '%{http_code}' --max-time 8 "$url" 2>/dev/null || echo 000)"
   if [[ "$code" =~ ^2 ]]; then
     if [[ "$url" == *"/health"* ]]; then
-      if grep -qE '"ok"[[:space:]]*:[[:space:]]*true|"status"[[:space:]]*:[[:space:]]*"up"' /tmp/tabagheh-health-body.$$ 2>/dev/null; then
-        rm -f /tmp/tabagheh-health-body.$$
+      if grep -qE '"ok"[[:space:]]*:[[:space:]]*true|"status"[[:space:]]*:[[:space:]]*"up"' "$bodyf" 2>/dev/null; then
+        rm -f "$bodyf"
         return 0
       fi
-      rm -f /tmp/tabagheh-health-body.$$
+      LAST_HEALTH_HINT="http ${code} $(tr -d '\n' < "$bodyf" 2>/dev/null | cut -c1-80)"
+      rm -f "$bodyf"
       return 1
     fi
-    rm -f /tmp/tabagheh-health-body.$$
+    rm -f "$bodyf"
     return 0
   fi
-  rm -f /tmp/tabagheh-health-body.$$
+  LAST_HEALTH_HINT="http ${code} $(tr -d '\n' < "$bodyf" 2>/dev/null | cut -c1-80)"
+  rm -f "$bodyf"
   return 1
 }
 
-# Fallback when host cannot reach API (port 3000 not published): curl inside container
+# Ground truth: Nest inside the API container (gateway :80 may return outage.html with HTTP 200).
 api_health_via_docker() {
   local svc body
   cd "$ROOT" 2>/dev/null || true
@@ -173,6 +176,9 @@ api_health_via_docker() {
       if echo "$body" | grep -qE '"ok"[[:space:]]*:[[:space:]]*true|"status"[[:space:]]*:[[:space:]]*"up"'; then
         return 0
       fi
+      if [[ -n "$body" ]]; then
+        LAST_HEALTH_HINT="docker:${svc} $(echo "$body" | tr -d '\n' | cut -c1-80)"
+      fi
     fi
   done
   return 1
@@ -183,21 +189,37 @@ wait_for_health() {
   local label="$2"
   local deadline=$((SECONDS + HEALTH_TIMEOUT_SEC))
   local n=0
+  local alt=""
+  LAST_HEALTH_HINT=""
   log "waiting for $label ($url) up to ${HEALTH_TIMEOUT_SEC}s..."
   while (( SECONDS < deadline )); do
     n=$((n + 1))
+    if [[ "$label" == "API health" ]] && api_health_via_docker; then
+      log "$label OK via docker exec (attempt $n)"
+      return 0
+    fi
     if http_ok "$url"; then
       log "$label OK (attempt $n)"
       return 0
     fi
-    # Host URL often fails for API (expose-only); try in-container after a few attempts
-    if [[ "$label" == "API health" ]] && (( n >= 3 )) && api_health_via_docker; then
-      log "$label OK via docker exec (attempt $n)"
-      return 0
+    # Host compose often publishes gateway on 8080 while HTTP_PORT defaults to 80.
+    if [[ "$label" == "API health" && "$url" == *":80/"* ]]; then
+      alt="${url/:80/:8080}"
+      if http_ok "$alt"; then
+        log "$label OK via $alt (attempt $n)"
+        return 0
+      fi
+      if http_ok "http://127.0.0.1:3000/api/v1/health"; then
+        log "$label OK via host :3000 (attempt $n)"
+        return 0
+      fi
     fi
     sleep 2
   done
   log "$label FAILED after ${HEALTH_TIMEOUT_SEC}s"
+  if [[ -n "$LAST_HEALTH_HINT" ]]; then
+    log "$label last response: $LAST_HEALTH_HINT"
+  fi
   return 1
 }
 
