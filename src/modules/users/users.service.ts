@@ -80,6 +80,23 @@ export interface DashboardStats {
   balanceAvailable: Prisma.Decimal | number;
   activeListings: number;
   remainingQuota: number;
+  kpis: {
+    activeListings: DashboardKpiDelta;
+    exchangeOffersReceived: DashboardKpiDelta;
+    activeAuctions: DashboardKpiDelta;
+    balanceBlocked: DashboardKpiDelta;
+  };
+}
+
+export type DashboardKpiTrend = 'up' | 'down' | 'flat';
+
+export interface DashboardKpiDelta {
+  current: number;
+  previous: number;
+  delta: number;
+  deltaPercent: number;
+  trend: DashboardKpiTrend;
+  windowDays: number;
 }
 
 export type PanelBadgeSection =
@@ -277,12 +294,44 @@ export class UsersService {
   }
 
   async getDashboardStats(userId: string): Promise<DashboardStats> {
+    const windowDays = 30;
+    const now = new Date();
+    const currentFrom = new Date(now);
+    currentFrom.setDate(now.getDate() - windowDays);
+    const previousFrom = new Date(currentFrom);
+    previousFrom.setDate(currentFrom.getDate() - windowDays);
+
+    const toKpiDelta = (current: number, previous: number): DashboardKpiDelta => {
+      const safeCurrent = Number.isFinite(current) ? current : 0;
+      const safePrevious = Number.isFinite(previous) ? previous : 0;
+      const delta = safeCurrent - safePrevious;
+      const deltaPercent =
+        safePrevious === 0
+          ? (safeCurrent === 0 ? 0 : 100)
+          : Number(((delta / safePrevious) * 100).toFixed(1));
+      const trend: DashboardKpiTrend = delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
+      return {
+        current: safeCurrent,
+        previous: safePrevious,
+        delta,
+        deltaPercent,
+        trend,
+        windowDays,
+      };
+    };
+
     const [
       activeBids,
       finishedBids,
       exchangeOffersReceived,
       activeListings,
       wallet,
+      activeListingsCurrentWindow,
+      activeListingsPreviousWindow,
+      exchangeOffersCurrentWindow,
+      exchangeOffersPreviousWindow,
+      auctionBidsCurrentWindow,
+      auctionBidsPreviousWindow,
     ] = await Promise.all([
       this.prisma.auctionBid.findMany({
         where: { bidderId: userId, auction: { status: AuctionStatus.ACTIVE } },
@@ -317,6 +366,50 @@ export class UsersService {
         where: { authorId: userId, status: ListingStatus.APPROVED },
       }),
       this.prisma.wallet.findUnique({ where: { userId } }),
+      this.prisma.listing.count({
+        where: {
+          authorId: userId,
+          status: ListingStatus.APPROVED,
+          createdAt: { gte: currentFrom, lt: now },
+        },
+      }),
+      this.prisma.listing.count({
+        where: {
+          authorId: userId,
+          status: ListingStatus.APPROVED,
+          createdAt: { gte: previousFrom, lt: currentFrom },
+        },
+      }),
+      this.prisma.exchangeOffer.count({
+        where: {
+          listing: { authorId: userId },
+          createdAt: { gte: currentFrom, lt: now },
+          status: {
+            in: [ExchangeOfferStatus.PENDING, ExchangeOfferStatus.WAITLISTED],
+          },
+        },
+      }),
+      this.prisma.exchangeOffer.count({
+        where: {
+          listing: { authorId: userId },
+          createdAt: { gte: previousFrom, lt: currentFrom },
+          status: {
+            in: [ExchangeOfferStatus.PENDING, ExchangeOfferStatus.WAITLISTED],
+          },
+        },
+      }),
+      this.prisma.auctionBid.count({
+        where: {
+          bidderId: userId,
+          createdAt: { gte: currentFrom, lt: now },
+        },
+      }),
+      this.prisma.auctionBid.count({
+        where: {
+          bidderId: userId,
+          createdAt: { gte: previousFrom, lt: currentFrom },
+        },
+      }),
     ]);
 
     const highestBidderCount = activeBids.reduce((acc, bid) => {
@@ -339,6 +432,12 @@ export class UsersService {
       activeListings,
       // سهمیه آگهی فعلا در محصول غیرفعال است.
       remainingQuota: 0,
+      kpis: {
+        activeListings: toKpiDelta(activeListingsCurrentWindow, activeListingsPreviousWindow),
+        exchangeOffersReceived: toKpiDelta(exchangeOffersCurrentWindow, exchangeOffersPreviousWindow),
+        activeAuctions: toKpiDelta(auctionBidsCurrentWindow, auctionBidsPreviousWindow),
+        balanceBlocked: toKpiDelta(Number(wallet?.balanceBlocked ?? 0), Number(wallet?.balanceBlocked ?? 0)),
+      },
     };
   }
 
