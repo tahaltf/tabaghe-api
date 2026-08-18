@@ -607,37 +607,30 @@ export class WalletQueryService {
     options: { month?: string } = {},
   ) {
     const wallet = await this.support.ensureUserWallet(userId);
-    const now = new Date();
     const monthRaw = String(options.month ?? '').trim();
-    let year = now.getFullYear();
-    let month = now.getMonth();
     const match = /^(\d{4})-(\d{2})$/.exec(monthRaw);
-    if (match) {
-      year = Number(match[1]);
-      month = Number(match[2]) - 1;
-    }
-    const from = new Date(year, month, 1);
-    const to = new Date(year, month + 1, 1);
-    const rows = await this.prisma.walletTransaction.findMany({
-      where: {
-        walletId: wallet.id,
-        type: WalletTransactionType.COMMISSION_FEE,
-        createdAt: { gte: from, lt: to },
-      },
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        amount: true,
-        createdAt: true,
-        referenceId: true,
-        meta: true,
-      },
-    });
-    const total = rows.reduce((sum, row) => sum + Math.abs(Number(row.amount ?? 0)), 0);
-    return {
-      month: `${year}-${String(month + 1).padStart(2, '0')}`,
-      total,
-      items: rows.map((row) => {
+    const baseWhere = {
+      walletId: wallet.id,
+      type: WalletTransactionType.COMMISSION_FEE,
+    } as const;
+    const select = {
+      id: true,
+      amount: true,
+      createdAt: true,
+      referenceId: true,
+      meta: true,
+    } as const;
+
+    const mapRows = (
+      rows: Array<{
+        id: string;
+        amount: unknown;
+        createdAt: Date;
+        referenceId: string | null;
+        meta: unknown;
+      }>,
+    ) =>
+      rows.map((row) => {
         const meta = (row.meta ?? {}) as Record<string, unknown>;
         return {
           id: row.id,
@@ -646,7 +639,47 @@ export class WalletQueryService {
           orderId: typeof meta['orderId'] === 'string' ? meta['orderId'] : row.referenceId,
           listingTitle: typeof meta['listingTitle'] === 'string' ? meta['listingTitle'] : null,
         };
+      });
+
+    if (match) {
+      const year = Number(match[1]);
+      const month = Number(match[2]) - 1;
+      const from = new Date(year, month, 1);
+      const to = new Date(year, month + 1, 1);
+      const rows = await this.prisma.walletTransaction.findMany({
+        where: { ...baseWhere, createdAt: { gte: from, lt: to } },
+        orderBy: { createdAt: 'desc' },
+        select,
+      });
+      const total = rows.reduce((sum, row) => sum + Math.abs(Number(row.amount ?? 0)), 0);
+      return {
+        month: `${year}-${String(month + 1).padStart(2, '0')}`,
+        total,
+        items: mapRows(rows),
+      };
+    }
+
+    const [rows, aggregate] = await Promise.all([
+      this.prisma.walletTransaction.findMany({
+        where: baseWhere,
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+        select,
       }),
+      this.prisma.$queryRaw<
+        Array<{ total: bigint | number | string }>
+      >(Prisma.sql`
+        SELECT COALESCE(SUM(ABS("amount")), 0) AS total
+        FROM "WalletTransaction"
+        WHERE ${Prisma.raw(`"walletId"`)} = ${wallet.id}
+          AND ${Prisma.raw(`"type"`)} = ${WalletTransactionType.COMMISSION_FEE}
+      `),
+    ]);
+
+    return {
+      month: null,
+      total: Number(aggregate?.[0]?.total ?? 0),
+      items: mapRows(rows),
     };
   }
 
