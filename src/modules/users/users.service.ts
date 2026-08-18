@@ -99,6 +99,28 @@ export interface DashboardKpiDelta {
   windowDays: number;
 }
 
+export type DashboardInsightsDay = {
+  date: string;
+  label: string;
+  views: number;
+};
+
+export type DashboardInsightsListing = {
+  id: string;
+  title: string;
+  views: number;
+};
+
+export type DashboardInsights = {
+  windowDays: number;
+  views: number;
+  viewsPrevious: number;
+  saves: number;
+  messages: number;
+  days: DashboardInsightsDay[];
+  topListings: DashboardInsightsListing[];
+};
+
 export type PanelBadgeSection =
   | 'listing'
   | 'buy'
@@ -438,6 +460,122 @@ export class UsersService {
         activeAuctions: toKpiDelta(auctionBidsCurrentWindow, auctionBidsPreviousWindow),
         balanceBlocked: toKpiDelta(Number(wallet?.balanceBlocked ?? 0), Number(wallet?.balanceBlocked ?? 0)),
       },
+    };
+  }
+
+  async getDashboardInsights(userId: string, windowDays = 7): Promise<DashboardInsights> {
+    const daysCount = windowDays === 14 ? 14 : 7;
+    const tz = 'Asia/Tehran';
+    const now = new Date();
+    const dayKey = (d: Date) =>
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: tz,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(d);
+    const weekdayLabel = (iso: string) =>
+      new Intl.DateTimeFormat('fa-IR', {
+        timeZone: tz,
+        weekday: 'short',
+      }).format(new Date(`${iso}T12:00:00+03:30`));
+
+    const keys: string[] = [];
+    for (let i = daysCount - 1; i >= 0; i -= 1) {
+      keys.push(dayKey(new Date(now.getTime() - i * 86_400_000)));
+    }
+    const since = new Date(now.getTime() - (daysCount - 1) * 86_400_000);
+    since.setHours(0, 0, 0, 0);
+    const previousFrom = new Date(since.getTime() - daysCount * 86_400_000);
+
+    const emptyDays: DashboardInsightsDay[] = keys.map((date) => ({
+      date,
+      label: weekdayLabel(date),
+      views: 0,
+    }));
+
+    const listingIds = (
+      await this.prisma.listing.findMany({
+        where: { authorId: userId },
+        select: { id: true },
+      })
+    ).map((row) => row.id);
+
+    if (!listingIds.length) {
+      return {
+        windowDays: daysCount,
+        views: 0,
+        viewsPrevious: 0,
+        saves: 0,
+        messages: 0,
+        days: emptyDays,
+        topListings: [],
+      };
+    }
+
+    const [viewsRows, viewsPrevious, saves, messages, grouped] = await Promise.all([
+      this.prisma.listingView.findMany({
+        where: { listingId: { in: listingIds }, viewedAt: { gte: since } },
+        select: { viewedAt: true, listingId: true },
+      }),
+      this.prisma.listingView.count({
+        where: {
+          listingId: { in: listingIds },
+          viewedAt: { gte: previousFrom, lt: since },
+        },
+      }),
+      this.prisma.savedListing.count({
+        where: { listing: { authorId: userId }, createdAt: { gte: since } },
+      }),
+      this.prisma.message.count({
+        where: {
+          conversation: { listing: { authorId: userId } },
+          senderId: { not: userId },
+          createdAt: { gte: since },
+        },
+      }),
+      this.prisma.listingView.groupBy({
+        by: ['listingId'],
+        where: { listingId: { in: listingIds }, viewedAt: { gte: since } },
+        _count: { _all: true },
+      }),
+    ]);
+
+    const byDay = new Map(keys.map((key) => [key, 0]));
+    for (const row of viewsRows) {
+      const key = dayKey(row.viewedAt);
+      if (byDay.has(key)) {
+        byDay.set(key, (byDay.get(key) ?? 0) + 1);
+      }
+    }
+
+    const topIds = [...grouped]
+      .sort((a, b) => b._count._all - a._count._all)
+      .slice(0, 3);
+    const listings = topIds.length
+      ? await this.prisma.listing.findMany({
+          where: { id: { in: topIds.map((row) => row.listingId) } },
+          select: { id: true, title: true },
+        })
+      : [];
+    const listingMap = new Map(listings.map((row) => [row.id, row.title]));
+
+    return {
+      windowDays: daysCount,
+      views: viewsRows.length,
+      viewsPrevious,
+      saves,
+      messages,
+      days: keys.map((date) => ({
+        date,
+        label: weekdayLabel(date),
+        views: byDay.get(date) ?? 0,
+      })),
+      topListings: topIds.map((row) => ({
+        id: row.listingId,
+        title: listingMap.get(row.listingId) || 'آگهی',
+        views: row._count._all,
+      })),
     };
   }
 

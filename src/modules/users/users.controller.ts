@@ -64,6 +64,13 @@ export class UsersController {
     return this.usersService.getDashboardStats(user.id);
   }
 
+  @Get('dashboard-insights')
+  @Header('Cache-Control', 'no-store, no-cache, must-revalidate')
+  @Header('Pragma', 'no-cache')
+  getDashboardInsights(@CurrentUser() user: AuthenticatedUser) {
+    return this.usersService.getDashboardInsights(user.id);
+  }
+
   @Get('panel-badges')
   @Header('Cache-Control', 'no-store, no-cache, must-revalidate')
   @Header('Pragma', 'no-cache')
