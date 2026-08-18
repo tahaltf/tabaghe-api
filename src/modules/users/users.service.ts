@@ -8,9 +8,12 @@ import {
   AuctionStatus,
   ExchangeOfferStatus,
   ListingStatus,
+  ListingType,
   NotificationType,
   OrderStatus,
+  OrderType,
   Prisma,
+  RepairRequestStatus,
   UserStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -111,6 +114,20 @@ export type DashboardInsightsListing = {
   views: number;
 };
 
+export type DashboardPieSlice = {
+  key: string;
+  label: string;
+  value: number;
+};
+
+export type DashboardRepairLatest = {
+  id: string;
+  brand: string;
+  model: string;
+  status: RepairRequestStatus;
+  trackingCode: string;
+};
+
 export type DashboardInsights = {
   windowDays: number;
   views: number;
@@ -119,7 +136,34 @@ export type DashboardInsights = {
   messages: number;
   days: DashboardInsightsDay[];
   topListings: DashboardInsightsListing[];
+  salesAmount: number;
+  salesCount: number;
+  salesByType: DashboardPieSlice[];
+  listingsByType: DashboardPieSlice[];
+  repairs: {
+    total: number;
+    active: number;
+    latest: DashboardRepairLatest | null;
+  };
 };
+
+const ORDER_TYPE_LABELS: Record<OrderType, string> = {
+  [OrderType.DIRECT]: 'فروش مستقیم',
+  [OrderType.AUCTION]: 'مزایده',
+  [OrderType.EXCHANGE]: 'معاوضه',
+};
+
+const LISTING_TYPE_LABELS: Record<ListingType, string> = {
+  [ListingType.DIRECT]: 'مستقیم',
+  [ListingType.AUCTION]: 'مزایده',
+  [ListingType.EXCHANGE]: 'معاوضه',
+};
+
+const REPAIR_INACTIVE_STATUSES: RepairRequestStatus[] = [
+  RepairRequestStatus.COMPLETED,
+  RepairRequestStatus.CANCELLED,
+  RepairRequestStatus.REJECTED,
+];
 
 export type PanelBadgeSection =
   | 'listing'
@@ -494,49 +538,83 @@ export class UsersService {
       views: 0,
     }));
 
-    const listingIds = (
-      await this.prisma.listing.findMany({
-        where: { authorId: userId },
-        select: { id: true },
-      })
-    ).map((row) => row.id);
+    const listingRows = await this.prisma.listing.findMany({
+      where: { authorId: userId },
+      select: { id: true, type: true, status: true },
+    });
+    const listingIds = listingRows.map((row) => row.id);
+    const hasListings = listingIds.length > 0;
 
-    if (!listingIds.length) {
-      return {
-        windowDays: daysCount,
-        views: 0,
-        viewsPrevious: 0,
-        saves: 0,
-        messages: 0,
-        days: emptyDays,
-        topListings: [],
-      };
-    }
-
-    const [viewsRows, viewsPrevious, saves, messages, grouped] = await Promise.all([
-      this.prisma.listingView.findMany({
-        where: { listingId: { in: listingIds }, viewedAt: { gte: since } },
-        select: { viewedAt: true, listingId: true },
+    const [
+      viewsRows,
+      viewsPrevious,
+      saves,
+      messages,
+      grouped,
+      salesAgg,
+      salesByTypeRows,
+      repairLatest,
+      repairGroups,
+    ] = await Promise.all([
+      hasListings
+        ? this.prisma.listingView.findMany({
+            where: { listingId: { in: listingIds }, viewedAt: { gte: since } },
+            select: { viewedAt: true, listingId: true },
+          })
+        : Promise.resolve([]),
+      hasListings
+        ? this.prisma.listingView.count({
+            where: {
+              listingId: { in: listingIds },
+              viewedAt: { gte: previousFrom, lt: since },
+            },
+          })
+        : Promise.resolve(0),
+      hasListings
+        ? this.prisma.savedListing.count({
+            where: { listing: { authorId: userId }, createdAt: { gte: since } },
+          })
+        : Promise.resolve(0),
+      hasListings
+        ? this.prisma.message.count({
+            where: {
+              conversation: { listing: { authorId: userId } },
+              senderId: { not: userId },
+              createdAt: { gte: since },
+            },
+          })
+        : Promise.resolve(0),
+      hasListings
+        ? this.prisma.listingView.groupBy({
+            by: ['listingId'],
+            where: { listingId: { in: listingIds }, viewedAt: { gte: since } },
+            _count: { _all: true },
+          })
+        : Promise.resolve([]),
+      this.prisma.order.aggregate({
+        where: { sellerId: userId, status: OrderStatus.COMPLETED },
+        _sum: { sellerRevenue: true },
+        _count: true,
       }),
-      this.prisma.listingView.count({
-        where: {
-          listingId: { in: listingIds },
-          viewedAt: { gte: previousFrom, lt: since },
+      this.prisma.order.groupBy({
+        by: ['type'],
+        where: { sellerId: userId, status: OrderStatus.COMPLETED },
+        _sum: { sellerRevenue: true },
+      }),
+      this.prisma.repairRequest.findFirst({
+        where: { userId },
+        orderBy: { updatedAt: 'desc' },
+        select: {
+          id: true,
+          brand: true,
+          model: true,
+          status: true,
+          trackingCode: true,
         },
       }),
-      this.prisma.savedListing.count({
-        where: { listing: { authorId: userId }, createdAt: { gte: since } },
-      }),
-      this.prisma.message.count({
-        where: {
-          conversation: { listing: { authorId: userId } },
-          senderId: { not: userId },
-          createdAt: { gte: since },
-        },
-      }),
-      this.prisma.listingView.groupBy({
-        by: ['listingId'],
-        where: { listingId: { in: listingIds }, viewedAt: { gte: since } },
+      this.prisma.repairRequest.groupBy({
+        by: ['status'],
+        where: { userId },
         _count: { _all: true },
       }),
     ]);
@@ -560,22 +638,66 @@ export class UsersService {
       : [];
     const listingMap = new Map(listings.map((row) => [row.id, row.title]));
 
+    const salesByTypeMap = new Map(
+      salesByTypeRows.map((row) => [row.type, Number(row._sum.sellerRevenue ?? 0)]),
+    );
+    const salesByType: DashboardPieSlice[] = [
+      OrderType.DIRECT,
+      OrderType.AUCTION,
+      OrderType.EXCHANGE,
+    ].map((type) => ({
+      key: type,
+      label: ORDER_TYPE_LABELS[type],
+      value: salesByTypeMap.get(type) ?? 0,
+    }));
+
+    const listingCountByType = new Map<ListingType, number>();
+    for (const row of listingRows) {
+      if (row.status !== ListingStatus.APPROVED) continue;
+      listingCountByType.set(row.type, (listingCountByType.get(row.type) ?? 0) + 1);
+    }
+    const listingsByType: DashboardPieSlice[] = [
+      ListingType.DIRECT,
+      ListingType.AUCTION,
+      ListingType.EXCHANGE,
+    ].map((type) => ({
+      key: type,
+      label: LISTING_TYPE_LABELS[type],
+      value: listingCountByType.get(type) ?? 0,
+    }));
+
+    const repairTotal = repairGroups.reduce((acc, row) => acc + row._count._all, 0);
+    const repairActive = repairGroups
+      .filter((row) => !REPAIR_INACTIVE_STATUSES.includes(row.status))
+      .reduce((acc, row) => acc + row._count._all, 0);
+
     return {
       windowDays: daysCount,
       views: viewsRows.length,
       viewsPrevious,
       saves,
       messages,
-      days: keys.map((date) => ({
-        date,
-        label: weekdayLabel(date),
-        views: byDay.get(date) ?? 0,
-      })),
+      days: hasListings
+        ? keys.map((date) => ({
+            date,
+            label: weekdayLabel(date),
+            views: byDay.get(date) ?? 0,
+          }))
+        : emptyDays,
       topListings: topIds.map((row) => ({
         id: row.listingId,
         title: listingMap.get(row.listingId) || 'آگهی',
         views: row._count._all,
       })),
+      salesAmount: Number(salesAgg._sum.sellerRevenue ?? 0),
+      salesCount: Number(salesAgg._count ?? 0),
+      salesByType,
+      listingsByType,
+      repairs: {
+        total: repairTotal,
+        active: repairActive,
+        latest: repairLatest,
+      },
     };
   }
 
