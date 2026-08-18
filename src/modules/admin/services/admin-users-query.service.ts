@@ -27,6 +27,7 @@ import { getListingStatusLabelFa } from '../../../common/listing/listing-status-
 import { getOrderStatusLabelFa } from '../../../common/order/order-status-labels.util';
 import { PlanLifecycleService } from '../../plans/plan-lifecycle.service';
 import { generateInviteCode, validateInviteCode } from '../../../common/referral/invite-code.util';
+import { ensureUserShopSlug } from '../../../common/user/shop-slug.util';
 
 const LISTING_TYPE_LABELS_FA: Record<string, string> = {
   DIRECT: 'فروش مستقیم',
@@ -120,6 +121,7 @@ const USER_LIST_SELECT = {
   lastLoginAt: true,
   avatar: true,
   inviteCode: true,
+  shopSlug: true,
   referredById: true,
   referredBy: {
     select: {
@@ -607,7 +609,8 @@ export class AdminUsersQueryService {
     });
     if (!user) throw new NotFoundException('کاربر یافت نشد');
     this.assertCanManageTarget(actor, user.role);
-    return user;
+    const shopSlug = await ensureUserShopSlug(this.prisma, user);
+    return { ...user, shopSlug };
   }
 
   async toggleRole(

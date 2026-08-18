@@ -23,6 +23,7 @@ import { ReferralService } from '../referral/referral.service';
 import type { UserReferralInfo } from '../referral/referral.service';
 import { UserPanelAccessService } from './user-panel-access.service';
 import type { UserPanelAccessMap } from './config/user-panel-access.registry';
+import { ensureUserShopSlug } from '../../common/user/shop-slug.util';
 import {
   isFinancialVerified,
   isIdentityVerified,
@@ -45,6 +46,7 @@ const MY_PROFILE_SELECT = {
   nationalCardImage: true,
   avatar: true,
   bio: true,
+  shopSlug: true,
   notifyEmail: true,
   notifySms: true,
   notifyPush: true,
@@ -142,7 +144,8 @@ export class UsersService {
       select: MY_PROFILE_SELECT,
     });
     if (!user) throw new NotFoundException('کاربر یافت نشد');
-    return this.toProfile(user);
+    const shopSlug = await ensureUserShopSlug(this.prisma, user);
+    return this.toProfile({ ...user, shopSlug });
   }
 
   private async toProfile(

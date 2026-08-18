@@ -10,11 +10,13 @@ import {
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { TtlCacheService } from '../../../infrastructure/cache/ttl-cache.service';
 import { CategoryTreeCacheService } from '../../../common/category/category-tree-cache.service';
+import { ensureUserShopSlug } from '../../../common/user/shop-slug.util';
 import {
   buildPaginationMeta,
   PaginatedResult,
 } from '../../../shared/contracts/pagination';
 import { ListListingsDto } from '../dto/list-listings.dto';
+import type { PublicSellerQueryDto } from '../dto/public-seller-query.dto';
 import type { HomeFeedResponse } from '../../../shared/contracts/home-feed';
 import { HOME_JEWELRY_CATEGORY_SLUG } from '../../../common/category/home-category-slugs';
 import {
@@ -758,37 +760,59 @@ export class ListingQueryService {
     return { views, saves, messages };
   }
 
-  async getPublicSeller(sellerId: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: sellerId },
-      select: {
-        id: true,
-        displayName: true,
-        firstName: true,
-        lastName: true,
-        avatar: true,
-        rating: true,
-        isVerified: true,
-      },
+  async getPublicSeller(sellerKey: string, query: PublicSellerQueryDto = { page: 1, pageSize: 12 }) {
+    const key = decodeURIComponent(String(sellerKey ?? '')).trim();
+    if (!key) throw new NotFoundException('فروشنده یافت نشد');
+
+    const sellerSelect = {
+      id: true,
+      displayName: true,
+      firstName: true,
+      lastName: true,
+      avatar: true,
+      bio: true,
+      shopSlug: true,
+      rating: true,
+      isVerified: true,
+    } as const;
+
+    let user = await this.prisma.user.findUnique({
+      where: { id: key },
+      select: sellerSelect,
     });
+    if (!user) {
+      user = await this.prisma.user.findFirst({
+        where: { shopSlug: { equals: key, mode: 'insensitive' } },
+        select: sellerSelect,
+      });
+    }
     if (!user) throw new NotFoundException('فروشنده یافت نشد');
-    const [completedTrades, listings] = await Promise.all([
+
+    const shopSlug = await ensureUserShopSlug(this.prisma, user);
+    const page = Math.max(1, Number(query.page) || 1);
+    const pageSize = Math.min(24, Math.max(1, Number(query.pageSize) || 12));
+    const skip = (page - 1) * pageSize;
+    const listingWhere = {
+      authorId: user.id,
+      status: ListingStatus.APPROVED,
+      deletedAt: null,
+    };
+
+    const [completedTrades, listings, total] = await Promise.all([
       this.prisma.order.count({
         where: {
-          sellerId,
+          sellerId: user.id,
           status: OrderStatus.COMPLETED,
         },
       }),
       this.prisma.listing.findMany({
-        where: {
-          authorId: sellerId,
-          status: ListingStatus.APPROVED,
-          deletedAt: null,
-        },
+        where: listingWhere,
         select: LIST_ITEM_SELECT,
         orderBy: { approvedAt: 'desc' },
-        take: 48,
+        skip,
+        take: pageSize,
       }),
+      this.prisma.listing.count({ where: listingWhere }),
     ]);
     return {
       seller: {
@@ -797,11 +821,14 @@ export class ListingQueryService {
         firstName: user.firstName,
         lastName: user.lastName,
         avatar: user.avatar,
+        bio: user.bio,
+        shopSlug,
         rating: user.rating,
         isVerified: user.isVerified,
         completedTrades,
       },
       listings,
+      pagination: buildPaginationMeta(page, pageSize, total),
     };
   }
 }

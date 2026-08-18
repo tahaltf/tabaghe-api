@@ -31,6 +31,7 @@ import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { DeleteListingDto } from './dto/delete-listing.dto';
 import { ListListingsDto } from './dto/list-listings.dto';
+import { PublicSellerQueryDto } from './dto/public-seller-query.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { resolveGalleryFromOrder } from './utils/resolve-gallery-order.util';
 import { ListingCommandService } from './services/listing-command.service';
@@ -110,8 +111,13 @@ export class ListingController {
   }
 
   @Get('seller/:sellerId')
-  getPublicSeller(@Param('sellerId') sellerId: string) {
-    return this.queryService.getPublicSeller(sellerId);
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @CacheControl('public, max-age=30, stale-while-revalidate=60')
+  getPublicSeller(
+    @Param('sellerId') sellerId: string,
+    @Query() query: PublicSellerQueryDto,
+  ) {
+    return this.queryService.getPublicSeller(sellerId, query);
   }
 
   @UseGuards(JwtAuthGuard)

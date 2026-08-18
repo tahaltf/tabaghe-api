@@ -375,6 +375,8 @@ model User {
   loginLogs           UserLoginLog[]
   paymentInitLogs     PaymentInitLog[]
 
+  /** اسلاگ یکتای ویترین فروشگاه عمومی (/seller/:shopSlug) */
+  shopSlug            String?        @unique
   /** کد دعوت یکتای کاربر برای معرفی دوستان */
   inviteCode          String?        @unique
   /** درصد پاداش دعوت اختصاصی (null = پیش‌فرض سراسری REFERRAL_COMMISSION_PERCENT) */
