@@ -31,8 +31,8 @@ export class AddressController {
 
   @Post('lookup-postal-code')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  lookupPostalCode(@Body() dto: LookupPostalCodeDto) {
-    return this.addressService.lookupPostalCode(dto.postalCode);
+  lookupPostalCode(@Req() req, @Body() dto: LookupPostalCodeDto) {
+    return this.addressService.lookupPostalCode(dto.postalCode, req.user?.id);
   }
 
   @Post()

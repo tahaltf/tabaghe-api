@@ -991,10 +991,12 @@ export class UsersService {
         const shahkar = await this.zohal.assertShahkarMatched(
           currentUser.phone,
           dto.nationalCode,
+          userId,
         );
         const identity = await this.zohal.inquireNationalIdentity(
           dto.nationalCode,
           dto.birthDate,
+          userId,
         );
         firstName = identity.firstName;
         lastName = identity.lastName;

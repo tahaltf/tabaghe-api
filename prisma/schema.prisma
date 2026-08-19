@@ -374,6 +374,7 @@ model User {
   checkoutSessions    CheckoutSession[]
   loginLogs           UserLoginLog[]
   paymentInitLogs     PaymentInitLog[]
+  zohalInquiryLogs    ZohalInquiryLog[]
 
   /** اسلاگ یکتای ویترین فروشگاه عمومی (/seller/:shopSlug) */
   shopSlug            String?        @unique
@@ -494,6 +495,26 @@ model PaymentInitLog {
   @@index([authority])
   @@index([referenceId, kind])
   @@index([ipAddress, createdAt])
+}
+
+model ZohalInquiryLog {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// نام سرویس: "shahkar" | "national_identity" | "postal_code" | "card_match"
+  service     String
+  /// SHA-256 hex از payload نرمال‌شده (بدون اطلاعات حساس در لاگ جداگانه)
+  payloadHash String
+  success     Boolean
+  /// errorCode از Zohal یا "BAD_REQUEST" / "BAD_GATEWAY" برای طبقه‌بندی
+  errorCode   String?
+  /// پاسخ خام برای گزارش‌گیری و بررسی مناقشات با سرویس‌دهنده
+  responseRaw Json?
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId, service, payloadHash])
+  @@index([createdAt])
 }
 
 model UserRatingHistory {

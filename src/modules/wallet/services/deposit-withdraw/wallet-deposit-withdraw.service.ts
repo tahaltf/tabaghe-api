@@ -384,7 +384,7 @@ export class WalletDepositWithdrawService {
             nationalCode: user.nationalCode,
             birthDateRaw: user.birthDate,
             cardNumber: card,
-          });
+          }, userId);
         } catch (err) {
           if (!isZohalServiceFailure(err)) {
             throw err;
