@@ -25,7 +25,7 @@ import { ZohalService } from '../../../zohal/zohal.service';
 import { ZohalSettingsService } from '../../../zohal/zohal-settings.service';
 
 const WITHDRAW_KYC_MESSAGE =
-  'برای برداشت وجه باید احراز هویت تایید شده باشد و تصویر کارت ملی به‌همراه شماره شبا در پروفایل ثبت شده باشد.';
+  'برای برداشت وجه باید اطلاعات حساب بانکی خود را تکمیل کنید.';
 
 @Injectable()
 export class WalletDepositWithdrawService {
@@ -324,7 +324,7 @@ export class WalletDepositWithdrawService {
         status: true,
         isVerified: true,
         shabaNumber: true,
-        nationalCardImage: true,
+        bankCardNumber: true,
       },
     });
     if (!user?.phone?.trim()) {
@@ -351,6 +351,7 @@ export class WalletDepositWithdrawService {
       ownerName: string;
       otpCode: string;
     },
+    ipAddress?: string | null,
   ) {
     const otpCode = String(dto.otpCode ?? '').trim();
     if (!/^\d{4,6}$/.test(otpCode)) {
@@ -364,7 +365,7 @@ export class WalletDepositWithdrawService {
         status: true,
         isVerified: true,
         shabaNumber: true,
-        nationalCardImage: true,
+        bankCardNumber: true,
         nationalCode: true,
         birthDate: true,
       },
@@ -376,6 +377,9 @@ export class WalletDepositWithdrawService {
 
     await this.otpService.consume(user.phone, otpCode, OtpPurpose.WITHDRAW);
 
+    const amountDec = new Decimal(dto.amount);
+    await this.assertWithdrawShabaIfRequired(user, amountDec.toNumber());
+
     if (await this.zohalSettings.isCardMatchActive()) {
       const card = String(dto.card ?? '').replace(/\D/g, '');
       if (card.length === 16 && user.nationalCode && user.birthDate) {
@@ -384,7 +388,7 @@ export class WalletDepositWithdrawService {
             nationalCode: user.nationalCode,
             birthDateRaw: user.birthDate,
             cardNumber: card,
-          }, userId);
+          }, userId, ipAddress ?? undefined);
         } catch (err) {
           if (!isZohalServiceFailure(err)) {
             throw err;
@@ -398,7 +402,6 @@ export class WalletDepositWithdrawService {
       }
     }
 
-    const amountDec = new Decimal(dto.amount);
     const wallet = await this.query.getWalletByUserId(userId);
 
     if (new Decimal(wallet.balanceAvailable).lt(amountDec)) {
@@ -662,10 +665,27 @@ export class WalletDepositWithdrawService {
     status: UserStatus;
     isVerified: boolean;
     shabaNumber: string | null;
-    nationalCardImage: string | null;
+    bankCardNumber: string | null;
   }): void {
     if (!isFinancialVerified(user)) {
       throw new BadRequestException(WITHDRAW_KYC_MESSAGE);
+    }
+  }
+
+  private async assertWithdrawShabaIfRequired(
+    user: { shabaNumber: string | null },
+    amount: number,
+  ): Promise<void> {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { key: 'WITHDRAW_SHABA_REQUIRED_ABOVE_AMOUNT' },
+    });
+    const threshold = Math.max(0, parseInt(String(row?.value ?? '0'), 10) || 0);
+    if (threshold <= 0 || amount < threshold) return;
+    const shaba = String(user.shabaNumber ?? '').replace(/\D/g, '');
+    if (shaba.length !== 24) {
+      throw new BadRequestException(
+        `حساب پیش‌فرض شما شبا ندارد. برای برداشت بالای ${threshold.toLocaleString('fa-IR')} تومان، ثبت شبا الزامی است.`,
+      );
     }
   }
 

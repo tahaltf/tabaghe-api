@@ -10,8 +10,9 @@ import { PlanLifecycleModule } from '../plans/plan-lifecycle.module';
 import { ReferralModule } from '../referral/referral.module';
 import { AuthModule } from '../auth/auth.module';
 import { AiTokenModule } from '../ai-content/ai-token.module';
-
 import { ZohalModule } from '../zohal/zohal.module';
+import { BankAccountsService } from './bank-accounts.service';
+import { FinancialVerificationService } from './financial-verification.service';
 
 @Module({
   imports: [
@@ -23,7 +24,20 @@ import { ZohalModule } from '../zohal/zohal.module';
     ZohalModule,
   ],
   controllers: [UsersController, AdminUsersController],
-  providers: [UsersService, AdminUsersService, UserPanelAccessService, UserPanelAccessGuard],
-  exports: [UsersService, UserPanelAccessService, UserPanelAccessGuard],
+  providers: [
+    UsersService,
+    AdminUsersService,
+    UserPanelAccessService,
+    UserPanelAccessGuard,
+    FinancialVerificationService,
+    BankAccountsService,
+  ],
+  exports: [
+    UsersService,
+    UserPanelAccessService,
+    UserPanelAccessGuard,
+    FinancialVerificationService,
+    BankAccountsService,
+  ],
 })
 export class UsersModule {}

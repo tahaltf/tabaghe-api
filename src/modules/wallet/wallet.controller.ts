@@ -15,6 +15,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { Express } from 'express';
 import { UserRole } from '@prisma/client';
 import { WalletService } from './wallet.service';
+import { extractClientIp } from '../../common/http/client-ip.util';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
@@ -110,7 +111,7 @@ export class WalletController {
       otpCode: string;
     },
   ) {
-    return this.walletService.requestWithdraw(req.user.id, body);
+    return this.walletService.requestWithdraw(req.user.id, body, extractClientIp(req));
   }
 
   // ==========================================

@@ -8,6 +8,7 @@ import {
   Patch,
   Post,
   Query,
+  Param,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -24,6 +25,11 @@ import { validateUploadedFileSignature } from '../../common/upload/validate-uplo
 import { CompleteProfileDto } from './dto/complete-profile.dto';
 import { AcceptTermsDto } from './dto/accept-terms.dto';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
+import { extractClientIp } from '../../common/http/client-ip.util';
+import { FinancialVerificationDto, BankAccountDto } from './dto/financial-verification.dto';
+import { FinancialVerificationService } from './financial-verification.service';
+import { BankAccountsService } from './bank-accounts.service';
+import { InquiryRestrictionService } from '../zohal/inquiry-restriction.service';
 import { IsVerifiedGuard } from '../auth/guards/is-verified.guard';
 import { UserPanelAccessGuard } from '../auth/guards/user-panel-access.guard';
 import { RequirePanelAccess } from '../auth/decorators/require-panel-access.decorator';
@@ -38,7 +44,12 @@ import {
 @Controller('users')
 @UseGuards(JwtAuthGuard)
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly financialVerification: FinancialVerificationService,
+    private readonly bankAccounts: BankAccountsService,
+    private readonly inquiryRestrictions: InquiryRestrictionService,
+  ) {}
 
   @Get('me')
   getMe(@CurrentUser() user: AuthenticatedUser): Promise<MyProfile> {
@@ -132,9 +143,15 @@ export class UsersController {
     @CurrentUser() user: AuthenticatedUser,
     @UploadedFile() file: Express.Multer.File | undefined,
     @Body() dto: CompleteProfileDto,
+    @Req() req: Request,
   ): Promise<MyProfile> {
     validateUploadedFileSignature(file, ['jpeg', 'png', 'webp'], 'تصویر کارت ملی');
-    return this.usersService.completeProfile(user.id, dto, file?.filename);
+    return this.usersService.completeProfile(
+      user.id,
+      dto,
+      file?.filename,
+      extractClientIp(req),
+    );
   }
 
   @Patch('settings')
@@ -148,6 +165,93 @@ export class UsersController {
   ): Promise<MyProfile> {
     validateUploadedFileSignature(file, ['jpeg', 'png', 'webp'], 'تصویر کارت ملی');
     return this.usersService.updateSettings(user.id, dto, file?.filename);
+  }
+
+  @Post('financial-verification/preview')
+  previewFinancialVerification(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: FinancialVerificationDto,
+    @Req() req: Request,
+  ) {
+    return this.financialVerification.preview(user.id, dto, extractClientIp(req));
+  }
+
+  @Post('financial-verification/confirm')
+  async confirmFinancialVerification(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: FinancialVerificationDto,
+    @Req() req: Request,
+  ): Promise<MyProfile> {
+    await this.financialVerification.confirm(user.id, dto, extractClientIp(req));
+    return this.usersService.getMe(user.id);
+  }
+
+  @Patch('financial-verification')
+  async updateFinancialVerification(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: FinancialVerificationDto,
+    @Req() req: Request,
+  ): Promise<MyProfile> {
+    await this.financialVerification.confirm(user.id, dto, extractClientIp(req));
+    return this.usersService.getMe(user.id);
+  }
+
+  @Get('inquiry-restriction')
+  getInquiryRestriction(@CurrentUser() user: AuthenticatedUser) {
+    return this.inquiryRestrictions.getSnapshot(user.id);
+  }
+
+  @Get('bank-accounts')
+  listBankAccounts(@CurrentUser() user: AuthenticatedUser) {
+    return this.bankAccounts.list(user.id);
+  }
+
+  @Post('bank-accounts/preview')
+  previewBankAccount(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: FinancialVerificationDto,
+    @Req() req: Request,
+  ) {
+    return this.bankAccounts.preview(user.id, dto, extractClientIp(req));
+  }
+
+  @Post('bank-accounts')
+  async createBankAccount(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: BankAccountDto,
+    @Req() req: Request,
+  ): Promise<MyProfile> {
+    await this.bankAccounts.create(user.id, dto, extractClientIp(req));
+    return this.usersService.getMe(user.id);
+  }
+
+  @Patch('bank-accounts/:id')
+  async updateBankAccount(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: BankAccountDto,
+    @Req() req: Request,
+  ): Promise<MyProfile> {
+    await this.bankAccounts.update(user.id, id, dto, extractClientIp(req));
+    return this.usersService.getMe(user.id);
+  }
+
+  @Delete('bank-accounts/:id')
+  async deleteBankAccount(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<MyProfile> {
+    await this.bankAccounts.remove(user.id, id);
+    return this.usersService.getMe(user.id);
+  }
+
+  @Post('bank-accounts/:id/set-default')
+  async setDefaultBankAccount(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<MyProfile> {
+    await this.bankAccounts.setDefault(user.id, id);
+    return this.usersService.getMe(user.id);
   }
 
   @Patch('accept-terms')

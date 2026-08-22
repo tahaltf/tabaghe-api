@@ -26,6 +26,8 @@ function createWalletService(prismaMock: unknown, notificationMock: unknown) {
     notificationMock as any,
     query,
     { issue: jest.fn(), consume: jest.fn() } as any,
+    { assertCardMatchesNationalCode: jest.fn() } as any,
+    { isCardMatchActive: jest.fn().mockResolvedValue(false) } as any,
   );
   return new WalletService(query, block, escrow, refund, depositWithdraw);
 }

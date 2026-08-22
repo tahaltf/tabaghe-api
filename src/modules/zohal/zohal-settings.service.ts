@@ -14,6 +14,7 @@ type ZohalSettingsSnapshot = {
   identityEnabled: boolean;
   postalEnabled: boolean;
   cardMatchEnabled: boolean;
+  ibanMatchEnabled: boolean;
   identityMaxFailures: number;
   cardMatchMaxFailures: number;
   identityFailureCount: number;
@@ -66,6 +67,11 @@ export class ZohalSettingsService {
       snap.cardMatchEnabled &&
       snap.cardMatchFailureCount < snap.cardMatchMaxFailures
     );
+  }
+
+  async isIbanMatchActive(): Promise<boolean> {
+    const snap = await this.loadSnapshot();
+    return snap.tokenConfigured && snap.ibanMatchEnabled;
   }
 
   async recordIdentityFailure(): Promise<{ count: number; circuitOpen: boolean }> {
@@ -170,6 +176,10 @@ export class ZohalSettingsService {
       postalEnabled: parseBool(map[ZOHAL_SETTING_KEYS.POSTAL_ENABLED], true),
       cardMatchEnabled: parseBool(
         map[ZOHAL_SETTING_KEYS.CARD_MATCH_ENABLED],
+        true,
+      ),
+      ibanMatchEnabled: parseBool(
+        map[ZOHAL_SETTING_KEYS.IBAN_MATCH_ENABLED],
         true,
       ),
       identityMaxFailures: parsePositiveInt(

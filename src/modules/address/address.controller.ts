@@ -13,6 +13,7 @@ import { Throttle } from '@nestjs/throttler';
 import { AddressService } from './address.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { LookupPostalCodeDto } from './dto/lookup-postal-code.dto';
+import { extractClientIp } from '../../common/http/client-ip.util';
 
 @Controller('addresses')
 @UseGuards(JwtAuthGuard)
@@ -32,7 +33,11 @@ export class AddressController {
   @Post('lookup-postal-code')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   lookupPostalCode(@Req() req, @Body() dto: LookupPostalCodeDto) {
-    return this.addressService.lookupPostalCode(dto.postalCode, req.user?.id);
+    return this.addressService.lookupPostalCode(
+      dto.postalCode,
+      req.user?.id,
+      extractClientIp(req),
+    );
   }
 
   @Post()

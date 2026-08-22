@@ -20,7 +20,7 @@ type PanelAccessUserShape = {
   status: UserStatus;
   isVerified: boolean;
   shabaNumber: string | null;
-  nationalCardImage: string | null;
+  bankCardNumber: string | null;
 };
 
 /**
@@ -51,19 +51,12 @@ export class UserPanelAccessService {
     const requireIdentityForOrders =
       String(settings.KYC_REQUIRE_IDENTITY_FOR_ORDERS ?? 'true').toLowerCase() !==
       'false';
-    const requireFinancialForWallet =
-      String(settings.KYC_REQUIRE_FINANCIAL_FOR_WALLET ?? 'true').toLowerCase() !==
-      'false';
     const requireFinancialForWithdraw =
       String(settings.KYC_REQUIRE_FINANCIAL_FOR_WITHDRAW ?? 'true').toLowerCase() !==
       'false';
 
     if (requireIdentityForOrders && !identityOk) {
       map['dashboard.orders'] = false;
-    }
-
-    if (requireFinancialForWallet && !financialOk) {
-      map['dashboard.wallet'] = false;
     }
 
     if (requireFinancialForWithdraw && !financialOk) {
@@ -76,7 +69,6 @@ export class UserPanelAccessService {
   private async loadKycRestrictionSettings(): Promise<Record<string, string>> {
     const keys = [
       'KYC_REQUIRE_IDENTITY_FOR_ORDERS',
-      'KYC_REQUIRE_FINANCIAL_FOR_WALLET',
       'KYC_REQUIRE_FINANCIAL_FOR_WITHDRAW',
     ];
     const rows = await this.prisma.systemSetting.findMany({
@@ -138,7 +130,7 @@ export class UserPanelAccessService {
         status: true,
         isVerified: true,
         shabaNumber: true,
-        nationalCardImage: true,
+        bankCardNumber: true,
       },
     });
     if (!user) throw new NotFoundException('کاربر یافت نشد');

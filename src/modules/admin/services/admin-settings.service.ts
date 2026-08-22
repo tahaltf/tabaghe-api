@@ -177,6 +177,14 @@ export const SETTING_KEYS = {
   KYC_REQUIRE_FINANCIAL_FOR_WALLET: 'KYC_REQUIRE_FINANCIAL_FOR_WALLET',
   /** ثبت برداشت/تسویه نیازمند احراز مالی */
   KYC_REQUIRE_FINANCIAL_FOR_WITHDRAW: 'KYC_REQUIRE_FINANCIAL_FOR_WITHDRAW',
+  INQUIRY_MAX_PER_MINUTE: 'INQUIRY_MAX_PER_MINUTE',
+  INQUIRY_MAX_PER_DAY: 'INQUIRY_MAX_PER_DAY',
+  INQUIRY_MAX_PAYLOAD_CHANGES: 'INQUIRY_MAX_PAYLOAD_CHANGES',
+  INQUIRY_MAX_FAILURES_BEFORE_MANUAL: 'INQUIRY_MAX_FAILURES_BEFORE_MANUAL',
+  KYC_MANUAL_ENTRY_ENABLED: 'KYC_MANUAL_ENTRY_ENABLED',
+  MAX_BANK_ACCOUNTS: 'MAX_BANK_ACCOUNTS',
+  WITHDRAW_SHABA_REQUIRED_ABOVE_AMOUNT: 'WITHDRAW_SHABA_REQUIRED_ABOVE_AMOUNT',
+  FINANCIAL_INQUIRY_PREFER: 'FINANCIAL_INQUIRY_PREFER',
   /** درصد پاداش معرف از کارمزد فروش دعوت‌شده (۰–۱۰۰) */
   REFERRAL_COMMISSION_PERCENT: 'REFERRAL_COMMISSION_PERCENT',
   /** متن پیش‌فرض اشتراک‌گذاری دعوت؛ {inviteCode} و {inviteLink} */
@@ -283,9 +291,25 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   KYC_REQUIRE_IDENTITY_FOR_ORDERS:
     'اگر true باشد، دسترسی به خرید/فروش/درخواست‌ها فقط با احراز هویت کاربری فعال است',
   KYC_REQUIRE_FINANCIAL_FOR_WALLET:
-    'اگر true باشد، دسترسی به کیف پول فقط با احراز مالی (تایید هویت + شبا + تصویر کارت ملی) فعال است',
+    'اگر true باشد، عملیات واریز/برداشت کیف پول فقط با احراز مالی (تایید هویت + شبا + کارت بانکی) فعال است؛ مشاهده صفحه کیف پول محدود نمی‌شود',
   KYC_REQUIRE_FINANCIAL_FOR_WITHDRAW:
-    'اگر true باشد، ثبت درخواست برداشت فقط با احراز مالی (تایید هویت + شبا + تصویر کارت ملی) فعال است',
+    'اگر true باشد، ثبت درخواست برداشت فقط با احراز مالی (تایید هویت + شبا یا کارت بانکی) فعال است',
+  INQUIRY_MAX_PER_MINUTE:
+    'حداکثر درخواست استعلام واقعی (تماس با Zohal) در هر دقیقه برای هر کاربر',
+  INQUIRY_MAX_PER_DAY:
+    'حداکثر درخواست استعلام واقعی در ۲۴ ساعت برای هر کاربر',
+  INQUIRY_MAX_PAYLOAD_CHANGES:
+    'حداکثر بار تغییر داده استعلام قبل از مسدود شدن خودکار کاربر',
+  INQUIRY_MAX_FAILURES_BEFORE_MANUAL:
+    'حداکثر خطای استعلام قبل از فعال شدن حالت ورود دستی',
+  KYC_MANUAL_ENTRY_ENABLED:
+    'اگر true باشد، پس از خطاهای متعدد امکان ورود دستی اطلاعات فعال می‌شود',
+  MAX_BANK_ACCOUNTS:
+    'حداکثر تعداد حساب بانکی فعال هر کاربر (برای افزودن بیشتر باید یکی را حذف کند)',
+  WITHDRAW_SHABA_REQUIRED_ABOVE_AMOUNT:
+    'مبلغ برداشت (تومان)؛ بالاتر از این سقف، حساب پیش‌فرض باید شبا داشته باشد (۰ = غیرفعال)',
+  FINANCIAL_INQUIRY_PREFER:
+    'وقتی کارت و شبا هر دو وارد شد: card یا iban — کدام استعلام Zohal انجام شود',
   REFERRAL_COMMISSION_PERCENT:
     'درصد پاداش معرف از کارمزد فروش کاربر دعوت‌شده (۰ تا ۱۰۰؛ فقط سطح اول)',
   REFERRAL_SHARE_MESSAGE:

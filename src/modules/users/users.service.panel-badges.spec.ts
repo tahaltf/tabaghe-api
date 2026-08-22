@@ -20,6 +20,12 @@ describe('UsersService panel badges', () => {
   const service = new UsersService(
     prismaMock as never,
     notificationsMock as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
   );
 
   beforeEach(() => {

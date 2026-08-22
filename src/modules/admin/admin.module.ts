@@ -7,6 +7,7 @@ import { FeesModule } from '../fees/fees.module';
 // Controllers
 import { AdminDashboardController } from './controllers/admin-dashboard.controller';
 import { AdminUsersQueryController } from './controllers/admin-users.controller';
+import { AdminInquiryRestrictionsController } from './controllers/admin-inquiry-restrictions.controller';
 import { AdminListingsQueryController } from './controllers/admin-listings.controller';
 import { AdminOrdersQueryController } from './controllers/admin-orders.controller';
 import { AdminTransactionsController } from './controllers/admin-transactions.controller';
@@ -111,6 +112,7 @@ import { ZohalModule } from '../zohal/zohal.module';
   controllers: [
     AdminDashboardController,
     AdminUsersQueryController,
+    AdminInquiryRestrictionsController,
     AdminListingsQueryController,
     AdminOrdersQueryController,
     AdminTransactionsController,

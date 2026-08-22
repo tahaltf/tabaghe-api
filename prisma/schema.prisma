@@ -332,6 +332,10 @@ model User {
   postPurchaseSurveys PostPurchaseSurvey[]
 
   shabaNumber         String?
+  bankCardNumber      String?
+  bankCardBin         String?
+  bankName            String?
+  financialVerifiedAt DateTime?
   kycRejectionReason  String?
   kycReviewedAt       DateTime?
   listings            Listing[]
@@ -375,6 +379,8 @@ model User {
   loginLogs           UserLoginLog[]
   paymentInitLogs     PaymentInitLog[]
   zohalInquiryLogs    ZohalInquiryLog[]
+  inquiryRestriction  UserInquiryRestriction?
+  bankAccounts        UserBankAccount[]
 
   /** اسلاگ یکتای ویترین فروشگاه عمومی (/seller/:shopSlug) */
   shopSlug            String?        @unique
@@ -515,6 +521,86 @@ model ZohalInquiryLog {
 
   @@index([userId, service, payloadHash])
   @@index([createdAt])
+  @@index([userId, createdAt])
+}
+
+model PostalCodeCache {
+  postalCode  String   @id
+  province    String
+  city        String
+  district    String?
+  fullAddress String
+  responseRaw Json?
+  success     Boolean
+  errorCode   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// کش سراسری تبدیل کارت → شبا (بدون userId؛ مثل PostalCodeCache)
+model CardToIbanCache {
+  cardNumber   String   @id
+  shabaNumber  String?
+  success      Boolean
+  errorCode    String?
+  responseRaw  Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+/// کش سراسری تطبیق مالکیت کارت با کد ملی (کلید = hash payload)
+model CardOwnerMatchCache {
+  cacheKey     String   @id
+  cardNumber   String
+  nationalCode String
+  birthDate    String
+  matched      Boolean  @default(false)
+  success      Boolean
+  errorCode    String?
+  responseRaw  Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([cardNumber])
+}
+
+model UserInquiryRestriction {
+  userId                   String   @id
+  user                     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  identityPayloadAttempts  Int      @default(0)
+  identityFailureCount     Int      @default(0)
+  financialPayloadAttempts Int      @default(0)
+  financialFailureCount    Int      @default(0)
+  inquiryBlocked           Boolean  @default(false)
+  manualEntryOnly          Boolean  @default(false)
+  maxInquiriesPerMinute    Int?
+  maxInquiriesPerDay       Int?
+  maxBankAccounts          Int?
+  blockedReason            String?
+  blockedAt                DateTime?
+  unblockedByAdminId       String?
+  updatedAt                DateTime @updatedAt
+}
+
+model UserBankAccount {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label          String?
+  bankCardNumber String?
+  bankCardBin    String?
+  bankName       String?
+  shabaNumber    String?
+  isDefault      Boolean   @default(false)
+  verifiedAt     DateTime?
+  deletedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([userId, isDefault])
+  @@index([userId, deletedAt])
+  @@index([userId, bankCardNumber])
 }
 
 model UserRatingHistory {

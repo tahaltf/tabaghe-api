@@ -16,13 +16,21 @@ export class AddressService {
     return { active: await this.zohalSettings.isPostalActive() };
   }
 
-  async lookupPostalCode(postalCode: string, userId?: string): Promise<PostalLookupResult> {
+  async lookupPostalCode(
+    postalCode: string,
+    userId?: string,
+    ipAddress?: string | null,
+  ): Promise<PostalLookupResult> {
     if (!(await this.zohalSettings.isPostalActive())) {
       return { ok: false, manual: true, reason: 'disabled' };
     }
 
     try {
-      const result = await this.zohal.lookupPostalCode(postalCode, userId);
+      const result = await this.zohal.lookupPostalCode(
+        postalCode,
+        userId,
+        ipAddress ?? undefined,
+      );
       return {
         ok: true,
         province: result.province,

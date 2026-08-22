@@ -1,6 +1,8 @@
 import { UserStatus } from '@prisma/client';
 import {
+  formatShabaDisplay,
   hasBasicListingProfile,
+  hasMinimumFinancialFields,
   isFinancialVerified,
   isIdentityVerified,
 } from './kyc-profile.util';
@@ -23,18 +25,31 @@ describe('kyc-profile.util', () => {
     ).toBe(false);
   });
 
-  it('treats financial KYC as identity + shaba + national card', () => {
+  it('requires card number for financial account input', () => {
+    expect(hasMinimumFinancialFields('6037991234567890')).toBe(true);
+    expect(hasMinimumFinancialFields('123')).toBe(false);
+    expect(hasMinimumFinancialFields(null)).toBe(false);
+  });
+
+  it('formats shaba for display', () => {
+    expect(formatShabaDisplay('123456789012345678901234')).toBe(
+      'IR12 3456 7890 1234 5678 9012 34',
+    );
+  });
+
+  it('treats financial KYC as identity + at least shaba or bank card', () => {
     const base = {
       status: UserStatus.APPROVED,
       isVerified: true,
-      shabaNumber: 'IR123456789012345678901234',
-      nationalCardImage: 'card.jpg',
+      shabaNumber: '123456789012345678901234',
+      bankCardNumber: '6037991234567890',
     };
     expect(isIdentityVerified(base)).toBe(true);
     expect(isFinancialVerified(base)).toBe(true);
-    expect(isFinancialVerified({ ...base, nationalCardImage: null })).toBe(
-      false,
-    );
-    expect(isFinancialVerified({ ...base, shabaNumber: null })).toBe(false);
+    expect(isFinancialVerified({ ...base, bankCardNumber: null })).toBe(true);
+    expect(isFinancialVerified({ ...base, shabaNumber: null })).toBe(true);
+    expect(
+      isFinancialVerified({ ...base, bankCardNumber: null, shabaNumber: null }),
+    ).toBe(false);
   });
 });

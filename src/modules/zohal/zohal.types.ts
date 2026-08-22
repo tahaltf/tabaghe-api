@@ -18,7 +18,9 @@ export type ZohalInquiryPath =
   | 'inquiry/shahkar'
   | 'inquiry/national_identity_inquiry'
   | 'inquiry/postal_code_inquiry'
-  | 'inquiry/check_card_with_national_code';
+  | 'inquiry/check_card_with_national_code'
+  | 'inquiry/check_iban_with_national_code'
+  | 'inquiry/card_to_iban';
 
 export type ZohalEnvelope<T> = {
   result: number;
@@ -62,6 +64,15 @@ export type ZohalPostalCodeData = {
 
 export type ZohalMatchedData = {
   matched?: boolean;
+};
+
+export type ZohalCardToIbanData = {
+  iban?: string | null;
+  IBAN?: string | null;
+  sheba?: string | null;
+  account_iban?: string | null;
+  deposit?: string | null;
+  bank_name?: string | null;
 };
 
 export type PostalInquiryResult = {

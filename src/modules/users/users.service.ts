@@ -30,12 +30,15 @@ import { ensureUserShopSlug } from '../../common/user/shop-slug.util';
 import {
   isFinancialVerified,
   isIdentityVerified,
+  maskBankCardNumber,
 } from '../../common/kyc/kyc-profile.util';
 import { isZohalServiceFailure } from '../zohal/zohal.errors';
 import { ZohalService } from '../zohal/zohal.service';
 import { ZohalSettingsService } from '../zohal/zohal-settings.service';
 import type { KycFormConfig } from '../zohal/zohal-settings.constants';
 import { AdminUsersService } from './admin-users.service';
+import { InquiryRestrictionService } from '../zohal/inquiry-restriction.service';
+import type { InquiryRestrictionSnapshot } from '../zohal/inquiry-restriction.service';
 
 const MY_PROFILE_SELECT = {
   id: true,
@@ -46,6 +49,10 @@ const MY_PROFILE_SELECT = {
   displayName: true,
   nationalCode: true,
   shabaNumber: true,
+  bankCardNumber: true,
+  bankCardBin: true,
+  bankName: true,
+  financialVerifiedAt: true,
   nationalCardImage: true,
   avatar: true,
   bio: true,
@@ -70,9 +77,28 @@ const MY_PROFILE_SELECT = {
   sellerTermsAcceptedVersion: true,
 } satisfies Prisma.UserSelect;
 
-export type MyProfile = Prisma.UserGetPayload<{
-  select: typeof MY_PROFILE_SELECT;
-}> & { panelAccess: UserPanelAccessMap };
+export type MyProfile = Omit<
+  Prisma.UserGetPayload<{ select: typeof MY_PROFILE_SELECT }>,
+  'bankCardNumber'
+> & {
+  panelAccess: UserPanelAccessMap;
+  bankCardMasked: string | null;
+  kyc: {
+    identityVerified: boolean;
+    financialVerified: boolean;
+  };
+  bankAccounts: Array<{
+    id: string;
+    label: string | null;
+    bankName: string | null;
+    bankCardMasked: string | null;
+    shabaNumber: string | null;
+    isDefault: boolean;
+    verifiedAt: Date | null;
+  }>;
+  defaultBankAccountId: string | null;
+  inquiryRestriction: InquiryRestrictionSnapshot;
+};
 
 export interface DashboardStats {
   activeAuctions: number;
@@ -215,6 +241,7 @@ export class UsersService {
     private readonly zohal: ZohalService,
     private readonly zohalSettings: ZohalSettingsService,
     private readonly adminUsers: AdminUsersService,
+    private readonly inquiryRestrictions: InquiryRestrictionService,
   ) {}
 
   async getKycFormConfig(): Promise<KycFormConfig> {
@@ -250,7 +277,6 @@ export class UsersService {
           key: {
             in: [
               'KYC_REQUIRE_IDENTITY_FOR_ORDERS',
-              'KYC_REQUIRE_FINANCIAL_FOR_WALLET',
               'KYC_REQUIRE_FINANCIAL_FOR_WITHDRAW',
             ],
           },
@@ -266,23 +292,42 @@ export class UsersService {
     const requireIdentityForOrders =
       String(settingsMap.KYC_REQUIRE_IDENTITY_FOR_ORDERS ?? 'true').toLowerCase() !==
       'false';
-    const requireFinancialForWallet =
-      String(settingsMap.KYC_REQUIRE_FINANCIAL_FOR_WALLET ?? 'true').toLowerCase() !==
-      'false';
     const requireFinancialForWithdraw =
       String(settingsMap.KYC_REQUIRE_FINANCIAL_FOR_WITHDRAW ?? 'true').toLowerCase() !==
       'false';
     if (requireIdentityForOrders && !identityOk) {
       restrictedPanelAccess['dashboard.orders'] = false;
     }
-    if (requireFinancialForWallet && !financialOk) {
-      restrictedPanelAccess['dashboard.wallet'] = false;
-    }
     if (requireFinancialForWithdraw && !financialOk) {
       restrictedPanelAccess['dashboard.wallet.withdraw'] = false;
     }
+    const { bankCardNumber, ...publicProfile } = profile;
+    const [bankAccountRows, inquiryRestriction] = await Promise.all([
+      this.prisma.userBankAccount.findMany({
+        where: { userId: user.id, deletedAt: null },
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+      }),
+      this.inquiryRestrictions.getSnapshot(user.id),
+    ]);
+    const defaultAccount = bankAccountRows.find((a) => a.isDefault) ?? bankAccountRows[0] ?? null;
     return {
-      ...profile,
+      ...publicProfile,
+      bankCardMasked: bankCardNumber ? maskBankCardNumber(bankCardNumber) : null,
+      kyc: {
+        identityVerified: identityOk,
+        financialVerified: financialOk,
+      },
+      bankAccounts: bankAccountRows.map((a) => ({
+        id: a.id,
+        label: a.label,
+        bankName: a.bankName,
+        bankCardMasked: a.bankCardNumber ? maskBankCardNumber(a.bankCardNumber) : null,
+        shabaNumber: a.shabaNumber,
+        isDefault: a.isDefault,
+        verifiedAt: a.verifiedAt,
+      })),
+      defaultBankAccountId: defaultAccount?.id ?? null,
+      inquiryRestriction,
       panelAccess: restrictedPanelAccess,
     };
   }
@@ -936,6 +981,7 @@ export class UsersService {
     userId: string,
     dto: CompleteProfileDto,
     nationalCardImageFilename?: string,
+    ipAddress?: string | null,
   ): Promise<MyProfile> {
     const currentUser = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -969,8 +1015,12 @@ export class UsersService {
     const alreadyApproved =
       currentUser.status === UserStatus.APPROVED && currentUser.isVerified;
 
+    const restriction = await this.inquiryRestrictions.getSnapshot(userId);
     const useZohalIdentity =
-      !alreadyApproved && (await this.zohalSettings.isIdentityActive());
+      !alreadyApproved &&
+      !restriction.inquiryBlocked &&
+      !restriction.manualEntryOnly &&
+      (await this.zohalSettings.isIdentityActive());
 
     let firstName = String(dto.firstName ?? '').trim();
     let lastName = String(dto.lastName ?? '').trim();
@@ -992,11 +1042,13 @@ export class UsersService {
           currentUser.phone,
           dto.nationalCode,
           userId,
+          ipAddress ?? undefined,
         );
         const identity = await this.zohal.inquireNationalIdentity(
           dto.nationalCode,
           dto.birthDate,
           userId,
+          ipAddress ?? undefined,
         );
         firstName = identity.firstName;
         lastName = identity.lastName;
