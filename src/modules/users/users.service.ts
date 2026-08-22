@@ -271,7 +271,7 @@ export class UsersService {
     const baseAccess = this.panelAccessService.resolveMap(raw, {
       aiContentDefault: aiEnabled,
     });
-    const [settings, restrictedPanelAccess] = await Promise.all([
+    const [settings, restrictedPanelAccess, bankAccountRows, inquiryRestriction] = await Promise.all([
       this.prisma.systemSetting.findMany({
         where: {
           key: {
@@ -284,6 +284,11 @@ export class UsersService {
         select: { key: true, value: true },
       }),
       Promise.resolve(baseAccess),
+      this.prisma.userBankAccount.findMany({
+        where: { userId: user.id, deletedAt: null },
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+      }),
+      this.inquiryRestrictions.getSnapshot(user.id),
     ]);
     const settingsMap: Record<string, string> = {};
     for (const item of settings) settingsMap[item.key] = item.value;
@@ -305,13 +310,6 @@ export class UsersService {
       restrictedPanelAccess['dashboard.wallet.withdraw'] = false;
     }
     const { bankCardNumber, ...publicProfile } = profile;
-    const [bankAccountRows, inquiryRestriction] = await Promise.all([
-      this.prisma.userBankAccount.findMany({
-        where: { userId: user.id, deletedAt: null },
-        orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
-      }),
-      this.inquiryRestrictions.getSnapshot(user.id),
-    ]);
     const defaultAccount = bankAccountRows.find((a) => a.isDefault) ?? bankAccountRows[0] ?? null;
     return {
       ...publicProfile,
