@@ -234,6 +234,38 @@ image_exists() {
   docker image inspect "$1" >/dev/null 2>&1
 }
 
+# Persistent BuildKit cache on disk — survives image retag/rebuild (frontend SSR stays ~3–6 min vs 15).
+docker_build_with_local_cache() {
+  local cache_name="$1"
+  local tag="$2"
+  local context="$3"
+  shift 3
+  local -a extra=("$@")
+
+  local cache_dir="$ROOT/.buildkit-cache/$cache_name"
+  mkdir -p "$cache_dir"
+
+  local -a args=()
+  if [ -n "$(ls -A "$cache_dir" 2>/dev/null)" ]; then
+    args+=(--cache-from "type=local,src=$cache_dir")
+  fi
+  if image_exists "$tag"; then
+    args+=(--cache-from "$tag")
+  fi
+  local prev
+  prev="$(previous_tag "$tag")"
+  if image_exists "$prev"; then
+    args+=(--cache-from "$prev")
+  fi
+
+  docker build \
+    "${args[@]}" \
+    --cache-to "type=local,dest=$cache_dir,mode=max" \
+    "${extra[@]}" \
+    -t "$tag" \
+    "$context"
+}
+
 repo_head() {
   git -C "$1" rev-parse HEAD 2>/dev/null || echo ""
 }
@@ -407,8 +439,8 @@ if [ "$BUILD_BE" = "1" ]; then
 fi
 
 if [ "$BUILD_FE" = "1" ]; then
-  log "building frontend image (5-10 min)..."
-  docker build -t "$FRONTEND_IMAGE" "$FRONTEND"
+  log "building frontend image (cached SSR — first run slow, later runs faster)..."
+  docker_build_with_local_cache frontend "$FRONTEND_IMAGE" "$FRONTEND"
 fi
 
 if [ "$BUILD_CR" = "1" ]; then
