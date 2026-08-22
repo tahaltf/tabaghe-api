@@ -29,6 +29,12 @@ enum UserStatus {
   REJECTED
 }
 
+enum BankAccountVerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum ListingType {
   DIRECT
   EXCHANGE
@@ -592,6 +598,10 @@ model UserBankAccount {
   bankName       String?
   shabaNumber    String?
   isDefault      Boolean   @default(false)
+  verificationStatus BankAccountVerificationStatus @default(PENDING)
+  rejectionReason String?
+  reviewedAt     DateTime?
+  reviewedByAdminId String?
   verifiedAt     DateTime?
   deletedAt      DateTime?
   createdAt      DateTime  @default(now())

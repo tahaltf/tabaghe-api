@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { BankAccountVerificationStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import {
   formatMaskedCard,
@@ -41,6 +42,26 @@ export type PublicBankAccount = {
   bankCardBin: string | null;
   shabaNumber: string | null;
   isDefault: boolean;
+  verificationStatus: BankAccountVerificationStatus;
+  rejectionReason: string | null;
+  verifiedAt: Date | null;
+};
+
+export type AdminPendingBankAccount = {
+  id: string;
+  userId: string;
+  userPhone: string;
+  userName: string;
+  bankName: string | null;
+  bankCardMasked: string | null;
+  shabaNumber: string | null;
+  isDefault: boolean;
+  createdAt: Date;
+};
+
+type FinancialVerificationResult = {
+  verificationStatus: BankAccountVerificationStatus;
+  shabaNumber: string | null;
   verifiedAt: Date | null;
 };
 
@@ -61,6 +82,118 @@ export class BankAccountsService {
     return rows.map((r) => this.toPublic(r));
   }
 
+  async listPendingForAdmin(): Promise<AdminPendingBankAccount[]> {
+    const rows = await this.prisma.userBankAccount.findMany({
+      where: {
+        deletedAt: null,
+        verificationStatus: BankAccountVerificationStatus.PENDING,
+      },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        user: {
+          select: { phone: true, firstName: true, lastName: true },
+        },
+      },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      userId: row.userId,
+      userPhone: row.user.phone,
+      userName:
+        `${String(row.user.firstName ?? '').trim()} ${String(row.user.lastName ?? '').trim()}`.trim() ||
+        row.user.phone,
+      bankName: row.bankName,
+      bankCardMasked: row.bankCardNumber
+        ? maskBankCardNumber(row.bankCardNumber)
+        : null,
+      shabaNumber: row.shabaNumber,
+      isDefault: row.isDefault,
+      createdAt: row.createdAt,
+    }));
+  }
+
+  async approveBankAccount(
+    accountId: string,
+    adminId: string,
+    ipAddress?: string | null,
+  ): Promise<PublicBankAccount> {
+    const row = await this.prisma.userBankAccount.findFirst({
+      where: { id: accountId, deletedAt: null },
+    });
+    if (!row) throw new NotFoundException('حساب بانکی یافت نشد');
+    if (row.verificationStatus !== BankAccountVerificationStatus.PENDING) {
+      throw new BadRequestException('این حساب در وضعیت انتظار نیست.');
+    }
+
+    let shabaNumber = row.shabaNumber;
+    if (
+      !shabaNumber &&
+      row.bankCardNumber &&
+      (await this.zohalSettings.isCardMatchActive())
+    ) {
+      try {
+        const { iban } = await this.zohal.convertCardToIban(
+          row.bankCardNumber,
+          row.userId,
+          ipAddress ?? undefined,
+        );
+        shabaNumber = iban;
+      } catch {
+        // admin can approve without shaba
+      }
+    }
+
+    const updated = await this.prisma.userBankAccount.update({
+      where: { id: accountId },
+      data: {
+        verificationStatus: BankAccountVerificationStatus.APPROVED,
+        rejectionReason: null,
+        shabaNumber,
+        verifiedAt: new Date(),
+        reviewedAt: new Date(),
+        reviewedByAdminId: adminId,
+      },
+    });
+    if (updated.isDefault) {
+      await this.syncUserDefaultFields(updated.userId, updated);
+    }
+    return this.toPublic(updated);
+  }
+
+  async rejectBankAccount(
+    accountId: string,
+    adminId: string,
+    reason: string,
+  ): Promise<PublicBankAccount> {
+    const row = await this.prisma.userBankAccount.findFirst({
+      where: { id: accountId, deletedAt: null },
+    });
+    if (!row) throw new NotFoundException('حساب بانکی یافت نشد');
+    if (row.verificationStatus !== BankAccountVerificationStatus.PENDING) {
+      throw new BadRequestException('این حساب در وضعیت انتظار نیست.');
+    }
+
+    const trimmedReason = reason.trim() || 'مدارک/اطلاعات حساب بانکی تأیید نشد.';
+    const wasDefault = row.isDefault;
+
+    const updated = await this.prisma.userBankAccount.update({
+      where: { id: accountId },
+      data: {
+        verificationStatus: BankAccountVerificationStatus.REJECTED,
+        rejectionReason: trimmedReason,
+        isDefault: false,
+        reviewedAt: new Date(),
+        reviewedByAdminId: adminId,
+      },
+    });
+
+    if (wasDefault) {
+      await this.promoteNextDefault(updated.userId);
+    }
+
+    return this.toPublic(updated);
+  }
+
   async preview(
     userId: string,
     dto: FinancialVerificationDto,
@@ -70,9 +203,8 @@ export class BankAccountsService {
     this.assertIdentityReady(user);
     const parsed = this.parseFinancialInput(dto);
     await this.assertNotActiveDuplicate(userId, parsed.cardNumber);
-    await this.runFinancialInquiries(user, parsed.cardNumber, ipAddress);
-    const shabaNumber = await this.resolveShabaFromCard(
-      user.id,
+    const verification = await this.runFinancialVerification(
+      user,
       parsed.cardNumber,
       ipAddress,
     );
@@ -85,10 +217,12 @@ export class BankAccountsService {
       bankBin: bankInfo.bin,
       maskedCard: formatMaskedCard(parsed.cardNumber),
       holderName,
-      shabaNumber,
-      shabaDisplay: shabaNumber ? formatShabaDisplay(shabaNumber) : null,
+      shabaNumber: verification.shabaNumber,
+      shabaDisplay: verification.shabaNumber
+        ? formatShabaDisplay(verification.shabaNumber)
+        : null,
       hasCard: true,
-      hasShaba: !!shabaNumber,
+      hasShaba: !!verification.shabaNumber,
     };
   }
 
@@ -109,9 +243,8 @@ export class BankAccountsService {
     }
 
     await this.inquiryRestrictions.assertCanAddBankAccount(userId);
-    await this.runFinancialInquiries(user, parsed.cardNumber, ipAddress);
-    const shabaNumber = await this.resolveShabaFromCard(
-      userId,
+    const verification = await this.runFinancialVerification(
+      user,
       parsed.cardNumber,
       ipAddress,
     );
@@ -128,12 +261,15 @@ export class BankAccountsService {
         bankCardNumber: parsed.cardNumber,
         bankCardBin: bankInfo.bin || null,
         bankName: bankInfo.bankName,
-        shabaNumber,
+        shabaNumber: verification.shabaNumber,
         isDefault: isDefault || count === 0,
-        verifiedAt: new Date(),
+        verificationStatus: verification.verificationStatus,
+        verifiedAt: verification.verifiedAt,
       },
     });
-    if (row.isDefault) await this.syncUserDefaultFields(userId, row);
+    if (row.isDefault && row.verificationStatus === BankAccountVerificationStatus.APPROVED) {
+      await this.syncUserDefaultFields(userId, row);
+    }
     return this.toPublic(row);
   }
 
@@ -158,9 +294,8 @@ export class BankAccountsService {
       }
     }
 
-    await this.runFinancialInquiries(user, parsed.cardNumber, ipAddress);
-    const shabaNumber = await this.resolveShabaFromCard(
-      userId,
+    const verification = await this.runFinancialVerification(
+      user,
       parsed.cardNumber,
       ipAddress,
     );
@@ -172,11 +307,20 @@ export class BankAccountsService {
         bankCardNumber: parsed.cardNumber,
         bankCardBin: bankInfo.bin ?? null,
         bankName: bankInfo.bankName,
-        shabaNumber,
-        verifiedAt: new Date(),
+        shabaNumber: verification.shabaNumber,
+        verificationStatus: verification.verificationStatus,
+        verifiedAt: verification.verifiedAt,
+        rejectionReason: null,
+        reviewedAt: null,
+        reviewedByAdminId: null,
       },
     });
-    if (row.isDefault) await this.syncUserDefaultFields(userId, row);
+    if (
+      row.isDefault &&
+      row.verificationStatus === BankAccountVerificationStatus.APPROVED
+    ) {
+      await this.syncUserDefaultFields(userId, row);
+    }
     return this.toPublic(row);
   }
 
@@ -187,46 +331,49 @@ export class BankAccountsService {
       data: { deletedAt: new Date(), isDefault: false },
     });
     if (existing.isDefault) {
-      const next = await this.prisma.userBankAccount.findFirst({
-        where: this.activeWhere(userId),
-        orderBy: { createdAt: 'desc' },
-      });
-      if (next) {
-        await this.prisma.userBankAccount.update({
-          where: { id: next.id },
-          data: { isDefault: true },
-        });
-        await this.syncUserDefaultFields(userId, next);
-      } else {
-        await this.prisma.user.update({
-          where: { id: userId },
-          data: {
-            bankCardNumber: null,
-            bankCardBin: null,
-            bankName: null,
-            shabaNumber: null,
-            financialVerifiedAt: null,
-          },
-        });
-      }
+      await this.promoteNextDefault(userId);
     }
   }
 
   async setDefault(userId: string, accountId: string): Promise<PublicBankAccount> {
-    await this.findActiveAccount(userId, accountId);
+    const account = await this.findActiveAccount(userId, accountId);
+    if (account.verificationStatus === BankAccountVerificationStatus.REJECTED) {
+      throw new BadRequestException('حساب رد‌شده را نمی‌توان پیش‌فرض کرد.');
+    }
     await this.clearDefaultFlags(userId);
     const updated = await this.prisma.userBankAccount.update({
       where: { id: accountId },
       data: { isDefault: true },
     });
-    await this.syncUserDefaultFields(userId, updated);
+    if (updated.verificationStatus === BankAccountVerificationStatus.APPROVED) {
+      await this.syncUserDefaultFields(userId, updated);
+    }
     return this.toPublic(updated);
   }
 
   async getDefaultAccount(userId: string) {
     return this.prisma.userBankAccount.findFirst({
-      where: { ...this.activeWhere(userId), isDefault: true },
+      where: {
+        ...this.activeWhere(userId),
+        isDefault: true,
+        verificationStatus: BankAccountVerificationStatus.APPROVED,
+      },
     });
+  }
+
+  async getAccountForWithdraw(userId: string, accountId: string) {
+    const row = await this.prisma.userBankAccount.findFirst({
+      where: {
+        id: accountId,
+        userId,
+        deletedAt: null,
+        verificationStatus: BankAccountVerificationStatus.APPROVED,
+      },
+    });
+    if (!row) {
+      throw new BadRequestException('حساب بانکی تأیید‌شده‌ای انتخاب نشده است.');
+    }
+    return row;
   }
 
   private activeWhere(userId: string) {
@@ -261,6 +408,12 @@ export class BankAccountsService {
       where: {
         ...this.activeWhere(userId),
         bankCardNumber: cardNumber,
+        verificationStatus: {
+          in: [
+            BankAccountVerificationStatus.PENDING,
+            BankAccountVerificationStatus.APPROVED,
+          ],
+        },
         ...(excludeAccountId ? { id: { not: excludeAccountId } } : {}),
       },
     });
@@ -293,9 +446,8 @@ export class BankAccountsService {
       throw new BadRequestException('شماره کارت حساب حذف‌شده نامعتبر است.');
     }
 
-    await this.runFinancialInquiries(user, cardNumber, ipAddress);
-    const resolvedShaba = await this.resolveShabaFromCard(
-      userId,
+    const verification = await this.runFinancialVerification(
+      user,
       cardNumber,
       ipAddress,
     );
@@ -313,13 +465,60 @@ export class BankAccountsService {
         label: dto.label && dto.label !== '__default__' ? dto.label : deletedRow.label,
         bankCardBin: bankInfo.bin ?? deletedRow.bankCardBin,
         bankName: bankInfo.bankName ?? deletedRow.bankName,
-        shabaNumber: resolvedShaba ?? deletedRow.shabaNumber,
+        shabaNumber: verification.shabaNumber ?? deletedRow.shabaNumber,
         isDefault: isDefault || activeCount === 0,
-        verifiedAt: new Date(),
+        verificationStatus: verification.verificationStatus,
+        verifiedAt: verification.verifiedAt,
+        rejectionReason: null,
+        reviewedAt: null,
+        reviewedByAdminId: null,
       },
     });
-    if (row.isDefault) await this.syncUserDefaultFields(userId, row);
+    if (row.isDefault && row.verificationStatus === BankAccountVerificationStatus.APPROVED) {
+      await this.syncUserDefaultFields(userId, row);
+    }
     return this.toPublic(row);
+  }
+
+  private async promoteNextDefault(userId: string): Promise<void> {
+    const nextApproved = await this.prisma.userBankAccount.findFirst({
+      where: {
+        ...this.activeWhere(userId),
+        verificationStatus: BankAccountVerificationStatus.APPROVED,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (nextApproved) {
+      await this.prisma.userBankAccount.update({
+        where: { id: nextApproved.id },
+        data: { isDefault: true },
+      });
+      await this.syncUserDefaultFields(userId, nextApproved);
+      return;
+    }
+
+    const nextAny = await this.prisma.userBankAccount.findFirst({
+      where: this.activeWhere(userId),
+      orderBy: { createdAt: 'desc' },
+    });
+    if (nextAny) {
+      await this.prisma.userBankAccount.update({
+        where: { id: nextAny.id },
+        data: { isDefault: true },
+      });
+      return;
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        bankCardNumber: null,
+        bankCardBin: null,
+        bankName: null,
+        shabaNumber: null,
+        financialVerifiedAt: null,
+      },
+    });
   }
 
   private async clearDefaultFlags(userId: string): Promise<void> {
@@ -337,23 +536,7 @@ export class BankAccountsService {
     return { cardNumber };
   }
 
-  private async resolveShabaFromCard(
-    userId: string,
-    cardNumber: string,
-    ipAddress?: string | null,
-  ): Promise<string | null> {
-    const restriction = await this.inquiryRestrictions.getSnapshot(userId);
-    if (restriction.manualEntryOnly) return null;
-    await this.assertCardMatchInquiryAvailable();
-    const { iban } = await this.zohal.convertCardToIban(
-      cardNumber,
-      userId,
-      ipAddress ?? undefined,
-    );
-    return iban;
-  }
-
-  private async runFinancialInquiries(
+  private async runFinancialVerification(
     user: {
       id: string;
       nationalCode: string | null;
@@ -361,7 +544,7 @@ export class BankAccountsService {
     },
     cardNumber: string,
     ipAddress?: string | null,
-  ): Promise<void> {
+  ): Promise<FinancialVerificationResult> {
     const restriction = await this.inquiryRestrictions.getSnapshot(user.id);
     if (restriction.inquiryBlocked) {
       throw new BadRequestException(
@@ -369,41 +552,12 @@ export class BankAccountsService {
       );
     }
     if (restriction.manualEntryOnly) {
-      return;
+      return this.pendingVerification(null);
     }
-    await this.assertCardMatch(user, cardNumber, ipAddress);
-  }
+    if (!(await this.zohalSettings.isCardMatchActive())) {
+      return this.pendingVerification(null);
+    }
 
-  private async assertCardMatchInquiryAvailable(): Promise<void> {
-    if (await this.zohalSettings.isCardMatchActive()) return;
-
-    const status = await this.zohalSettings.getAdminStatus();
-    if (!status.tokenConfigured) {
-      throw new BadRequestException(
-        'سرویس اعتبارسنجی کارت بانکی پیکربندی نشده است. لطفاً با پشتیبانی تماس بگیرید.',
-      );
-    }
-    if (!status.cardMatchEnabled) {
-      throw new BadRequestException(
-        'اعتبارسنجی کارت بانکی در سیستم غیرفعال است.',
-      );
-    }
-    if (status.cardMatchFailureCount >= status.cardMatchMaxFailures) {
-      throw new BadRequestException(
-        'سرویس اعتبارسنجی کارت موقتاً در دسترس نیست. لطفاً بعداً تلاش کنید.',
-      );
-    }
-    throw new BadRequestException(
-      'سرویس اعتبارسنجی کارت بانکی در دسترس نیست.',
-    );
-  }
-
-  private async assertCardMatch(
-    user: { id: string; nationalCode: string | null; birthDate: Date | null },
-    cardNumber: string,
-    ipAddress?: string | null,
-  ): Promise<void> {
-    await this.assertCardMatchInquiryAvailable();
     try {
       await this.zohal.assertCardMatchesNationalCode(
         {
@@ -415,15 +569,45 @@ export class BankAccountsService {
         ipAddress ?? undefined,
       );
     } catch (err) {
-      if (!isZohalServiceFailure(err)) throw err;
-      const { circuitOpen } = await this.zohalSettings.recordCardMatchFailure();
-      if (circuitOpen) {
-        throw new BadRequestException(
-          'سرویس اعتبارسنجی کارت موقتاً در دسترس نیست. لطفاً بعداً تلاش کنید.',
-        );
+      if (isZohalServiceFailure(err)) {
+        await this.zohalSettings.recordCardMatchFailure();
+        return this.pendingVerification(null);
       }
       throw err;
     }
+
+    let shabaNumber: string | null = null;
+    try {
+      const { iban } = await this.zohal.convertCardToIban(
+        cardNumber,
+        user.id,
+        ipAddress ?? undefined,
+      );
+      shabaNumber = iban;
+    } catch (err) {
+      if (isZohalServiceFailure(err)) {
+        return this.approvedVerification(null);
+      }
+      throw err;
+    }
+
+    return this.approvedVerification(shabaNumber);
+  }
+
+  private pendingVerification(shabaNumber: string | null): FinancialVerificationResult {
+    return {
+      verificationStatus: BankAccountVerificationStatus.PENDING,
+      shabaNumber,
+      verifiedAt: null,
+    };
+  }
+
+  private approvedVerification(shabaNumber: string | null): FinancialVerificationResult {
+    return {
+      verificationStatus: BankAccountVerificationStatus.APPROVED,
+      shabaNumber,
+      verifiedAt: new Date(),
+    };
   }
 
   private async syncUserDefaultFields(
@@ -434,8 +618,12 @@ export class BankAccountsService {
       bankName: string | null;
       shabaNumber: string | null;
       verifiedAt: Date | null;
+      verificationStatus?: BankAccountVerificationStatus;
     },
   ): Promise<void> {
+    if (row.verificationStatus && row.verificationStatus !== BankAccountVerificationStatus.APPROVED) {
+      return;
+    }
     await this.prisma.user.update({
       where: { id: userId },
       data: {
@@ -456,6 +644,8 @@ export class BankAccountsService {
     bankName: string | null;
     shabaNumber: string | null;
     isDefault: boolean;
+    verificationStatus: BankAccountVerificationStatus;
+    rejectionReason: string | null;
     verifiedAt: Date | null;
   }): PublicBankAccount {
     return {
@@ -466,6 +656,8 @@ export class BankAccountsService {
       bankCardBin: row.bankCardBin,
       shabaNumber: row.shabaNumber,
       isDefault: row.isDefault,
+      verificationStatus: row.verificationStatus,
+      rejectionReason: row.rejectionReason,
       verifiedAt: row.verifiedAt,
     };
   }
@@ -509,4 +701,3 @@ export class BankAccountsService {
 }
 
 export { isFinancialVerified, maskBankCardNumber };
-

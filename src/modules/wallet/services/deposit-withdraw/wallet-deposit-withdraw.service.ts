@@ -23,6 +23,7 @@ import {
 import { isZohalServiceFailure } from '../../../zohal/zohal.errors';
 import { ZohalService } from '../../../zohal/zohal.service';
 import { ZohalSettingsService } from '../../../zohal/zohal-settings.service';
+import { BankAccountsService } from '../../../users/bank-accounts.service';
 
 const WITHDRAW_KYC_MESSAGE =
   'برای برداشت وجه باید اطلاعات حساب بانکی خود را تکمیل کنید.';
@@ -36,6 +37,7 @@ export class WalletDepositWithdrawService {
     private readonly otpService: OtpService,
     private readonly zohal: ZohalService,
     private readonly zohalSettings: ZohalSettingsService,
+    private readonly bankAccounts: BankAccountsService,
   ) {}
 
   async deposit(userId: string, amount: number | string | Decimal) {
@@ -380,18 +382,10 @@ export class WalletDepositWithdrawService {
     }
     this.assertWithdrawKyc(user);
 
-    const bankAccount = await this.prisma.userBankAccount.findFirst({
-      where: { id: bankAccountId, userId, deletedAt: null },
-      select: {
-        id: true,
-        bankCardNumber: true,
-        shabaNumber: true,
-        bankName: true,
-      },
-    });
-    if (!bankAccount) {
-      throw new NotFoundException('حساب بانکی انتخاب‌شده یافت نشد.');
-    }
+    const bankAccount = await this.bankAccounts.getAccountForWithdraw(
+      userId,
+      bankAccountId,
+    );
 
     const card = String(bankAccount.bankCardNumber ?? '').replace(/\D/g, '');
     if (card.length !== 16) {

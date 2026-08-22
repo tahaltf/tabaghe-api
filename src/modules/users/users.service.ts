@@ -288,7 +288,10 @@ export class UsersService {
     const settingsMap: Record<string, string> = {};
     for (const item of settings) settingsMap[item.key] = item.value;
     const identityOk = isIdentityVerified(user);
-    const financialOk = isFinancialVerified(user);
+    const hasApprovedBank = bankAccountRows.some(
+      (a) => a.verificationStatus === 'APPROVED',
+    );
+    const financialOk = hasApprovedBank || isFinancialVerified(user);
     const requireIdentityForOrders =
       String(settingsMap.KYC_REQUIRE_IDENTITY_FOR_ORDERS ?? 'true').toLowerCase() !==
       'false';
@@ -324,6 +327,8 @@ export class UsersService {
         bankCardMasked: a.bankCardNumber ? maskBankCardNumber(a.bankCardNumber) : null,
         shabaNumber: a.shabaNumber,
         isDefault: a.isDefault,
+        verificationStatus: a.verificationStatus,
+        rejectionReason: a.rejectionReason,
         verifiedAt: a.verifiedAt,
       })),
       defaultBankAccountId: defaultAccount?.id ?? null,

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { UsersController } from './users.controller';
 import { AdminUsersController } from './admin-users.controller';
+import { AdminBankAccountsController } from './admin-bank-accounts.controller';
 import { UsersService } from './users.service';
 import { AdminUsersService } from './admin-users.service';
 import { UserPanelAccessService } from './user-panel-access.service';
@@ -23,7 +24,7 @@ import { FinancialVerificationService } from './financial-verification.service';
     AiTokenModule,
     ZohalModule,
   ],
-  controllers: [UsersController, AdminUsersController],
+  controllers: [UsersController, AdminUsersController, AdminBankAccountsController],
   providers: [
     UsersService,
     AdminUsersService,
