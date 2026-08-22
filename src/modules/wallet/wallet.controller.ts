@@ -105,9 +105,7 @@ export class WalletController {
     @Body()
     body: {
       amount: number;
-      shaba: string;
-      card: string;
-      ownerName: string;
+      bankAccountId: string;
       otpCode: string;
     },
   ) {

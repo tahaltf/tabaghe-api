@@ -346,9 +346,7 @@ export class WalletDepositWithdrawService {
     userId: string,
     dto: {
       amount: number;
-      shaba: string;
-      card: string;
-      ownerName: string;
+      bankAccountId: string;
       otpCode: string;
     },
     ipAddress?: string | null,
@@ -356,6 +354,11 @@ export class WalletDepositWithdrawService {
     const otpCode = String(dto.otpCode ?? '').trim();
     if (!/^\d{4,6}$/.test(otpCode)) {
       throw new BadRequestException('کد تایید نامعتبر است.');
+    }
+
+    const bankAccountId = String(dto.bankAccountId ?? '').trim();
+    if (!bankAccountId) {
+      throw new BadRequestException('انتخاب حساب بانکی الزامی است.');
     }
 
     const user = await this.prisma.user.findUnique({
@@ -366,6 +369,8 @@ export class WalletDepositWithdrawService {
         isVerified: true,
         shabaNumber: true,
         bankCardNumber: true,
+        firstName: true,
+        lastName: true,
         nationalCode: true,
         birthDate: true,
       },
@@ -375,14 +380,40 @@ export class WalletDepositWithdrawService {
     }
     this.assertWithdrawKyc(user);
 
+    const bankAccount = await this.prisma.userBankAccount.findFirst({
+      where: { id: bankAccountId, userId, deletedAt: null },
+      select: {
+        id: true,
+        bankCardNumber: true,
+        shabaNumber: true,
+        bankName: true,
+      },
+    });
+    if (!bankAccount) {
+      throw new NotFoundException('حساب بانکی انتخاب‌شده یافت نشد.');
+    }
+
+    const card = String(bankAccount.bankCardNumber ?? '').replace(/\D/g, '');
+    if (card.length !== 16) {
+      throw new BadRequestException('حساب بانکی انتخاب‌شده شماره کارت معتبر ندارد.');
+    }
+
+    const shabaDigits = String(bankAccount.shabaNumber ?? '').replace(/\D/g, '');
+    const shaba = shabaDigits.length === 24 ? `IR${shabaDigits}` : '';
+    const ownerName =
+      `${String(user.firstName ?? '').trim()} ${String(user.lastName ?? '').trim()}`.trim() ||
+      user.phone;
+
     await this.otpService.consume(user.phone, otpCode, OtpPurpose.WITHDRAW);
 
     const amountDec = new Decimal(dto.amount);
-    await this.assertWithdrawShabaIfRequired(user, amountDec.toNumber());
+    await this.assertWithdrawShabaIfRequired(
+      { shabaNumber: bankAccount.shabaNumber },
+      amountDec.toNumber(),
+    );
 
     if (await this.zohalSettings.isCardMatchActive()) {
-      const card = String(dto.card ?? '').replace(/\D/g, '');
-      if (card.length === 16 && user.nationalCode && user.birthDate) {
+      if (user.nationalCode && user.birthDate) {
         try {
           await this.zohal.assertCardMatchesNationalCode({
             nationalCode: user.nationalCode,
@@ -408,6 +439,17 @@ export class WalletDepositWithdrawService {
       throw new BadRequestException('موجودی قابل برداشت کافی نیست');
     }
 
+    const withdrawMeta = {
+      amount: amountDec.toNumber(),
+      bankAccountId: bankAccount.id,
+      bankName: bankAccount.bankName,
+      card,
+      shaba,
+      ownerName,
+      otpCode,
+      description: 'درخواست برداشت وجه',
+    };
+
     const created = await this.prisma.$transaction(async (tx) => {
       await tx.wallet.update({
         where: { userId },
@@ -423,7 +465,7 @@ export class WalletDepositWithdrawService {
           amount: amountDec.toNumber(),
           type: WalletTransactionType.WITHDRAW_REQUEST,
           status: WalletTransactionStatus.PENDING,
-          meta: { ...dto, description: 'درخواست برداشت وجه' },
+          meta: withdrawMeta,
         },
       });
     });
