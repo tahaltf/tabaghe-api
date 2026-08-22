@@ -7,6 +7,8 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "nest build && npm run copy:seed-assets",
+    "verify:build": "prisma generate && npm run build",
+    "install:hooks": "bash scripts/install-git-hooks.sh",
     "copy:seed-assets": "node -e \"const fs=require('fs');const p=require('path');const d=p.join('dist','prisma','seed-data');fs.mkdirSync(d,{recursive:true});for(const f of fs.readdirSync(p.join('prisma','seed-data'))){if(f.endsWith('.json'))fs.copyFileSync(p.join('prisma','seed-data',f),p.join(d,f));}\"",
     "build:with-prisma": "prisma generate && nest build",
     "db:deploy": "prisma migrate deploy",
