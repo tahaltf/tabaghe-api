@@ -22,6 +22,7 @@ import { AdminNotificationsController } from './controllers/admin-notifications.
 import { AdminDisputesController } from './controllers/admin-disputes.controller';
 import { AdminFaqController } from './controllers/admin-faq.controller';
 import { AdminSmsController } from './controllers/admin-sms.controller';
+import { AdminSmsIrController } from './controllers/admin-smsir.controller';
 import { AdminLogsController } from './controllers/admin-logs.controller';
 import { AdminPlatformWalletController } from './controllers/admin-platform-wallet.controller';
 import { AdminContactMessagesController } from './controllers/admin-contact-messages.controller';
@@ -63,6 +64,7 @@ import { AdminTicketsService } from './services/admin-tickets.service';
 import { AdminDisputesService } from './services/admin-disputes.service';
 import { AdminFaqService } from './services/admin-faq.service';
 import { AdminSmsService } from './services/admin-sms.service';
+import { AdminSmsIrService } from './services/admin-smsir.service';
 import { AdminLogsService } from './services/admin-logs.service';
 import { AdminPlatformWalletService } from './services/admin-platform-wallet.service';
 import { SmsModule } from '../sms/sms.module';
@@ -127,6 +129,7 @@ import { ZohalModule } from '../zohal/zohal.module';
     AdminDisputesController,
     AdminFaqController,
     AdminSmsController,
+    AdminSmsIrController,
     AdminLogsController,
     AdminPlatformWalletController,
     AdminContactMessagesController,
@@ -168,6 +171,7 @@ import { ZohalModule } from '../zohal/zohal.module';
     AdminDisputesService,
     AdminFaqService,
     AdminSmsService,
+    AdminSmsIrService,
     AdminLogsService,
     AdminPlatformWalletService,
     AdminBlogService,
