@@ -557,12 +557,16 @@ export class BankAccountsService {
     if (!(await this.zohalSettings.isCardMatchActive())) {
       return this.pendingVerification(null);
     }
+    // Already-verified users may lack birthDate (manual/admin KYC); send to admin review.
+    if (!user.birthDate) {
+      return this.pendingVerification(null);
+    }
 
     try {
       await this.zohal.assertCardMatchesNationalCode(
         {
           nationalCode: String(user.nationalCode),
-          birthDateRaw: user.birthDate!,
+          birthDateRaw: user.birthDate,
           cardNumber,
         },
         user.id,
@@ -693,9 +697,6 @@ export class BankAccountsService {
     }
     if (!String(user.nationalCode ?? '').trim()) {
       throw new BadRequestException('کد ملی در پروفایل یافت نشد.');
-    }
-    if (!user.birthDate) {
-      throw new BadRequestException('تاریخ تولد در پروفایل یافت نشد.');
     }
   }
 }
