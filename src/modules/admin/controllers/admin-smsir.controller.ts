@@ -43,6 +43,13 @@ export class AdminSmsIrController {
     );
   }
 
+  @Get('template-usage')
+  @RequirePermission('settings.view', 'notification_settings.view')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  getTemplateUsage() {
+    return this.service.getTemplateUsage();
+  }
+
   @Post('templates')
   @RequirePermission('settings.update')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })

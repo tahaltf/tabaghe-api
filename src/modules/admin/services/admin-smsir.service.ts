@@ -1,10 +1,19 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { SmsIrApiClient } from '../../sms/gateways/smsir-api.client';
 import type { SmsIrTemplate, SmsIrTemplatesPage } from '../../sms/gateways/smsir.types';
+import {
+  buildSmsIrTemplateUsageMap,
+  getSmsIrTemplateUsageKeys,
+  type SmsIrTemplateUsageMap,
+} from '../../sms/gateways/smsir-template-usage.util';
 
 @Injectable()
 export class AdminSmsIrService {
-  constructor(private readonly smsIr: SmsIrApiClient) {}
+  constructor(
+    private readonly smsIr: SmsIrApiClient,
+    private readonly prisma: PrismaService,
+  ) {}
 
   getCredit(): Promise<{ credit: number }> {
     return this.smsIr.getCredit().then((credit) => ({ credit }));
@@ -31,5 +40,23 @@ export class AdminSmsIrService {
       );
     }
     return this.smsIr.createTemplate(trimmedTitle, trimmedText);
+  }
+
+  async getTemplateUsage(): Promise<SmsIrTemplateUsageMap> {
+    const keys = getSmsIrTemplateUsageKeys();
+    const rows = await this.prisma.systemSetting.findMany({
+      where: { key: { in: keys } },
+      select: { key: true, value: true },
+    });
+    const siteSettings: Record<string, string | undefined> = {};
+    let notificationRulesJson: string | null = null;
+    for (const row of rows) {
+      if (row.key === 'SMS_NOTIFICATION_RULES') {
+        notificationRulesJson = row.value;
+      } else {
+        siteSettings[row.key] = row.value;
+      }
+    }
+    return buildSmsIrTemplateUsageMap({ siteSettings, notificationRulesJson });
   }
 }
