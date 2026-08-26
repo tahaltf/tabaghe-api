@@ -7,8 +7,10 @@ import {
 } from '../../../config/jwt-secrets.util';
 import { JwtPayload, TokenPair } from '../../../shared/contracts/auth';
 
-const ACCESS_TOKEN_TTL = '15m';
-const REFRESH_TOKEN_TTL = '30d';
+/** Access token default: 15 minutes */
+const DEFAULT_ACCESS_TTL_SECONDS = 900;
+/** Refresh token default: 12 hours (was 30 days — too long for this product) */
+const DEFAULT_REFRESH_TTL_SECONDS = 43_200;
 const ADMIN_LOGIN_CHALLENGE_TTL = '10m';
 
 @Injectable()
@@ -22,11 +24,11 @@ export class TokenService {
     return {
       accessToken: this.jwtService.sign(payload, {
         secret: this.accessSecret(),
-        expiresIn: ACCESS_TOKEN_TTL,
+        expiresIn: this.accessTtlSeconds(),
       }),
       refreshToken: this.jwtService.sign(payload, {
         secret: this.refreshSecret(),
-        expiresIn: REFRESH_TOKEN_TTL,
+        expiresIn: this.refreshTtlSeconds(),
       }),
     };
   }
@@ -85,5 +87,26 @@ export class TokenService {
 
   refreshSecret(): string {
     return resolveJwtRefreshSecret(this.configService);
+  }
+
+  private accessTtlSeconds(): number {
+    return this.readTtlSeconds(
+      'JWT_ACCESS_TTL_SECONDS',
+      DEFAULT_ACCESS_TTL_SECONDS,
+    );
+  }
+
+  private refreshTtlSeconds(): number {
+    return this.readTtlSeconds(
+      'JWT_REFRESH_TTL_SECONDS',
+      DEFAULT_REFRESH_TTL_SECONDS,
+    );
+  }
+
+  private readTtlSeconds(envKey: string, fallback: number): number {
+    const raw = this.configService.get<string | number>(envKey);
+    const n = typeof raw === 'number' ? raw : Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return fallback;
+    return Math.floor(n);
   }
 }

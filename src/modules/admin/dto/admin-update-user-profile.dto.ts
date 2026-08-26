@@ -1,6 +1,7 @@
 import { Transform } from 'class-transformer';
 import {
   IsBoolean,
+  IsDateString,
   IsEmail,
   IsOptional,
   IsString,
@@ -28,8 +29,19 @@ export class AdminUpdateUserProfileDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(80, { message: 'نام پدر حداکثر ۸۰ کاراکتر است' })
+  fatherName?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(80, { message: 'نام نمایشی حداکثر ۸۰ کاراکتر است' })
   displayName?: string;
+
+  @IsOptional()
+  @ValidateIf((o) => o.phone !== '' && o.phone != null)
+  @IsString()
+  @Matches(/^09\d{9}$/, { message: 'فرمت شماره موبایل معتبر نیست' })
+  phone?: string;
 
   @IsOptional()
   @ValidateIf((o) => o.nationalCode !== '' && o.nationalCode != null)
@@ -37,6 +49,11 @@ export class AdminUpdateUserProfileDto {
   @Length(10, 10, { message: 'کد ملی باید ۱۰ رقم باشد' })
   @Matches(/^\d{10}$/, { message: 'کد ملی فقط باید شامل اعداد باشد' })
   nationalCode?: string;
+
+  @IsOptional()
+  @ValidateIf((o) => o.birthDate !== '' && o.birthDate != null)
+  @IsDateString({}, { message: 'تاریخ تولد معتبر نیست' })
+  birthDate?: string;
 
   @IsOptional()
   @ValidateIf((o) => o.shabaNumber !== '' && o.shabaNumber != null)

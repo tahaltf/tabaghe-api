@@ -1139,7 +1139,8 @@ export class UsersService {
         await this.adminUsers.approve(userId, { source: 'zohal' });
         return this.getMe(userId);
       }
-      return this.toProfile(updated);
+      const shopSlug = await ensureUserShopSlug(this.prisma, updated);
+      return this.toProfile({ ...updated, shopSlug });
     } catch (err) {
       if (err instanceof BadRequestException) throw err;
       if (
@@ -1205,7 +1206,8 @@ export class UsersService {
           })
           .catch(() => undefined);
       }
-      return this.toProfile(updated);
+      const shopSlug = await ensureUserShopSlug(this.prisma, updated);
+      return this.toProfile({ ...updated, shopSlug });
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&

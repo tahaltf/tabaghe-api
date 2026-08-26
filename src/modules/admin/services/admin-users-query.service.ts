@@ -28,6 +28,7 @@ import { getOrderStatusLabelFa } from '../../../common/order/order-status-labels
 import { PlanLifecycleService } from '../../plans/plan-lifecycle.service';
 import { generateInviteCode, validateInviteCode } from '../../../common/referral/invite-code.util';
 import { ensureUserShopSlug } from '../../../common/user/shop-slug.util';
+import { normalizeIranMobile } from '../utils/admin-recipient.util';
 
 const LISTING_TYPE_LABELS_FA: Record<string, string> = {
   DIRECT: 'فروش مستقیم',
@@ -528,6 +529,9 @@ export class AdminUsersQueryService {
     if (dto.lastName !== undefined) {
       data.lastName = dto.lastName.trim() || null;
     }
+    if (dto.fatherName !== undefined) {
+      data.fatherName = dto.fatherName.trim() || null;
+    }
     if (dto.displayName !== undefined) {
       const displayName = dto.displayName.trim();
       data.displayName = displayName || null;
@@ -537,6 +541,22 @@ export class AdminUsersQueryService {
     }
     if (dto.email !== undefined) {
       data.email = dto.email.trim() || null;
+    }
+    if (dto.phone !== undefined) {
+      const phone = normalizeIranMobile(dto.phone);
+      if (!phone) {
+        throw new BadRequestException('فرمت شماره موبایل معتبر نیست.');
+      }
+      const phoneTaken = await this.prisma.user.findFirst({
+        where: { phone, NOT: { id: userId } },
+        select: { id: true },
+      });
+      if (phoneTaken) {
+        throw new BadRequestException(
+          'کاربری با این شماره موبایل قبلاً ثبت شده است.',
+        );
+      }
+      data.phone = phone;
     }
     if (dto.nationalCode !== undefined) {
       const code = dto.nationalCode.trim();
@@ -551,6 +571,18 @@ export class AdminUsersQueryService {
           throw new BadRequestException('این کدملی در سامانه ثبت شده است.');
         }
         data.nationalCode = code;
+      }
+    }
+    if (dto.birthDate !== undefined) {
+      const raw = dto.birthDate.trim();
+      if (!raw) {
+        data.birthDate = null;
+      } else {
+        const parsed = new Date(raw);
+        if (Number.isNaN(parsed.getTime())) {
+          throw new BadRequestException('تاریخ تولد معتبر نیست.');
+        }
+        data.birthDate = parsed;
       }
     }
     if (dto.shabaNumber !== undefined) {
@@ -591,6 +623,11 @@ export class AdminUsersQueryService {
         }
         if (targetFields.includes('nationalCode')) {
           throw new BadRequestException('این کدملی در سامانه ثبت شده است.');
+        }
+        if (targetFields.includes('phone')) {
+          throw new BadRequestException(
+            'کاربری با این شماره موبایل قبلاً ثبت شده است.',
+          );
         }
       }
       throw err;

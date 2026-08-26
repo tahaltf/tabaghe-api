@@ -13,14 +13,28 @@ export function normalizeShopSlug(raw: string): string {
     .slice(0, 48);
 }
 
+/**
+ * اسلاگ فروشگاه باید از نام نمایشی ساخته شود.
+ * فقط اگر نام نمایشی خالی باشد از نام (firstName) به‌عنوان پشتیبان استفاده می‌شود.
+ */
 export function shopSlugBaseFromName(
   displayName?: string | null,
   firstName?: string | null,
 ): string {
-  const source = String(displayName || firstName || '').trim();
+  const fromDisplay = String(displayName ?? '').trim();
+  const source = fromDisplay || String(firstName ?? '').trim();
   const normalized = normalizeShopSlug(source);
   if (!normalized || RESERVED_SHOP_SLUGS.has(normalized)) return 'shop';
   return normalized;
+}
+
+function slugMatchesPreferredBase(slug: string, base: string): boolean {
+  const current = normalizeShopSlug(slug);
+  const preferred = normalizeShopSlug(base);
+  if (!current || !preferred) return false;
+  if (current === preferred) return true;
+  const suffix = current.slice(preferred.length);
+  return current.startsWith(preferred) && /^-\d+$/.test(suffix);
 }
 
 export async function ensureUniqueShopSlug(
@@ -54,12 +68,19 @@ export async function ensureUserShopSlug(
     firstName: string | null;
   },
 ): Promise<string> {
-  if (user.shopSlug) return user.shopSlug;
-  const slug = await ensureUniqueShopSlug(
-    prisma,
-    shopSlugBaseFromName(user.displayName, user.firstName),
-    user.id,
-  );
+  const preferredBase = shopSlugBaseFromName(user.displayName, user.firstName);
+  const hasDisplayName = Boolean(user.displayName?.trim());
+
+  if (user.shopSlug) {
+    // اگر نام نمایشی ست شده، اسلاگ باید با آن هم‌خوان باشد؛ در غیر این صورت نگه می‌داریم.
+    if (!hasDisplayName || slugMatchesPreferredBase(user.shopSlug, preferredBase)) {
+      return user.shopSlug;
+    }
+  }
+
+  const slug = await ensureUniqueShopSlug(prisma, preferredBase, user.id);
+  if (user.shopSlug === slug) return slug;
+
   await prisma.user.update({
     where: { id: user.id },
     data: { shopSlug: slug },
