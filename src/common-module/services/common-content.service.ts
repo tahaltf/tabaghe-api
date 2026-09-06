@@ -95,6 +95,8 @@ export class CommonContentService {
       'HEADER_ACTIONS_JSON',
       'FOOTER_TEXTS_JSON',
       'FOOTER_QUICK_LINKS_JSON',
+      'ENAMAD_ID',
+      'ENAMAD_CODE',
       'BUYER_CONFIRM_DEADLINE_MINUTES',
       'BUYER_CONFIRM_DEADLINE_DAYS',
       'LISTING_TYPE_DIRECT_ENABLED',
@@ -285,6 +287,8 @@ export class CommonContentService {
       footerQuickLinks: parseFooterQuickLinksJson(map.FOOTER_QUICK_LINKS_JSON),
       footerTagline:
         map.FOOTER_TAGLINE?.trim() || DEFAULT_FOOTER_TAGLINE_FA,
+      enamadId: map.ENAMAD_ID?.trim() || '711147',
+      enamadCode: map.ENAMAD_CODE?.trim() || 'hToVAmJRDXdCr7i81NmGSDBKbeoS4FDT',
       listingTypesEnabled: parseListingTypesEnabledFromMap(map),
       listingReviewSlaHours: (() => {
         const n = Number(map.LISTING_REVIEW_SLA_HOURS || '24');

@@ -94,6 +94,8 @@ export const SETTING_KEYS = {
   SELLER_TERMS: 'SELLER_TERMS',
   ABOUT_US: 'ABOUT_US',
   FOOTER_TAGLINE: 'FOOTER_TAGLINE',
+  ENAMAD_ID: 'ENAMAD_ID',
+  ENAMAD_CODE: 'ENAMAD_CODE',
   HEADER_NAV_JSON: 'HEADER_NAV_JSON',
   HEADER_ACTIONS_JSON: 'HEADER_ACTIONS_JSON',
   FOOTER_TEXTS_JSON: 'FOOTER_TEXTS_JSON',
@@ -385,6 +387,8 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   SELLER_TERMS: 'قرارداد فروشنده هنگام ارسال آگهی',
   ABOUT_US: 'متن صفحه درباره ما',
   FOOTER_TAGLINE: 'معرفی کوتاه فوتر سایت (۱–۲ جمله)',
+  ENAMAD_ID: 'شناسه اینماد (پارامتر id در کد نماد اعتماد)',
+  ENAMAD_CODE: 'کد اینماد (پارامتر Code در کد نماد اعتماد)',
   HEADER_NAV_JSON:
     'منوی هدر سایت (JSON آرایه آیتم‌ها با label/link/enabled)',
   HEADER_ACTIONS_JSON:
