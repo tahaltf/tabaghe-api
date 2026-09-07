@@ -41,4 +41,9 @@ export class CartCheckoutDto extends CartCheckoutPreviewDto {
 
   @IsString()
   paymentMethod!: 'GATEWAY' | 'WALLET';
+
+  /** نوع درگاه فعال وقتی چند درگاه فعال باشد */
+  @IsOptional()
+  @IsString()
+  gateway?: string;
 }

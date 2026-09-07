@@ -35,6 +35,12 @@ import {
   loadInviteLandingSeedSections,
 } from '../../common/landing/invite-landing.seed';
 import { mergeHomepageLayout } from '../../common/homepage/homepage-layout.util';
+import { AppSettingsService } from '../../shared/settings/app-settings.service';
+import { parsePaymentGatewaysJson } from '../../modules/payments/payment-gateways.catalog';
+import {
+  migrateEnamadToLicenses,
+  toPublicLicenses,
+} from '../../common/content/site-licenses.util';
 
 @Injectable()
 export class CommonContentService {
@@ -43,6 +49,7 @@ export class CommonContentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cache: TtlCacheService,
+    private readonly appSettings: AppSettingsService,
   ) {}
 
   async getPublicSiteSettings() {
@@ -97,6 +104,9 @@ export class CommonContentService {
       'FOOTER_QUICK_LINKS_JSON',
       'ENAMAD_ID',
       'ENAMAD_CODE',
+      'ENAMAD_ENABLED',
+      'SITE_LICENSES_JSON',
+      'PAYMENT_GATEWAYS_JSON',
       'BUYER_CONFIRM_DEADLINE_MINUTES',
       'BUYER_CONFIRM_DEADLINE_DAYS',
       'LISTING_TYPE_DIRECT_ENABLED',
@@ -287,8 +297,39 @@ export class CommonContentService {
       footerQuickLinks: parseFooterQuickLinksJson(map.FOOTER_QUICK_LINKS_JSON),
       footerTagline:
         map.FOOTER_TAGLINE?.trim() || DEFAULT_FOOTER_TAGLINE_FA,
-      enamadId: map.ENAMAD_ID?.trim() || '711147',
-      enamadCode: map.ENAMAD_CODE?.trim() || 'hToVAmJRDXdCr7i81NmGSDBKbeoS4FDT',
+      ...(() => {
+        const licenses = toPublicLicenses(
+          migrateEnamadToLicenses({
+            licensesJson: map.SITE_LICENSES_JSON,
+            enamadId: map.ENAMAD_ID,
+            enamadCode: map.ENAMAD_CODE,
+            enamadEnabled: map.ENAMAD_ENABLED,
+          }),
+        );
+        const firstEnamad = licenses.find((x) => x.kind === 'enamad');
+        return {
+          licenses,
+          enamadId: firstEnamad?.enamadId?.trim() || '',
+          enamadCode: firstEnamad?.enamadCode?.trim() || '',
+          enamadEnabled: Boolean(firstEnamad),
+        };
+      })(),
+      paymentGateways: (
+        await (async () => {
+          const fromDb = parsePaymentGatewaysJson(map.PAYMENT_GATEWAYS_JSON);
+          const list =
+            fromDb.length > 0
+              ? fromDb
+              : await this.appSettings.getPaymentGateways();
+          return list
+            .filter((g) => g.enabled)
+            .map((g) => ({
+              id: g.id,
+              type: g.type,
+              label: g.label,
+            }));
+        })()
+      ),
       listingTypesEnabled: parseListingTypesEnabledFromMap(map),
       listingReviewSlaHours: (() => {
         const n = Number(map.LISTING_REVIEW_SLA_HOURS || '24');

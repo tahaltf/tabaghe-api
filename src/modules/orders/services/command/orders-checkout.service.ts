@@ -1121,6 +1121,7 @@ export class OrdersCheckoutService {
           undefined,
           undefined,
           clientMeta,
+          dto.gateway,
         );
         paymentUrl = initiated.paymentUrl;
       } catch (err) {

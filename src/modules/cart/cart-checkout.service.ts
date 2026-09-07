@@ -50,6 +50,7 @@ export class CartCheckoutService {
       source: CheckoutSessionSource.CART,
       addressId: dto.addressId,
       paymentMethod: dto.paymentMethod,
+      gateway: dto.gateway,
       couponCode: dto.couponCode,
       requiresVerification: dto.requiresVerification,
       clearCart: true,

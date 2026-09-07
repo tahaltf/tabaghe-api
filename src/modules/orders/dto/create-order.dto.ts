@@ -17,6 +17,11 @@ export class CreateOrderDto {
   @IsEnum(PaymentMethod)
   paymentMethod!: PaymentMethod;
 
+  /** نوع درگاه فعال (مثلاً zibal) وقتی چند درگاه فعال باشد */
+  @IsOptional()
+  @IsString()
+  gateway?: string;
+
   @IsOptional()
   @IsString()
   exchangeOfferId?: string;

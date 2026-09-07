@@ -18,6 +18,10 @@ import { AuthenticatedUser } from '../../shared/contracts/auth';
 import { AppSettingsService } from '../../shared/settings/app-settings.service';
 import { resolveSafeReturnUrl } from '../../common/security/safe-return-url.util';
 import { extractClientRequestMeta } from '../../common/http/client-ip.util';
+import {
+  isKnownPaymentGatewayType,
+  type PaymentGatewayName,
+} from './payment-gateways.catalog';
 
 @Controller('payments')
 export class PaymentsController {
@@ -28,65 +32,76 @@ export class PaymentsController {
 
   @Post('checkout-sessions/:sessionId/initiate')
   @UseGuards(JwtAuthGuard)
-  initiateCheckoutSession(
+  async initiateCheckoutSession(
     @CurrentUser() user: AuthenticatedUser,
     @Param('sessionId') sessionId: string,
+    @Body() body: { gateway?: string },
     @Req() req: Request,
   ) {
+    const gateway = await this.resolveInitiateGateway(body?.gateway);
     return this.paymentsService.initiateCheckoutSessionPayment(
       sessionId,
       user.id,
-      this.buildCallbackBase(req),
+      this.buildCallbackBase(req, gateway),
       this.buildReturnUrl(req),
       extractClientRequestMeta(req),
+      gateway,
     );
   }
 
   @Post('orders/:orderId/initiate')
   @UseGuards(JwtAuthGuard)
-  initiateOrderPayment(
+  async initiateOrderPayment(
     @CurrentUser() user: AuthenticatedUser,
     @Param('orderId') orderId: string,
+    @Body() body: { gateway?: string },
     @Req() req: Request,
   ) {
+    const gateway = await this.resolveInitiateGateway(body?.gateway);
     return this.paymentsService.initiateOrderPayment(
       orderId,
       user.id,
-      this.buildCallbackBase(req),
+      this.buildCallbackBase(req, gateway),
       this.buildReturnUrl(req),
       extractClientRequestMeta(req),
+      gateway,
     );
   }
 
   @Post('repairs/:repairId/initiate')
   @UseGuards(JwtAuthGuard)
-  initiateRepairPayment(
+  async initiateRepairPayment(
     @CurrentUser() user: AuthenticatedUser,
     @Param('repairId') repairId: string,
+    @Body() body: { gateway?: string },
     @Req() req: Request,
   ) {
+    const gateway = await this.resolveInitiateGateway(body?.gateway);
     return this.paymentsService.initiateRepairPayment(
       repairId,
       user.id,
-      this.buildCallbackBase(req),
+      this.buildCallbackBase(req, gateway),
       this.buildReturnUrl(req),
       extractClientRequestMeta(req),
+      gateway,
     );
   }
 
   @Post('wallet/initiate')
   @UseGuards(JwtAuthGuard)
-  initiateWalletTopup(
+  async initiateWalletTopup(
     @CurrentUser() user: AuthenticatedUser,
-    @Body() body: { amount: number },
+    @Body() body: { amount: number; gateway?: string },
     @Req() req: Request,
   ) {
+    const gateway = await this.resolveInitiateGateway(body?.gateway);
     return this.paymentsService.initiateWalletTopup(
       user.id,
       body.amount,
-      this.buildCallbackBase(req),
+      this.buildCallbackBase(req, gateway),
       this.buildReturnUrl(req),
       extractClientRequestMeta(req),
+      gateway,
     );
   }
 
@@ -127,7 +142,20 @@ export class PaymentsController {
     }
   }
 
-  private buildCallbackBase(req: Request): string {
+  private async resolveInitiateGateway(
+    preferred?: string,
+  ): Promise<PaymentGatewayName | undefined> {
+    const raw = preferred?.trim().toLowerCase();
+    if (!raw) return undefined;
+    if (!isKnownPaymentGatewayType(raw)) return undefined;
+    return raw;
+  }
+
+  private buildCallbackBase(
+    req: Request,
+    gateway?: PaymentGatewayName,
+  ): string {
+    const name = gateway ?? this.appSettings.getActivePaymentGateway();
     const protoHeader = req.headers['x-forwarded-proto'];
     const hostHeader = req.headers['x-forwarded-host'];
     const protocol =
@@ -137,8 +165,10 @@ export class PaymentsController {
     const host =
       (Array.isArray(hostHeader) ? hostHeader[0] : hostHeader) ||
       req.get('host');
-    if (!host) return this.appSettings.getPaymentGatewayConfig().callbackUrl;
-    return `${protocol}://${host}/api/v1/payments/callback/zibal`;
+    if (!host) {
+      return this.appSettings.getPaymentGatewayConfig(name).callbackUrl;
+    }
+    return `${protocol}://${host}/api/v1/payments/callback/${name}`;
   }
 
   private buildReturnUrl(req: Request): string {
@@ -160,11 +190,11 @@ function paymentCallbackErrorMessage(err: unknown): string {
     const r = err.getResponse();
     if (typeof r === 'string') return r;
     if (r && typeof r === 'object' && 'message' in r) {
-      const m = (r as { message?: unknown }).message;
-      if (Array.isArray(m)) return m.filter(Boolean).join('، ');
+      const m = (r as { message: unknown }).message;
       if (typeof m === 'string') return m;
+      if (Array.isArray(m)) return m.map(String).join(', ');
     }
   }
   if (err instanceof Error) return err.message;
-  return 'خطا در پردازش بازگشت از درگاه';
+  return 'خطای پرداخت';
 }

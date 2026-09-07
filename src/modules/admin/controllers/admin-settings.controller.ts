@@ -29,7 +29,7 @@ import {
 } from '../dto/admin-setting.dto';
 import { SetAdminSecretDto } from '../dto/admin-secret.dto';
 import { bannerMulterOptions } from '../../../common/upload/banner-upload.config';
-import { brandLogoMulterOptions } from '../../../common/upload/brand-logo-upload.config';
+import { brandLogoMulterOptions, licenseIconMulterOptions } from '../../../common/upload/brand-logo-upload.config';
 import { inspectionCertificateAssetMulterOptions } from '../../../common/upload/inspection-certificate-asset-upload.config';
 import { SmsService } from '../../sms/sms.service';
 import { ZohalSettingsService } from '../../zohal/zohal-settings.service';
@@ -55,6 +55,25 @@ export class AdminSettingsController {
   @Get('site-config')
   siteConfig() {
     return this.service.getSiteConfig();
+  }
+
+  @Get('payment-gateway-catalog')
+  paymentGatewayCatalog() {
+    return this.service.getPaymentGatewaysConfig();
+  }
+
+  @Post('license-icon')
+  @RequirePermission('settings.update')
+  @UseInterceptors(FileInterceptor('file', licenseIconMulterOptions))
+  uploadLicenseIcon(@UploadedFile() file?: Express.Multer.File) {
+    if (!file) throw new BadRequestException('فایلی ارسال نشده است');
+    return this.service.saveLicenseIcon(file.filename);
+  }
+
+  @Post('parse-enamad-tag')
+  @RequirePermission('settings.update')
+  parseEnamadTag(@Body() body: { html?: string }) {
+    return this.service.parseEnamadEmbed(body?.html ?? '');
   }
 
   @Put()

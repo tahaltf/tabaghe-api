@@ -40,6 +40,7 @@ export type MarketplaceCheckoutInput = {
   source: CheckoutSessionSource;
   addressId: string;
   paymentMethod: 'GATEWAY' | 'WALLET';
+  gateway?: string;
   couponCode?: string;
   requiresVerification?: boolean;
   /** پاک کردن سبد بعد از ساخت session (فقط CART) */
@@ -237,6 +238,7 @@ export class MarketplaceCheckoutService {
             undefined,
             undefined,
             input.clientMeta,
+            input.gateway,
           );
         paymentUrl = initiated.paymentUrl;
       } else if (

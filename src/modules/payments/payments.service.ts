@@ -27,6 +27,10 @@ import { NotificationService } from '../notification/notification.service';
 import { ExchangeOrderNotifyService } from '../notification/exchange-order-notify.service';
 import { ExchangeService } from '../exchange/exchange.service';
 import type { ClientRequestMeta } from '../../common/http/client-ip.util';
+import {
+  isKnownPaymentGatewayType,
+  type PaymentGatewayName,
+} from './payment-gateways.catalog';
 
 @Injectable()
 export class PaymentsService {
@@ -42,10 +46,53 @@ export class PaymentsService {
     private readonly exchangeService: ExchangeService,
   ) {}
 
-  private getGateway(): PaymentGateway {
-    const active = this.appSettings.getActivePaymentGateway();
-    if (active === 'zibal') return this.zibalGateway;
-    return this.zibalGateway;
+  private gatewayByName(name: PaymentGatewayName): PaymentGateway {
+    if (name === 'zibal') return this.zibalGateway;
+    throw new BadRequestException(`درگاه پشتیبانی نمی‌شود: ${name}`);
+  }
+
+  private async resolveGateway(
+    preferred?: string | null,
+    opts?: { forCallback?: boolean },
+  ): Promise<PaymentGateway> {
+    if (opts?.forCallback) {
+      const name = preferred?.trim().toLowerCase() ?? '';
+      if (!isKnownPaymentGatewayType(name)) {
+        throw new BadRequestException('درگاه نامعتبر است');
+      }
+      return this.gatewayByName(name);
+    }
+    try {
+      const name = await this.appSettings.resolvePaymentGatewayName(preferred);
+      return this.gatewayByName(name);
+    } catch (err) {
+      const code = err instanceof Error ? err.message : '';
+      if (code === 'NO_ENABLED_GATEWAY') {
+        throw new BadRequestException(
+          'هیچ درگاه پرداخت فعالی تنظیم نشده است',
+        );
+      }
+      if (code === 'GATEWAY_NOT_ENABLED') {
+        throw new BadRequestException('درگاه انتخاب‌شده فعال نیست');
+      }
+      if (code === 'GATEWAY_REQUIRED') {
+        throw new BadRequestException(
+          'لطفاً یکی از درگاه‌های پرداخت را انتخاب کنید',
+        );
+      }
+      throw err;
+    }
+  }
+
+  private resolveCallbackBase(
+    gatewayName: PaymentGatewayName,
+    callbackBaseUrl?: string,
+  ): string {
+    if (callbackBaseUrl?.trim()) {
+      // Controller may pass a host-based base ending with /callback/<name>
+      return callbackBaseUrl.trim();
+    }
+    return this.appSettings.getPaymentGatewayConfig(gatewayName).callbackUrl;
   }
 
   async initiateOrderPayment(
@@ -54,6 +101,7 @@ export class PaymentsService {
     callbackBaseUrl?: string,
     returnUrl?: string,
     clientMeta?: ClientRequestMeta,
+    gatewayName?: string | null,
   ) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
@@ -94,9 +142,11 @@ export class PaymentsService {
       throw new BadRequestException('مبلغ سفارش برای پرداخت درگاه معتبر نیست');
     }
 
-    const gateway = this.getGateway();
-    const callbackBase =
-      callbackBaseUrl ?? this.appSettings.getPaymentGatewayConfig().callbackUrl;
+    const gateway = await this.resolveGateway(gatewayName);
+    const callbackBase = this.resolveCallbackBase(
+      gateway.name,
+      callbackBaseUrl,
+    );
     const callback = new URL(callbackBase);
     callback.searchParams.set('kind', 'ORDER');
     callback.searchParams.set('orderId', order.id);
@@ -145,6 +195,7 @@ export class PaymentsService {
     callbackBaseUrl?: string,
     returnUrl?: string,
     clientMeta?: ClientRequestMeta,
+    gatewayName?: string | null,
   ) {
     const repair = await this.prisma.repairRequest.findUnique({
       where: { id: repairId },
@@ -167,9 +218,11 @@ export class PaymentsService {
       throw new BadRequestException('مبلغ تعمیر برای پرداخت درگاه معتبر نیست');
     }
 
-    const gateway = this.getGateway();
-    const callbackBase =
-      callbackBaseUrl ?? this.appSettings.getPaymentGatewayConfig().callbackUrl;
+    const gateway = await this.resolveGateway(gatewayName);
+    const callbackBase = this.resolveCallbackBase(
+      gateway.name,
+      callbackBaseUrl,
+    );
     const callback = new URL(callbackBase);
     callback.searchParams.set('kind', 'REPAIR');
     callback.searchParams.set('repairId', repair.id);
@@ -208,6 +261,7 @@ export class PaymentsService {
     callbackBaseUrl?: string,
     returnUrl?: string,
     clientMeta?: ClientRequestMeta,
+    gatewayName?: string | null,
   ) {
     const amount = Number(amountRaw ?? 0);
     if (!Number.isFinite(amount) || amount <= 0) {
@@ -225,9 +279,11 @@ export class PaymentsService {
       }),
     ]);
 
-    const gateway = this.getGateway();
-    const callbackBase =
-      callbackBaseUrl ?? this.appSettings.getPaymentGatewayConfig().callbackUrl;
+    const gateway = await this.resolveGateway(gatewayName);
+    const callbackBase = this.resolveCallbackBase(
+      gateway.name,
+      callbackBaseUrl,
+    );
     const callback = new URL(callbackBase);
     callback.searchParams.set('kind', 'WALLET');
     if (returnUrl) callback.searchParams.set('returnUrl', returnUrl);
@@ -280,6 +336,7 @@ export class PaymentsService {
     callbackBaseUrl?: string,
     returnUrl?: string,
     clientMeta?: ClientRequestMeta,
+    gatewayName?: string | null,
   ) {
     const session = await this.prisma.checkoutSession.findUnique({
       where: { id: sessionId },
@@ -300,9 +357,11 @@ export class PaymentsService {
       throw new BadRequestException('مبلغ پرداخت معتبر نیست');
     }
 
-    const gateway = this.getGateway();
-    const callbackBase =
-      callbackBaseUrl ?? this.appSettings.getPaymentGatewayConfig().callbackUrl;
+    const gateway = await this.resolveGateway(gatewayName);
+    const callbackBase = this.resolveCallbackBase(
+      gateway.name,
+      callbackBaseUrl,
+    );
     const callback = new URL(callbackBase);
     callback.searchParams.set('kind', 'CHECKOUT_SESSION');
     callback.searchParams.set('sessionId', session.id);
@@ -362,8 +421,9 @@ export class PaymentsService {
     authority: string;
     successFlag: string;
     payerId?: string;
+    gateway: PaymentGateway;
   }) {
-    const { sessionId, authority, successFlag } = params;
+    const { sessionId, authority, successFlag, gateway } = params;
     const session = await this.prisma.checkoutSession.findUnique({
       where: { id: sessionId },
       include: { orders: true },
@@ -385,7 +445,7 @@ export class PaymentsService {
       };
     }
 
-    const verified = await this.getGateway().verifyPayment({
+    const verified = await gateway.verifyPayment({
       authority,
       expectedAmount: Number(session.totalAmount),
     });
@@ -656,9 +716,9 @@ export class PaymentsService {
     gatewayName: string,
     query: Record<string, unknown>,
   ) {
-    if (gatewayName !== 'zibal') {
-      throw new BadRequestException('درگاه نامعتبر است');
-    }
+    const gateway = await this.resolveGateway(gatewayName, {
+      forCallback: true,
+    });
     const kind = String(query.kind ?? 'ORDER')
       .trim()
       .toUpperCase();
@@ -691,20 +751,31 @@ export class PaymentsService {
         authority,
         successFlag,
         payerId,
+        gateway,
       });
     }
 
     if (kind === 'REPAIR') {
-      return this.processRepairCallback({ repairId, authority, successFlag });
+      return this.processRepairCallback({
+        repairId,
+        authority,
+        successFlag,
+        gateway,
+      });
     }
     if (kind === 'WALLET') {
-      return this.processWalletTopupCallback({ authority, successFlag });
+      return this.processWalletTopupCallback({
+        authority,
+        successFlag,
+        gateway,
+      });
     }
     return this.processOrderCallback({
       orderId,
       authority,
       successFlag,
       payerId,
+      gateway,
     });
   }
 
@@ -785,8 +856,9 @@ export class PaymentsService {
     authority: string;
     successFlag: string;
     payerId?: string;
+    gateway: PaymentGateway;
   }) {
-    const { orderId, authority, payerId, successFlag } = params;
+    const { orderId, authority, payerId, successFlag, gateway } = params;
 
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
@@ -853,7 +925,7 @@ export class PaymentsService {
           )
         : Number(order.totalAmount);
 
-    const verified = await this.getGateway().verifyPayment({
+    const verified = await gateway.verifyPayment({
       authority,
       expectedAmount,
     });
@@ -1147,8 +1219,9 @@ export class PaymentsService {
     repairId: string;
     authority: string;
     successFlag: string;
+    gateway: PaymentGateway;
   }) {
-    const { repairId, authority, successFlag } = params;
+    const { repairId, authority, successFlag, gateway } = params;
     const repair = await this.prisma.repairRequest.findUnique({
       where: { id: repairId },
     });
@@ -1186,7 +1259,7 @@ export class PaymentsService {
     }
 
     const expectedAmount = Number(repair.estimatedCost ?? 0);
-    const verified = await this.getGateway().verifyPayment({
+    const verified = await gateway.verifyPayment({
       authority,
       expectedAmount,
     });
@@ -1265,8 +1338,9 @@ export class PaymentsService {
   private async processWalletTopupCallback(params: {
     authority: string;
     successFlag: string;
+    gateway: PaymentGateway;
   }) {
-    const { authority, successFlag } = params;
+    const { authority, successFlag, gateway } = params;
     const whereByAuthority: Prisma.WalletTransactionWhereInput = {
       type: WalletTransactionType.DEPOSIT,
       meta: { path: ['authority'], equals: authority },
@@ -1330,7 +1404,7 @@ export class PaymentsService {
       };
     }
 
-    const verified = await this.getGateway().verifyPayment({
+    const verified = await gateway.verifyPayment({
       authority,
       expectedAmount: Number(transaction.amount),
     });

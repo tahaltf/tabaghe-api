@@ -44,6 +44,25 @@ describe('PaymentsService', () => {
   const appSettingsMock = {
     getActivePaymentGateway: jest.fn().mockReturnValue('zibal'),
     getPaymentGatewayConfig: jest.fn(),
+    resolvePaymentGatewayName: jest.fn().mockResolvedValue('zibal'),
+    getEnabledPaymentGateways: jest.fn().mockResolvedValue([
+      {
+        id: 'zibal',
+        type: 'zibal',
+        label: 'زیبال',
+        enabled: true,
+        sortOrder: 0,
+      },
+    ]),
+    getPaymentGateways: jest.fn().mockResolvedValue([
+      {
+        id: 'zibal',
+        type: 'zibal',
+        label: 'زیبال',
+        enabled: true,
+        sortOrder: 0,
+      },
+    ]),
   };
 
   const zibalGatewayMock = {

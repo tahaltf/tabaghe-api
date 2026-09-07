@@ -25,6 +25,17 @@ import type { HomePageLayout } from '../../../shared/contracts/homepage-layout';
 import { ListingExpiryService } from '../../listing/services/listing-expiry.service';
 import { AppSettingsService } from '../../../shared/settings/app-settings.service';
 import { TtlCacheService } from '../../../infrastructure/cache/ttl-cache.service';
+import {
+  PAYMENT_GATEWAY_CATALOG,
+  parsePaymentGatewaysJson,
+  validatePaymentGatewaysJson,
+} from '../../payments/payment-gateways.catalog';
+import {
+  migrateEnamadToLicenses,
+  parseEnamadTag,
+  serializeSiteLicensesJson,
+  validateSiteLicensesJson,
+} from '../../../common/content/site-licenses.util';
 
 export const SETTING_KEYS = {
   HOMEPAGE_BANNER: 'HOMEPAGE_BANNER',
@@ -96,6 +107,9 @@ export const SETTING_KEYS = {
   FOOTER_TAGLINE: 'FOOTER_TAGLINE',
   ENAMAD_ID: 'ENAMAD_ID',
   ENAMAD_CODE: 'ENAMAD_CODE',
+  ENAMAD_ENABLED: 'ENAMAD_ENABLED',
+  SITE_LICENSES_JSON: 'SITE_LICENSES_JSON',
+  PAYMENT_GATEWAYS_JSON: 'PAYMENT_GATEWAYS_JSON',
   HEADER_NAV_JSON: 'HEADER_NAV_JSON',
   HEADER_ACTIONS_JSON: 'HEADER_ACTIONS_JSON',
   FOOTER_TEXTS_JSON: 'FOOTER_TEXTS_JSON',
@@ -389,6 +403,11 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   FOOTER_TAGLINE: 'معرفی کوتاه فوتر سایت (۱–۲ جمله)',
   ENAMAD_ID: 'شناسه اینماد (پارامتر id در کد نماد اعتماد)',
   ENAMAD_CODE: 'کد اینماد (پارامتر Code در کد نماد اعتماد)',
+  ENAMAD_ENABLED: 'نمایش نماد اعتماد الکترونیکی در فوتر سایت',
+  SITE_LICENSES_JSON:
+    'مجوزها و نمادهای فوتر (JSON: enamad یا image+link)',
+  PAYMENT_GATEWAYS_JSON:
+    'لیست درگاه‌های پرداخت (JSON: id, type, label, enabled, sortOrder)',
   HEADER_NAV_JSON:
     'منوی هدر سایت (JSON آرایه آیتم‌ها با label/link/enabled)',
   HEADER_ACTIONS_JSON:
@@ -609,6 +628,19 @@ export class AdminSettingsService {
     result.ACTIVE_SMS_PROVIDER =
       byKey.get(SETTING_KEYS.ACTIVE_SMS_PROVIDER)?.value?.trim() ||
       this.appSettings.getActiveSmsProvider();
+    if (!String(result.ENAMAD_ENABLED ?? '').trim()) {
+      result.ENAMAD_ENABLED = 'true';
+    }
+    if (!String(result.PAYMENT_GATEWAYS_JSON ?? '').trim()) {
+      result.PAYMENT_GATEWAYS_JSON = '[]';
+    }
+    const migratedLicenses = migrateEnamadToLicenses({
+      licensesJson: String(result.SITE_LICENSES_JSON ?? ''),
+      enamadId: String(result.ENAMAD_ID ?? ''),
+      enamadCode: String(result.ENAMAD_CODE ?? ''),
+      enamadEnabled: String(result.ENAMAD_ENABLED ?? ''),
+    });
+    result.SITE_LICENSES_JSON = serializeSiteLicensesJson(migratedLicenses);
     return result;
   }
 
@@ -702,7 +734,67 @@ export class AdminSettingsService {
           'پرووایدر SMS باید خالی، default، smsir یا kavenegar باشد',
         );
       }
+      return;
     }
+    if (key === SETTING_KEYS.ENAMAD_ENABLED) {
+      if (normalized !== 'true' && normalized !== 'false' && normalized !== '') {
+        throw new BadRequestException(
+          'ENAMAD_ENABLED باید true یا false باشد',
+        );
+      }
+      return;
+    }
+    if (key === SETTING_KEYS.PAYMENT_GATEWAYS_JSON) {
+      try {
+        validatePaymentGatewaysJson(value);
+      } catch (err) {
+        throw new BadRequestException(
+          err instanceof Error ? err.message : 'پیکربندی درگاه نامعتبر است',
+        );
+      }
+      return;
+    }
+    if (key === SETTING_KEYS.SITE_LICENSES_JSON) {
+      try {
+        validateSiteLicensesJson(value);
+      } catch (err) {
+        throw new BadRequestException(
+          err instanceof Error ? err.message : 'پیکربندی مجوزها نامعتبر است',
+        );
+      }
+    }
+  }
+
+  getPaymentGatewayCatalog() {
+    return PAYMENT_GATEWAY_CATALOG;
+  }
+
+  async getPaymentGatewaysConfig() {
+    const raw =
+      (
+        await this.prisma.systemSetting.findUnique({
+          where: { key: SETTING_KEYS.PAYMENT_GATEWAYS_JSON },
+          select: { value: true },
+        })
+      )?.value ?? '';
+    return {
+      catalog: PAYMENT_GATEWAY_CATALOG,
+      gateways: parsePaymentGatewaysJson(raw),
+    };
+  }
+
+  saveLicenseIcon(filename: string) {
+    return { filename, ok: true as const };
+  }
+
+  parseEnamadEmbed(html: string) {
+    const parsed = parseEnamadTag(html);
+    if (!parsed) {
+      throw new BadRequestException(
+        'تگ اینماد معتبر نیست — باید شامل id و Code باشد',
+      );
+    }
+    return parsed;
   }
 
   private expandLegacySyncItems(

@@ -38,3 +38,18 @@ export const brandLogoMulterOptions: MulterOptions = {
 };
 
 export const BRAND_LOGO_UPLOAD_PATH = UPLOAD_PATH;
+
+/** آیکن مجوزهای فوتر — همان پوشه brand */
+export const licenseIconMulterOptions: MulterOptions = {
+  storage: diskStorage({
+    destination: (_req, _file, cb) => {
+      if (!existsSync(UPLOAD_PATH)) mkdirSync(UPLOAD_PATH, { recursive: true });
+      cb(null, UPLOAD_PATH);
+    },
+    filename: (_req, file, cb) => {
+      cb(null, `license-${randomUUID()}${extname(file.originalname)}`);
+    },
+  }),
+  fileFilter: brandLogoMulterOptions.fileFilter,
+  limits: { fileSize: 2 * 1024 * 1024 },
+};
