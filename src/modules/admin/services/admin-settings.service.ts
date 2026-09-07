@@ -28,6 +28,7 @@ import { TtlCacheService } from '../../../infrastructure/cache/ttl-cache.service
 import {
   PAYMENT_GATEWAY_CATALOG,
   parsePaymentGatewaysJson,
+  serializePaymentGatewaysJson,
   validatePaymentGatewaysJson,
 } from '../../payments/payment-gateways.catalog';
 import {
@@ -631,9 +632,15 @@ export class AdminSettingsService {
     if (!String(result.ENAMAD_ENABLED ?? '').trim()) {
       result.ENAMAD_ENABLED = 'true';
     }
-    if (!String(result.PAYMENT_GATEWAYS_JSON ?? '').trim()) {
-      result.PAYMENT_GATEWAYS_JSON = '[]';
-    }
+    // Same effective list as runtime/checkout: DB JSON, else env ACTIVE_PAYMENT_GATEWAY.
+    const gatewaysFromDb = parsePaymentGatewaysJson(
+      result.PAYMENT_GATEWAYS_JSON,
+    );
+    result.PAYMENT_GATEWAYS_JSON = serializePaymentGatewaysJson(
+      gatewaysFromDb.length > 0
+        ? gatewaysFromDb
+        : await this.appSettings.getPaymentGateways(),
+    );
     const migratedLicenses = migrateEnamadToLicenses({
       licensesJson: String(result.SITE_LICENSES_JSON ?? ''),
       enamadId: String(result.ENAMAD_ID ?? ''),
@@ -770,16 +777,9 @@ export class AdminSettingsService {
   }
 
   async getPaymentGatewaysConfig() {
-    const raw =
-      (
-        await this.prisma.systemSetting.findUnique({
-          where: { key: SETTING_KEYS.PAYMENT_GATEWAYS_JSON },
-          select: { value: true },
-        })
-      )?.value ?? '';
     return {
       catalog: PAYMENT_GATEWAY_CATALOG,
-      gateways: parsePaymentGatewaysJson(raw),
+      gateways: await this.appSettings.getPaymentGateways(),
     };
   }
 
