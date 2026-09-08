@@ -63,22 +63,12 @@ export async function getPwaAppIconFilename(
   return name || null;
 }
 
-/** favicon تب مرورگر — لوگوی تیره، پس‌زمینه شفاف */
+/** favicon تب مرورگر — فقط فایل آپلودشده در تنظیمات PWA */
 export async function getPwaFaviconFilename(
   prisma: PrismaService,
 ): Promise<string | null> {
-  const map = await readSettingMap(prisma, [
-    PWA_SETTING_KEYS.APP_FAVICON,
-    'USER_APP_LOGO_DARK',
-    'USER_APP_LOGO_LIGHT',
-    'USER_APP_LOGO',
-  ]);
-  const name =
-    map[PWA_SETTING_KEYS.APP_FAVICON] ||
-    map['USER_APP_LOGO_DARK'] ||
-    map['USER_APP_LOGO_LIGHT'] ||
-    map['USER_APP_LOGO'] ||
-    '';
+  const map = await readSettingMap(prisma, [PWA_SETTING_KEYS.APP_FAVICON]);
+  const name = map[PWA_SETTING_KEYS.APP_FAVICON] || '';
   return name || null;
 }
 
