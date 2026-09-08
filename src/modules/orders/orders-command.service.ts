@@ -4,6 +4,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { OrdersCheckoutService } from './services/command/orders-checkout.service';
 import { OrdersShippingService } from './services/command/orders-shipping.service';
 import { OrdersCompletionService } from './services/command/orders-completion.service';
+import { OrdersUnpaidCancelService } from './services/command/orders-unpaid-cancel.service';
 import { MarketplaceCheckoutService } from '../cart/marketplace-checkout.service';
 import type { ClientRequestMeta } from '../../common/http/client-ip.util';
 
@@ -13,6 +14,7 @@ export class OrdersCommandService {
     private readonly checkout: OrdersCheckoutService,
     private readonly shipping: OrdersShippingService,
     private readonly completion: OrdersCompletionService,
+    private readonly unpaidCancel: OrdersUnpaidCancelService,
     @Inject(forwardRef(() => MarketplaceCheckoutService))
     private readonly marketplaceCheckout: MarketplaceCheckoutService,
   ) {}
@@ -96,5 +98,13 @@ export class OrdersCommandService {
       orderId,
       publish,
     );
+  }
+
+  cancelUnpaidOrder(userId: string, orderId: string) {
+    return this.unpaidCancel.cancelUnpaidOrder({
+      orderId,
+      source: 'user',
+      actorUserId: userId,
+    });
   }
 }

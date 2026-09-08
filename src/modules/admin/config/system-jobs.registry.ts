@@ -127,6 +127,18 @@ export const SYSTEM_JOBS_REGISTRY: SystemJobDefinition[] = [
     ],
   },
   {
+    id: 'orders_auto_cancel_unpaid_sold',
+    name: 'لغو سفارش بدون پرداخت وقتی کالا فروش رفته',
+    schedule: '*/1 * * * *',
+    scheduleLabel: 'هر ۱ دقیقه',
+    description:
+      'سفارش‌های در انتظار پرداخت را وقتی آگهی فروخته شده یا موجودی پر شده لغو می‌کند.',
+    module: 'orders/orders.service.ts',
+    method: 'autoCancelUnpaidOrdersForSoldListings',
+    managedBy: 'nestjs_cron',
+    relatedSettingKeys: [],
+  },
+  {
     id: 'orders_auto_cancel_expired',
     name: 'لغو سفارش به‌خاطر عدم ارسال در مهلت',
     schedule: '*/1 * * * *',

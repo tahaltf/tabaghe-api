@@ -75,6 +75,7 @@ import {
 } from '../../orders.constants';
 import { BUYER_CONFIRM_ELIGIBLE_STATUSES } from '../query/orders-response-enrichment.service';
 import { OrdersCompletionService } from '../command/orders-completion.service';
+import { OrdersUnpaidCancelService } from '../command/orders-unpaid-cancel.service';
 import {
   isExchangeAutoConfirmDue,
   isExchangeLegConfirmDeadlineExpired,
@@ -99,6 +100,7 @@ export class OrdersSchedulerService {
     private readonly responseEnrichment: OrdersResponseEnrichmentService,
     @Inject(forwardRef(() => OrdersCompletionService))
     private readonly completion: OrdersCompletionService,
+    private readonly unpaidCancel: OrdersUnpaidCancelService,
   ) {}
 
   computeBuyerConfirmDeadlineNow(): Promise<Date> {
@@ -1122,6 +1124,16 @@ export class OrdersSchedulerService {
       } catch (error) {
         console.error(`Error auto-canceling order ${order.id}:`, error);
       }
+    }
+  }
+
+  /** سفارش‌های بدون پرداخت را وقتی کالا فروش رفته یا موجودی پر شده لغو می‌کند */
+  @Cron(CronExpression.EVERY_MINUTE)
+  async autoCancelUnpaidOrdersForSoldListings() {
+    try {
+      await this.unpaidCancel.cancelUnpaidOrdersForUnavailableListings(50);
+    } catch (error) {
+      console.error('Error auto-canceling unpaid orders for sold listings:', error);
     }
   }
 

@@ -156,6 +156,14 @@ export class OrdersController {
     return this.commandService.confirmOrder(user.id, id);
   }
 
+  @Patch(':id/cancel-unpaid')
+  cancelUnpaidOrder(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.commandService.cancelUnpaidOrder(user.id, id);
+  }
+
   @Patch(':id/exchange-seller-relist-choice')
   setExchangeSellerRelistChoice(
     @CurrentUser() user: AuthenticatedUser,

@@ -29,6 +29,11 @@ import {
 import { AdminOrdersNotifyService } from './admin-orders-notify.service';
 import { OperationalNotifyService } from '../../../notification/operational-notify.service';
 import { ReferralRewardService } from '../../../referral/referral-reward.service';
+import { OrdersUnpaidCancelService } from '../../../orders/services/command/orders-unpaid-cancel.service';
+import {
+  ADMIN_UNPAID_CANCEL_REASON,
+  isUnpaidOrderStatus,
+} from '../../../../common/order/unpaid-order.util';
 
 @Injectable()
 export class AdminOrdersStatusService {
@@ -43,6 +48,7 @@ export class AdminOrdersStatusService {
     private readonly notify: AdminOrdersNotifyService,
     private readonly operationalNotify: OperationalNotifyService,
     private readonly referralReward: ReferralRewardService,
+    private readonly unpaidCancel: OrdersUnpaidCancelService,
   ) {}
 
   repairBuyerRefundForCancelledOrder(orderId: string) {
@@ -284,6 +290,17 @@ export class AdminOrdersStatusService {
         throw new BadRequestException(
           'برای لغو پس از رد کارشناسی، کد رهگیری برگشت به فروشنده اجباری است',
         );
+      }
+
+      const unpaid =
+        isUnpaidOrderStatus(existing.status) &&
+        (await this.unpaidCancel.isOrderUnpaid(existing.id));
+      if (unpaid) {
+        return this.unpaidCancel.cancelUnpaidOrder({
+          orderId: existing.id,
+          source: 'admin',
+          reason: normalizedNote || ADMIN_UNPAID_CANCEL_REASON,
+        });
       }
 
       return this.prisma.$transaction(async (tx) => {

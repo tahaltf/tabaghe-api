@@ -9,6 +9,7 @@ import {
   resolveExchangeOfferListDisplay,
   resolveExchangeOrderListDisplay,
 } from '../../exchange-offer-display.util';
+import { resolveDirectCancelKind } from '../../../../common/order/unpaid-order.util';
 
 @Injectable()
 export class OrdersListQueryService {
@@ -126,6 +127,13 @@ export class OrdersListQueryService {
         });
         (item as { exchangeCancelKind?: string | null }).exchangeCancelKind =
           display.exchangeCancelKind;
+      } else {
+        (item as { directCancelKind?: string | null }).directCancelKind =
+          resolveDirectCancelKind({
+            status: item.status,
+            type: item.type,
+            cancelReason: item.cancelReason,
+          });
       }
       if (item.type !== OrderType.EXCHANGE || !item.exchangeOfferId) {
         return item;

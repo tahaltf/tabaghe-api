@@ -60,6 +60,11 @@ describe('AdminOrdersStatusService - exchange inspection start', () => {
       { assertTransition: jest.fn() } as never,
       notify,
       operationalNotify as never,
+      {} as never,
+      {
+        isOrderUnpaid: jest.fn().mockResolvedValue(false),
+        cancelUnpaidOrder: jest.fn(),
+      } as never,
     );
     return { service, notifyParties, operationalNotify, prisma };
   };

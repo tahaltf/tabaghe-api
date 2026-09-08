@@ -25,6 +25,7 @@ import { OrdersResponseEnrichmentService } from './services/query/orders-respons
 import { OrdersCheckoutService } from './services/command/orders-checkout.service';
 import { OrdersShippingService } from './services/command/orders-shipping.service';
 import { OrdersCompletionService } from './services/command/orders-completion.service';
+import { OrdersUnpaidCancelService } from './services/command/orders-unpaid-cancel.service';
 import { OrdersSchedulerService } from './services/scheduler/orders-scheduler.service';
 
 @Module({
@@ -52,6 +53,7 @@ import { OrdersSchedulerService } from './services/scheduler/orders-scheduler.se
     OrdersCheckoutService,
     OrdersShippingService,
     OrdersCompletionService,
+    OrdersUnpaidCancelService,
     OrdersSchedulerService,
     OrdersCommandService,
     OrdersService,
@@ -63,6 +65,7 @@ import { OrdersSchedulerService } from './services/scheduler/orders-scheduler.se
     OrdersService,
     OrdersSchedulerService,
     OrdersCompletionService,
+    OrdersUnpaidCancelService,
     OrdersStateMachineService,
     OrdersResponseEnrichmentService,
     OrdersCheckoutService,
