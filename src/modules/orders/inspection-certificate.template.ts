@@ -389,7 +389,7 @@ export function buildInspectionCertificateHtml(
     font-size: 8pt;
     color: ${p.primaryLight};
     margin-top: 6px;
-    font-weight: 500;
+    font-weight: normal;
   }
   .cert-sign {
     text-align: center;
@@ -398,7 +398,7 @@ export function buildInspectionCertificateHtml(
     border-top: 1px solid ${p.primaryLight};
     font-size: 8.5pt;
     color: ${p.primaryLight};
-    font-weight: 500;
+    font-weight: normal;
   }
   .cert-validity-notice {
     margin-top: 10px;
