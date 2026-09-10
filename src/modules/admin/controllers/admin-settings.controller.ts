@@ -176,6 +176,7 @@ export class AdminSettingsController {
   }
 
   @Post('pwa-app-icon')
+  @RequirePermission('settings.update')
   @UseInterceptors(FileInterceptor('file', brandLogoMulterOptions))
   async uploadPwaAppIcon(@UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('فایلی ارسال نشده است');
@@ -183,11 +184,13 @@ export class AdminSettingsController {
   }
 
   @Delete('pwa-app-icon')
+  @RequirePermission('settings.update')
   removePwaAppIcon() {
     return this.service.removePwaAppIcon();
   }
 
   @Post('pwa-favicon')
+  @RequirePermission('settings.update')
   @UseInterceptors(FileInterceptor('file', brandLogoMulterOptions))
   async uploadPwaFavicon(@UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('فایلی ارسال نشده است');
@@ -195,6 +198,7 @@ export class AdminSettingsController {
   }
 
   @Delete('pwa-favicon')
+  @RequirePermission('settings.update')
   removePwaFavicon() {
     return this.service.removePwaAppFavicon();
   }

@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { existsSync, unlink } from 'fs';
 import { join } from 'path';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import {
   BulkUpsertSettingsDto,
@@ -658,11 +659,7 @@ export class AdminSettingsService {
       select: { value: true },
     });
     const description = dto.description ?? KNOWN_DESCRIPTIONS[dto.key] ?? null;
-    const row = await this.prisma.systemSetting.upsert({
-      where: { key: dto.key },
-      update: { value: dto.value, description },
-      create: { key: dto.key, value: dto.value, description },
-    });
+    const row = await this.writeSettingRow(dto.key, dto.value, description);
     if (existing?.value !== dto.value) {
       this.logSettingChange(actor, dto.key, existing?.value ?? null, dto.value);
     }
@@ -674,7 +671,7 @@ export class AdminSettingsService {
   }
 
   async upsertMany(dto: BulkUpsertSettingsDto, actor?: AuthenticatedUser) {
-    const items = this.expandLegacySyncItems(dto.items);
+    const items = this.uniqueSettingItems(this.expandLegacySyncItems(dto.items));
     for (const item of items) {
       this.assertValidSettingValue(item.key, item.value);
     }
@@ -795,6 +792,49 @@ export class AdminSettingsService {
       );
     }
     return parsed;
+  }
+
+  private uniqueSettingItems(
+    items: BulkUpsertSettingsDto['items'],
+  ): BulkUpsertSettingsDto['items'] {
+    const byKey = new Map<string, BulkUpsertSettingsDto['items'][number]>();
+    for (const item of items) {
+      byKey.set(item.key, item);
+    }
+    return [...byKey.values()];
+  }
+
+  private async writeSettingRow(
+    key: string,
+    value: string,
+    description: string | null,
+  ) {
+    const existing = await this.prisma.systemSetting.findUnique({
+      where: { key },
+      select: { id: true },
+    });
+    if (existing) {
+      return this.prisma.systemSetting.update({
+        where: { key },
+        data: { value, description },
+      });
+    }
+    try {
+      return await this.prisma.systemSetting.create({
+        data: { key, value, description },
+      });
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        return this.prisma.systemSetting.update({
+          where: { key },
+          data: { value, description },
+        });
+      }
+      throw err;
+    }
   }
 
   private expandLegacySyncItems(
@@ -1071,7 +1111,8 @@ export class AdminSettingsService {
       where: { key },
     });
     if (previous?.value && previous.value !== filename) {
-      this.deleteBrandLogoFile(previous.value);
+      const stillUsed = await this.isBrandFilenameInUse(previous.value, key);
+      if (!stillUsed) this.deleteBrandLogoFile(previous.value);
     }
 
     const result = await this.upsert({
@@ -1083,11 +1124,38 @@ export class AdminSettingsService {
     return result;
   }
 
+  private async isBrandFilenameInUse(
+    filename: string,
+    exceptKey?: string,
+  ): Promise<boolean> {
+    const safeName = filename.split(/[\\/]/).pop();
+    if (!safeName) return false;
+    const brandKeys = [
+      SETTING_KEYS.MEDIA_FALLBACK_LOGO,
+      SETTING_KEYS.USER_APP_LOGO,
+      SETTING_KEYS.USER_APP_LOGO_LIGHT,
+      SETTING_KEYS.USER_APP_LOGO_DARK,
+      SETTING_KEYS.PWA_APP_ICON,
+      SETTING_KEYS.PWA_APP_FAVICON,
+      SETTING_KEYS.ADMIN_PANEL_LOGO,
+    ].filter((k) => k !== exceptKey);
+    const count = await this.prisma.systemSetting.count({
+      where: {
+        value: safeName,
+        key: { in: brandKeys },
+      },
+    });
+    return count > 0;
+  }
+
   private async clearBrandLogoByKey(key: string) {
     const existing = await this.prisma.systemSetting.findUnique({
       where: { key },
     });
-    if (existing?.value) this.deleteBrandLogoFile(existing.value);
+    if (existing?.value) {
+      const stillUsed = await this.isBrandFilenameInUse(existing.value, key);
+      if (!stillUsed) this.deleteBrandLogoFile(existing.value);
+    }
 
     await this.prisma.systemSetting.upsert({
       where: { key },

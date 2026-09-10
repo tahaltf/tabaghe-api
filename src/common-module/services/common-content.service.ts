@@ -250,6 +250,7 @@ export class CommonContentService {
       map.PWA_APP_ICON,
       map.PWA_APP_FAVICON,
       map.USER_APP_LOGO_LIGHT,
+      map.USER_APP_LOGO_DARK,
       map.USER_APP_LOGO,
     ]
       .map((v) => v?.trim())
