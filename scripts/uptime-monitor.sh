@@ -7,9 +7,10 @@
 #   */5 * * * * ROOT=/app/tabagheh bash /app/tabagheh/api/scripts/uptime-monitor.sh >> /app/tabagheh/logs/uptime-monitor.log 2>&1
 #
 # Behavior:
-#   - UP → 2 consecutive failures → SMS «قطع» (once)
-#   - DOWN → keep probing, no repeat SMS
-#   - DOWN → first success → SMS «وصل» (once)
+#   - UP → 2 consecutive failures → SMS «قطع» (once; retries if send failed)
+#   - DOWN → keep probing, no repeat SMS (unless pending_sms=down)
+#   - DOWN → first success → SMS «وصل» (retries until send succeeds)
+#   - FORCE_UPTIME_SMS=وصل|قطع — send immediately (manual)
 #
 # Env:
 #   UPTIME_MONITOR_ENABLED=0|1     (default 1; host kill-switch)
@@ -80,7 +81,8 @@ curl_smsir() {
 }
 
 _http_port="$(load_env_var HTTP_PORT)"
-_http_port="${_http_port:-80}"
+# Production compose gateway is usually 8080; host nginx may be 80.
+_http_port="${_http_port:-8080}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:${_http_port}/api/v1/health}"
 GATEWAY_URL="${GATEWAY_URL:-http://127.0.0.1:${_http_port}/}"
 
@@ -171,15 +173,39 @@ api_health_via_docker() {
   return 1
 }
 
+gateway_http_ok() {
+  local url code
+  for url in "$@"; do
+    [[ -n "$url" ]] || continue
+    code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 8 "$url" 2>/dev/null || echo 000)"
+    if [[ "$code" =~ ^2|^3 ]]; then
+      GATEWAY_OK_URL="$url"
+      return 0
+    fi
+  done
+  return 1
+}
+
 probe_site() {
   local failures=()
+  GATEWAY_OK_URL=""
   if http_ok "$HEALTH_URL" || api_health_via_docker; then
     :
   else
-    failures+=("API")
+    # Fallbacks when HEALTH_URL points at wrong host port
+    if http_ok "http://127.0.0.1:8080/api/v1/health" \
+      || http_ok "http://127.0.0.1:80/api/v1/health"; then
+      :
+    else
+      failures+=("API")
+    fi
   fi
   if [[ "$CHECK_GATEWAY" == "1" ]]; then
-    if curl -sS -o /dev/null -w '%{http_code}' --max-time 8 "$GATEWAY_URL" 2>/dev/null | grep -qE '^2|^3'; then
+    if gateway_http_ok \
+      "$GATEWAY_URL" \
+      "http://127.0.0.1:8080/" \
+      "http://127.0.0.1:80/" \
+      "http://127.0.0.1:4000/"; then
       :
     else
       failures+=("Gateway")
@@ -195,20 +221,29 @@ probe_site() {
 read_state() {
   STATUS="up"
   FAIL_COUNT=0
+  PENDING_SMS=""
   if [[ -f "$STATE_FILE" ]]; then
     # shellcheck disable=SC1090
-    # status=up|down and fail_count=N
+    # status=up|down, fail_count=N, pending_sms=up|down (retry SMS after failed send)
     STATUS="$(grep -E '^status=' "$STATE_FILE" 2>/dev/null | tail -n1 | cut -d= -f2- || true)"
     FAIL_COUNT="$(grep -E '^fail_count=' "$STATE_FILE" 2>/dev/null | tail -n1 | cut -d= -f2- || true)"
+    PENDING_SMS="$(grep -E '^pending_sms=' "$STATE_FILE" 2>/dev/null | tail -n1 | cut -d= -f2- || true)"
   fi
   [[ "$STATUS" == "down" ]] || STATUS="up"
   [[ "$FAIL_COUNT" =~ ^[0-9]+$ ]] || FAIL_COUNT=0
+  [[ "$PENDING_SMS" == "up" || "$PENDING_SMS" == "down" ]] || PENDING_SMS=""
 }
 
 write_state() {
   local st="$1"
   local fc="$2"
-  printf 'status=%s\nfail_count=%s\nupdated=%s\n' "$st" "$fc" "$(date -Iseconds 2>/dev/null || date)" > "$STATE_FILE"
+  local pending="${3:-}"
+  {
+    printf 'status=%s\nfail_count=%s\nupdated=%s\n' "$st" "$fc" "$(date -Iseconds 2>/dev/null || date)"
+    if [[ -n "$pending" ]]; then
+      printf 'pending_sms=%s\n' "$pending"
+    fi
+  } > "$STATE_FILE"
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -274,8 +309,10 @@ notify_admins_sms() {
     api_rc=$?
   fi
   if [[ "$api_rc" -eq 2 ]]; then
-    warn "پنل در دسترس بود ولی SMS ارسال نشد — بدون fallback"
-    return 0
+    # Panel reached but sent=0 (template/recipients/disabled) — do NOT pretend success,
+    # otherwise recovery SMS «وصل» is skipped forever after state flips to up.
+    warn "پنل در دسترس بود ولی SMS ارسال نشد — بدون fallback (caller باید retry کند)"
+    return 1
   fi
   warn "ارسال از API ناموفق — fallback به .env"
 
@@ -284,7 +321,7 @@ notify_admins_sms() {
   enabled_env="${enabled_env:-1}"
   if [[ "$enabled_env" == "0" || "$enabled_env" == "false" ]]; then
     warn "SMS_UPTIME_ALERT_ENABLED=0 — fallback SMS ارسال نشد"
-    return 0
+    return 1
   fi
 
   local recipients_raw
@@ -297,7 +334,7 @@ notify_admins_sms() {
   fi
   if [[ -z "${recipients_raw// /}" ]]; then
     warn "SMS ارسال نشد: گیرنده در پنل یا .env ست نشده"
-    return 0
+    return 1
   fi
 
   local provider template_id template_name status_param detail_param line_number
@@ -324,13 +361,13 @@ notify_admins_sms() {
   mapfile -t mobiles < <(parse_recipients "$recipients_raw")
   if [[ ${#mobiles[@]} -eq 0 ]]; then
     warn "شماره معتبر پیدا نشد"
-    return 0
+    return 1
   fi
 
   if [[ "$provider" != "kavenegar" ]]; then
     if [[ -z "$template_id" || "$template_id" == "0" ]] && [[ -z "$line_number" ]]; then
       warn "SMS ارسال نشد: SMS_UPTIME_ALERT_TEMPLATE_ID را در پنل یا api/.env ست کنید"
-      return 0
+      return 1
     fi
   fi
 
@@ -340,13 +377,13 @@ notify_admins_sms() {
   for m in "${mobiles[@]}"; do
     if [[ "$provider" == "kavenegar" ]]; then
       api_key="$(load_env_var KAVENEGAR_API_KEY)"
-      [[ -n "$api_key" ]] || { warn "KAVENEGAR_API_KEY missing"; return 0; }
+      [[ -n "$api_key" ]] || { warn "KAVENEGAR_API_KEY missing"; return 1; }
       if send_sms_kavenegar "$api_key" "$m" "$template_name" "$status_fa" "$detail"; then
         ok=$((ok + 1))
       fi
     else
       api_key="$(load_env_var SMS_IR_API_KEY)"
-      [[ -n "$api_key" ]] || { warn "SMS_IR_API_KEY missing"; return 0; }
+      [[ -n "$api_key" ]] || { warn "SMS_IR_API_KEY missing"; return 1; }
       if [[ -n "$template_id" && "$template_id" != "0" ]] \
         && send_sms_smsir_verify "$api_key" "$m" "$template_id" \
           "$status_param" "$status_fa" "$detail_param" "$detail"; then
@@ -359,17 +396,44 @@ notify_admins_sms() {
     fi
   done
   log "SMS: ${ok}/${#mobiles[@]} ارسال شد"
+  [[ "$ok" -gt 0 ]]
 }
 
 # --- main ---
+# Manual: FORCE_UPTIME_SMS=وصل|قطع ROOT=/app/tabagheh bash uptime-monitor.sh
 read_state
 PROBE_REASON=""
 
+if [[ -n "${FORCE_UPTIME_SMS:-}" ]]; then
+  log "FORCE_UPTIME_SMS=${FORCE_UPTIME_SMS}"
+  if notify_admins_sms "$FORCE_UPTIME_SMS" "ارسال دستی مانیتور"; then
+    log "FORCE SMS OK"
+    if [[ "$FORCE_UPTIME_SMS" == "وصل" ]]; then
+      write_state "up" 0
+    elif [[ "$FORCE_UPTIME_SMS" == "قطع" ]]; then
+      write_state "down" "$threshold"
+    fi
+    exit 0
+  fi
+  warn "FORCE SMS failed"
+  exit 1
+fi
+
 if probe_site; then
-  log "probe OK (prev status=$STATUS fail_count=$FAIL_COUNT)"
-  if [[ "$STATUS" == "down" ]]; then
+  log "probe OK (prev status=$STATUS fail_count=$FAIL_COUNT pending=${PENDING_SMS:-none}${GATEWAY_OK_URL:+ gw=$GATEWAY_OK_URL})"
+  need_up_sms=0
+  if [[ "$STATUS" == "down" || "$PENDING_SMS" == "up" ]]; then
+    need_up_sms=1
+  fi
+  if [[ "$need_up_sms" -eq 1 ]]; then
     log "recovery — sending SMS وصل"
-    notify_admins_sms "وصل" "سامانه دوباره در دسترس است" || true
+    if notify_admins_sms "وصل" "سامانه دوباره در دسترس است"; then
+      write_state "up" 0
+      exit 0
+    fi
+    warn "SMS وصل ناموفق — state=down می‌ماند تا cron بعدی دوباره تلاش کند"
+    write_state "down" 0 "up"
+    exit 1
   fi
   write_state "up" 0
   exit 0
@@ -377,18 +441,32 @@ fi
 
 # probe failed
 FAIL_COUNT=$((FAIL_COUNT + 1))
-log "probe FAILED (${PROBE_REASON:-unknown}) fail_count=$FAIL_COUNT/$threshold (prev=$STATUS)"
+log "probe FAILED (${PROBE_REASON:-unknown}) fail_count=$FAIL_COUNT/$threshold (prev=$STATUS pending=${PENDING_SMS:-none})"
 
 if [[ "$STATUS" == "down" ]]; then
-  write_state "down" "$FAIL_COUNT"
+  # Still down; retry pending «قطع» SMS if previous send failed
+  if [[ "$PENDING_SMS" == "down" ]]; then
+    log "retry SMS قطع"
+    if notify_admins_sms "قطع" "سامانه از دسترس خارج شد (${PROBE_REASON:-down})"; then
+      write_state "down" "$FAIL_COUNT"
+    else
+      write_state "down" "$FAIL_COUNT" "down"
+    fi
+  else
+    write_state "down" "$FAIL_COUNT"
+  fi
   exit 0
 fi
 
 # currently considered up (or first run)
 if (( FAIL_COUNT >= threshold )); then
   log "threshold reached — sending SMS قطع"
-  notify_admins_sms "قطع" "سامانه از دسترس خارج شد (${PROBE_REASON:-down})" || true
-  write_state "down" "$FAIL_COUNT"
+  if notify_admins_sms "قطع" "سامانه از دسترس خارج شد (${PROBE_REASON:-down})"; then
+    write_state "down" "$FAIL_COUNT"
+  else
+    warn "SMS قطع ناموفق — pending_sms=down برای retry"
+    write_state "down" "$FAIL_COUNT" "down"
+  fi
   exit 0
 fi
 
