@@ -457,7 +457,7 @@ fi
 
 if [[ "$CHECK_GATEWAY" == "1" ]]; then
   gateway_ok=0
-  for gw in "$GATEWAY_URL" "http://127.0.0.1:8080/" "http://127.0.0.1:80/"; do
+  for gw in "$GATEWAY_URL" "http://127.0.0.1:8080/" "http://127.0.0.1:80/" "http://127.0.0.1:4000/"; do
     [[ -n "$gw" ]] || continue
     if curl -sS -o /dev/null -w '%{http_code}' --max-time 8 "$gw" 2>/dev/null | grep -qE '^2|^3'; then
       log "gateway OK ($gw)"
@@ -466,8 +466,9 @@ if [[ "$CHECK_GATEWAY" == "1" ]]; then
     fi
   done
   if [[ "$gateway_ok" != "1" ]]; then
-    failures+=("Gateway")
-    log "gateway FAILED (tried $GATEWAY_URL and :8080/:80)"
+    # Host nginx on :443 often fronts the app; compose gateway on :8080 is secondary.
+    # Do not fail the whole deploy (and rollback images) for gateway-only outage.
+    warn "gateway check failed (tried $GATEWAY_URL, :8080, :80, :4000) — continuing because API health passed"
   fi
 fi
 
