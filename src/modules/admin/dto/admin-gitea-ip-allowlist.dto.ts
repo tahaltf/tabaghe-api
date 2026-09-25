@@ -59,7 +59,35 @@ export class UpdateGiteaIpAllowlistDto {
 }
 
 export class UpdateGiteaIpAllowlistConfigDto {
+  @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
-  enforcementEnabled!: boolean;
+  enforcementEnabled?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  forbiddenBrand?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(120)
+  forbiddenTitle?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(800)
+  forbiddenMessage?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  forbiddenCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  forbiddenHint?: string;
 }

@@ -36,7 +36,7 @@ export class AdminGiteaIpAllowlistController {
   @Patch('config')
   @RequirePermission('gitea_ip_allowlist.update')
   setConfig(@Body() dto: UpdateGiteaIpAllowlistConfigDto) {
-    return this.service.setEnforcementEnabled(dto.enforcementEnabled);
+    return this.service.updateConfig(dto);
   }
 
   @Post('resync')

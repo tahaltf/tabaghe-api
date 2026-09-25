@@ -11,10 +11,25 @@ import { spawnSync } from 'child_process';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import {
   CreateGiteaIpAllowlistDto,
+  UpdateGiteaIpAllowlistConfigDto,
   UpdateGiteaIpAllowlistDto,
 } from '../dto/admin-gitea-ip-allowlist.dto';
 
 const ENFORCEMENT_SETTING_KEY = 'gitea_ip_allowlist.enforcement_enabled';
+const PAGE_BRAND_KEY = 'gitea_ip_allowlist.forbidden_brand';
+const PAGE_TITLE_KEY = 'gitea_ip_allowlist.forbidden_title';
+const PAGE_MESSAGE_KEY = 'gitea_ip_allowlist.forbidden_message';
+const PAGE_CODE_KEY = 'gitea_ip_allowlist.forbidden_code';
+const PAGE_HINT_KEY = 'gitea_ip_allowlist.forbidden_hint';
+
+const DEFAULT_FORBIDDEN_PAGE = {
+  brand: 'TABAGHEH · GIT',
+  title: 'آدرس IP شما مجاز نیست',
+  message:
+    'دسترسی به مخزن کد فقط برای آدرس‌های تأییدشده فعال است. اگر باید به این سرویس وصل شوید، از ادمین بخواهید IP شما را به فهرست مجاز اضافه کند.',
+  code: '403 · IP_NOT_ALLOWED',
+  hint: 'این صفحه برای مرورگر است. کلاینت Git هم با کد HTTP 403 رد می‌شود.',
+};
 
 export type GiteaIpAllowlistSyncResult = {
   filePath: string;
@@ -22,7 +37,10 @@ export type GiteaIpAllowlistSyncResult = {
   reloadAttempted: boolean;
   reloadOk: boolean;
   message: string;
+  htmlPath?: string;
 };
+
+export type GiteaForbiddenPage = typeof DEFAULT_FORBIDDEN_PAGE;
 
 @Injectable()
 export class AdminGiteaIpAllowlistService {
@@ -40,10 +58,55 @@ export class AdminGiteaIpAllowlistService {
     if (process.env.GITEA_IP_ALLOWLIST_FILE?.trim()) {
       return process.env.GITEA_IP_ALLOWLIST_FILE.trim();
     }
-    // Prefer ops mount (/app/ops/nginx in production compose); uploads as fallback.
     const opsPath = join(process.cwd(), 'ops', 'nginx', 'gitea-ip-allowlist.conf');
     if (existsSync(dirname(opsPath)) || existsSync(opsPath)) return opsPath;
     return join(process.cwd(), 'uploads', 'ops', 'gitea-ip-allowlist.conf');
+  }
+
+  private resolveForbiddenHtmlPath(): string {
+    if (process.env.GITEA_IP_FORBIDDEN_HTML?.trim()) {
+      return process.env.GITEA_IP_FORBIDDEN_HTML.trim();
+    }
+    return join(dirname(this.resolveAllowlistFilePath()), 'gitea-ip-forbidden.html');
+  }
+
+  private escapeHtml(s: string): string {
+    return s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  private async readSetting(key: string): Promise<string | null> {
+    const row = await this.prisma.systemSetting.findUnique({ where: { key } });
+    return row?.value ?? null;
+  }
+
+  private async writeSetting(key: string, value: string, description: string) {
+    await this.prisma.systemSetting.upsert({
+      where: { key },
+      create: { key, value, description },
+      update: { value },
+    });
+  }
+
+  async getForbiddenPage(): Promise<GiteaForbiddenPage> {
+    const [brand, title, message, code, hint] = await Promise.all([
+      this.readSetting(PAGE_BRAND_KEY),
+      this.readSetting(PAGE_TITLE_KEY),
+      this.readSetting(PAGE_MESSAGE_KEY),
+      this.readSetting(PAGE_CODE_KEY),
+      this.readSetting(PAGE_HINT_KEY),
+    ]);
+    return {
+      brand: brand?.trim() || DEFAULT_FORBIDDEN_PAGE.brand,
+      title: title?.trim() || DEFAULT_FORBIDDEN_PAGE.title,
+      message: message?.trim() || DEFAULT_FORBIDDEN_PAGE.message,
+      code: code?.trim() || DEFAULT_FORBIDDEN_PAGE.code,
+      hint: hint?.trim() || DEFAULT_FORBIDDEN_PAGE.hint,
+    };
   }
 
   async getConfig() {
@@ -55,22 +118,43 @@ export class AdminGiteaIpAllowlistService {
       enforcementEnabled,
       alwaysAllow: this.alwaysAllowCidrs(),
       filePath: this.resolveAllowlistFilePath(),
+      forbiddenHtmlPath: this.resolveForbiddenHtmlPath(),
       reloadCmdConfigured: Boolean(process.env.GITEA_IP_ALLOWLIST_RELOAD_CMD?.trim()),
+      forbiddenPage: await this.getForbiddenPage(),
     };
   }
 
-  async setEnforcementEnabled(enabled: boolean) {
-    await this.prisma.systemSetting.upsert({
-      where: { key: ENFORCEMENT_SETTING_KEY },
-      create: {
-        key: ENFORCEMENT_SETTING_KEY,
-        value: enabled ? 'true' : 'false',
-        description: 'اعمال محدودیت IP روی دسترسی Gitea (nginx allowlist)',
-      },
-      update: { value: enabled ? 'true' : 'false' },
-    });
-    const sync = await this.syncNginxAllowlist();
+  async updateConfig(dto: UpdateGiteaIpAllowlistConfigDto) {
+    if (dto.enforcementEnabled !== undefined) {
+      await this.writeSetting(
+        ENFORCEMENT_SETTING_KEY,
+        dto.enforcementEnabled ? 'true' : 'false',
+        'اعمال محدودیت IP روی دسترسی Gitea (nginx allowlist)',
+      );
+    }
+    if (dto.forbiddenBrand !== undefined) {
+      await this.writeSetting(PAGE_BRAND_KEY, dto.forbiddenBrand.trim(), 'برند صفحه 403 گیت');
+    }
+    if (dto.forbiddenTitle !== undefined) {
+      await this.writeSetting(PAGE_TITLE_KEY, dto.forbiddenTitle.trim(), 'عنوان صفحه 403 گیت');
+    }
+    if (dto.forbiddenMessage !== undefined) {
+      await this.writeSetting(PAGE_MESSAGE_KEY, dto.forbiddenMessage.trim(), 'متن صفحه 403 گیت');
+    }
+    if (dto.forbiddenCode !== undefined) {
+      await this.writeSetting(PAGE_CODE_KEY, dto.forbiddenCode.trim(), 'کد صفحه 403 گیت');
+    }
+    if (dto.forbiddenHint !== undefined) {
+      await this.writeSetting(PAGE_HINT_KEY, dto.forbiddenHint.trim(), 'راهنمای صفحه 403 گیت');
+    }
+
+    const sync = await this.syncAll();
     return { ...(await this.getConfig()), sync };
+  }
+
+  /** @deprecated use updateConfig */
+  async setEnforcementEnabled(enabled: boolean) {
+    return this.updateConfig({ enforcementEnabled: enabled });
   }
 
   list() {
@@ -141,9 +225,8 @@ export class AdminGiteaIpAllowlistService {
     return { ok: true, sync };
   }
 
-  /** Force rewrite nginx snippet from DB (e.g. after ops path change). */
   async resync() {
-    const sync = await this.syncNginxAllowlist();
+    const sync = await this.syncAll();
     return { ...(await this.getConfig()), sync };
   }
 
@@ -154,6 +237,69 @@ export class AdminGiteaIpAllowlistService {
       .filter(Boolean)
       .map((s) => this.normalizeCidr(s));
     return [...new Set(fromEnv.length ? fromEnv : ['127.0.0.1/32'])];
+  }
+
+  private buildForbiddenHtml(page: GiteaForbiddenPage): string {
+    const brand = this.escapeHtml(page.brand);
+    const title = this.escapeHtml(page.title);
+    const message = this.escapeHtml(page.message).replace(/\n/g, '<br/>');
+    const code = this.escapeHtml(page.code);
+    const hint = this.escapeHtml(page.hint);
+    return `<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>${title} | طبقه</title>
+  <style>
+    :root { --bg:#0f1419; --card:#1a222c; --text:#e8eef4; --muted:#8b9aab; --accent:#3d8bfd; --line:rgba(255,255,255,.08); }
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;font-family:"Segoe UI",Tahoma,sans-serif;color:var(--text);display:grid;place-items:center;padding:24px;
+      background:radial-gradient(900px 500px at 10% -10%,rgba(61,139,253,.18),transparent 55%),var(--bg)}
+    .card{width:min(520px,100%);background:var(--card);border:1px solid var(--line);border-radius:16px;padding:36px 32px;box-shadow:0 24px 60px rgba(0,0,0,.35)}
+    .brand{font-size:13px;letter-spacing:.08em;color:var(--accent);font-weight:700;margin-bottom:18px}
+    h1{margin:0 0 12px;font-size:1.55rem;font-weight:800;line-height:1.4}
+    p{margin:0;color:var(--muted);font-size:.98rem;line-height:1.9}
+    .code{margin-top:22px;padding:12px 14px;border-radius:10px;background:rgba(0,0,0,.28);border:1px solid var(--line);font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#c5d4e3;direction:ltr;text-align:left}
+    .hint{margin-top:18px;font-size:.85rem;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="brand">${brand}</div>
+    <h1>${title}</h1>
+    <p>${message}</p>
+    <div class="code">${code}</div>
+    <p class="hint">${hint}</p>
+  </main>
+</body>
+</html>
+`;
+  }
+
+  async syncForbiddenHtml(): Promise<{ htmlPath: string; written: boolean }> {
+    const page = await this.getForbiddenPage();
+    const htmlPath = this.resolveForbiddenHtmlPath();
+    try {
+      mkdirSync(dirname(htmlPath), { recursive: true });
+      writeFileSync(htmlPath, this.buildForbiddenHtml(page), 'utf8');
+      return { htmlPath, written: true };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Failed writing forbidden HTML ${htmlPath}: ${msg}`);
+      throw new BadRequestException(`نوشتن صفحه 403 ناموفق بود: ${msg}`);
+    }
+  }
+
+  async syncAll(): Promise<GiteaIpAllowlistSyncResult> {
+    const allow = await this.syncNginxAllowlist();
+    const html = await this.syncForbiddenHtml();
+    return {
+      ...allow,
+      htmlPath: html.htmlPath,
+      message: `${allow.message} | صفحه 403: ${html.htmlPath}`,
+    };
   }
 
   async syncNginxAllowlist(): Promise<GiteaIpAllowlistSyncResult> {
