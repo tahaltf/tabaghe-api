@@ -1,5 +1,7 @@
 import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsNumber,
   IsOptional,
@@ -142,6 +144,34 @@ export class SetCategoryActiveDto {
   @Type(() => Boolean)
   @IsBoolean()
   isActive!: boolean;
+
+  /** When activating: also activate all descendants. Deactivate always cascades. */
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  includeDescendants?: boolean;
+}
+
+export class BulkSetCategoryActiveDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsString({ each: true })
+  ids!: string[];
+
+  @Type(() => Boolean)
+  @IsBoolean()
+  isActive!: boolean;
+}
+
+export class BulkUpdateCategoryFeesDto extends BaseCategoryFields {
+  @IsString()
+  rootId!: string;
+
+  /** Default true — apply fees to root and all descendants */
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  includeDescendants?: boolean;
 }
 
 export class UpdateCategoryDto extends BaseCategoryFields {
@@ -156,4 +186,10 @@ export class UpdateCategoryDto extends BaseCategoryFields {
   @MinLength(2)
   @MaxLength(120)
   slug?: string;
+
+  /** When true (and fees present), also update all descendant categories' fees */
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  applyFeesToDescendants?: boolean;
 }

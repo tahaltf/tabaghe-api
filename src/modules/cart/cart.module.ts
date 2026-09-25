@@ -4,6 +4,7 @@ import { AuthModule } from '../auth/auth.module';
 import { OrdersModule } from '../orders/orders.module';
 import { CouponsModule } from '../coupons/coupons.module';
 import { PaymentsModule } from '../payments/payments.module';
+import { FeesModule } from '../fees/fees.module';
 import { CartController } from './cart.controller';
 import { CartService } from './cart.service';
 import { CartCheckoutService } from './cart-checkout.service';
@@ -13,6 +14,7 @@ import { MarketplaceCheckoutService } from './marketplace-checkout.service';
   imports: [
     PrismaModule,
     AuthModule,
+    FeesModule,
     forwardRef(() => OrdersModule),
     CouponsModule,
     PaymentsModule,

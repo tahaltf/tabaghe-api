@@ -11,6 +11,8 @@ import { TtlCacheService } from '../../../infrastructure/cache/ttl-cache.service
 import {
   CreateCategoryDto,
   SetCategoryActiveDto,
+  BulkSetCategoryActiveDto,
+  BulkUpdateCategoryFeesDto,
   UpdateCategoryDto,
 } from '../dto/admin-category.dto';
 import { AdminListingDeleteService } from './admin-listing-delete.service';
@@ -158,6 +160,15 @@ export class AdminCategoriesService {
           );
         }
       }
+      if (dto.includeDescendants) {
+        const subtreeIds = await this.collectSubtreeIdsRootFirst([id]);
+        const result = await this.prisma.category.updateMany({
+          where: { id: { in: subtreeIds } },
+          data: { isActive: true },
+        });
+        await this.invalidateCategoryCaches();
+        return { id, isActive: true, affected: result.count };
+      }
       await this.prisma.category.update({
         where: { id },
         data: { isActive: true },
@@ -175,6 +186,111 @@ export class AdminCategoriesService {
     return { id, isActive: false, affected: result.count };
   }
 
+  /**
+   * Bulk activate/deactivate selected categories.
+   * Deactivate always expands to full subtrees.
+   * Activate processes root-first so a parent and its children in the same batch both work.
+   */
+  async bulkSetActive(
+    dto: BulkSetCategoryActiveDto,
+  ): Promise<{ affected: number; isActive: boolean }> {
+    const roots = [...new Set(dto.ids.map((id) => id.trim()).filter(Boolean))];
+    if (roots.length === 0) {
+      throw new BadRequestException('هیچ دسته‌ای انتخاب نشده است');
+    }
+
+    if (!dto.isActive) {
+      const subtreeIds = await this.collectSubtreeIdsRootFirst(roots);
+      const result = await this.prisma.category.updateMany({
+        where: { id: { in: subtreeIds } },
+        data: { isActive: false },
+      });
+      await this.invalidateCategoryCaches();
+      return { affected: result.count, isActive: false };
+    }
+
+    const all = await this.prisma.category.findMany({
+      select: { id: true, parentId: true, isActive: true, title: true },
+    });
+    const byId = new Map(all.map((c) => [c.id, c]));
+    for (const id of roots) {
+      if (!byId.has(id)) {
+        throw new NotFoundException(`دسته‌بندی یافت نشد: ${id}`);
+      }
+    }
+
+    const selected = new Set(roots);
+    const depthOf = (id: string): number => {
+      let d = 0;
+      let cur = byId.get(id);
+      while (cur?.parentId) {
+        d += 1;
+        cur = byId.get(cur.parentId);
+        if (d > 50) break;
+      }
+      return d;
+    };
+    const ordered = [...selected].sort((a, b) => depthOf(a) - depthOf(b));
+
+    const activating = new Set<string>();
+    const blocked: string[] = [];
+    for (const id of ordered) {
+      const node = byId.get(id)!;
+      if (node.parentId) {
+        const parent = byId.get(node.parentId);
+        const parentOk =
+          parent && (parent.isActive || activating.has(parent.id));
+        if (!parentOk) {
+          blocked.push(node.title);
+          continue;
+        }
+      }
+      activating.add(id);
+    }
+
+    if (activating.size === 0) {
+      throw new BadRequestException(
+        blocked.length
+          ? `امکان فعال‌سازی نیست؛ والد این دسته‌ها غیرفعال است: ${blocked.slice(0, 5).join('، ')}`
+          : 'هیچ دسته‌ای برای فعال‌سازی معتبر نیست',
+      );
+    }
+
+    const result = await this.prisma.category.updateMany({
+      where: { id: { in: [...activating] } },
+      data: { isActive: true },
+    });
+    await this.invalidateCategoryCaches();
+    return { affected: result.count, isActive: true };
+  }
+
+  async bulkUpdateFees(
+    dto: BulkUpdateCategoryFeesDto,
+  ): Promise<{ affected: number; ids: string[] }> {
+    const existing = await this.prisma.category.findUnique({
+      where: { id: dto.rootId },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException('دسته‌بندی یافت نشد');
+
+    const includeDescendants = dto.includeDescendants !== false;
+    const ids = includeDescendants
+      ? await this.collectSubtreeIdsRootFirst([dto.rootId])
+      : [dto.rootId];
+
+    const feeData = this.buildFeeUpdateData(dto);
+    if (Object.keys(feeData).length === 0) {
+      throw new BadRequestException('هیچ فیلد کارمزدی برای به‌روزرسانی ارسال نشده');
+    }
+
+    const result = await this.prisma.category.updateMany({
+      where: { id: { in: ids } },
+      data: feeData,
+    });
+    await this.invalidateCategoryCaches();
+    return { affected: result.count, ids };
+  }
+
   async update(id: string, dto: UpdateCategoryDto): Promise<AdminCategoryItem> {
     const existing = await this.prisma.category.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('دسته‌بندی یافت نشد');
@@ -187,6 +303,10 @@ export class AdminCategoriesService {
       }
       await this.ensureParentExists(dto.parentId);
     }
+
+    const feeData = this.buildFeeUpdateData(dto);
+    const applyFeesToDescendants = Boolean(dto.applyFeesToDescendants);
+
     const updated = await this.prisma.category.update({
       where: { id },
       data: {
@@ -194,35 +314,68 @@ export class AdminCategoriesService {
         slug: dto.slug ?? undefined,
         icon: dto.icon === undefined ? undefined : dto.icon,
         parentId: dto.parentId === undefined ? undefined : dto.parentId,
-        feePercentage: dto.feePercentage ?? undefined,
-        feeCap: dto.feeCap ?? undefined,
-        feeCapDirect: dto.feeCapDirect ?? undefined,
-        feeCapAuction: dto.feeCapAuction ?? undefined,
-        feePercentageDirectNew: dto.feePercentageDirectNew ?? undefined,
-        feePercentageDirectUsed: dto.feePercentageDirectUsed ?? undefined,
-        feePercentageAuctionNew: dto.feePercentageAuctionNew ?? undefined,
-        feePercentageAuctionUsed: dto.feePercentageAuctionUsed ?? undefined,
-        auctionDepositPercentNew: dto.auctionDepositPercentNew ?? undefined,
-        auctionDepositPercentUsed: dto.auctionDepositPercentUsed ?? undefined,
-        // Keep legacy single fields in sync with New when New is updated
-        feePercentageDirect:
-          dto.feePercentageDirectNew ??
-          dto.feePercentageDirect ??
-          undefined,
-        feePercentageAuction:
-          dto.feePercentageAuctionNew ??
-          dto.feePercentageAuction ??
-          undefined,
-        auctionDepositPercent:
-          dto.auctionDepositPercentNew ??
-          dto.auctionDepositPercent ??
-          undefined,
+        ...feeData,
         isActive: dto.isActive ?? undefined,
       },
       select: CATEGORY_SELECT,
     });
+
+    if (applyFeesToDescendants && Object.keys(feeData).length > 0) {
+      const subtreeIds = await this.collectSubtreeIdsRootFirst([id]);
+      const descendantIds = subtreeIds.filter((x) => x !== id);
+      if (descendantIds.length > 0) {
+        await this.prisma.category.updateMany({
+          where: { id: { in: descendantIds } },
+          data: feeData,
+        });
+      }
+    }
+
     await this.invalidateCategoryCaches();
     return updated;
+  }
+
+  /** Build Prisma fee update payload from DTO (only provided fields). */
+  private buildFeeUpdateData(
+    dto: Partial<BulkUpdateCategoryFeesDto | UpdateCategoryDto>,
+  ): Prisma.CategoryUpdateManyMutationInput {
+    const data: Prisma.CategoryUpdateManyMutationInput = {};
+
+    if (dto.feePercentage !== undefined) data.feePercentage = dto.feePercentage;
+    if (dto.feeCap !== undefined) data.feeCap = dto.feeCap;
+    if (dto.feeCapDirect !== undefined) data.feeCapDirect = dto.feeCapDirect;
+    if (dto.feeCapAuction !== undefined) data.feeCapAuction = dto.feeCapAuction;
+    if (dto.feePercentageDirectNew !== undefined) {
+      data.feePercentageDirectNew = dto.feePercentageDirectNew;
+    }
+    if (dto.feePercentageDirectUsed !== undefined) {
+      data.feePercentageDirectUsed = dto.feePercentageDirectUsed;
+    }
+    if (dto.feePercentageAuctionNew !== undefined) {
+      data.feePercentageAuctionNew = dto.feePercentageAuctionNew;
+    }
+    if (dto.feePercentageAuctionUsed !== undefined) {
+      data.feePercentageAuctionUsed = dto.feePercentageAuctionUsed;
+    }
+    if (dto.auctionDepositPercentNew !== undefined) {
+      data.auctionDepositPercentNew = dto.auctionDepositPercentNew;
+    }
+    if (dto.auctionDepositPercentUsed !== undefined) {
+      data.auctionDepositPercentUsed = dto.auctionDepositPercentUsed;
+    }
+
+    // Keep legacy single fields in sync with New when New is updated
+    const directLegacy =
+      dto.feePercentageDirectNew ?? dto.feePercentageDirect;
+    if (directLegacy !== undefined) data.feePercentageDirect = directLegacy;
+    const auctionLegacy =
+      dto.feePercentageAuctionNew ?? dto.feePercentageAuction;
+    if (auctionLegacy !== undefined) data.feePercentageAuction = auctionLegacy;
+    const depositLegacy =
+      dto.auctionDepositPercentNew ?? dto.auctionDepositPercent;
+    if (depositLegacy !== undefined) data.auctionDepositPercent = depositLegacy;
+
+    return data;
   }
 
   async forceRemove(id: string): Promise<CategoryForceDeleteResult> {

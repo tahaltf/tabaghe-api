@@ -14,6 +14,8 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { OrdersCheckoutService } from '../orders/services/command/orders-checkout.service';
 import { CouponsService } from '../coupons/coupons.service';
 import { PaymentsService } from '../payments/payments.service';
+import { VerificationFeeCalculatorService } from '../fees/verification-fee-calculator.service';
+import type { ClientRequestMeta } from '../../common/http/client-ip.util';
 
 export type MarketplaceCheckoutLine = {
   listingId: string;
@@ -49,8 +51,6 @@ export type MarketplaceCheckoutInput = {
   clientMeta?: ClientRequestMeta;
 };
 
-import type { ClientRequestMeta } from '../../common/http/client-ip.util';
-
 @Injectable()
 export class MarketplaceCheckoutService {
   constructor(
@@ -59,6 +59,7 @@ export class MarketplaceCheckoutService {
     private readonly ordersCheckout: OrdersCheckoutService,
     private readonly couponsService: CouponsService,
     private readonly paymentsService: PaymentsService,
+    private readonly verificationFeeCalculator: VerificationFeeCalculatorService,
   ) {}
 
   async previewFromLines(
@@ -83,9 +84,15 @@ export class MarketplaceCheckoutService {
     }
 
     const shippingTotal = items.reduce((s, i) => s + i.shippingCost, 0);
-    const verificationFee = opts.requiresVerification
-      ? await this.readVerificationFee()
-      : 0;
+    let verificationFee = 0;
+    if (opts.requiresVerification) {
+      for (const item of items) {
+        verificationFee += await this.verificationFeeCalculator.resolve(
+          item.categoryId,
+          item.lineTotal,
+        );
+      }
+    }
     const subtotal = items.reduce((s, i) => s + i.lineTotal, 0);
     const totalBeforeDiscount = subtotal + shippingTotal + verificationFee;
     const totalPayable = Math.max(0, totalBeforeDiscount - discountAmount);
@@ -341,13 +348,6 @@ export class MarketplaceCheckoutService {
         }
       }
     }
-  }
-
-  private async readVerificationFee(): Promise<number> {
-    const row = await this.prisma.systemSetting.findUnique({
-      where: { key: 'VERIFICATION_FEE' },
-    });
-    return Number(row?.value ?? 250000);
   }
 
   async buildLineFromListing(

@@ -265,7 +265,7 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
   CRITICAL_ALERT_TEXT: 'متن اعلان بحرانی سراسری',
   CRITICAL_ALERT_BG_COLOR: 'رنگ پس‌زمینه اعلان بحرانی (hex)',
   CRITICAL_ALERT_TEXT_COLOR: 'رنگ متن اعلان بحرانی (hex)',
-  VERIFICATION_FEE: 'مبلغ کارشناسی هر کالا (تومان)',
+  VERIFICATION_FEE: 'مبلغ کارشناسی پیش‌فرض (fallback) وقتی هیچ قانونی match نشود (تومان)',
   SHIPPING_COST: 'هزینه ارسال پیش‌فرض (تومان)',
   SELLER_SHIP_DEADLINE_MINUTES: 'مهلت ارسال فروشنده پس از پرداخت (دقیقه)',
   SELLER_RETURN_CONFIRM_DEADLINE_MINUTES:

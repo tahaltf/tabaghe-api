@@ -1170,6 +1170,7 @@ model Category {
   children  Category[] @relation("CategoryTree")
   listings  Listing[]
   feeRules  FeeRule[]
+  verificationFeeRules VerificationFeeRule[]
   userFees  UserCategoryFee[]
   isActive  Boolean    @default(true)
   createdAt DateTime   @default(now())
@@ -1449,6 +1450,29 @@ auctionDepositPercent Float    @default(5.0)
   @@index([listingType, categoryId, isActive])
 }
 
+enum VerificationFeeMode {
+  FIXED
+  PERCENT
+}
+
+/// قوانین پویای هزینه کارشناسی — ثابت یا درصد، با سقف و رنج قیمت / دسته
+model VerificationFeeRule {
+  id         String              @id @default(cuid())
+  categoryId String?             // null = سراسری
+  minPrice   Decimal             @default(0)
+  maxPrice   Decimal?            // null = بدون سقف رنج
+  mode       VerificationFeeMode
+  feeValue   Decimal             // تومان یا درصد (بر اساس mode)
+  feeCap     Decimal?            // سقف مبلغ نهایی کارشناسی
+  isActive   Boolean             @default(true)
+  category   Category?           @relation(fields: [categoryId], references: [id])
+
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  @@index([categoryId, isActive, minPrice])
+}
+
 model Review {
   id          String   @id @default(cuid())
   orderId     String
@@ -1502,6 +1526,20 @@ model Faq {
   updatedAt DateTime @updatedAt
 
   @@index([isActive, order])
+}
+
+/// IP/CIDR allowlist for Gitea (git.tabagheh.com) — synced to nginx snippet by admin API.
+model GiteaIpAllowlistEntry {
+  id        String   @id @default(cuid())
+  name      String
+  ipCidr    String
+  enabled   Boolean  @default(true)
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([ipCidr])
+  @@index([enabled])
 }
 
 model BlogPost {

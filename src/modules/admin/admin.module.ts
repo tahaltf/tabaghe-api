@@ -16,6 +16,8 @@ import { AdminLocationsController } from './controllers/admin-locations.controll
 import { AdminSettingsController } from './controllers/admin-settings.controller';
 import { AdminPlansController } from './controllers/admin-plans.controller';
 import { AdminFeeRulesController } from './controllers/admin-fee-rules.controller';
+import { AdminVerificationFeeRulesController } from './controllers/admin-verification-fee-rules.controller';
+import { AdminGiteaIpAllowlistController } from './controllers/admin-gitea-ip-allowlist.controller';
 import { AdminRepairsController } from './controllers/admin-repairs.controller';
 import { AdminTicketsController } from './controllers/admin-tickets.controller';
 import { AdminNotificationsController } from './controllers/admin-notifications.controller';
@@ -59,6 +61,8 @@ import { AdminSettingsService } from './services/admin-settings.service';
 import { AdminSecretKeysService } from './services/admin-secret-keys.service';
 import { AdminPlansService } from './services/admin-plans.service';
 import { AdminFeeRulesService } from './services/admin-fee-rules.service';
+import { AdminVerificationFeeRulesService } from './services/admin-verification-fee-rules.service';
+import { AdminGiteaIpAllowlistService } from './services/admin-gitea-ip-allowlist.service';
 import { AdminRepairsService } from './services/admin-repairs.service';
 import { AdminTicketsService } from './services/admin-tickets.service';
 import { AdminDisputesService } from './services/admin-disputes.service';
@@ -123,6 +127,8 @@ import { ZohalModule } from '../zohal/zohal.module';
     AdminSettingsController,
     AdminPlansController,
     AdminFeeRulesController,
+    AdminVerificationFeeRulesController,
+    AdminGiteaIpAllowlistController,
     AdminRepairsController,
     AdminTicketsController,
     AdminNotificationsController,
@@ -166,6 +172,8 @@ import { ZohalModule } from '../zohal/zohal.module';
     AdminSecretKeysService,
     AdminPlansService,
     AdminFeeRulesService,
+    AdminVerificationFeeRulesService,
+    AdminGiteaIpAllowlistService,
     AdminRepairsService,
     AdminTicketsService,
     AdminDisputesService,

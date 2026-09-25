@@ -2,7 +2,9 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Get,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ListingType, ItemCondition } from '@prisma/client';
@@ -13,6 +15,7 @@ import {
   FeeCalculatorService,
   FeePreviewResult,
 } from './fee-calculator.service';
+import { VerificationFeeCalculatorService } from './verification-fee-calculator.service';
 
 interface FeePreviewBody {
   listingType: ListingType;
@@ -24,7 +27,10 @@ interface FeePreviewBody {
 @Controller('fees')
 @UseGuards(OptionalJwtAuthGuard)
 export class FeesController {
-  constructor(private readonly feeCalculator: FeeCalculatorService) {}
+  constructor(
+    private readonly feeCalculator: FeeCalculatorService,
+    private readonly verificationFeeCalculator: VerificationFeeCalculatorService,
+  ) {}
 
   /**
    * Returns a structured fee preview for the given listing scenario. When the
@@ -52,5 +58,22 @@ export class FeesController {
       actor?.id,
       body.condition ?? null,
     );
+  }
+
+  /** Resolve dynamic verification (کارشناسی) fee for category + product price. */
+  @Get('verification')
+  async verificationFee(
+    @Query('categoryId') categoryId?: string,
+    @Query('price') price?: string,
+  ): Promise<{ fee: number }> {
+    const amount = Number(price);
+    if (!Number.isFinite(amount) || amount < 0) {
+      throw new BadRequestException('مبلغ معتبر نیست');
+    }
+    const fee = await this.verificationFeeCalculator.resolve(
+      categoryId?.trim() || null,
+      amount,
+    );
+    return { fee };
   }
 }

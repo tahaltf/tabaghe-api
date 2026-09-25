@@ -5,6 +5,7 @@ import { OrdersCheckoutService } from '../orders/services/command/orders-checkou
 import { CouponsService } from '../coupons/coupons.service';
 import { PaymentsService } from '../payments/payments.service';
 import { MarketplaceCheckoutService } from './marketplace-checkout.service';
+import { VerificationFeeCalculatorService } from '../fees/verification-fee-calculator.service';
 
 describe('MarketplaceCheckoutService', () => {
   let service: MarketplaceCheckoutService;
@@ -36,6 +37,10 @@ describe('MarketplaceCheckoutService', () => {
     settleCheckoutSessionFromWallet: jest.fn(),
   };
 
+  const verificationFeeCalculatorMock = {
+    resolve: jest.fn().mockResolvedValue(250_000),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     const module: TestingModule = await Test.createTestingModule({
@@ -45,6 +50,10 @@ describe('MarketplaceCheckoutService', () => {
         { provide: OrdersCheckoutService, useValue: ordersCheckoutMock },
         { provide: CouponsService, useValue: couponsServiceMock },
         { provide: PaymentsService, useValue: paymentsServiceMock },
+        {
+          provide: VerificationFeeCalculatorService,
+          useValue: verificationFeeCalculatorMock,
+        },
       ],
     }).compile();
     service = module.get(MarketplaceCheckoutService);
@@ -69,6 +78,7 @@ describe('MarketplaceCheckoutService', () => {
       discountAmount: 0,
     });
     prismaMock.systemSetting.findUnique.mockResolvedValue({ value: '250000' });
+    verificationFeeCalculatorMock.resolve.mockResolvedValue(125_000);
 
     ordersCheckoutMock.handleUniversalOrder
       .mockResolvedValueOnce({
@@ -209,7 +219,7 @@ describe('MarketplaceCheckoutService', () => {
     });
     expect(
       paymentsServiceMock.settleCheckoutSessionFromWallet,
-    ).toHaveBeenCalledWith('session-d', 'buyer-1');
+    ).toHaveBeenCalledWith('session-d', 'buyer-1', undefined);
     expect(
       paymentsServiceMock.initiateCheckoutSessionPayment,
     ).not.toHaveBeenCalled();

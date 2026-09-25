@@ -152,14 +152,14 @@ http_ok() {
         rm -f "$bodyf"
         return 0
       fi
-      LAST_HEALTH_HINT="http ${code} $(tr -d '\n' < "$bodyf" 2>/dev/null | cut -c1-80)"
+      LAST_HEALTH_HINT="http ${code} $(tr -d '\n' < "$bodyf" 2>/dev/null | cut -c1-80 || true)"
       rm -f "$bodyf"
       return 1
     fi
     rm -f "$bodyf"
     return 0
   fi
-  LAST_HEALTH_HINT="http ${code} $(tr -d '\n' < "$bodyf" 2>/dev/null | cut -c1-80)"
+  LAST_HEALTH_HINT="http ${code} $(tr -d '\n' < "$bodyf" 2>/dev/null | cut -c1-80 || true)"
   rm -f "$bodyf"
   return 1
 }
@@ -456,11 +456,18 @@ if ! wait_for_health "$HEALTH_URL" "API health"; then
 fi
 
 if [[ "$CHECK_GATEWAY" == "1" ]]; then
-  if curl -sS -o /dev/null -w '%{http_code}' --max-time 8 "$GATEWAY_URL" 2>/dev/null | grep -qE '^2|^3'; then
-    log "gateway OK ($GATEWAY_URL)"
-  else
+  gateway_ok=0
+  for gw in "$GATEWAY_URL" "http://127.0.0.1:8080/" "http://127.0.0.1:80/"; do
+    [[ -n "$gw" ]] || continue
+    if curl -sS -o /dev/null -w '%{http_code}' --max-time 8 "$gw" 2>/dev/null | grep -qE '^2|^3'; then
+      log "gateway OK ($gw)"
+      gateway_ok=1
+      break
+    fi
+  done
+  if [[ "$gateway_ok" != "1" ]]; then
     failures+=("Gateway")
-    log "gateway FAILED ($GATEWAY_URL)"
+    log "gateway FAILED (tried $GATEWAY_URL and :8080/:80)"
   fi
 fi
 

@@ -3,6 +3,7 @@ import { OrderType } from '@prisma/client';
 import { PrismaService } from '../../../../infrastructure/prisma/prisma.service';
 import { WalletService } from '../../../wallet/wallet.service';
 import { FeeCalculatorService } from '../../../fees/fee-calculator.service';
+import { VerificationFeeCalculatorService } from '../../../fees/verification-fee-calculator.service';
 import { AppSettingsService } from '../../../../shared/settings/app-settings.service';
 import { OrdersStateMachineService } from '../../orders-state-machine.service';
 import { PaymentsService } from '../../../payments/payments.service';
@@ -40,6 +41,10 @@ describe('OrdersCheckoutService coupon', () => {
         { provide: PrismaService, useValue: prismaMock },
         { provide: WalletService, useValue: {} },
         { provide: FeeCalculatorService, useValue: {} },
+        {
+          provide: VerificationFeeCalculatorService,
+          useValue: { resolve: jest.fn().mockResolvedValue(250_000) },
+        },
         { provide: AppSettingsService, useValue: {} },
         { provide: OrdersStateMachineService, useValue: {} },
         { provide: PaymentsService, useValue: {} },

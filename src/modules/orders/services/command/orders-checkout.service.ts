@@ -27,6 +27,7 @@ import { PrismaService } from '../../../../infrastructure/prisma/prisma.service'
 import { readPositiveIntSetting } from '../../../../common/system-settings/numeric-setting.util';
 import { WalletService } from '../../../wallet/wallet.service';
 import { FeeCalculatorService } from '../../../fees/fee-calculator.service';
+import { VerificationFeeCalculatorService } from '../../../fees/verification-fee-calculator.service';
 import { AppSettingsService } from '../../../../shared/settings/app-settings.service';
 import { PaymentsService } from '../../../payments/payments.service';
 import type { ClientRequestMeta } from '../../../../common/http/client-ip.util';
@@ -84,6 +85,7 @@ export class OrdersCheckoutService {
     private readonly prisma: PrismaService,
     private readonly walletService: WalletService,
     private readonly feeCalculator: FeeCalculatorService,
+    private readonly verificationFeeCalculator: VerificationFeeCalculatorService,
     private readonly appSettings: AppSettingsService,
     private readonly stateMachine: OrdersStateMachineService,
     private readonly paymentsService: PaymentsService,
@@ -173,9 +175,6 @@ export class OrdersCheckoutService {
       let auctionBlockedDeposit = 0;
       let auctionWinnerBidId: string | null = null;
 
-      const feeSetting = await tx.systemSetting.findUnique({
-        where: { key: 'VERIFICATION_FEE' },
-      });
       const shippingSetting = await tx.systemSetting.findUnique({
         where: { key: 'SHIPPING_COST' },
       });
@@ -192,7 +191,6 @@ export class OrdersCheckoutService {
       const hubAddress = addressSetting
         ? addressSetting.value
         : 'تهران، دفتر مرکزی پردازش و کارشناسی طبقه';
-      const hubFee = feeSetting ? Number(feeSetting.value) : 250000;
       const shippingFee = shippingSetting
         ? Number(shippingSetting.value)
         : 50000;
@@ -209,7 +207,9 @@ export class OrdersCheckoutService {
           exchangeShipDeadlineMinutesPreload;
         const offer = await tx.exchangeOffer.findUnique({
           where: { id: finalExchangeId },
-          include: { listing: { include: { direct: true } } },
+          include: {
+            listing: { include: { direct: true, exchange: true } },
+          },
         });
 
         if (!offer) throw new NotFoundException('درخواست معاوضه یافت نشد');
@@ -273,7 +273,26 @@ export class OrdersCheckoutService {
 
         // هزینه پستی ثابت برای هاب (یا صفر، بسته به سیاست شما)
         shippingCost = 0; // معمولاً در معاوضه هر کسی هزینه ارسال خودش به هاب رو درب پست میده
-        verificationFee = hubFee;
+
+        // هر طرف بر اساس ارزش کالای خودش
+        const sellerItemValue = Number(
+          offer.listing.exchange?.ownValue ??
+            offer.listing.direct?.price ??
+            0,
+        );
+        const extra = Number(offer.extraPayment || 0);
+        const offererItemValue = Math.max(
+          0,
+          offer.isPayerMe
+            ? sellerItemValue - extra
+            : sellerItemValue + extra,
+        );
+        const partyPrice = isBuyer ? offererItemValue : sellerItemValue;
+        verificationFee = await this.verificationFeeCalculator.resolve(
+          offer.listing.categoryId,
+          partyPrice,
+          tx,
+        );
         platformAddress = hubAddress;
 
         const totalPayable = finalPrice + shippingCost + verificationFee;
@@ -783,13 +802,17 @@ export class OrdersCheckoutService {
           }
         }
       } else if (isHubRequired && orderType !== 'EXCHANGE') {
-        verificationFee = hubFee;
+        verificationFee = await this.verificationFeeCalculator.resolve(
+          categoryId || null,
+          finalPrice,
+          tx,
+        );
         platformAddress = hubAddress;
 
         if (sellerRequestedVerification) {
-          feeChargedToSeller = hubFee;
+          feeChargedToSeller = verificationFee;
         } else if (requiresVerification) {
-          feeChargedToBuyer = hubFee;
+          feeChargedToBuyer = verificationFee;
         }
       }
 

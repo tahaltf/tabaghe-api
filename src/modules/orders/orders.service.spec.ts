@@ -7,6 +7,7 @@ import { OrdersSettingsService } from './orders-settings.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { FeeCalculatorService } from '../fees/fee-calculator.service';
+import { VerificationFeeCalculatorService } from '../fees/verification-fee-calculator.service';
 import { OrdersStateMachineService } from './orders-state-machine.service';
 import { AppSettingsService } from '../../shared/settings/app-settings.service';
 import { PaymentsService } from '../payments/payments.service';
@@ -18,6 +19,7 @@ import { ListingCommandService } from '../listing/services/listing-command.servi
 import { OrdersResponseEnrichmentService } from './services/query/orders-response-enrichment.service';
 import { ExchangeOrderNotifyService } from '../notification/exchange-order-notify.service';
 import { OperationalNotifyService } from '../notification/operational-notify.service';
+import { CouponsService } from '../coupons/coupons.service';
 import {
   ListingStatus,
   OrderStatus,
@@ -98,6 +100,10 @@ describe('Orders domain services', () => {
         { provide: PrismaService, useValue: prismaMock },
         { provide: WalletService, useValue: walletMock },
         { provide: FeeCalculatorService, useValue: feeMock },
+        {
+          provide: VerificationFeeCalculatorService,
+          useValue: { resolve: jest.fn().mockResolvedValue(250_000) },
+        },
         { provide: AppSettingsService, useValue: appSettingsMock },
         { provide: OrdersStateMachineService, useValue: stateMachineMock },
         { provide: PaymentsService, useValue: paymentsMock },
@@ -118,6 +124,7 @@ describe('Orders domain services', () => {
           provide: OrdersResponseEnrichmentService,
           useValue: enrichmentMock,
         },
+        { provide: CouponsService, useValue: {} },
       ],
     }).compile();
 

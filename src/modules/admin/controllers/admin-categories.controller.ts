@@ -19,6 +19,8 @@ import { AdminCategoriesService } from '../services/admin-categories.service';
 import {
   CreateCategoryDto,
   SetCategoryActiveDto,
+  BulkSetCategoryActiveDto,
+  BulkUpdateCategoryFeesDto,
   UpdateCategoryDto,
 } from '../dto/admin-category.dto';
 import { AdminBulkIdsDto } from '../dto/admin-bulk-ids.dto';
@@ -33,6 +35,25 @@ export class AdminCategoriesController {
   @Get()
   list(@Query('search') search?: string) {
     return this.service.list(search);
+  }
+
+  @Post('bulk-set-active')
+  @RequirePermission('categories.update')
+  bulkSetActive(@Body() dto: BulkSetCategoryActiveDto) {
+    return this.service.bulkSetActive(dto);
+  }
+
+  @Post('bulk-update-fees')
+  @RequirePermission('categories.update')
+  bulkUpdateFees(@Body() dto: BulkUpdateCategoryFeesDto) {
+    return this.service.bulkUpdateFees(dto);
+  }
+
+  @Post('bulk-force-delete')
+  @RequirePermission('categories.delete')
+  @Roles(UserRole.GODADMIN)
+  bulkForceRemove(@Body() dto: AdminBulkIdsDto) {
+    return this.service.forceRemoveMany(dto.ids);
   }
 
   @Get(':id')
@@ -56,13 +77,6 @@ export class AdminCategoriesController {
   @RequirePermission('categories.update')
   setActive(@Param('id') id: string, @Body() dto: SetCategoryActiveDto) {
     return this.service.setActive(id, dto);
-  }
-
-  @Post('bulk-force-delete')
-  @RequirePermission('categories.delete')
-  @Roles(UserRole.GODADMIN)
-  bulkForceRemove(@Body() dto: AdminBulkIdsDto) {
-    return this.service.forceRemoveMany(dto.ids);
   }
 
   @Delete(':id/force')
