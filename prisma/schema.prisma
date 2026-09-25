@@ -1178,14 +1178,17 @@ model Category {
   // Legacy generic fee (kept for backwards compat; new code uses type-specific below)
   feePercentage Float   @default(5.0)
   feeCap        Decimal @default(500000)
+  feeFloor      Decimal @default(0)
 
   // Direct-sale commission (legacy single value; synced from New for compat)
   feePercentageDirect Float   @default(5.0)
   feeCapDirect        Decimal @default(10000000)
+  feeFloorDirect      Decimal @default(0)
 
   // Auction commission (legacy single value; synced from New for compat)
   feePercentageAuction Float   @default(5.0)
   feeCapAuction        Decimal @default(500000)
+  feeFloorAuction      Decimal @default(0)
 
   // Auction deposit % (legacy single value; synced from New for compat)
   auctionDepositPercent Float  @default(10.0)
@@ -1197,6 +1200,9 @@ model Category {
   feePercentageAuctionUsed Float @default(5.0)
   auctionDepositPercentNew  Float @default(10.0)
   auctionDepositPercentUsed Float @default(10.0)
+
+  /// If false, neither seller nor buyer can opt into hub verification for this category
+  verificationEnabled Boolean @default(true)
 
   @@index([isActive])
 }
@@ -1463,6 +1469,7 @@ model VerificationFeeRule {
   maxPrice   Decimal?            // null = بدون سقف رنج
   mode       VerificationFeeMode
   feeValue   Decimal             // تومان یا درصد (بر اساس mode)
+  feeFloor   Decimal?            // کف مبلغ نهایی کارشناسی (فقط PERCENT)
   feeCap     Decimal?            // سقف مبلغ نهایی کارشناسی
   isActive   Boolean             @default(true)
   category   Category?           @relation(fields: [categoryId], references: [id])

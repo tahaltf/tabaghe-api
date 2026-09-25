@@ -42,6 +42,7 @@ describe('VerificationFeeCalculatorService', () => {
         maxPrice: null,
         mode: VerificationFeeMode.PERCENT,
         feeValue: 10,
+        feeFloor: null,
         feeCap: 150_000,
       },
     ]);
@@ -49,6 +50,41 @@ describe('VerificationFeeCalculatorService', () => {
     const fee = await service.resolve('cat-1', 5_000_000);
     // 10% of 5_000_000 = 500_000, capped to 150_000
     expect(fee).toBe(150_000);
+  });
+
+  it('computes PERCENT fee and applies feeFloor', async () => {
+    prismaMock.verificationFeeRule.findMany.mockResolvedValue([
+      {
+        categoryId: null,
+        minPrice: 0,
+        maxPrice: null,
+        mode: VerificationFeeMode.PERCENT,
+        feeValue: 10,
+        feeFloor: 50_000,
+        feeCap: null,
+      },
+    ]);
+
+    const fee = await service.resolve('cat-1', 100_000);
+    // 10% of 100_000 = 10_000, floored to 50_000
+    expect(fee).toBe(50_000);
+  });
+
+  it('ignores feeFloor for FIXED mode', async () => {
+    prismaMock.verificationFeeRule.findMany.mockResolvedValue([
+      {
+        categoryId: null,
+        minPrice: 0,
+        maxPrice: null,
+        mode: VerificationFeeMode.FIXED,
+        feeValue: 20_000,
+        feeFloor: 50_000,
+        feeCap: 100_000,
+      },
+    ]);
+
+    const fee = await service.resolve(null, 1_000_000);
+    expect(fee).toBe(20_000);
   });
 
   it('prefers category-specific rule over global', async () => {

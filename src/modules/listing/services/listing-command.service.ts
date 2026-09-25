@@ -102,6 +102,11 @@ export class ListingCommandService {
       dto.categoryId,
       dto.exchange?.desiredCategoryId,
     ]);
+    await this.assertVerificationAllowedForListing({
+      categoryId: dto.categoryId,
+      type: dto.type,
+      sellerRequiresVerification: dto.sellerRequiresVerification === true,
+    });
     if (
       isDraft &&
       (!String(dto.categoryId ?? '').trim() ||
@@ -561,6 +566,15 @@ export class ListingCommandService {
       dto.categoryId,
       dto.exchange?.desiredCategoryId,
     ]);
+    const wantsVerification =
+      dto.sellerRequiresVerification === undefined
+        ? listing.sellerRequiresVerification
+        : dto.sellerRequiresVerification === true;
+    await this.assertVerificationAllowedForListing({
+      categoryId: dto.categoryId ?? listing.categoryId,
+      type: currentType,
+      sellerRequiresVerification: wantsVerification,
+    });
     const auctionEndDate =
       currentType === ListingType.AUCTION && dto.auction?.endDatetime
         ? new Date(dto.auction.endDatetime)
@@ -1186,6 +1200,37 @@ export class ListingCommandService {
           'دسته‌بندی انتخاب‌شده باید زیردستهٔ نهایی باشد؛ دسته‌های والد قابل انتخاب نیستند.',
         );
       }
+    }
+  }
+
+  /**
+   * Blocks sellerRequiresVerification / exchange when the category disables hub verification.
+   */
+  private async assertVerificationAllowedForListing(params: {
+    categoryId: string | undefined | null;
+    type: ListingType;
+    sellerRequiresVerification: boolean;
+  }): Promise<void> {
+    const needsCheck =
+      params.sellerRequiresVerification || params.type === ListingType.EXCHANGE;
+    if (!needsCheck || !params.categoryId?.trim()) return;
+
+    const category = await this.prisma.category.findUnique({
+      where: { id: params.categoryId },
+      select: { verificationEnabled: true, title: true },
+    });
+    if (!category) {
+      throw new BadRequestException('دسته‌بندی یافت نشد');
+    }
+    if (category.verificationEnabled === false) {
+      if (params.type === ListingType.EXCHANGE) {
+        throw new BadRequestException(
+          `دسته «${category.title}» امکان کارشناسی ندارد؛ ثبت آگهی معاوضه برای این دسته مجاز نیست.`,
+        );
+      }
+      throw new BadRequestException(
+        `دسته «${category.title}» امکان کارشناسی ندارد؛ نمی‌توانید تضمین سلامت کالا را فعال کنید.`,
+      );
     }
   }
 

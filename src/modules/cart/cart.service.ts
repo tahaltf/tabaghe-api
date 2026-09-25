@@ -10,7 +10,7 @@ import { formatUserDisplayName } from '../../common/utils/user-display-name.util
 
 const CART_LISTING_INCLUDE = {
   author: { select: { id: true, firstName: true, lastName: true, displayName: true } },
-  category: { select: { id: true, title: true } },
+  category: { select: { id: true, title: true, verificationEnabled: true } },
   direct: true,
 } satisfies Prisma.ListingInclude;
 

@@ -786,6 +786,19 @@ export class OrdersCheckoutService {
       const isHubRequired = Boolean(
         requiresVerification || sellerRequestedVerification,
       );
+
+      if (isHubRequired && categoryId) {
+        const category = await tx.category.findUnique({
+          where: { id: categoryId },
+          select: { verificationEnabled: true, title: true },
+        });
+        if (category && category.verificationEnabled === false) {
+          throw new BadRequestException(
+            `دسته «${category.title}» امکان کارشناسی ندارد.`,
+          );
+        }
+      }
+
       let feeChargedToBuyer = 0;
       let feeChargedToSeller = 0;
 

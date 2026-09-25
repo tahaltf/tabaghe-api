@@ -86,6 +86,21 @@ export class MarketplaceCheckoutService {
     const shippingTotal = items.reduce((s, i) => s + i.shippingCost, 0);
     let verificationFee = 0;
     if (opts.requiresVerification) {
+      const categoryIds = [
+        ...new Set(items.map((i) => i.categoryId).filter(Boolean)),
+      ];
+      if (categoryIds.length) {
+        const cats = await this.prisma.category.findMany({
+          where: { id: { in: categoryIds } },
+          select: { id: true, title: true, verificationEnabled: true },
+        });
+        const blocked = cats.find((c) => c.verificationEnabled === false);
+        if (blocked) {
+          throw new BadRequestException(
+            `دسته «${blocked.title}» امکان کارشناسی ندارد.`,
+          );
+        }
+      }
       for (const item of items) {
         verificationFee += await this.verificationFeeCalculator.resolve(
           item.categoryId,

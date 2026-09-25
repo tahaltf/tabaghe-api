@@ -31,10 +31,13 @@ export interface FeePreviewResult {
 type CategoryFeeRow = {
   feePercentage: number;
   feeCap: Decimal | null;
+  feeFloor?: Decimal | null;
   feePercentageDirect: number;
   feeCapDirect: Decimal | null;
+  feeFloorDirect?: Decimal | null;
   feePercentageAuction: number;
   feeCapAuction: Decimal | null;
+  feeFloorAuction?: Decimal | null;
   feePercentageDirectNew: number;
   feePercentageDirectUsed: number;
   feePercentageAuctionNew: number;
@@ -86,14 +89,12 @@ export class FeeCalculatorService {
         });
         let fee = targetAmount.mul(userPct).div(new Decimal(100));
         if (category) {
-          const { cap } = this.resolveCategoryFeeParams(
+          const { floor, cap } = this.resolveCategoryFeeParams(
             category,
             listingType,
             condition,
           );
-          if (cap && cap.gt(0) && fee.gt(cap)) {
-            fee = cap;
-          }
+          fee = this.applyFloorAndCap(fee, floor, cap);
         }
         totalFee = fee.floor();
         return this.applyPlanDiscount(totalFee, options.sellerId, listingType);
@@ -119,17 +120,14 @@ export class FeeCalculatorService {
         });
 
         if (category) {
-          const { percentage, cap } = this.resolveCategoryFeeParams(
+          const { percentage, floor, cap } = this.resolveCategoryFeeParams(
             category,
             listingType,
             condition,
           );
 
           let fee = targetAmount.mul(percentage).div(new Decimal(100));
-
-          if (cap && cap.gt(0) && fee.gt(cap)) {
-            fee = cap;
-          }
+          fee = this.applyFloorAndCap(fee, floor, cap);
 
           totalFee = fee.floor();
         } else {
@@ -301,7 +299,7 @@ export class FeeCalculatorService {
     category: CategoryFeeRow,
     listingType: ListingType,
     condition: ItemCondition = ItemCondition.NEW,
-  ): { percentage: Decimal; cap: Decimal | null } {
+  ): { percentage: Decimal; floor: Decimal | null; cap: Decimal | null } {
     const isUsed = condition === ItemCondition.USED;
 
     if (listingType === ListingType.AUCTION) {
@@ -312,8 +310,10 @@ export class FeeCalculatorService {
         category.feePercentageAuction ??
         category.feePercentage;
       const capValue = category.feeCapAuction ?? category.feeCap;
+      const floorValue = category.feeFloorAuction ?? category.feeFloor ?? null;
       return {
         percentage: new Decimal(percentage),
+        floor: floorValue != null ? new Decimal(floorValue) : null,
         cap: capValue ? new Decimal(capValue) : null,
       };
     }
@@ -325,10 +325,28 @@ export class FeeCalculatorService {
       category.feePercentageDirect ??
       category.feePercentage;
     const capValue = category.feeCapDirect ?? category.feeCap;
+    const floorValue = category.feeFloorDirect ?? category.feeFloor ?? null;
     return {
       percentage: new Decimal(percentage),
+      floor: floorValue != null ? new Decimal(floorValue) : null,
       cap: capValue ? new Decimal(capValue) : null,
     };
+  }
+
+  /** Clamp fee to [floor, cap] when those bounds are positive. */
+  applyFloorAndCap(
+    fee: Decimal,
+    floor: Decimal | null,
+    cap: Decimal | null,
+  ): Decimal {
+    let result = fee;
+    if (floor && floor.gt(0) && result.lt(floor)) {
+      result = floor;
+    }
+    if (cap && cap.gt(0) && result.gt(cap)) {
+      result = cap;
+    }
+    return result;
   }
 
   /**
@@ -403,12 +421,12 @@ export class FeeCalculatorService {
         });
         let fee = targetAmount.mul(userPct).div(new Decimal(100));
         if (category) {
-          const { cap } = this.resolveCategoryFeeParams(
+          const { floor, cap } = this.resolveCategoryFeeParams(
             category,
             listingType,
             cond,
           );
-          if (cap && cap.gt(0) && fee.gt(cap)) fee = cap;
+          fee = this.applyFloorAndCap(fee, floor, cap);
         }
         return fee.floor();
       }

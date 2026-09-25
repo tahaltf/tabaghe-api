@@ -14,7 +14,8 @@ export class VerificationFeeCalculatorService {
   /**
    * Resolves کارشناسی fee for a product by category + price.
    * Priority: category-specific rule > global (null category); then highest minPrice that still matches.
-   * Mode is exclusive: FIXED or PERCENT. Optional feeCap applies to the final amount.
+   * Mode is exclusive: FIXED or PERCENT.
+   * For PERCENT: optional feeFloor then feeCap clamp the final amount.
    * Falls back to SystemSetting VERIFICATION_FEE (or 250000) when no rule matches.
    */
   async resolve(
@@ -54,10 +55,19 @@ export class VerificationFeeCalculatorService {
             .div(new Decimal(100))
         : new Decimal(applicable.feeValue);
 
-    if (applicable.feeCap != null && new Decimal(applicable.feeCap).gt(0)) {
-      const cap = new Decimal(applicable.feeCap);
-      if (fee.gt(cap)) {
-        fee = cap;
+    if (applicable.mode === VerificationFeeMode.PERCENT) {
+      if (
+        applicable.feeFloor != null &&
+        new Decimal(applicable.feeFloor).gt(0) &&
+        fee.lt(new Decimal(applicable.feeFloor))
+      ) {
+        fee = new Decimal(applicable.feeFloor);
+      }
+      if (applicable.feeCap != null && new Decimal(applicable.feeCap).gt(0)) {
+        const cap = new Decimal(applicable.feeCap);
+        if (fee.gt(cap)) {
+          fee = cap;
+        }
       }
     }
 

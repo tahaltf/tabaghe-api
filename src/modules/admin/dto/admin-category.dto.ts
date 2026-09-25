@@ -56,6 +56,12 @@ class BaseCategoryFields {
   @Min(0)
   feeCapDirect?: number;
 
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  feeFloorDirect?: number;
+
   // Auction — condition-specific
   @IsOptional()
   @Transform(toPercent)
@@ -76,6 +82,12 @@ class BaseCategoryFields {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   feeCapAuction?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  feeFloorAuction?: number;
 
   // Deposit % — condition-specific
   @IsOptional()
@@ -126,6 +138,17 @@ class BaseCategoryFields {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   feeCap?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  feeFloor?: number;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  verificationEnabled?: boolean;
 }
 
 export class CreateCategoryDto extends BaseCategoryFields {

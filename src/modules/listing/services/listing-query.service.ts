@@ -91,6 +91,7 @@ const LIST_ITEM_SELECT = {
       id: true,
       title: true,
       slug: true,
+      verificationEnabled: true,
     },
   },
   author: {
@@ -135,6 +136,7 @@ const DETAIL_INCLUDE = {
     select: {
       id: true,
       title: true,
+      verificationEnabled: true,
       parent: {
         select: {
           id: true,

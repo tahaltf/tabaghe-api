@@ -41,6 +41,12 @@ export class CreateVerificationFeeRuleDto {
   feeCap?: number | null;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  feeFloor?: number | null;
+
+  @IsOptional()
   @IsBoolean()
   isActive?: boolean;
 }
@@ -78,6 +84,12 @@ export class UpdateVerificationFeeRuleDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   feeCap?: number | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  feeFloor?: number | null;
 
   @IsOptional()
   @IsBoolean()

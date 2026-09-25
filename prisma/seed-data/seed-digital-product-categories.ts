@@ -40,9 +40,26 @@ function makeChildSlug(parentSubSlug: string, title: string, index: number): str
   return base.slice(0, 120);
 }
 
+const DIGITAL_FEE = {
+  feePercentage: 3,
+  feePercentageDirect: 3,
+  feePercentageAuction: 3,
+  feePercentageDirectNew: 3,
+  feePercentageDirectUsed: 3,
+  feePercentageAuctionNew: 3,
+  feePercentageAuctionUsed: 3,
+  feeFloor: 100_000,
+  feeFloorDirect: 100_000,
+  feeFloorAuction: 100_000,
+  feeCap: 5_000_000,
+  feeCapDirect: 5_000_000,
+  feeCapAuction: 5_000_000,
+} as const;
+
 /**
  * درخت دسته‌های «کالای دیجیتال» از JSON (ریشه → زیردسته → فرزند).
  * با upsert و slug یکتا؛ در دیتابیس پر از آگهی هم امن است.
+ * کارمزد پیش‌فرض: ۳٪، حداقل ۱۰۰٬۰۰۰، حداکثر ۵٬۰۰۰٬۰۰۰ تومان.
  */
 export async function seedDigitalProductCategoryTree(
   prisma: PrismaClient,
@@ -60,11 +77,13 @@ export async function seedDigitalProductCategoryTree(
         slug: root.slug,
         icon: root.icon ?? null,
         parentId: null,
+        ...DIGITAL_FEE,
       },
       update: {
         title: root.name,
         icon: root.icon ?? null,
         parentId: null,
+        ...DIGITAL_FEE,
       },
     });
 
@@ -75,10 +94,12 @@ export async function seedDigitalProductCategoryTree(
           title: sub.name,
           slug: sub.slug,
           parentId: r.id,
+          ...DIGITAL_FEE,
         },
         update: {
           title: sub.name,
           parentId: r.id,
+          ...DIGITAL_FEE,
         },
       });
 
@@ -98,10 +119,12 @@ export async function seedDigitalProductCategoryTree(
             title: childTitle,
             slug,
             parentId: s.id,
+            ...DIGITAL_FEE,
           },
           update: {
             title: childTitle,
             parentId: s.id,
+            ...DIGITAL_FEE,
           },
         });
         idx += 1;

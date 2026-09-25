@@ -58,7 +58,7 @@ const SEARCH_SELECT = {
   },
   province: { select: { id: true, name: true } },
   city: { select: { id: true, name: true } },
-  category: { select: { id: true, title: true, slug: true } },
+  category: { select: { id: true, title: true, slug: true, verificationEnabled: true } },
 } satisfies Prisma.ListingSelect;
 
 export type SearchListingItem = Prisma.ListingGetPayload<{

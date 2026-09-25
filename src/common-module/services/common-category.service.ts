@@ -32,6 +32,7 @@ export class CommonCategoryService {
           icon: true,
           parentId: true,
           isActive: true,
+          verificationEnabled: true,
         },
       });
       const visible = filterCategoriesVisibleOnSite(rows);
@@ -81,10 +82,18 @@ export class CommonCategoryService {
         icon: true,
         parentId: true,
         isActive: true,
+        verificationEnabled: true,
         parent: { select: { id: true, title: true, slug: true, isActive: true } },
         children: {
           orderBy: { title: 'asc' },
-          select: { id: true, title: true, slug: true, icon: true, isActive: true },
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            icon: true,
+            isActive: true,
+            verificationEnabled: true,
+          },
         },
       },
     });

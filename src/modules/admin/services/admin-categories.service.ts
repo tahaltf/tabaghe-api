@@ -25,10 +25,13 @@ const CATEGORY_SELECT = {
   parentId: true,
   feePercentage: true,
   feeCap: true,
+  feeFloor: true,
   feePercentageDirect: true,
   feeCapDirect: true,
+  feeFloorDirect: true,
   feePercentageAuction: true,
   feeCapAuction: true,
+  feeFloorAuction: true,
   auctionDepositPercent: true,
   feePercentageDirectNew: true,
   feePercentageDirectUsed: true,
@@ -36,6 +39,7 @@ const CATEGORY_SELECT = {
   feePercentageAuctionUsed: true,
   auctionDepositPercentNew: true,
   auctionDepositPercentUsed: true,
+  verificationEnabled: true,
   isActive: true,
   createdAt: true,
   parent: { select: { id: true, title: true, isActive: true } },
@@ -117,6 +121,8 @@ export class AdminCategoriesService {
       dto.auctionDepositPercentUsed ?? dto.auctionDepositPercent ?? depositNew;
     const capDirect = dto.feeCapDirect ?? dto.feeCap ?? 10_000_000;
     const capAuction = dto.feeCapAuction ?? dto.feeCap ?? 500000;
+    const floorDirect = dto.feeFloorDirect ?? dto.feeFloor ?? 0;
+    const floorAuction = dto.feeFloorAuction ?? dto.feeFloor ?? 0;
     const created = await this.prisma.category.create({
       data: {
         title: dto.title,
@@ -125,10 +131,13 @@ export class AdminCategoriesService {
         parentId: dto.parentId ?? null,
         feePercentage: dto.feePercentage ?? feeDirectNew,
         feeCap: dto.feeCap ?? capDirect,
+        feeFloor: dto.feeFloor ?? floorDirect,
         feePercentageDirect: feeDirectNew,
         feeCapDirect: capDirect,
+        feeFloorDirect: floorDirect,
         feePercentageAuction: feeAuctionNew,
         feeCapAuction: capAuction,
+        feeFloorAuction: floorAuction,
         auctionDepositPercent: depositNew,
         feePercentageDirectNew: feeDirectNew,
         feePercentageDirectUsed: feeDirectUsed,
@@ -136,6 +145,7 @@ export class AdminCategoriesService {
         feePercentageAuctionUsed: feeAuctionUsed,
         auctionDepositPercentNew: depositNew,
         auctionDepositPercentUsed: depositUsed,
+        verificationEnabled: dto.verificationEnabled ?? true,
         isActive: dto.isActive ?? true,
       },
       select: CATEGORY_SELECT,
@@ -343,8 +353,16 @@ export class AdminCategoriesService {
 
     if (dto.feePercentage !== undefined) data.feePercentage = dto.feePercentage;
     if (dto.feeCap !== undefined) data.feeCap = dto.feeCap;
+    if (dto.feeFloor !== undefined) data.feeFloor = dto.feeFloor;
     if (dto.feeCapDirect !== undefined) data.feeCapDirect = dto.feeCapDirect;
+    if (dto.feeFloorDirect !== undefined) data.feeFloorDirect = dto.feeFloorDirect;
     if (dto.feeCapAuction !== undefined) data.feeCapAuction = dto.feeCapAuction;
+    if (dto.feeFloorAuction !== undefined) {
+      data.feeFloorAuction = dto.feeFloorAuction;
+    }
+    if (dto.verificationEnabled !== undefined) {
+      data.verificationEnabled = dto.verificationEnabled;
+    }
     if (dto.feePercentageDirectNew !== undefined) {
       data.feePercentageDirectNew = dto.feePercentageDirectNew;
     }
@@ -374,6 +392,11 @@ export class AdminCategoriesService {
     const depositLegacy =
       dto.auctionDepositPercentNew ?? dto.auctionDepositPercent;
     if (depositLegacy !== undefined) data.auctionDepositPercent = depositLegacy;
+
+    // Keep legacy floor in sync with Direct when Direct floor is set
+    if (dto.feeFloorDirect !== undefined && dto.feeFloor === undefined) {
+      data.feeFloor = dto.feeFloorDirect;
+    }
 
     return data;
   }
