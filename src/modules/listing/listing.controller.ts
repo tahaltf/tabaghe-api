@@ -28,6 +28,7 @@ import { UserPanelAccessGuard } from '../auth/guards/user-panel-access.guard';
 import { RequirePanelAccess } from '../auth/decorators/require-panel-access.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
+import { BulkPriceUpdateDto } from './dto/bulk-price-update.dto';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { DeleteListingDto } from './dto/delete-listing.dto';
 import { ListListingsDto } from './dto/list-listings.dto';
@@ -108,6 +109,36 @@ export class ListingController {
       pageSize: pageSize ? Number(pageSize) : undefined,
       status,
     });
+  }
+
+  /** خروجی متنی لیست قیمت فروشنده برای کپی */
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @Get('bulk-price-export')
+  bulkPriceExport(@CurrentUser() user: AuthenticatedUser) {
+    return this.commandService.exportBulkPriceText(user.id);
+  }
+
+  /** پیش‌نمایش آپدیت فوری قیمت (بدون اعمال) */
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @Post('bulk-price-preview')
+  bulkPricePreview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: BulkPriceUpdateDto,
+  ) {
+    return this.commandService.previewBulkPricesFromText(user.id, dto.text);
+  }
+
+  /** آپدیت فوری قیمت از متن چندخطی (بدون برگشت به PENDING) */
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Post('bulk-price-update')
+  bulkPriceUpdate(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: BulkPriceUpdateDto,
+  ) {
+    return this.commandService.bulkUpdatePricesFromText(user.id, dto.text);
   }
 
   @Get('seller/:sellerId')

@@ -40,6 +40,10 @@ import {
   hasBasicListingProfile,
   isIdentityVerified,
 } from '../../../common/kyc/kyc-profile.util';
+import {
+  normalizeListingTitleKey,
+  parseBulkPriceText,
+} from '../utils/bulk-price-text.util';
 
 /** حداقل امتیاز (rating) برای ثبت یا ارسال مجدد آگهی */
 export const MIN_LISTING_AUTHOR_RATING = 1;
@@ -675,6 +679,362 @@ export class ListingCommandService {
         expiryReminderSentAt: null,
       },
     });
+  }
+
+  /** خروجی متنی همه محصولات فروش مستقیم برای کپی/ویرایش قیمت */
+  async exportBulkPriceText(userId: string) {
+    const listings = await this.prisma.listing.findMany({
+      where: {
+        authorId: userId,
+        type: ListingType.DIRECT,
+        status: {
+          in: [
+            ListingStatus.APPROVED,
+            ListingStatus.PENDING,
+            ListingStatus.DRAFT,
+          ],
+        },
+      },
+      select: {
+        title: true,
+        stockQuantity: true,
+        direct: { select: { price: true, salePrice: true } },
+      },
+      orderBy: { title: 'asc' },
+    });
+
+    const lines: string[] = [];
+    for (const listing of listings) {
+      if (!listing.direct) continue;
+      const title = listing.title.trim();
+      if (!title) continue;
+      const stock = listing.stockQuantity ?? 1;
+      if (stock <= 0) {
+        lines.push(`${title} = 0`);
+        continue;
+      }
+      const price = Number(
+        listing.direct.salePrice != null && Number(listing.direct.salePrice) > 0
+          ? listing.direct.salePrice
+          : listing.direct.price,
+      );
+      if (!Number.isFinite(price) || price < 0) continue;
+      lines.push(`${title} = ${Math.floor(price)}`);
+    }
+
+    return {
+      text: lines.join('\n'),
+      count: lines.length,
+    };
+  }
+
+  /** پیش‌نمایش آپدیت فوری قیمت — بدون اعمال */
+  async previewBulkPricesFromText(userId: string, text: string) {
+    const plan = await this.buildBulkPricePlan(userId, text);
+    return this.summarizeBulkPricePlan(plan, 'preview');
+  }
+
+  /**
+   * آپدیت فوری قیمت از متن چندخطی — فقط قیمت/موجودی؛ بدون برگشت به PENDING.
+   * قیمت ۰ = ناموجود (stockQuantity = 0).
+   */
+  async bulkUpdatePricesFromText(userId: string, text: string) {
+    const plan = await this.buildBulkPricePlan(userId, text);
+
+    for (const row of plan.willUpdate) {
+      if (row.action === 'unavailable') {
+        await this.prisma.listing.update({
+          where: { id: row.listingId! },
+          data: { stockQuantity: 0 },
+        });
+        continue;
+      }
+
+      await this.prisma.listingDirect.update({
+        where: { listingId: row.listingId! },
+        data: {
+          price: row.newPrice!,
+          salePrice: null,
+          compareAtPrice: null,
+        },
+      });
+      if (row.restockTo != null) {
+        await this.prisma.listing.update({
+          where: { id: row.listingId! },
+          data: { stockQuantity: row.restockTo },
+        });
+      }
+    }
+
+    return this.summarizeBulkPricePlan(plan, 'apply');
+  }
+
+  private async buildBulkPricePlan(userId: string, text: string) {
+    const MAX_LINES = 200;
+    const { items, failures } = parseBulkPriceText(text);
+
+    if (items.length === 0 && failures.length === 0) {
+      throw new BadRequestException('متنی برای پردازش وجود ندارد');
+    }
+    if (items.length > MAX_LINES) {
+      throw new BadRequestException(
+        `حداکثر ${MAX_LINES} خط قیمت در هر ارسال مجاز است`,
+      );
+    }
+
+    type PlanRow = {
+      lineNumber: number;
+      query: string;
+      status: 'will_update' | 'skipped';
+      code?:
+        | 'not_found'
+        | 'invalid'
+        | 'ambiguous'
+        | 'locked'
+        | 'unchanged'
+        | 'no_direct';
+      reason?: string;
+      listingId?: string;
+      title?: string;
+      oldPrice?: number;
+      newPrice?: number;
+      action?: 'price' | 'unavailable';
+      restockTo?: number;
+      stockQuantity?: number;
+    };
+
+    const skipped: PlanRow[] = failures.map((f) => ({
+      lineNumber: f.lineNumber,
+      query: f.rawLine,
+      status: 'skipped' as const,
+      code: 'invalid' as const,
+      reason: f.reason,
+    }));
+    const willUpdate: PlanRow[] = [];
+
+    if (items.length === 0) {
+      return { willUpdate, skipped };
+    }
+
+    const listings = await this.prisma.listing.findMany({
+      where: {
+        authorId: userId,
+        type: ListingType.DIRECT,
+        status: {
+          in: [
+            ListingStatus.APPROVED,
+            ListingStatus.PENDING,
+            ListingStatus.DRAFT,
+          ],
+        },
+      },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        stockQuantity: true,
+        direct: { select: { price: true, salePrice: true } },
+      },
+    });
+
+    const byId = new Map(listings.map((l) => [l.id, l]));
+    const byTitle = new Map<string, typeof listings>();
+    for (const listing of listings) {
+      const key = normalizeListingTitleKey(listing.title);
+      const bucket = byTitle.get(key) ?? [];
+      bucket.push(listing);
+      byTitle.set(key, bucket);
+    }
+
+    const deduped = new Map<string, (typeof items)[number]>();
+    for (const item of items) {
+      deduped.set(normalizeListingTitleKey(item.query), item);
+    }
+
+    for (const item of deduped.values()) {
+      const byExactId = byId.get(item.query);
+      const matches = byExactId
+        ? [byExactId]
+        : (byTitle.get(normalizeListingTitleKey(item.query)) ?? []);
+
+      if (matches.length === 0) {
+        skipped.push({
+          lineNumber: item.lineNumber,
+          query: item.query,
+          status: 'skipped',
+          code: 'not_found',
+          reason:
+            'در آگهی‌های شما پیدا نشد؛ این مورد آپدیت نمی‌شود. اگر می‌خواهید، از «آگهی‌های من» دستی ویرایش کنید.',
+          newPrice: item.price,
+        });
+        continue;
+      }
+      if (matches.length > 1) {
+        skipped.push({
+          lineNumber: item.lineNumber,
+          query: item.query,
+          status: 'skipped',
+          code: 'ambiguous',
+          reason: `چند آگهی با عنوان یکسان یافت شد (${matches.length} مورد)؛ عنوان را دقیق‌تر کنید یا از شناسه استفاده کنید`,
+          newPrice: item.price,
+        });
+        continue;
+      }
+
+      const listing = matches[0];
+      if (!listing.direct) {
+        skipped.push({
+          lineNumber: item.lineNumber,
+          query: item.query,
+          status: 'skipped',
+          code: 'no_direct',
+          reason: 'این آگهی قیمت فروش مستقیم ندارد',
+          listingId: listing.id,
+          title: listing.title,
+          newPrice: item.price,
+        });
+        continue;
+      }
+
+      try {
+        await this.ensureListingCanBeModified(listing.id, userId);
+      } catch (e) {
+        skipped.push({
+          lineNumber: item.lineNumber,
+          query: item.query,
+          status: 'skipped',
+          code: 'locked',
+          reason:
+            e instanceof Error ? e.message : 'امکان تغییر این آگهی وجود ندارد',
+          listingId: listing.id,
+          title: listing.title,
+          oldPrice: Number(listing.direct.price),
+          newPrice: item.price,
+          stockQuantity: listing.stockQuantity ?? 1,
+        });
+        continue;
+      }
+
+      const oldPrice = Number(
+        listing.direct.salePrice != null && Number(listing.direct.salePrice) > 0
+          ? listing.direct.salePrice
+          : listing.direct.price,
+      );
+      const stock = listing.stockQuantity ?? 1;
+
+      if (item.price === 0) {
+        if (stock <= 0) {
+          skipped.push({
+            lineNumber: item.lineNumber,
+            query: item.query,
+            status: 'skipped',
+            code: 'unchanged',
+            reason: 'قبلاً ناموجود است',
+            listingId: listing.id,
+            title: listing.title,
+            oldPrice,
+            newPrice: 0,
+            stockQuantity: stock,
+          });
+          continue;
+        }
+        willUpdate.push({
+          lineNumber: item.lineNumber,
+          query: item.query,
+          status: 'will_update',
+          listingId: listing.id,
+          title: listing.title,
+          oldPrice,
+          newPrice: 0,
+          action: 'unavailable',
+          stockQuantity: stock,
+        });
+        continue;
+      }
+
+      const needsRestock = stock <= 0;
+      if (oldPrice === item.price && !needsRestock) {
+        skipped.push({
+          lineNumber: item.lineNumber,
+          query: item.query,
+          status: 'skipped',
+          code: 'unchanged',
+          reason: 'قیمت تغییری نکرده است',
+          listingId: listing.id,
+          title: listing.title,
+          oldPrice,
+          newPrice: item.price,
+          stockQuantity: stock,
+        });
+        continue;
+      }
+
+      willUpdate.push({
+        lineNumber: item.lineNumber,
+        query: item.query,
+        status: 'will_update',
+        listingId: listing.id,
+        title: listing.title,
+        oldPrice,
+        newPrice: item.price,
+        action: 'price',
+        restockTo: needsRestock ? 1 : undefined,
+        stockQuantity: stock,
+      });
+    }
+
+    return { willUpdate, skipped };
+  }
+
+  private summarizeBulkPricePlan(
+    plan: {
+      willUpdate: Array<{
+        lineNumber: number;
+        query: string;
+        status: 'will_update' | 'skipped';
+        code?: string;
+        reason?: string;
+        listingId?: string;
+        title?: string;
+        oldPrice?: number;
+        newPrice?: number;
+        action?: 'price' | 'unavailable';
+        restockTo?: number;
+        stockQuantity?: number;
+      }>;
+      skipped: Array<{
+        lineNumber: number;
+        query: string;
+        status: 'will_update' | 'skipped';
+        code?: string;
+        reason?: string;
+        listingId?: string;
+        title?: string;
+        oldPrice?: number;
+        newPrice?: number;
+        action?: 'price' | 'unavailable';
+        stockQuantity?: number;
+      }>;
+    },
+    mode: 'preview' | 'apply',
+  ) {
+    const appliedOrPlanned = plan.willUpdate.map((row) => ({
+      ...row,
+      status: mode === 'apply' ? ('updated' as const) : ('will_update' as const),
+    }));
+    return {
+      summary: {
+        total: appliedOrPlanned.length + plan.skipped.length,
+        updated: mode === 'apply' ? appliedOrPlanned.length : 0,
+        willUpdate: appliedOrPlanned.length,
+        skipped: plan.skipped.length,
+        notFound: plan.skipped.filter((s) => s.code === 'not_found').length,
+        invalid: plan.skipped.filter((s) => s.code === 'invalid').length,
+      },
+      willUpdate: appliedOrPlanned,
+      updated: mode === 'apply' ? appliedOrPlanned : [],
+      skipped: plan.skipped,
+    };
   }
 
   /**
