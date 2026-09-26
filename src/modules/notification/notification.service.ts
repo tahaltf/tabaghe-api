@@ -746,11 +746,13 @@ export class NotificationService {
 
     const smsProvider = await this.smsService.getActiveProviderName();
     const rule = await this.getRuleForType(NotificationType.ADMIN_ANNOUNCEMENT);
-    const smsFromRules = await this.isSmsRuleActive(rule);
+    // پیامک فقط وقتی که ادمین صریحاً alsoSendSms را روشن کند — پیش‌فرض: فقط سایت
+    const wantSms = !!alsoSendSms;
+    const smsFromRules = wantSms && (await this.isSmsRuleActive(rule));
     const smsOverride =
-      alsoSendSms &&
-      hasSmsTemplateConfigured(smsTemplateConfig, smsProvider) &&
-      !smsFromRules
+      wantSms &&
+      !smsFromRules &&
+      hasSmsTemplateConfigured(smsTemplateConfig, smsProvider)
         ? smsTemplateConfig
         : undefined;
 

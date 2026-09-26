@@ -58,6 +58,7 @@ export class BroadcastNotificationDto {
   @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
+  /** اگر true باشد پیامک هم ارسال می‌شود؛ پیش‌فرض فقط اطلاعیه سایت */
   alsoSendSms?: boolean;
 
   @IsOptional()
