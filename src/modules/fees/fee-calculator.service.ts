@@ -18,6 +18,10 @@ export interface FeePreviewResult {
   finalFee: string;
   /** درصد تخفیف اعمال‌شده (۰–۹۰). */
   discountPercent: number;
+  /** کف کارمزد پلن (تومان؛ ۰ = بدون کف). */
+  feeFloor: string;
+  /** سقف کارمزد پلن (تومان؛ ۰ = بدون سقف). */
+  feeCap: string;
   /** مبلغ صرفه‌جویی (baseFee - finalFee). */
   discountAmount: string;
   /** عنوان پلن اعمال‌کننده تخفیف، در صورت وجود. */
@@ -373,19 +377,25 @@ export class FeeCalculatorService {
       ? await this.planFeeDiscount.getSellerDiscount(sellerId, listingType)
       : {
           discountPercent: 0,
+          feeFloor: new Decimal(0),
+          feeCap: new Decimal(0),
           planTitle: null,
           planId: null,
           expiresAt: null,
         };
 
-    const mult = (100 - discount.discountPercent) / 100;
-    const finalFee = resolvedBase.mul(mult).floor();
+    const finalFee = this.planFeeDiscount.applyDiscountAndBounds(
+      resolvedBase,
+      discount,
+    );
     const discountAmount = resolvedBase.minus(finalFee);
 
     return {
       baseFee: resolvedBase.toString(),
       finalFee: finalFee.toString(),
       discountPercent: discount.discountPercent,
+      feeFloor: discount.feeFloor.toString(),
+      feeCap: discount.feeCap.toString(),
       discountAmount: discountAmount.toString(),
       planTitle: discount.planTitle,
       planId: discount.planId,

@@ -9,9 +9,23 @@ function addDaysUtc(base: Date, days: number): Date {
   return d;
 }
 
+function toNonNegDecimal(raw: unknown): Decimal {
+  try {
+    const d = new Decimal(raw as Decimal.Value);
+    if (!d.isFinite() || d.lte(0)) return new Decimal(0);
+    return d;
+  } catch {
+    return new Decimal(0);
+  }
+}
+
 export interface SellerDiscountInfo {
   /** The discount percent (0-90) that will be applied to the base fee. */
   discountPercent: number;
+  /** کف کارمزد نهایی (تومان)؛ ۰ یعنی بدون کف. */
+  feeFloor: Decimal;
+  /** سقف کارمزد نهایی (تومان)؛ ۰ یعنی بدون سقف. */
+  feeCap: Decimal;
   /** Title of the plan providing the discount, if any. */
   planTitle: string | null;
   /** Unique identifier of the plan, if any. */
@@ -25,8 +39,9 @@ export class PlanFeeDiscountService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * اگر فروشنده اشتراک فعال داشته باشد، بهترین تخفیف (کمترین ضریب کارمزد) اعمال می‌شود.
-   * فقط برای DIRECT و AUCTION؛ درصد تخفیف از کارمزد نهایی محاسبه‌شده (نه از درصد پایه دسته).
+   * اگر فروشنده اشتراک فعال داشته باشد، بهترین تخفیف (کمترین ضریب کارمزد) اعمال می‌شود
+   * و سپس کف/سقف همان پلن روی مبلغ نهایی اعمال می‌گردد.
+   * فقط برای DIRECT و AUCTION.
    */
   async applySellerSubscriptionDiscount(
     sellerId: string,
@@ -44,15 +59,29 @@ export class PlanFeeDiscountService {
     }
 
     const info = await this.getSellerDiscount(sellerId, listingType);
-    if (info.discountPercent <= 0) return baseFee;
-    const mult = (100 - info.discountPercent) / 100;
-    return baseFee.mul(mult).floor();
+    return this.applyDiscountAndBounds(baseFee, info);
+  }
+
+  /** تخفیف درصدی سپس کف/سقف پلن (همان منطق تسویه و پیش‌نمایش). */
+  applyDiscountAndBounds(baseFee: Decimal, info: SellerDiscountInfo): Decimal {
+    let fee = baseFee;
+    if (info.discountPercent > 0) {
+      const mult = (100 - info.discountPercent) / 100;
+      fee = fee.mul(mult);
+    }
+    if (info.feeFloor.gt(0) && fee.lt(info.feeFloor)) {
+      fee = info.feeFloor;
+    }
+    if (info.feeCap.gt(0) && fee.gt(info.feeCap)) {
+      fee = info.feeCap;
+    }
+    return fee.floor();
   }
 
   /**
    * Returns the best plan-based discount info that applies to the given seller and
    * listing type. Returns `discountPercent: 0` and `planTitle: null` when no active
-   * subscription with discount is found, or when the listing type does not qualify
+   * subscription with discount/bounds is found, or when the listing type does not qualify
    * for plan discounts (e.g. EXCHANGE).
    */
   async getSellerDiscount(
@@ -61,6 +90,8 @@ export class PlanFeeDiscountService {
   ): Promise<SellerDiscountInfo> {
     const empty: SellerDiscountInfo = {
       discountPercent: 0,
+      feeFloor: new Decimal(0),
+      feeCap: new Decimal(0),
       planTitle: null,
       planId: null,
       expiresAt: null,
@@ -85,17 +116,31 @@ export class PlanFeeDiscountService {
       const expiresAt = p.expiresAt ?? addDaysUtc(p.createdAt, duration);
       if (expiresAt.getTime() <= now.getTime()) continue;
 
-      const raw =
-        listingType === ListingType.DIRECT
-          ? (p.plan.feeDiscountDirectPercent ?? 0)
-          : (p.plan.feeDiscountAuctionPercent ?? 0);
+      const isDirect = listingType === ListingType.DIRECT;
+      const rawDisc = isDirect
+        ? (p.plan.feeDiscountDirectPercent ?? 0)
+        : (p.plan.feeDiscountAuctionPercent ?? 0);
       const discountPct = Math.max(
         0,
-        Math.min(90, Math.floor(Number(raw) || 0)),
+        Math.min(90, Math.floor(Number(rawDisc) || 0)),
       );
-      if (discountPct > best.discountPercent) {
+      const feeFloor = toNonNegDecimal(
+        isDirect ? p.plan.feeFloorDirect : p.plan.feeFloorAuction,
+      );
+      const feeCap = toNonNegDecimal(
+        isDirect ? p.plan.feeCapDirect : p.plan.feeCapAuction,
+      );
+
+      if (discountPct <= 0 && feeFloor.lte(0) && feeCap.lte(0)) continue;
+
+      const betterDiscount = discountPct > best.discountPercent;
+      const sameDiscountFirstPlan =
+        discountPct === best.discountPercent && !best.planId;
+      if (betterDiscount || sameDiscountFirstPlan) {
         best = {
           discountPercent: discountPct,
+          feeFloor,
+          feeCap,
           planTitle: p.plan.title,
           planId: p.plan.id,
           expiresAt,

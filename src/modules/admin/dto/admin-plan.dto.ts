@@ -5,6 +5,7 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   Max,
@@ -66,6 +67,34 @@ export class CreatePlanDto {
   @Min(0)
   @Max(90)
   feeDiscountAuctionPercent?: number;
+
+  /** کف کارمزد نهایی فروش مستقیم (تومان؛ ۰ = بدون کف) */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  feeFloorDirect?: number;
+
+  /** سقف کارمزد نهایی فروش مستقیم (تومان؛ ۰ = بدون سقف) */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  feeCapDirect?: number;
+
+  /** کف کارمزد نهایی مزایده (تومان؛ ۰ = بدون کف) */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  feeFloorAuction?: number;
+
+  /** سقف کارمزد نهایی مزایده (تومان؛ ۰ = بدون سقف) */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  feeCapAuction?: number;
 
   @IsOptional()
   @IsBoolean()
@@ -137,6 +166,30 @@ export class UpdatePlanDto {
   @Min(0)
   @Max(90)
   feeDiscountAuctionPercent?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  feeFloorDirect?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  feeCapDirect?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  feeFloorAuction?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  feeCapAuction?: number;
 
   @IsOptional()
   @IsBoolean()

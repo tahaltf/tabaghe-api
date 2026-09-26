@@ -73,7 +73,12 @@ export class AdminUsersService {
   }
 
   private async grantKycAiTokens(userId: string): Promise<void> {
+    // وقتی تولید محتوا در سطح سایت خاموش است، نه توکن بده و نه پیام بفرست.
+    if (!(await this.aiSettings.isEnabled())) return;
+
     const amount = await this.aiSettings.getKycWelcomeTokens();
+    if (amount <= 0) return;
+
     const granted = await this.aiTokens.grantKycWelcome(userId, amount);
     if (!granted) return;
 

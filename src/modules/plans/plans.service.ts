@@ -86,6 +86,10 @@ export class PlansService {
           durationDays: true,
           feeDiscountDirectPercent: true,
           feeDiscountAuctionPercent: true,
+          feeFloorDirect: true,
+          feeCapDirect: true,
+          feeFloorAuction: true,
+          feeCapAuction: true,
           badgeLabel: true,
           badgeColor: true,
           aiTokensPerMonth: true,
@@ -144,6 +148,10 @@ export class PlansService {
         durationDays: true;
         feeDiscountDirectPercent: true;
         feeDiscountAuctionPercent: true;
+        feeFloorDirect: true;
+        feeCapDirect: true;
+        feeFloorAuction: true;
+        feeCapAuction: true;
         badgeLabel: true;
         badgeColor: true;
         aiTokensPerMonth: true;
@@ -167,6 +175,10 @@ export class PlansService {
       durationDays: plan.durationDays,
       feeDiscountDirectPercent: plan.feeDiscountDirectPercent,
       feeDiscountAuctionPercent: plan.feeDiscountAuctionPercent,
+      feeFloorDirect: Number(plan.feeFloorDirect ?? 0),
+      feeCapDirect: Number(plan.feeCapDirect ?? 0),
+      feeFloorAuction: Number(plan.feeFloorAuction ?? 0),
+      feeCapAuction: Number(plan.feeCapAuction ?? 0),
       badgeLabel: plan.badgeLabel,
       badgeColor: plan.badgeColor,
       ...(aiContentEnabled

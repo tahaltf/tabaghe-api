@@ -50,6 +50,34 @@ function mergeRulesByType(
   return Array.from(map.entries()).map(([type, count]) => ({ type, count }));
 }
 
+function normalizePlanMoneyBound(value: number | undefined): number {
+  const n = Math.floor(Number(value) || 0);
+  return n > 0 ? n : 0;
+}
+
+function assertPlanFeeBounds(params: {
+  feeFloorDirect?: number;
+  feeCapDirect?: number;
+  feeFloorAuction?: number;
+  feeCapAuction?: number;
+}) {
+  const floorD = normalizePlanMoneyBound(params.feeFloorDirect);
+  const capD = normalizePlanMoneyBound(params.feeCapDirect);
+  const floorA = normalizePlanMoneyBound(params.feeFloorAuction);
+  const capA = normalizePlanMoneyBound(params.feeCapAuction);
+  if (capD > 0 && floorD > capD) {
+    throw new BadRequestException(
+      'کف کارمزد فروش مستقیم نمی‌تواند از سقف بیشتر باشد',
+    );
+  }
+  if (capA > 0 && floorA > capA) {
+    throw new BadRequestException(
+      'کف کارمزد مزایده نمی‌تواند از سقف بیشتر باشد',
+    );
+  }
+  return { floorD, capD, floorA, capA };
+}
+
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
@@ -114,6 +142,10 @@ export class AdminPlansService {
       durationDays: 0,
       feeDiscountDirectPercent: 0,
       feeDiscountAuctionPercent: 0,
+      feeFloorDirect: 0,
+      feeCapDirect: 0,
+      feeFloorAuction: 0,
+      feeCapAuction: 0,
       badgeLabel: builtin.badgeLabel,
       badgeColor: builtin.badgeColor,
       createdAt: now,
@@ -154,6 +186,7 @@ export class AdminPlansService {
         'حداقل یک قاعدهٔ سهمیه با تعداد معتبر لازم است',
       );
     }
+    const bounds = assertPlanFeeBounds(dto);
     return this.prisma.plan
       .create({
         data: {
@@ -165,6 +198,10 @@ export class AdminPlansService {
           durationDays: dto.durationDays ?? 365,
           feeDiscountDirectPercent: dto.feeDiscountDirectPercent ?? 0,
           feeDiscountAuctionPercent: dto.feeDiscountAuctionPercent ?? 0,
+          feeFloorDirect: bounds.floorD,
+          feeCapDirect: bounds.capD,
+          feeFloorAuction: bounds.floorA,
+          feeCapAuction: bounds.capA,
           badgeLabel: normalizePlanBadgeLabel(dto.badgeLabel ?? null),
           badgeColor: sanitizePlanBadgeColor(dto.badgeColor),
           aiTokensPerMonth: dto.aiTokensPerMonth ?? 0,
@@ -246,6 +283,22 @@ export class AdminPlansService {
     const existing = await this.prisma.plan.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('پلن یافت نشد');
 
+    const bounds =
+      dto.feeFloorDirect !== undefined ||
+      dto.feeCapDirect !== undefined ||
+      dto.feeFloorAuction !== undefined ||
+      dto.feeCapAuction !== undefined
+        ? assertPlanFeeBounds({
+            feeFloorDirect:
+              dto.feeFloorDirect ?? Number(existing.feeFloorDirect ?? 0),
+            feeCapDirect: dto.feeCapDirect ?? Number(existing.feeCapDirect ?? 0),
+            feeFloorAuction:
+              dto.feeFloorAuction ?? Number(existing.feeFloorAuction ?? 0),
+            feeCapAuction:
+              dto.feeCapAuction ?? Number(existing.feeCapAuction ?? 0),
+          })
+        : null;
+
     return this.prisma.$transaction(async (tx) => {
       await tx.plan.update({
         where: { id },
@@ -261,6 +314,10 @@ export class AdminPlansService {
           durationDays: dto.durationDays ?? undefined,
           feeDiscountDirectPercent: dto.feeDiscountDirectPercent ?? undefined,
           feeDiscountAuctionPercent: dto.feeDiscountAuctionPercent ?? undefined,
+          feeFloorDirect: bounds ? bounds.floorD : undefined,
+          feeCapDirect: bounds ? bounds.capD : undefined,
+          feeFloorAuction: bounds ? bounds.floorA : undefined,
+          feeCapAuction: bounds ? bounds.capA : undefined,
           badgeLabel:
             dto.badgeLabel !== undefined
               ? normalizePlanBadgeLabel(dto.badgeLabel)

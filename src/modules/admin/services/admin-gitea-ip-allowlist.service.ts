@@ -109,17 +109,48 @@ export class AdminGiteaIpAllowlistService {
     };
   }
 
+  /** When unset, we still try safe default nginx reload cmds so admin IP changes apply immediately. */
+  private isAutoReloadDisabled(): boolean {
+    const v = (process.env.GITEA_IP_ALLOWLIST_AUTO_RELOAD ?? '1').trim().toLowerCase();
+    return v === '0' || v === 'false' || v === 'off' || v === 'no';
+  }
+
+  private resolveReloadCommands(): string[] {
+    const fromEnv = process.env.GITEA_IP_ALLOWLIST_RELOAD_CMD?.trim();
+    if (fromEnv) return [fromEnv];
+    if (this.isAutoReloadDisabled()) return [];
+    // Prefer test-then-reload; sudo -n for passwordless sudoers common on app hosts.
+    return [
+      'nginx -t && nginx -s reload',
+      'sudo -n nginx -t && sudo -n nginx -s reload',
+      'systemctl reload nginx',
+      'sudo -n systemctl reload nginx',
+    ];
+  }
+
+  private runShell(cmd: string): { ok: boolean; output: string } {
+    const isWin = process.platform === 'win32';
+    const r = spawnSync(isWin ? 'cmd' : 'sh', isWin ? ['/c', cmd] : ['-c', cmd], {
+      encoding: 'utf8',
+      timeout: 30_000,
+      env: process.env,
+    });
+    const output = (r.stderr || r.stdout || r.error?.message || '').toString().trim().slice(0, 400);
+    return { ok: r.status === 0, output };
+  }
+
   async getConfig() {
     const row = await this.prisma.systemSetting.findUnique({
       where: { key: ENFORCEMENT_SETTING_KEY },
     });
     const enforcementEnabled = row?.value === 'true' || row?.value === '1';
+    const reloadCmds = this.resolveReloadCommands();
     return {
       enforcementEnabled,
       alwaysAllow: this.alwaysAllowCidrs(),
       filePath: this.resolveAllowlistFilePath(),
       forbiddenHtmlPath: this.resolveForbiddenHtmlPath(),
-      reloadCmdConfigured: Boolean(process.env.GITEA_IP_ALLOWLIST_RELOAD_CMD?.trim()),
+      reloadCmdConfigured: reloadCmds.length > 0,
       forbiddenPage: await this.getForbiddenPage(),
     };
   }
@@ -352,27 +383,32 @@ export class AdminGiteaIpAllowlistService {
       );
     }
 
-    const reloadCmd = process.env.GITEA_IP_ALLOWLIST_RELOAD_CMD?.trim();
+    const reloadCmds = this.resolveReloadCommands();
     let reloadAttempted = false;
     let reloadOk = false;
-    if (reloadCmd) {
-      reloadAttempted = true;
-      const r = spawnSync('sh', ['-c', reloadCmd], {
-        encoding: 'utf8',
-        timeout: 30_000,
-        env: process.env,
-      });
-      reloadOk = r.status === 0;
-      if (!reloadOk) {
-        const errOut = (r.stderr || r.stdout || r.error?.message || 'unknown').toString().slice(0, 300);
-        this.logger.warn(`Gitea allowlist reload failed: ${errOut}`);
-        message += ` — reload ناموفق: ${errOut}`;
-      } else {
-        message += ' — nginx reload OK';
-      }
-    } else {
+    if (reloadCmds.length === 0) {
       message +=
-        ' — برای اعمال فوری، روی هاست nginx را reload کنید یا GITEA_IP_ALLOWLIST_RELOAD_CMD را ست کنید';
+        ' — auto-reload خاموش است؛ برای اعمال فوری GITEA_IP_ALLOWLIST_RELOAD_CMD را ست کنید یا GITEA_IP_ALLOWLIST_AUTO_RELOAD=1';
+    } else {
+      reloadAttempted = true;
+      const errors: string[] = [];
+      for (const cmd of reloadCmds) {
+        const r = this.runShell(cmd);
+        if (r.ok) {
+          reloadOk = true;
+          message += ' — nginx reload OK (تغییرات همین الان اعمال شد)';
+          this.logger.log(`Gitea allowlist reload OK via: ${cmd}`);
+          break;
+        }
+        errors.push(`${cmd}: ${r.output || 'exit non-zero'}`);
+      }
+      if (!reloadOk) {
+        const errOut = errors.join(' | ').slice(0, 500);
+        this.logger.warn(`Gitea allowlist reload failed: ${errOut}`);
+        message += ` — reload ناموفق (فایل نوشته شد ولی nginx هنوز قدیمی است): ${errOut}`;
+        message +=
+          ' — روی سرور برای کاربر API دسترسی passwordless به nginx reload بدهید، یا GITEA_IP_ALLOWLIST_RELOAD_CMD را ست کنید';
+      }
     }
 
     return { filePath, written, reloadAttempted, reloadOk, message };
