@@ -146,6 +146,7 @@ export class AdminPlansService {
       feeCapDirect: 0,
       feeFloorAuction: 0,
       feeCapAuction: 0,
+      aiTokensPerMonth: 0,
       badgeLabel: builtin.badgeLabel,
       badgeColor: builtin.badgeColor,
       createdAt: now,
