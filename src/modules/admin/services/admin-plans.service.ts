@@ -132,6 +132,7 @@ export class AdminPlansService {
     const builtin = buildBuiltinFreePlan(limits, overrides);
     const rules = buildBuiltinAdminRuleRows(limits);
     const now = new Date();
+    const zero = new Prisma.Decimal(0);
     return {
       id: BUILTIN_FREE_PLAN_ID,
       title: builtin.title,
@@ -142,10 +143,10 @@ export class AdminPlansService {
       durationDays: 0,
       feeDiscountDirectPercent: 0,
       feeDiscountAuctionPercent: 0,
-      feeFloorDirect: 0,
-      feeCapDirect: 0,
-      feeFloorAuction: 0,
-      feeCapAuction: 0,
+      feeFloorDirect: zero,
+      feeCapDirect: zero,
+      feeFloorAuction: zero,
+      feeCapAuction: zero,
       aiTokensPerMonth: 0,
       badgeLabel: builtin.badgeLabel,
       badgeColor: builtin.badgeColor,
@@ -154,7 +155,7 @@ export class AdminPlansService {
       rules,
       _count: { purchases: 0 },
       isBuiltinFree: true,
-    } as AdminPlanItem;
+    };
   }
 
   async list(): Promise<AdminPlanItem[]> {
