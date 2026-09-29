@@ -7,16 +7,29 @@ import { ListingStatus, ListingType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { resolveListingEffectiveUnitPrice } from '../../common/listing/listing-price.util';
 import { formatUserDisplayName } from '../../common/utils/user-display-name.util';
+import { PurchaseOfferService } from '../purchase-offer/purchase-offer.service';
 
 const CART_LISTING_INCLUDE = {
-  author: { select: { id: true, firstName: true, lastName: true, displayName: true } },
-  category: { select: { id: true, title: true, verificationEnabled: true } },
+  author: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      displayName: true,
+    },
+  },
+  category: {
+    select: { id: true, title: true, verificationEnabled: true },
+  },
   direct: true,
 } satisfies Prisma.ListingInclude;
 
 @Injectable()
 export class CartService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly purchaseOfferService: PurchaseOfferService,
+  ) {}
 
   async getCart(userId: string) {
     const cart = await this.prisma.cart.findUnique({
@@ -35,13 +48,23 @@ export class CartService {
     });
     const listingMap = new Map(listings.map((l) => [l.id, l]));
     const seller = listings[0]?.author;
+    const now = Date.now();
     const items = cart.items
       .map((item) => {
         const listing = listingMap.get(item.listingId);
         if (!listing) return null;
-        const unitPrice = listing.direct
-          ? resolveListingEffectiveUnitPrice(listing.direct)
-          : 0;
+        const locked =
+          item.lockedUnitPrice != null &&
+          item.reservedUntil &&
+          item.reservedUntil.getTime() > now
+            ? Number(item.lockedUnitPrice)
+            : null;
+        const unitPrice =
+          locked != null && Number.isFinite(locked)
+            ? locked
+            : listing.direct
+              ? resolveListingEffectiveUnitPrice(listing.direct)
+              : 0;
         const maxQty = this.resolveMaxQuantity(listing);
         return {
           listingId: item.listingId,
@@ -49,6 +72,13 @@ export class CartService {
           maxQuantity: maxQty,
           unitPrice,
           lineTotal: unitPrice * Math.min(item.quantity, maxQty),
+          purchaseOfferId: item.purchaseOfferId ?? null,
+          reservedUntil: item.reservedUntil ?? null,
+          isOfferReservation: Boolean(
+            item.purchaseOfferId &&
+              item.reservedUntil &&
+              item.reservedUntil.getTime() > now,
+          ),
           listing: {
             id: listing.id,
             title: listing.title,
@@ -96,6 +126,18 @@ export class CartService {
     if (listing.authorId === userId) {
       throw new BadRequestException('نمی‌توانید آگهی خودتان را بخرید');
     }
+
+    const reservedForOther =
+      await this.purchaseOfferService.isListingReservedForOther(
+        listingId,
+        userId,
+      );
+    if (reservedForOther) {
+      throw new BadRequestException(
+        'این کالا فعلاً برای خریدار دیگری رزرو شده است',
+      );
+    }
+
     const maxQty = this.resolveMaxQuantity(listing);
     if (maxQty <= 0) {
       throw new BadRequestException('موجودی این کالا تمام شده است');
@@ -116,10 +158,7 @@ export class CartService {
     const existing = await this.prisma.cartItem.findUnique({
       where: { cartId_listingId: { cartId: cart.id, listingId } },
     });
-    const newQty = Math.min(
-      maxQty,
-      (existing?.quantity ?? 0) + qty,
-    );
+    const newQty = Math.min(maxQty, (existing?.quantity ?? 0) + qty);
 
     await this.prisma.cartItem.upsert({
       where: {
@@ -143,6 +182,12 @@ export class CartService {
     });
     if (!item) throw new NotFoundException('آیتم در سبد یافت نشد');
 
+    if (item.purchaseOfferId && item.reservedUntil) {
+      throw new BadRequestException(
+        'تعداد کالای رزرو‌شده از پیشنهاد خرید قابل تغییر نیست',
+      );
+    }
+
     const listing = await this.prisma.listing.findUnique({
       where: { id: listingId },
     });
@@ -159,18 +204,39 @@ export class CartService {
 
   async removeItem(userId: string, listingId: string) {
     const cart = await this.requireCart(userId);
-    await this.prisma.cartItem.deleteMany({
-      where: { cartId: cart.id, listingId },
+    const item = await this.prisma.cartItem.findUnique({
+      where: { cartId_listingId: { cartId: cart.id, listingId } },
     });
+    if (item?.purchaseOfferId) {
+      await this.purchaseOfferService.releaseReservation(
+        item.purchaseOfferId,
+        'removed_from_cart',
+      );
+    } else {
+      await this.prisma.cartItem.deleteMany({
+        where: { cartId: cart.id, listingId },
+      });
+    }
     await this.pruneEmptyCart(cart.id);
     return this.getCart(userId);
   }
 
   async clearCart(userId: string) {
-    const cart = await this.prisma.cart.findUnique({ where: { userId } });
+    const cart = await this.prisma.cart.findUnique({
+      where: { userId },
+      include: { items: true },
+    });
     if (cart) {
+      for (const item of cart.items) {
+        if (item.purchaseOfferId) {
+          await this.purchaseOfferService.releaseReservation(
+            item.purchaseOfferId,
+            'removed_from_cart',
+          );
+        }
+      }
       await this.prisma.cartItem.deleteMany({ where: { cartId: cart.id } });
-      await this.prisma.cart.delete({ where: { id: cart.id } });
+      await this.prisma.cart.delete({ where: { id: cart.id } }).catch(() => undefined);
     }
     return { sellerId: null, sellerName: null, items: [], itemCount: 0 };
   }
@@ -196,7 +262,7 @@ export class CartService {
   private async pruneEmptyCart(cartId: string) {
     const count = await this.prisma.cartItem.count({ where: { cartId } });
     if (count === 0) {
-      await this.prisma.cart.delete({ where: { id: cartId } });
+      await this.prisma.cart.delete({ where: { id: cartId } }).catch(() => undefined);
     }
   }
 

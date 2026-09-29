@@ -196,6 +196,14 @@ enum ExchangeOfferStatus {
   CANCELLED
 }
 
+enum PurchaseOfferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
 enum NotificationType {
   AUCTION_WON
   AUCTION_LOST
@@ -206,6 +214,9 @@ enum NotificationType {
   EXCHANGE_OFFER_RECEIVED
   EXCHANGE_OFFER_ACCEPTED
   EXCHANGE_OFFER_REJECTED
+  PURCHASE_OFFER_RECEIVED
+  PURCHASE_OFFER_ACCEPTED
+  PURCHASE_OFFER_REJECTED
   ADMIN_ANNOUNCEMENT
   ORDER_STATUS_CHANGED
   KYC_APPROVED
@@ -222,6 +233,7 @@ enum NotificationType {
   ADMIN_ALERT_NEW_USER
   ADMIN_ALERT_CONTACT_MESSAGE
   ADMIN_ALERT_NEW_REPAIR
+  ADMIN_ALERT_NEW_PRODUCT_REQUEST
   ADMIN_ALERT_TICKET_USER_MESSAGE
   WALLET_DEPOSIT_SUBMITTED
   WALLET_DEPOSIT_APPROVED
@@ -265,6 +277,16 @@ enum TicketStatus {
   OPEN
   ANSWERED
   CLOSED
+}
+
+enum ProductRequestStatus {
+  PENDING
+}
+
+enum ProductRequestCondition {
+  NEW
+  USED
+  ANY
 }
 
 enum OtpPurpose {
@@ -350,6 +372,7 @@ model User {
   quotaLedger         QuotaLedger[]
   notifications       Notification[]
   exchangeOffers      ExchangeOffer[]
+  purchaseOffers      PurchaseOffer[]
   bids                AuctionBid[]
   secondChanceOffers  SecondChanceOffer[]
   addresses           Address[]
@@ -367,6 +390,7 @@ model User {
   trustScore          Int              @default(100)
 
   repairRequests      RepairRequest[]
+  productRequests     ProductRequest[]
   tickets             Ticket[]
   ratingHistory       UserRatingHistory[]
   campaignLinks       CampaignLink[]
@@ -404,6 +428,8 @@ model User {
   aiTokenBalance      AiTokenBalance?
   aiTokenLedger       AiTokenLedger[]
   aiContentRequests   AiContentRequest[]
+  listingMergeRequests ListingMergeRequest[] @relation("MergeRequestRequester")
+  listingMergeReviews  ListingMergeRequest[] @relation("MergeRequestReviewer")
 
   /** نقش سفارشی پنل ادمین — فقط برای role=ADMIN معنا دارد */
   adminRoleId         String?
@@ -762,8 +788,16 @@ model Listing {
   auction         ListingAuction?
   quotaLedger     QuotaLedger[]
   exchangeOffers  ExchangeOffer[]
+  purchaseOffers  PurchaseOffer[]
   views           ListingView[]
   aiContentRequests AiContentRequest[]
+
+  mergeGroupId    String?
+  mergeGroup      ListingMergeGroup? @relation(fields: [mergeGroupId], references: [id], onDelete: SetNull)
+
+  mergeRequestsAsSource ListingMergeRequest[] @relation("MergeRequestSource")
+  mergeRequestsAsRequestedTarget ListingMergeRequest[] @relation("MergeRequestRequestedTarget")
+  mergeRequestsAsFinalTarget ListingMergeRequest[] @relation("MergeRequestFinalTarget")
 
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
@@ -780,7 +814,46 @@ model Listing {
   @@index([status, expiresAt])
   @@index([isFeatured, createdAt])
   @@index([importSource, status])
+  @@index([mergeGroupId])
   @@unique([authorId, externalSiteUrl, externalProductId])
+}
+
+enum ListingMergeRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model ListingMergeGroup {
+  id        String    @id @default(cuid())
+  listings  Listing[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model ListingMergeRequest {
+  id                       String                    @id @default(cuid())
+  sourceListingId          String
+  sourceListing            Listing                   @relation("MergeRequestSource", fields: [sourceListingId], references: [id], onDelete: Cascade)
+  requestedTargetListingId String
+  requestedTargetListing   Listing                   @relation("MergeRequestRequestedTarget", fields: [requestedTargetListingId], references: [id], onDelete: Cascade)
+  finalTargetListingId     String?
+  finalTargetListing       Listing?                  @relation("MergeRequestFinalTarget", fields: [finalTargetListingId], references: [id], onDelete: SetNull)
+  requesterId              String
+  requester                User                      @relation("MergeRequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  status                   ListingMergeRequestStatus @default(PENDING)
+  adminNote                String?
+  reviewedById             String?
+  reviewedBy               User?                     @relation("MergeRequestReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt               DateTime?
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+
+  @@index([status, createdAt])
+  @@index([requesterId, createdAt])
+  @@index([sourceListingId, status])
+  @@index([requestedTargetListingId])
 }
 
 model ListingDirect {
@@ -1076,6 +1149,36 @@ model ExchangeOffer {
 }
 
 ////////////////////
+/// PURCHASE OFFER (پیشنهاد خرید — فقط فروش مستقیم)
+////////////////////
+
+model PurchaseOffer {
+  id                 String              @id @default(cuid())
+  listingId          String
+  listing            Listing             @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  buyerId            String
+  buyer              User                @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  amount             Decimal
+  description        String?
+  status             PurchaseOfferStatus @default(PENDING)
+  rejectionReason    String?
+  expiresAt          DateTime
+  acceptedAt         DateTime?
+  reservedUntil      DateTime?
+  /** اسنپ‌شات قیمت ویژه قبل از تأیید (برای restore) */
+  prevSalePrice      Decimal?
+  prevCompareAtPrice Decimal?
+  cartItem           CartItem?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@index([listingId, status])
+  @@index([buyerId, listingId])
+  @@index([expiresAt])
+  @@index([reservedUntil, status])
+}
+
+////////////////////
 /// REPAIR & TICKET
 ////////////////////
 
@@ -1122,6 +1225,32 @@ model RepairRequest {
 
   @@index([userId])
   @@index([status])
+}
+
+model ProductRequest {
+  id           String                   @id @default(cuid())
+  trackingCode String                   @unique
+  userId       String
+  user         User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categoryId   String?
+  category     Category?                @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  title        String
+  brand        String?
+  model        String?
+  condition    ProductRequestCondition?
+  budgetMin    Decimal?
+  budgetMax    Decimal?
+  quantity     Int?                     @default(1)
+  description  String
+  images       String[]                 @default([])
+  status       ProductRequestStatus     @default(PENDING)
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([categoryId])
+  @@index([createdAt])
 }
 
 model Ticket {
@@ -1177,6 +1306,7 @@ model Category {
   parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id])
   children  Category[] @relation("CategoryTree")
   listings  Listing[]
+  productRequests ProductRequest[]
   feeRules  FeeRule[]
   verificationFeeRules VerificationFeeRule[]
   userFees  UserCategoryFee[]
@@ -1677,16 +1807,22 @@ model Cart {
 }
 
 model CartItem {
-  id        String   @id @default(cuid())
-  cartId    String
-  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
-  listingId String
-  quantity  Int      @default(1)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id               String         @id @default(cuid())
+  cartId           String
+  cart             Cart           @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  listingId        String
+  quantity         Int            @default(1)
+  /** رزرو ناشی از پیشنهاد خرید تأییدشده */
+  purchaseOfferId  String?        @unique
+  purchaseOffer    PurchaseOffer? @relation(fields: [purchaseOfferId], references: [id], onDelete: SetNull)
+  lockedUnitPrice  Decimal?
+  reservedUntil    DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 
   @@unique([cartId, listingId])
   @@index([listingId])
+  @@index([reservedUntil])
 }
 
 enum CheckoutSessionStatus {

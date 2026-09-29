@@ -115,6 +115,21 @@ export function resolveNotificationPath(
   }
 
   if (
+    type === 'PURCHASE_OFFER_RECEIVED'
+  ) {
+    if (listingId) return `/dashboard/purchase-offers/${listingId}`;
+    return '/dashboard/listings';
+  }
+
+  if (
+    type === 'PURCHASE_OFFER_ACCEPTED' ||
+    type === 'PURCHASE_OFFER_REJECTED'
+  ) {
+    if (listingId) return `/listing/${listingId}`;
+    return '/dashboard/cart';
+  }
+
+  if (
     type === 'AUCTION_WON' ||
     type === 'AUCTION_PAYMENT_REMINDER' ||
     type === 'AUCTION_LOST'

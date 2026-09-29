@@ -5,6 +5,7 @@ import {
   ListingType,
   OrderStatus,
   Prisma,
+  PurchaseOfferStatus,
   UserRole,
 } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
@@ -59,6 +60,7 @@ const LIST_ITEM_SELECT = {
   featuredAt: true,
   stockQuantity: true,
   exchangeOffersSince: true,
+  mergeGroupId: true,
   direct: {
     select: {
       price: true,
@@ -485,9 +487,30 @@ export class ListingQueryService {
       }
     }
 
+    const directListingIds = rows
+      .filter((item) => item.type === ListingType.DIRECT)
+      .map((item) => item.id);
+    const purchasePendingCounts = new Map<string, number>();
+    if (directListingIds.length) {
+      const grouped = await this.prisma.purchaseOffer.groupBy({
+        by: ['listingId'],
+        where: {
+          listingId: { in: directListingIds },
+          status: PurchaseOfferStatus.PENDING,
+          expiresAt: { gt: new Date() },
+        },
+        _count: { _all: true },
+      });
+      for (const row of grouped) {
+        purchasePendingCounts.set(row.listingId, row._count._all);
+      }
+    }
+
     const items = rows.map((item) => ({
       ...item,
       pendingExchangeOffersCount: pendingCounts.get(item.id) ?? 0,
+      pendingPurchaseOffersCount: purchasePendingCounts.get(item.id) ?? 0,
+      isMerged: Boolean(item.mergeGroupId),
     }));
 
     return { items, pagination: buildPaginationMeta(page, pageSize, total) };
@@ -519,6 +542,23 @@ export class ListingQueryService {
       },
     });
     if (!listing || listing.status !== ListingStatus.APPROVED) return false;
+
+    const activePurchaseReservation = await this.prisma.purchaseOffer.findFirst({
+      where: {
+        listingId,
+        status: PurchaseOfferStatus.ACCEPTED,
+        reservedUntil: { gt: new Date() },
+      },
+      select: { buyerId: true },
+    });
+    if (activePurchaseReservation) {
+      if (viewerId && activePurchaseReservation.buyerId === viewerId) {
+        // ادامه می‌دهیم تا سفارش checkout هم چک شود
+      } else {
+        return false;
+      }
+    }
+
     const checkoutOrder = listing.orders[0];
     const os = checkoutOrder?.status;
     const isExchangePending =

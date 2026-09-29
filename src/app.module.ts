@@ -44,7 +44,9 @@ import { AuctionModule } from './modules/auction/auction.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { TelegramBotModule } from './modules/notification/telegram-bot/telegram-bot.module';
 import { ExchangeModule } from './modules/exchange/exchange.module';
+import { PurchaseOfferModule } from './modules/purchase-offer/purchase-offer.module';
 import { RepairModule } from './modules/repair/repair.module';
+import { ProductRequestModule } from './modules/product-request/product-request.module';
 import { SupportModule } from './modules/support/support.module';
 import { ChatsModule } from './modules/chats/chats.module';
 import { OrdersModule } from './modules/orders/orders.module';
@@ -115,7 +117,9 @@ import { AppService } from './app.service';
     QuotaModule,
     AuctionModule,
     ExchangeModule,
+    PurchaseOfferModule,
     RepairModule,
+    ProductRequestModule,
     NotificationModule,
     TelegramBotModule,
     SupportModule,

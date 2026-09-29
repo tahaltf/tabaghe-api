@@ -103,7 +103,7 @@ async function main() {
 
   console.log('\n📋 خلاصه ورود:');
   console.log('   کاربران عادی (خریدار/فروشنده): /auth  →  OTP: 11111');
-  console.log('   ادمین تست:                    /admin-auth  →  رمز: @Ab123456789@  →  OTP: 11111');
+  console.log('   ادمین تست:                    /admin-auth  →  09121111111  →  رمز: 123456  →  OTP: 11111');
   console.log(`   GODADMIN:                     /admin-auth  →  ${GODADMIN_PHONE}  →  همان رمز و OTP\n`);
 }
 

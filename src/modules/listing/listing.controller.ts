@@ -38,7 +38,9 @@ import { resolveGalleryFromOrder } from './utils/resolve-gallery-order.util';
 import { ListingCommandService } from './services/listing-command.service';
 import { ListingQueryService } from './services/listing-query.service';
 import { ListingSavedService } from './services/listing-saved.service';
+import { ListingMergeService } from './services/listing-merge.service';
 import { ListingAnalyticsService } from '../analytics/listing-analytics.service';
+import { CreateMergeRequestDto } from './dto/create-merge-request.dto';
 
 class RecordViewDto {
   @IsOptional()
@@ -61,6 +63,7 @@ export class ListingController {
     private readonly savedService: ListingSavedService,
     private readonly auctionService: AuctionService,
     private readonly analyticsService: ListingAnalyticsService,
+    private readonly mergeService: ListingMergeService,
   ) {}
 
   @Get()
@@ -162,6 +165,38 @@ export class ListingController {
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     });
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('my-merge-requests')
+  listMyMergeRequests(@CurrentUser() user: AuthenticatedUser) {
+    return this.mergeService.listMyRequests(user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('merge-requests/:requestId')
+  cancelMergeRequest(
+    @Param('requestId') requestId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.mergeService.cancelRequest(user.id, requestId);
+  }
+
+  @Get(':id/similar')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @CacheControl('public, max-age=30, stale-while-revalidate=60')
+  getSimilar(@Param('id') id: string) {
+    return this.mergeService.getSimilar(id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/merge-requests')
+  createMergeRequest(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateMergeRequestDto,
+  ) {
+    return this.mergeService.createRequest(user.id, id, dto.targetListingId);
   }
 
   @UseGuards(OptionalJwtAuthGuard)

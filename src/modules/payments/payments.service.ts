@@ -13,6 +13,7 @@ import {
   OrderType,
   PaymentInitKind,
   Prisma,
+  PurchaseOfferStatus,
   RepairRequestStatus,
   SecondChanceOfferStatus,
   WalletTransactionStatus,
@@ -667,6 +668,18 @@ export class PaymentsService {
           status:
             nextStock <= 0 ? ListingStatus.SOLD : ListingStatus.APPROVED,
         },
+      });
+    }
+
+    const listingIds = session.orders.map((o) => o.listingId);
+    if (listingIds.length) {
+      await tx.purchaseOffer.updateMany({
+        where: {
+          buyerId: session.buyerId,
+          listingId: { in: listingIds },
+          status: PurchaseOfferStatus.ACCEPTED,
+        },
+        data: { reservedUntil: null },
       });
     }
   }

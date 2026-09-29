@@ -14,6 +14,7 @@ export type AdminBadgeResource =
   | 'tickets'
   | 'complaints'
   | 'repairs'
+  | 'productRequests'
   | 'contactMessages';
 
 const ALL_RESOURCES: AdminBadgeResource[] = [
@@ -24,6 +25,7 @@ const ALL_RESOURCES: AdminBadgeResource[] = [
   'tickets',
   'complaints',
   'repairs',
+  'productRequests',
   'contactMessages',
 ];
 
@@ -59,6 +61,7 @@ export class AdminBadgesService {
       tickets: 0,
       complaints: 0,
       repairs: 0,
+      productRequests: 0,
       contactMessages: 0,
     };
 
@@ -192,6 +195,11 @@ export class AdminBadgesService {
 
         case 'repairs':
           return this.prisma.repairRequest.count({
+            where: { createdAt: { gt: since } },
+          });
+
+        case 'productRequests':
+          return this.prisma.productRequest.count({
             where: { createdAt: { gt: since } },
           });
 

@@ -9,6 +9,7 @@ import { AdminDashboardController } from './controllers/admin-dashboard.controll
 import { AdminUsersQueryController } from './controllers/admin-users.controller';
 import { AdminInquiryRestrictionsController } from './controllers/admin-inquiry-restrictions.controller';
 import { AdminListingsQueryController } from './controllers/admin-listings.controller';
+import { AdminListingMergeController } from './controllers/admin-listing-merge.controller';
 import { AdminOrdersQueryController } from './controllers/admin-orders.controller';
 import { AdminTransactionsController } from './controllers/admin-transactions.controller';
 import { AdminCategoriesController } from './controllers/admin-categories.controller';
@@ -19,6 +20,7 @@ import { AdminFeeRulesController } from './controllers/admin-fee-rules.controlle
 import { AdminVerificationFeeRulesController } from './controllers/admin-verification-fee-rules.controller';
 import { AdminGiteaIpAllowlistController } from './controllers/admin-gitea-ip-allowlist.controller';
 import { AdminRepairsController } from './controllers/admin-repairs.controller';
+import { AdminProductRequestsController } from './controllers/admin-product-requests.controller';
 import { AdminTicketsController } from './controllers/admin-tickets.controller';
 import { AdminNotificationsController } from './controllers/admin-notifications.controller';
 import { AdminDisputesController } from './controllers/admin-disputes.controller';
@@ -64,6 +66,7 @@ import { AdminFeeRulesService } from './services/admin-fee-rules.service';
 import { AdminVerificationFeeRulesService } from './services/admin-verification-fee-rules.service';
 import { AdminGiteaIpAllowlistService } from './services/admin-gitea-ip-allowlist.service';
 import { AdminRepairsService } from './services/admin-repairs.service';
+import { AdminProductRequestsService } from './services/admin-product-requests.service';
 import { AdminTicketsService } from './services/admin-tickets.service';
 import { AdminDisputesService } from './services/admin-disputes.service';
 import { AdminFaqService } from './services/admin-faq.service';
@@ -120,6 +123,7 @@ import { ZohalModule } from '../zohal/zohal.module';
     AdminUsersQueryController,
     AdminInquiryRestrictionsController,
     AdminListingsQueryController,
+    AdminListingMergeController,
     AdminOrdersQueryController,
     AdminTransactionsController,
     AdminCategoriesController,
@@ -130,6 +134,7 @@ import { ZohalModule } from '../zohal/zohal.module';
     AdminVerificationFeeRulesController,
     AdminGiteaIpAllowlistController,
     AdminRepairsController,
+    AdminProductRequestsController,
     AdminTicketsController,
     AdminNotificationsController,
     AdminDisputesController,
@@ -175,6 +180,7 @@ import { ZohalModule } from '../zohal/zohal.module';
     AdminVerificationFeeRulesService,
     AdminGiteaIpAllowlistService,
     AdminRepairsService,
+    AdminProductRequestsService,
     AdminTicketsService,
     AdminDisputesService,
     AdminFaqService,

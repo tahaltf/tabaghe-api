@@ -43,6 +43,12 @@ const LISTING_LIST_INCLUDE = {
       directPrice: true,
     },
   },
+  mergeGroup: {
+    select: {
+      id: true,
+      _count: { select: { listings: true } },
+    },
+  },
 } satisfies Prisma.ListingInclude;
 
 type AdminListingAuthor = Prisma.ListingGetPayload<{
@@ -116,7 +122,14 @@ export class AdminListingsQueryService {
 
     const items = await this.attachAuthorPlans(rawItems);
 
-    return { items, pagination: buildPaginationMeta(page, pageSize, total) };
+    return {
+      items: items.map((item) => ({
+        ...item,
+        mergeGroupMemberCount: item.mergeGroup?._count?.listings ?? 0,
+        isMerged: Boolean(item.mergeGroupId),
+      })),
+      pagination: buildPaginationMeta(page, pageSize, total),
+    };
   }
 
   async detail(id: string) {
@@ -173,6 +186,20 @@ export class AdminListingsQueryService {
                 id: true,
                 firstName: true,
                 lastName: true,
+                phone: true,
+              },
+            },
+          },
+        },
+        purchaseOffers: {
+          orderBy: { createdAt: 'desc' },
+          include: {
+            buyer: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                displayName: true,
                 phone: true,
               },
             },

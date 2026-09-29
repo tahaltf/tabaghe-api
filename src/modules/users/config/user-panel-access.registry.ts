@@ -5,6 +5,7 @@ export const USER_PANEL_ACCESS_KEYS = [
   'dashboard.wallet',
   'dashboard.wallet.withdraw',
   'dashboard.repairs',
+  'dashboard.productRequests',
   'dashboard.invite',
   'dashboard.plans',
   'dashboard.support',

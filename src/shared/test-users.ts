@@ -1,7 +1,7 @@
 import { UserRole } from '@prisma/client';
 
 export const TEST_OTP_CODE = '11111';
-export const TEST_ADMIN_PASSWORD = '@Ab123456789@';
+export const TEST_ADMIN_PASSWORD = '123456';
 
 export interface TestUserSeed {
   phone: string;
@@ -34,7 +34,7 @@ export const TEST_USER_SEEDS: TestUserSeed[] = [
     label: 'buyer',
   },
   {
-    phone: '09190000003',
+    phone: '09121111111',
     role: UserRole.ADMIN,
     firstName: 'تست',
     lastName: 'ادمین',

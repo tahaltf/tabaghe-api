@@ -3,6 +3,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { NotificationService } from './notification.service';
 import { AuctionEvents } from '../auction/auction.events';
 import { ExchangeEvents } from '../exchange/exchange.events';
+import { PurchaseOfferEvents } from '../purchase-offer/purchase-offer.events';
 import { NotificationType } from '@prisma/client';
 
 @Injectable()
@@ -153,6 +154,87 @@ export class NotificationListener {
         audience: 'OFFERER',
         phase: 'exchange_offer_rejected',
         phaseKey: 'exchange_offer_rejected',
+      },
+    });
+  }
+
+  @OnEvent(PurchaseOfferEvents.OFFER_CREATED)
+  async onPurchaseOfferCreated(payload: {
+    listingId: string;
+    ownerId: string;
+    buyerId: string;
+    offerId: string;
+    amount?: number;
+    listingTitle?: string;
+  }) {
+    await this.notificationService.createUserOperational({
+      userId: payload.ownerId,
+      type: NotificationType.PURCHASE_OFFER_RECEIVED,
+      title: 'پیشنهاد خرید جدید',
+      message: 'برای آگهی شما یک پیشنهاد خرید جدید ثبت شد.',
+      recipientRole: 'OWNER',
+      meta: {
+        ...payload,
+        role: 'OWNER',
+        audience: 'OWNER',
+        phase: 'purchase_offer_received',
+        phaseKey: 'purchase_offer_received',
+      },
+    });
+  }
+
+  @OnEvent(PurchaseOfferEvents.OFFER_ACCEPTED)
+  async onPurchaseOfferAccepted(payload: {
+    listingId: string;
+    buyerId: string;
+    offerId: string;
+    amount?: number;
+    amountFormatted?: string;
+    listingTitle?: string;
+    listingUrl?: string;
+  }) {
+    await this.notificationService.createUserOperational({
+      userId: payload.buyerId,
+      type: NotificationType.PURCHASE_OFFER_ACCEPTED,
+      title: 'پیشنهاد خرید شما تایید شد',
+        message:
+        'فروشنده با پیشنهاد شما موافقت کرد. کالا در سبد خریدتان رزرو شده است؛ هرچه سریع‌تر خرید را تکمیل کنید.',
+      recipientRole: 'BUYER',
+      meta: {
+        ...payload,
+        role: 'BUYER',
+        audience: 'BUYER',
+        phase: 'purchase_offer_accepted',
+        phaseKey: 'purchase_offer_accepted',
+        listingUrl:
+          payload.listingUrl ||
+          (payload.listingId ? `/listing/${payload.listingId}` : undefined),
+      },
+    });
+  }
+
+  @OnEvent(PurchaseOfferEvents.OFFER_REJECTED)
+  async onPurchaseOfferRejected(payload: {
+    listingId: string;
+    buyerId: string;
+    offerId: string;
+    reason?: string;
+    listingTitle?: string;
+  }) {
+    await this.notificationService.createUserOperational({
+      userId: payload.buyerId,
+      type: NotificationType.PURCHASE_OFFER_REJECTED,
+      title: 'پیشنهاد خرید شما رد شد',
+      message: payload.reason
+        ? `فروشنده پیشنهاد شما را رد کرد: ${payload.reason}`
+        : 'فروشنده پیشنهاد خرید شما را رد کرد.',
+      recipientRole: 'BUYER',
+      meta: {
+        ...payload,
+        role: 'BUYER',
+        audience: 'BUYER',
+        phase: 'purchase_offer_rejected',
+        phaseKey: 'purchase_offer_rejected',
       },
     });
   }

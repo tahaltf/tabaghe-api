@@ -64,6 +64,9 @@ export const ADMIN_PERMISSION_CATALOG: AdminPermissionDef[] = [
     { action: 'view', label: 'مشاهده درخواست‌های تعمیر' },
     { action: 'update', label: 'مدیریت درخواست تعمیر' },
   ]),
+  ...defs('product_requests', 'درخواست‌های کالا', 550, [
+    { action: 'view', label: 'مشاهده درخواست‌های کالا' },
+  ]),
   ...defs('transactions', 'تراکنش‌ها', 600, [
     { action: 'view', label: 'مشاهده تراکنش‌ها' },
   ]),
@@ -286,10 +289,12 @@ export const ADMIN_ROUTE_PERMISSIONS = {
     '/admin': 'dashboard.view',
     '/admin/users': 'users.view',
     '/admin/listings': 'listings.view',
+    '/admin/listing-merge-requests': 'listings.view',
     '/admin/orders': 'orders.view',
     '/admin/inspection-orders': 'orders.view',
     '/admin/shipping-queue': 'orders.view',
     '/admin/repair-requests': 'repairs.view',
+    '/admin/product-requests': 'product_requests.view',
     '/admin/transactions': 'transactions.view',
     '/admin/wallet-requests': 'wallet_requests.view',
     '/admin/platform-wallet': 'platform_wallet.view',
