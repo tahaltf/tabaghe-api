@@ -2,8 +2,9 @@ import { existsSync } from 'fs';
 import { MiddlewareConsumer, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
+import { UserAwareThrottlerGuard } from './common/guards/user-aware-throttler.guard';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ServeStaticModule } from '@nestjs/serve-static';
@@ -144,7 +145,7 @@ import { AppService } from './app.service';
     AppService,
     {
       provide: APP_GUARD,
-      useClass: ThrottlerGuard, // 👈 فعال‌سازی واقعی محدودیت ریکوئست‌ها
+      useClass: UserAwareThrottlerGuard,
     },
     {
       provide: APP_FILTER,

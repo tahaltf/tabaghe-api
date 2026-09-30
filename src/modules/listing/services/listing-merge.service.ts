@@ -180,6 +180,11 @@ export class ListingMergeService {
     if (source.authorId !== userId) {
       throw new ForbiddenException('فقط برای آگهی خودتان می‌توانید درخواست ادغام ثبت کنید');
     }
+    if (source.mergeGroupId) {
+      throw new BadRequestException(
+        'این آگهی قبلاً ادغام شده و امکان ثبت درخواست ادغام جدید وجود ندارد',
+      );
+    }
     if (!target || target.deletedAt) {
       throw new NotFoundException('آگهی مقصد یافت نشد');
     }

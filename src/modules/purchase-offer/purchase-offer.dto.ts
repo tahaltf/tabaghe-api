@@ -1,4 +1,4 @@
-import { IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreatePurchaseOfferDto {
@@ -11,6 +11,16 @@ export class CreatePurchaseOfferDto {
   @IsString()
   @MaxLength(2000)
   description?: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'استان الزامی است' })
+  @MaxLength(100)
+  province!: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'شهر الزامی است' })
+  @MaxLength(100)
+  city!: string;
 }
 
 export class RejectPurchaseOfferDto {

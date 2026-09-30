@@ -5,7 +5,7 @@ import { AppModule } from '../../app.module';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { JwtAuthGuard } from '../../modules/auth/guards/jwt-auth.guard';
 import { IsVerifiedGuard } from '../../modules/auth/guards/is-verified.guard';
-import { ThrottlerGuard } from '@nestjs/throttler';
+import { UserAwareThrottlerGuard } from '../../common/guards/user-aware-throttler.guard';
 import { CheckoutSessionStatus } from '@prisma/client';
 
 const runE2e = process.env.RUN_MARKETPLACE_E2E === '1';
@@ -54,7 +54,7 @@ const runE2e = process.env.RUN_MARKETPLACE_E2E === '1';
       })
       .overrideGuard(IsVerifiedGuard)
       .useValue({ canActivate: () => true })
-      .overrideGuard(ThrottlerGuard)
+      .overrideGuard(UserAwareThrottlerGuard)
       .useValue({ canActivate: () => true })
       .compile();
 

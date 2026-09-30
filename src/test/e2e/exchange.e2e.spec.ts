@@ -5,7 +5,7 @@ import { AppModule } from '../../app.module';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { JwtAuthGuard } from '../../modules/auth/guards/jwt-auth.guard';
 import { IsVerifiedGuard } from '../../modules/auth/guards/is-verified.guard';
-import { ThrottlerGuard } from '@nestjs/throttler';
+import { UserAwareThrottlerGuard } from '../../common/guards/user-aware-throttler.guard';
 
 describe('Exchange E2E', () => {
   let app: INestApplication;
@@ -38,7 +38,7 @@ describe('Exchange E2E', () => {
       })
       .overrideGuard(IsVerifiedGuard)
       .useValue({ canActivate: () => true })
-      .overrideGuard(ThrottlerGuard)
+      .overrideGuard(UserAwareThrottlerGuard)
       .useValue({ canActivate: () => true })
       .compile();
 

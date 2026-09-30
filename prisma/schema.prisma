@@ -1160,6 +1160,10 @@ model PurchaseOffer {
   buyer              User                @relation(fields: [buyerId], references: [id], onDelete: Cascade)
   amount             Decimal
   description        String?
+  /** استان پیشنهاددهنده (نام — مثل آدرس) */
+  province           String?
+  /** شهر پیشنهاددهنده (نام — مثل آدرس) */
+  city               String?
   status             PurchaseOfferStatus @default(PENDING)
   rejectionReason    String?
   expiresAt          DateTime

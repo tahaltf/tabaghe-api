@@ -7,7 +7,7 @@ import { JwtAuthGuard } from '../../modules/auth/guards/jwt-auth.guard';
 import { IsVerifiedGuard } from '../../modules/auth/guards/is-verified.guard';
 import { AuctionService } from '../../modules/auction/auction.service';
 import { AuctionScheduler } from '../../modules/auction/auction.scheduler';
-import { ThrottlerGuard } from '@nestjs/throttler';
+import { UserAwareThrottlerGuard } from '../../common/guards/user-aware-throttler.guard';
 
 describe('Auction E2E', () => {
   let app: INestApplication;
@@ -41,7 +41,7 @@ describe('Auction E2E', () => {
       })
       .overrideGuard(IsVerifiedGuard)
       .useValue({ canActivate: () => true })
-      .overrideGuard(ThrottlerGuard)
+      .overrideGuard(UserAwareThrottlerGuard)
       .useValue({ canActivate: () => true })
       .compile();
 

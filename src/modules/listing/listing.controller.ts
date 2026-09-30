@@ -266,6 +266,7 @@ export class ListingController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 12, ttl: 60_000 } })
   @Post(':id/save')
   toggleSave(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.savedService.toggle(user.id, id);

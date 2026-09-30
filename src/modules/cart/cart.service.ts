@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { ListingStatus, ListingType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { UserActionRateLimitService } from '../../common/services/user-action-rate-limit.service';
 import { resolveListingEffectiveUnitPrice } from '../../common/listing/listing-price.util';
 import { formatUserDisplayName } from '../../common/utils/user-display-name.util';
 import { PurchaseOfferService } from '../purchase-offer/purchase-offer.service';
@@ -24,11 +25,16 @@ const CART_LISTING_INCLUDE = {
   direct: true,
 } satisfies Prisma.ListingInclude;
 
+/** حداکثر ۱۵ بار افزودن به سبد در هر ۶۰ ثانیه برای هر کاربر */
+const CART_ADD_LIMIT = 15;
+const CART_ADD_WINDOW_SEC = 60;
+
 @Injectable()
 export class CartService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly purchaseOfferService: PurchaseOfferService,
+    private readonly actionRateLimit: UserActionRateLimitService,
   ) {}
 
   async getCart(userId: string) {
@@ -113,6 +119,13 @@ export class CartService {
   }
 
   async addItem(userId: string, listingId: string, quantity = 1) {
+    await this.actionRateLimit.consumeOrThrow(
+      userId,
+      'cart-add-item',
+      CART_ADD_LIMIT,
+      CART_ADD_WINDOW_SEC,
+    );
+
     const listing = await this.prisma.listing.findUnique({
       where: { id: listingId },
       include: { direct: true, author: { select: { id: true } } },

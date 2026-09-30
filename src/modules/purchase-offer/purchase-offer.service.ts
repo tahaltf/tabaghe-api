@@ -81,6 +81,12 @@ export class PurchaseOfferService {
       );
     }
 
+    const province = String(dto.province ?? '').trim();
+    const city = String(dto.city ?? '').trim();
+    if (!province || !city) {
+      throw new BadRequestException('استان و شهر الزامی است');
+    }
+
     const active = await this.prisma.purchaseOffer.findFirst({
       where: {
         buyerId: userId,
@@ -116,6 +122,8 @@ export class PurchaseOfferService {
         buyerId: userId,
         amount,
         description: dto.description?.trim() || null,
+        province,
+        city,
         status: PurchaseOfferStatus.PENDING,
         expiresAt,
       },
@@ -171,25 +179,22 @@ export class PurchaseOfferService {
     }
 
     const where: Prisma.PurchaseOfferWhereInput = { listingId };
+    const buyerSelect = {
+      id: true,
+      firstName: true,
+      lastName: true,
+      displayName: true,
+      phone: true,
+    } as const;
     const [items, total] = await Promise.all([
       this.prisma.purchaseOffer.findMany({
         where,
         skip,
         take: pageSize,
         orderBy: [{ amount: 'desc' }, { createdAt: 'desc' }],
-        include: isStaff
-          ? {
-              buyer: {
-                select: {
-                  id: true,
-                  firstName: true,
-                  lastName: true,
-                  displayName: true,
-                  phone: true,
-                },
-              },
-            }
-          : undefined,
+        include: {
+          buyer: { select: buyerSelect },
+        },
       }),
       this.prisma.purchaseOffer.count({ where }),
     ]);
@@ -197,8 +202,8 @@ export class PurchaseOfferService {
     return {
       items: items.map((o) =>
         this.serializeOffer(o, {
-          hideBuyer: !isStaff,
-          includeBuyer: isStaff,
+          hideBuyer: false,
+          includeBuyer: true,
         }),
       ),
       pagination: {
@@ -616,6 +621,8 @@ export class PurchaseOfferService {
       buyerId: string;
       amount: Prisma.Decimal | number;
       description: string | null;
+      province?: string | null;
+      city?: string | null;
       status: PurchaseOfferStatus;
       rejectionReason: string | null;
       expiresAt: Date;
@@ -632,6 +639,8 @@ export class PurchaseOfferService {
       listingId: offer.listingId,
       amount: Number(offer.amount),
       description: offer.description,
+      province: offer.province ?? null,
+      city: offer.city ?? null,
       status: offer.status,
       rejectionReason: offer.rejectionReason,
       expiresAt: offer.expiresAt,

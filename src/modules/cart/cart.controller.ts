@@ -9,6 +9,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { IsVerifiedGuard } from '../auth/guards/is-verified.guard';
@@ -37,6 +38,7 @@ export class CartController {
     return this.cartService.getCart(user.id);
   }
 
+  @Throttle({ default: { limit: 15, ttl: 60_000 } })
   @Post('items')
   addItem(
     @CurrentUser() user: AuthenticatedUser,

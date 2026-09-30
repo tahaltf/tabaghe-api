@@ -2,6 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import { ListingStatus, ListingType } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { UserActionRateLimitService } from '../../common/services/user-action-rate-limit.service';
+import { PurchaseOfferService } from '../purchase-offer/purchase-offer.service';
 import { CartService } from './cart.service';
 
 describe('CartService', () => {
@@ -19,12 +21,24 @@ describe('CartService', () => {
     listing: { findUnique: jest.fn() },
   };
 
+  const purchaseOfferMock = {
+    isListingReservedForOther: jest.fn().mockResolvedValue(false),
+  };
+
+  const rateLimitMock = {
+    consumeOrThrow: jest.fn().mockResolvedValue(undefined),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
+    rateLimitMock.consumeOrThrow.mockResolvedValue(undefined);
+    purchaseOfferMock.isListingReservedForOther.mockResolvedValue(false);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CartService,
         { provide: PrismaService, useValue: prismaMock },
+        { provide: PurchaseOfferService, useValue: purchaseOfferMock },
+        { provide: UserActionRateLimitService, useValue: rateLimitMock },
       ],
     }).compile();
     service = module.get(CartService);

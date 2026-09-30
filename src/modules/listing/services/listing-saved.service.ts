@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { UserActionRateLimitService } from '../../../common/services/user-action-rate-limit.service';
 import {
   buildPaginationMeta,
   PaginatedResult,
@@ -26,11 +27,25 @@ export type SavedListing = Prisma.ListingGetPayload<{
   include: typeof SAVED_LISTING_INCLUDE;
 }>;
 
+/** حداکثر ۱۲ بار نشان/حذف‌نشان در هر ۶۰ ثانیه برای هر کاربر */
+const SAVE_TOGGLE_LIMIT = 12;
+const SAVE_TOGGLE_WINDOW_SEC = 60;
+
 @Injectable()
 export class ListingSavedService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly actionRateLimit: UserActionRateLimitService,
+  ) {}
 
   async toggle(userId: string, listingId: string): Promise<{ saved: boolean }> {
+    await this.actionRateLimit.consumeOrThrow(
+      userId,
+      'listing-save-toggle',
+      SAVE_TOGGLE_LIMIT,
+      SAVE_TOGGLE_WINDOW_SEC,
+    );
+
     const existing = await this.prisma.savedListing.findUnique({
       where: { userId_listingId: { userId, listingId } },
       select: { id: true },
