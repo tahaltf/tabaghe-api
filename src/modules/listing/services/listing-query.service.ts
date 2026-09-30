@@ -492,17 +492,21 @@ export class ListingQueryService {
       .map((item) => item.id);
     const purchasePendingCounts = new Map<string, number>();
     if (directListingIds.length) {
-      const grouped = await this.prisma.purchaseOffer.groupBy({
-        by: ['listingId'],
-        where: {
-          listingId: { in: directListingIds },
-          status: PurchaseOfferStatus.PENDING,
-          expiresAt: { gt: new Date() },
-        },
-        _count: { _all: true },
-      });
-      for (const row of grouped) {
-        purchasePendingCounts.set(row.listingId, row._count._all);
+      try {
+        const grouped = await this.prisma.purchaseOffer.groupBy({
+          by: ['listingId'],
+          where: {
+            listingId: { in: directListingIds },
+            status: PurchaseOfferStatus.PENDING,
+            expiresAt: { gt: new Date() },
+          },
+          _count: { _all: true },
+        });
+        for (const row of grouped) {
+          purchasePendingCounts.set(row.listingId, row._count._all);
+        }
+      } catch {
+        // جدول/اسکیما هنوز migrate نشده؛ لیست آگهی‌ها نباید خالی بماند
       }
     }
 
