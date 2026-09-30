@@ -72,6 +72,8 @@ export const SETTING_KEYS = {
   LISTING_TYPE_AUCTION_ENABLED: LISTING_TYPE_ENABLED_SETTING_KEYS.AUCTION,
   PURCHASE_OFFER_VALIDITY_HOURS: 'PURCHASE_OFFER_VALIDITY_HOURS',
   PURCHASE_OFFER_CART_RESERVE_HOURS: 'PURCHASE_OFFER_CART_RESERVE_HOURS',
+  PRODUCT_REQUEST_BUDGET_RANGE_MIN: 'PRODUCT_REQUEST_BUDGET_RANGE_MIN',
+  PRODUCT_REQUEST_BUDGET_RANGE_MAX: 'PRODUCT_REQUEST_BUDGET_RANGE_MAX',
   EXCHANGE_NO_SHIPMENT_COMPENSATION: 'EXCHANGE_NO_SHIPMENT_COMPENSATION',
   EXCHANGE_PAYMENT_DEADLINE_MINUTES: 'EXCHANGE_PAYMENT_DEADLINE_MINUTES',
   EXCHANGE_SHIP_DEADLINE_MINUTES: 'EXCHANGE_SHIP_DEADLINE_MINUTES',
@@ -287,6 +289,10 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
     'مهلت اعتبار پیشنهاد خرید برای تأیید فروشنده (ساعت)',
   PURCHASE_OFFER_CART_RESERVE_HOURS:
     'مهلت رزرو سبد پس از تأیید پیشنهاد خرید (ساعت)',
+  PRODUCT_REQUEST_BUDGET_RANGE_MIN:
+    'کف اسلایدر بودجه درخواست کالا (تومان). باید کمتر از سقف باشد',
+  PRODUCT_REQUEST_BUDGET_RANGE_MAX:
+    'سقف اسلایدر بودجه درخواست کالا (تومان). باید بیشتر از کف باشد',
   EXCHANGE_NO_SHIPMENT_COMPENSATION:
     'درصد هزینه کارشناسی طرفی که ارسال نکرده: از سهم او کسر و به فرستنده جبران می‌شود (۰–۱۰۰)',
   AUCTION_WINNER_PAYMENT_DEADLINE_HOURS:
@@ -660,6 +666,7 @@ export class AdminSettingsService {
 
   async upsert(dto: UpsertSettingDto, actor?: AuthenticatedUser) {
     this.assertValidSettingValue(dto.key, dto.value);
+    await this.assertProductRequestBudgetRange([dto]);
     const existing = await this.prisma.systemSetting.findUnique({
       where: { key: dto.key },
       select: { value: true },
@@ -681,6 +688,7 @@ export class AdminSettingsService {
     for (const item of items) {
       this.assertValidSettingValue(item.key, item.value);
     }
+    await this.assertProductRequestBudgetRange(items);
     const keys = items.map((i) => i.key);
     const existingRows = await this.prisma.systemSetting.findMany({
       where: { key: { in: keys } },
@@ -764,6 +772,13 @@ export class AdminSettingsService {
       }
       return;
     }
+    if (
+      key === SETTING_KEYS.PRODUCT_REQUEST_BUDGET_RANGE_MIN ||
+      key === SETTING_KEYS.PRODUCT_REQUEST_BUDGET_RANGE_MAX
+    ) {
+      this.parseBudgetBound(value);
+      return;
+    }
     if (key === SETTING_KEYS.SITE_LICENSES_JSON) {
       try {
         validateSiteLicensesJson(value);
@@ -798,6 +813,47 @@ export class AdminSettingsService {
       );
     }
     return parsed;
+  }
+
+  private parseBudgetBound(value: string): number {
+    const n = Number(String(value ?? '').replace(/,/g, '').trim());
+    if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
+      throw new BadRequestException('بازه بودجه درخواست کالا باید عدد صحیح نامنفی باشد');
+    }
+    return n;
+  }
+
+  private async assertProductRequestBudgetRange(
+    items: Array<{ key: string; value: string }>,
+  ): Promise<void> {
+    const minKey = SETTING_KEYS.PRODUCT_REQUEST_BUDGET_RANGE_MIN;
+    const maxKey = SETTING_KEYS.PRODUCT_REQUEST_BUDGET_RANGE_MAX;
+    const incomingMin = items.find((item) => item.key === minKey);
+    const incomingMax = items.find((item) => item.key === maxKey);
+    if (!incomingMin && !incomingMax) return;
+
+    let min = incomingMin ? this.parseBudgetBound(incomingMin.value) : null;
+    let max = incomingMax ? this.parseBudgetBound(incomingMax.value) : null;
+    if (min == null || max == null) {
+      const rows = await this.prisma.systemSetting.findMany({
+        where: { key: { in: [minKey, maxKey] } },
+        select: { key: true, value: true },
+      });
+      if (min == null) {
+        const stored = rows.find((row) => row.key === minKey)?.value;
+        min = stored != null && stored !== '' ? this.parseBudgetBound(stored) : 0;
+      }
+      if (max == null) {
+        const stored = rows.find((row) => row.key === maxKey)?.value;
+        max =
+          stored != null && stored !== ''
+            ? this.parseBudgetBound(stored)
+            : 800_000_000;
+      }
+    }
+    if (!(min < max)) {
+      throw new BadRequestException('کف بازه بودجه درخواست کالا باید کمتر از سقف باشد');
+    }
   }
 
   private uniqueSettingItems(

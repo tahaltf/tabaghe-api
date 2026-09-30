@@ -1,4 +1,4 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UserPanelAccessGuard } from '../auth/guards/user-panel-access.guard';
@@ -12,6 +12,11 @@ import { SubmitProductRequestDto } from './dto/product-request.dto';
 @UseGuards(JwtAuthGuard)
 export class ProductRequestController {
   constructor(private readonly service: ProductRequestService) {}
+
+  @Get('budget-range')
+  budgetRange() {
+    return this.service.getBudgetRange();
+  }
 
   @Post()
   @UseGuards(UserPanelAccessGuard)

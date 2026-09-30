@@ -56,8 +56,17 @@ export class ProductRequestService {
     const categoryId = await this.resolveCategoryId(dto.categoryId);
     const budgetMin = this.parseOptionalDecimal(dto.budgetMin);
     const budgetMax = this.parseOptionalDecimal(dto.budgetMax);
-    if (budgetMin && budgetMax && budgetMin.gt(budgetMax)) {
-      throw new BadRequestException('حداقل بودجه نمی‌تواند از حداکثر بیشتر باشد');
+    if (budgetMin && budgetMax && budgetMin.gte(budgetMax)) {
+      throw new BadRequestException('حداقل بودجه باید کمتر از حداکثر باشد');
+    }
+    const range = await this.getBudgetRange();
+    const minN = budgetMin ? budgetMin.toNumber() : null;
+    const maxN = budgetMax ? budgetMax.toNumber() : null;
+    if (minN != null && (minN < range.min || minN > range.max)) {
+      throw new BadRequestException('حداقل بودجه خارج از بازه مجاز است');
+    }
+    if (maxN != null && (maxN < range.min || maxN > range.max)) {
+      throw new BadRequestException('حداکثر بودجه خارج از بازه مجاز است');
     }
 
     const quantity =
@@ -117,5 +126,33 @@ export class ProductRequestService {
       .catch(() => undefined);
 
     return created!;
+  }
+
+  async getBudgetRange(): Promise<{ min: number; max: number }> {
+    const fallbackMin = 0;
+    const fallbackMax = 800_000_000;
+    const rows = await this.prisma.systemSetting.findMany({
+      where: {
+        key: {
+          in: [
+            'PRODUCT_REQUEST_BUDGET_RANGE_MIN',
+            'PRODUCT_REQUEST_BUDGET_RANGE_MAX',
+          ],
+        },
+      },
+      select: { key: true, value: true },
+    });
+    let min = fallbackMin;
+    let max = fallbackMax;
+    for (const row of rows) {
+      const n = Number(String(row.value ?? '').replace(/,/g, ''));
+      if (!Number.isFinite(n) || n < 0) continue;
+      if (row.key === 'PRODUCT_REQUEST_BUDGET_RANGE_MIN') min = Math.floor(n);
+      if (row.key === 'PRODUCT_REQUEST_BUDGET_RANGE_MAX') max = Math.floor(n);
+    }
+    if (!(min < max)) {
+      return { min: fallbackMin, max: fallbackMax };
+    }
+    return { min, max };
   }
 }
