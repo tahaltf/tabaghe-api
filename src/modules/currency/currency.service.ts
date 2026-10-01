@@ -17,6 +17,12 @@ export type EffectiveRate = {
   isOverride: boolean;
 };
 
+export type FxQuoteDto = {
+  source: string;
+  rateToToman: number;
+  fetchedAt?: string | null;
+};
+
 export type CurrencyPublicDto = {
   code: string;
   nameFa: string;
@@ -25,9 +31,14 @@ export type CurrencyPublicDto = {
   isEnabled: boolean;
   sortOrder: number;
   rateToToman: number | null;
+  rateMin: number | null;
+  rateMax: number | null;
+  quotes: FxQuoteDto[];
   rateUpdatedAt: string | null;
   rateSource: string | null;
 };
+
+const OUTLIER_RATIO = 0.15;
 
 @Injectable()
 export class CurrencyService {
@@ -227,14 +238,14 @@ export class CurrencyService {
 
   /**
    * دریافت نرخ از n8n / اتوماسیون خارجی و ذخیره در CurrencyRate.
-   * سپس کش تومان آگهی‌های همان ارز به‌روز می‌شود.
+   * اگر quotes چندمنبعی باشد → min/max/mid؛ در غیر این صورت تک‌نرخی.
    */
   async ingestRates(dto: FxIngestRatesDto): Promise<{
     updated: string[];
     skipped: string[];
     source: string;
   }> {
-    const source = (dto.source?.trim() || 'n8n').slice(0, 64);
+    const sourceLabel = (dto.source?.trim() || 'n8n').slice(0, 64);
     const unit = dto.unit === 'rial' ? 'rial' : 'toman';
     const fetchedAt = new Date();
     const updated: string[] = [];
@@ -257,23 +268,31 @@ export class CurrencyService {
         continue;
       }
 
-      let rate = Number(item.rateToToman);
-      if (unit === 'rial') rate = rate / 10;
-      if (!Number.isFinite(rate) || rate <= 0) {
+      const scale = unit === 'rial' ? 0.1 : 1;
+      const resolved = this.resolveIngestQuotes(item, scale, fetchedAt);
+      if (!resolved) {
         skipped.push(code);
         continue;
       }
+
+      const { rate, rateMin, rateMax, quotes, source } = resolved;
 
       await this.prisma.currencyRate.upsert({
         where: { currencyCode: code },
         create: {
           currencyCode: code,
           rateToToman: rate,
+          rateMin,
+          rateMax,
+          quotes: quotes as unknown as Prisma.InputJsonValue,
           source,
           fetchedAt,
         },
         update: {
           rateToToman: rate,
+          rateMin,
+          rateMax,
+          quotes: quotes as unknown as Prisma.InputJsonValue,
           source,
           fetchedAt,
         },
@@ -283,9 +302,85 @@ export class CurrencyService {
     }
 
     this.logger.log(
-      `FX ingest source=${source} updated=${updated.join(',') || '-'} skipped=${skipped.join(',') || '-'}`,
+      `FX ingest source=${sourceLabel} updated=${updated.join(',') || '-'} skipped=${skipped.join(',') || '-'}`,
     );
-    return { updated, skipped, source };
+    return { updated, skipped, source: sourceLabel };
+  }
+
+  /**
+   * quotes چندمنبعی یا تک‌نرخ → پس از فیلتر outlier، min/max/mid.
+   */
+  private resolveIngestQuotes(
+    item: {
+      rateToToman?: number;
+      quotes?: { source: string; rateToToman: number }[];
+    },
+    scale: number,
+    fetchedAt: Date,
+  ): {
+    rate: number;
+    rateMin: number;
+    rateMax: number;
+    quotes: FxQuoteDto[];
+    source: string;
+  } | null {
+    const raw: FxQuoteDto[] = [];
+
+    if (item.quotes?.length) {
+      for (const q of item.quotes) {
+        const v = Number(q.rateToToman) * scale;
+        if (!Number.isFinite(v) || v <= 0) continue;
+        const src = String(q.source || '').trim().slice(0, 32) || 'unknown';
+        raw.push({
+          source: src,
+          rateToToman: v,
+          fetchedAt: fetchedAt.toISOString(),
+        });
+      }
+    } else if (item.rateToToman != null) {
+      const v = Number(item.rateToToman) * scale;
+      if (Number.isFinite(v) && v > 0) {
+        raw.push({
+          source: 'ingest',
+          rateToToman: v,
+          fetchedAt: fetchedAt.toISOString(),
+        });
+      }
+    }
+
+    if (!raw.length) return null;
+
+    const filtered = this.filterOutlierQuotes(raw);
+    if (!filtered.length) return null;
+
+    const values = filtered.map((q) => q.rateToToman);
+    const rateMin = Math.min(...values);
+    const rateMax = Math.max(...values);
+    const rate = (rateMin + rateMax) / 2;
+    const source = filtered
+      .map((q) => q.source)
+      .filter((v, i, a) => a.indexOf(v) === i)
+      .join(',')
+      .slice(0, 64);
+
+    return { rate, rateMin, rateMax, quotes: filtered, source };
+  }
+
+  /** حذف quoteهایی که بیش از OUTLIER_RATIO از میانه فاصله دارند */
+  private filterOutlierQuotes(quotes: FxQuoteDto[]): FxQuoteDto[] {
+    if (quotes.length <= 2) return quotes;
+    const sorted = [...quotes].map((q) => q.rateToToman).sort((a, b) => a - b);
+    const mid =
+      sorted.length % 2 === 1
+        ? sorted[(sorted.length - 1) / 2]
+        : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
+    if (!Number.isFinite(mid) || mid <= 0) return quotes;
+
+    const kept = quotes.filter((q) => {
+      const diff = Math.abs(q.rateToToman - mid) / mid;
+      return diff <= OUTLIER_RATIO;
+    });
+    return kept.length ? kept : quotes;
   }
 
   async refreshListingPriceCacheForCurrency(currencyCode: string) {
@@ -400,6 +495,9 @@ export class CurrencyService {
     sortOrder: number;
     rate: {
       rateToToman: Prisma.Decimal;
+      rateMin?: Prisma.Decimal | null;
+      rateMax?: Prisma.Decimal | null;
+      quotes?: Prisma.JsonValue | null;
       source: string;
       fetchedAt: Date | null;
       manualOverride: Prisma.Decimal | null;
@@ -408,11 +506,16 @@ export class CurrencyService {
     } | null;
   }): CurrencyPublicDto {
     let rateToToman: number | null = null;
+    let rateMin: number | null = null;
+    let rateMax: number | null = null;
+    let quotes: FxQuoteDto[] = [];
     let rateUpdatedAt: string | null = null;
     let rateSource: string | null = null;
 
     if (r.code === BASE_CURRENCY_CODE) {
       rateToToman = 1;
+      rateMin = 1;
+      rateMax = 1;
       rateUpdatedAt = new Date().toISOString();
       rateSource = 'manual';
     } else if (r.rate) {
@@ -425,6 +528,18 @@ export class CurrencyService {
         ? Number(r.rate.manualOverride)
         : Number(r.rate.rateToToman);
       rateToToman = Number.isFinite(rate) && rate > 0 ? rate : null;
+
+      if (!overrideActive) {
+        const mn = r.rate.rateMin != null ? Number(r.rate.rateMin) : null;
+        const mx = r.rate.rateMax != null ? Number(r.rate.rateMax) : null;
+        rateMin = mn != null && Number.isFinite(mn) && mn > 0 ? mn : null;
+        rateMax = mx != null && Number.isFinite(mx) && mx > 0 ? mx : null;
+        quotes = this.parseQuotesJson(r.rate.quotes);
+      } else {
+        rateMin = rateToToman;
+        rateMax = rateToToman;
+      }
+
       rateUpdatedAt = (
         r.rate.fetchedAt ?? r.rate.updatedAt
       )?.toISOString();
@@ -439,8 +554,27 @@ export class CurrencyService {
       isEnabled: r.isEnabled,
       sortOrder: r.sortOrder,
       rateToToman,
+      rateMin,
+      rateMax,
+      quotes,
       rateUpdatedAt,
       rateSource,
     };
+  }
+
+  private parseQuotesJson(raw: Prisma.JsonValue | null | undefined): FxQuoteDto[] {
+    if (!raw || !Array.isArray(raw)) return [];
+    const out: FxQuoteDto[] = [];
+    for (const item of raw) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const obj = item as Record<string, unknown>;
+      const source = String(obj.source ?? '').trim();
+      const rate = Number(obj.rateToToman);
+      if (!source || !Number.isFinite(rate) || rate <= 0) continue;
+      const fetchedAt =
+        typeof obj.fetchedAt === 'string' ? obj.fetchedAt : null;
+      out.push({ source, rateToToman: rate, fetchedAt });
+    }
+    return out;
   }
 }

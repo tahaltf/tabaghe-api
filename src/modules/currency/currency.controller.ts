@@ -16,6 +16,9 @@ export class CurrencyController {
     return list.map((c) => ({
       code: c.code,
       rateToToman: c.rateToToman,
+      rateMin: c.rateMin,
+      rateMax: c.rateMax,
+      quotes: c.quotes,
       updatedAt: c.rateUpdatedAt,
       source: c.rateSource,
     }));

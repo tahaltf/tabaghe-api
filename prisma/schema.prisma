@@ -1615,9 +1615,15 @@ model Currency {
 model CurrencyRate {
   currencyCode     String   @id
   currency         Currency @relation(fields: [currencyCode], references: [code], onDelete: Cascade)
-  /** ۱ واحد ارز = چند تومان */
+  /** ۱ واحد ارز = چند تومان — معمولاً میانه بازه چندمنبعی */
   rateToToman      Decimal  @default(0)
-  source           String   @default("navasan") // navasan | manual
+  /** کمینه نرخ بین منابع (تومان) */
+  rateMin          Decimal?
+  /** بیشینه نرخ بین منابع (تومان) */
+  rateMax          Decimal?
+  /** نقل‌قول‌های منابع: [{ source, rateToToman, fetchedAt? }] */
+  quotes           Json?
+  source           String   @default("navasan") // n8n-multi | tgju | manual | ...
   fetchedAt        DateTime?
   /** اگر ست باشد و overrideUntil نگذشته باشد، به جای rateToToman استفاده می‌شود */
   manualOverride   Decimal?
