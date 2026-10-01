@@ -1850,16 +1850,20 @@ model WordPressApiToken {
 }
 
 model WordPressConnection {
-  id            String    @id @default(cuid())
-  userId        String    @unique
-  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  siteUrl       String?
-  pluginVersion String?
-  catalogSecret String?
-  lastPingAt    DateTime?
-  lastSyncAt    DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                    String    @id @default(cuid())
+  userId                String    @unique
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  siteUrl               String?
+  pluginVersion         String?
+  catalogSecret         String?
+  /** 0 = disabled | 6 | 12 | 24 */
+  syncIntervalHours     Int       @default(12)
+  /** حداقل موجودی منبع برای نمایش موجود روی سایت */
+  minStockForAvailable  Int       @default(1)
+  lastPingAt            DateTime?
+  lastSyncAt            DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 }
 
 ////////////////////
@@ -1867,25 +1871,29 @@ model WordPressConnection {
 ////////////////////
 
 model ExternalProductFeed {
-  id                String    @id @default(cuid())
-  userId            String    @unique
-  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  enabled           Boolean   @default(false)
-  feedUrl           String?
+  id                   String    @id @default(cuid())
+  userId               String    @unique
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enabled              Boolean   @default(false)
+  feedUrl              String?
   /** IRT | USD | AED | IQD */
-  currencyCode      String    @default("IRT")
+  currencyCode         String    @default("IRT")
   /** NONE | PERCENT | FIXED */
-  markupType        String    @default("NONE")
-  markupValue       Decimal   @default(0)
-  descriptionSuffix String?
-  defaultCategoryId String?
-  lastSyncAt        DateTime?
+  markupType           String    @default("NONE")
+  markupValue          Decimal   @default(0)
+  descriptionSuffix    String?
+  defaultCategoryId    String?
+  /** 15 | 30 | 60 | 180 | 360 | 720 | 1440 */
+  syncIntervalMinutes  Int       @default(15)
+  /** حداقل موجودی منبع برای نمایش موجود روی سایت */
+  minStockForAvailable Int       @default(1)
+  lastSyncAt           DateTime?
   /** SUCCESS | FAILED | PARTIAL */
-  lastSyncStatus    String?
-  lastSyncError     String?
-  lastSyncStats     Json?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  lastSyncStatus       String?
+  lastSyncError        String?
+  lastSyncStats        Json?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 }
 
 ////////////////////

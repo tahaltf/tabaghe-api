@@ -48,9 +48,7 @@ export class WordPressIngestController {
 
   @Post('ping')
   ping(@Req() req: WordPressRequest, @Body() dto: WordPressPingDto) {
-    return this.connectionService.ping(req.wpUser!.id, dto).then(() => ({
-      ok: true,
-    }));
+    return this.connectionService.ping(req.wpUser!.id, dto);
   }
 
   @Post('products')

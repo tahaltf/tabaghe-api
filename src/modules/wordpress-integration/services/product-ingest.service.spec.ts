@@ -52,6 +52,7 @@ describe('WordPressProductIngestService pricing', () => {
       dto,
       { categoryId: 'cat-1', provinceId: 'prov-1', cityId: 'city-1' },
       'cat-1',
+      1,
     );
 
     expect(syncInput.price).toBe(100_000);
@@ -76,6 +77,7 @@ describe('WordPressProductIngestService pricing', () => {
       dto,
       { categoryId: 'cat-1', provinceId: 'prov-1', cityId: 'city-1' },
       'cat-1',
+      1,
     );
 
     expect(syncInput.price).toBe(80_000);
@@ -101,6 +103,7 @@ describe('WordPressProductIngestService pricing', () => {
       dto,
       { categoryId: 'cat-1', provinceId: 'prov-1', cityId: 'city-1' },
       'cat-1',
+      1,
     );
 
     expect(syncInput.price).toBe(100_000);
@@ -125,6 +128,7 @@ describe('WordPressProductIngestService pricing', () => {
       dto,
       { categoryId: 'cat-1', provinceId: 'prov-1', cityId: 'city-1' },
       'cat-1',
+      1,
     );
 
     expect(syncInput.priceCurrencyCode).toBe('USD');
@@ -149,6 +153,7 @@ describe('WordPressProductIngestService pricing', () => {
       dto,
       { categoryId: 'cat-1', provinceId: 'prov-1', cityId: 'city-1' },
       'cat-1',
+      1,
     );
 
     expect(syncInput.priceCurrencyCode).toBeNull();
@@ -158,8 +163,11 @@ describe('WordPressProductIngestService pricing', () => {
 describe('WordPressProductIngestService availability', () => {
   let service: WordPressProductIngestService;
 
-  const isAvailable = (dto: Partial<WordPressProductDto>): boolean =>
-    (service as any).isProductAvailable(dto as WordPressProductDto);
+  const resolve = (
+    dto: Partial<WordPressProductDto>,
+    minStock = 1,
+  ): { isPublished: boolean; siteStock: number } =>
+    (service as any).resolveAvailability(dto as WordPressProductDto, minStock);
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -183,27 +191,30 @@ describe('WordPressProductIngestService availability', () => {
     service = module.get(WordPressProductIngestService);
   });
 
-  it('treats stockQuantity 0 as unavailable even when inStock is true', () => {
+  it('marks stockQuantity 0 as published but siteStock 0', () => {
     expect(
-      isAvailable({ status: 'publish', inStock: true, stockQuantity: 0 }),
-    ).toBe(false);
+      resolve({ status: 'publish', inStock: true, stockQuantity: 0 }),
+    ).toEqual({ isPublished: true, siteStock: 0 });
   });
 
-  it('treats negative stockQuantity as unavailable', () => {
+  it('applies minStock threshold so stock 1 becomes unavailable when min is 2', () => {
     expect(
-      isAvailable({ status: 'publish', inStock: true, stockQuantity: -1 }),
-    ).toBe(false);
+      resolve({ status: 'publish', inStock: true, stockQuantity: 1 }, 2),
+    ).toEqual({ isPublished: true, siteStock: 0 });
+    expect(
+      resolve({ status: 'publish', inStock: true, stockQuantity: 2 }, 2),
+    ).toEqual({ isPublished: true, siteStock: 2 });
   });
 
-  it('keeps product available when stockQuantity is positive', () => {
+  it('keeps unmanaged stock available when inStock is true', () => {
     expect(
-      isAvailable({ status: 'publish', inStock: true, stockQuantity: 3 }),
-    ).toBe(true);
+      resolve({ status: 'publish', inStock: true, stockQuantity: null }),
+    ).toEqual({ isPublished: true, siteStock: 1 });
   });
 
-  it('keeps product available when stockQuantity is null (stock not managed)', () => {
+  it('marks draft as unpublished', () => {
     expect(
-      isAvailable({ status: 'publish', inStock: true, stockQuantity: null }),
-    ).toBe(true);
+      resolve({ status: 'draft', inStock: true, stockQuantity: 5 }),
+    ).toEqual({ isPublished: false, siteStock: 0 });
   });
 });

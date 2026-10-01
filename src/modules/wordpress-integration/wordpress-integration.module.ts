@@ -6,6 +6,7 @@ import { PrismaModule } from '../../infrastructure/prisma/prisma.module';
 import { CurrencyModule } from '../currency/currency.module';
 import { FeesModule } from '../fees/fees.module';
 import { AdminWordPressPluginController } from './controllers/admin-wordpress-plugin.controller';
+import { AdminWordPressSyncPolicyController } from './controllers/admin-wordpress-sync-policy.controller';
 import { WordPressUserController } from './controllers/wordpress-user.controller';
 import { WordPressIngestController } from './controllers/wordpress-ingest.controller';
 import { WordPressApiTokenService } from './services/api-token.service';
@@ -31,6 +32,7 @@ import { ApiTokenGuard } from './guards/api-token.guard';
     WordPressUserController,
     WordPressIngestController,
     AdminWordPressPluginController,
+    AdminWordPressSyncPolicyController,
   ],
   providers: [
     WordPressApiTokenService,

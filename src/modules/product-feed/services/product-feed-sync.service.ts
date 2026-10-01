@@ -22,6 +22,7 @@ import {
   normalizeFeedBaseUrl,
 } from '../utils/product-feed.util';
 import { ProductFeedIngestService } from './product-feed-ingest.service';
+import { isDueForSync } from '../../../common/utils/min-stock-threshold.util';
 
 export interface ProductFeedSyncResult {
   created: number;
@@ -78,6 +79,7 @@ export class ProductFeedSyncService {
         markupValue: Number(feed.markupValue),
         descriptionSuffix: feed.descriptionSuffix,
         defaultCategoryId: feed.defaultCategoryId,
+        minStockForAvailable: feed.minStockForAvailable ?? 1,
       };
 
       for (const product of products) {
@@ -264,12 +266,23 @@ export class ProductFeedSyncService {
         enabled: true,
         feedUrl: { not: null },
       },
-      select: { userId: true, feedUrl: true },
+      select: {
+        userId: true,
+        feedUrl: true,
+        lastSyncAt: true,
+        syncIntervalMinutes: true,
+      },
     });
 
     let synced = 0;
+    const now = new Date();
     for (const feed of feeds) {
       if (!feed.feedUrl) continue;
+      if (
+        !isDueForSync(feed.lastSyncAt, feed.syncIntervalMinutes ?? 15, now)
+      ) {
+        continue;
+      }
       try {
         await this.syncUserFeed(feed.userId);
         synced++;

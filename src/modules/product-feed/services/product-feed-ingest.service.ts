@@ -1,4 +1,4 @@
-import {
+﻿import {
   BadRequestException,
   ForbiddenException,
   Injectable,
@@ -18,6 +18,7 @@ import {
   ListingAlertItem,
   ListingNotificationBatchService,
 } from '../../../common/notification/listing-notification-batch.service';
+import { applyMinStockThreshold } from '../../../common/utils/min-stock-threshold.util';
 import { CreateListingDto } from '../../listing/dto/create-listing.dto';
 import {
   ListingCommandService,
@@ -40,6 +41,7 @@ export interface ProductFeedIngestContext {
   markupValue: number;
   descriptionSuffix: string | null;
   defaultCategoryId: string | null;
+  minStockForAvailable: number;
 }
 
 interface ListingDefaults {
@@ -89,10 +91,12 @@ export class ProductFeedIngestService {
     });
 
     const isUpdate = !!existing;
-    const isAvailable =
-      product.isAvailable && Number(product.price) > 0;
+    const hasSellablePrice = Number(product.price) > 0;
+    const siteStock = hasSellablePrice
+      ? applyMinStockThreshold(product.stockQuantity, ctx.minStockForAvailable)
+      : 0;
 
-    if (!isAvailable) {
+    if (!hasSellablePrice) {
       if (!isUpdate) {
         return {
           listingId: null as string | null,
@@ -103,11 +107,11 @@ export class ProductFeedIngestService {
           skipped: true,
         };
       }
-      return this.ingestUnavailableUpdate(userId, existing.id, product, ctx);
+      return this.ingestOutOfStockUpdate(userId, existing.id, product, ctx);
     }
 
     const defaults = await this.resolveDefaults(userId, ctx.defaultCategoryId);
-    const syncInput = await this.buildSyncInput(product, defaults, ctx);
+    const syncInput = await this.buildSyncInput(product, defaults, ctx, siteStock);
 
     let listing;
     let isNew = false;
@@ -147,27 +151,43 @@ export class ProductFeedIngestService {
     };
   }
 
-  private async ingestUnavailableUpdate(
+  private async ingestOutOfStockUpdate(
     userId: string,
     listingId: string,
     product: DeepenFeedProduct,
     ctx: ProductFeedIngestContext,
   ) {
     const defaults = await this.resolveDefaults(userId, ctx.defaultCategoryId);
-    const syncInput = await this.buildSyncInput(product, defaults, ctx);
-    const { listing, archived } =
-      await this.listingCommands.archiveWordPressUnavailableListing(
-        userId,
-        listingId,
-        syncInput,
-      );
+    const syncInput = await this.buildSyncInput(product, defaults, ctx, 0);
+    const existing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      include: { direct: true },
+    });
+    if (existing?.direct && Number(syncInput.price) <= 0) {
+      syncInput.price = Number(existing.direct.price);
+      syncInput.compareAtPrice =
+        existing.direct.compareAtPrice != null
+          ? Number(existing.direct.compareAtPrice)
+          : null;
+      syncInput.salePrice =
+        existing.direct.salePrice != null
+          ? Number(existing.direct.salePrice)
+          : null;
+    }
+    syncInput.stockQuantity = 0;
+
+    const listing = await this.listingCommands.syncWordPressListing(
+      userId,
+      listingId,
+      syncInput,
+    );
 
     return {
       listingId: listing.id,
       status: listing.status,
       created: false,
       updated: true,
-      archived,
+      archived: false,
       skipped: false,
     };
   }
@@ -176,6 +196,7 @@ export class ProductFeedIngestService {
     product: DeepenFeedProduct,
     defaults: ListingDefaults,
     ctx: ProductFeedIngestContext,
+    siteStock: number,
   ): Promise<WordPressSyncUpdateInput> {
     const gallery = product.image
       ? await this.remoteImages.downloadMany([product.image])
@@ -243,7 +264,7 @@ export class ProductFeedIngestService {
       categoryId: defaults.categoryId,
       provinceId: defaults.provinceId,
       cityId: defaults.cityId,
-      stockQuantity: product.isAvailable && product.price > 0 ? 1 : 0,
+      stockQuantity: siteStock,
       priceCurrencyCode: ctx.currencyCode,
     };
   }

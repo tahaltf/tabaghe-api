@@ -11,6 +11,10 @@ import {
   PRODUCT_FEED_CURRENCY_CODES,
   ProductFeedMarkupType,
 } from '../dto/admin-product-feed.dto';
+import {
+  normalizeMinStockForAvailable,
+  PRODUCT_FEED_SYNC_INTERVAL_MINUTES,
+} from '../../../common/utils/min-stock-threshold.util';
 import { normalizeFeedBaseUrl } from '../utils/product-feed.util';
 
 export interface ProductFeedConfigView {
@@ -23,6 +27,8 @@ export interface ProductFeedConfigView {
   markupValue: number;
   descriptionSuffix: string | null;
   defaultCategoryId: string | null;
+  syncIntervalMinutes: number;
+  minStockForAvailable: number;
   lastSyncAt: Date | null;
   lastSyncStatus: string | null;
   lastSyncError: string | null;
@@ -91,14 +97,9 @@ export class ProductFeedConfigService {
     if (markupType === 'FIXED' && markupValue < 0) {
       throw new BadRequestException('مبلغ افزایش قیمت نمی‌تواند منفی باشد');
     }
-    if (markupType === 'NONE' && dto.markupValue != null && dto.markupValue !== 0) {
-      // allow but normalize
-    }
 
     let feedUrl =
-      dto.feedUrl !== undefined
-        ? dto.feedUrl
-        : (existing?.feedUrl ?? null);
+      dto.feedUrl !== undefined ? dto.feedUrl : (existing?.feedUrl ?? null);
     if (feedUrl) {
       try {
         feedUrl = normalizeFeedBaseUrl(feedUrl);
@@ -129,9 +130,7 @@ export class ProductFeedConfigService {
     }
 
     const enabled =
-      dto.enabled != null
-        ? dto.enabled
-        : (existing?.enabled ?? false);
+      dto.enabled != null ? dto.enabled : (existing?.enabled ?? false);
 
     if (enabled && !feedUrl) {
       throw new BadRequestException(
@@ -144,6 +143,23 @@ export class ProductFeedConfigService {
         ? dto.descriptionSuffix
         : (existing?.descriptionSuffix ?? null);
 
+    const syncIntervalMinutes =
+      dto.syncIntervalMinutes != null
+        ? dto.syncIntervalMinutes
+        : (existing?.syncIntervalMinutes ?? 15);
+
+    if (
+      !(PRODUCT_FEED_SYNC_INTERVAL_MINUTES as readonly number[]).includes(
+        syncIntervalMinutes,
+      )
+    ) {
+      throw new BadRequestException('بازه همگام‌سازی فید نامعتبر است');
+    }
+
+    const minStockForAvailable = normalizeMinStockForAvailable(
+      dto.minStockForAvailable ?? existing?.minStockForAvailable ?? 1,
+    );
+
     const row = await this.prisma.externalProductFeed.upsert({
       where: { userId },
       create: {
@@ -155,6 +171,8 @@ export class ProductFeedConfigService {
         markupValue: markupType === 'NONE' ? 0 : markupValue,
         descriptionSuffix,
         defaultCategoryId,
+        syncIntervalMinutes,
+        minStockForAvailable,
       },
       update: {
         enabled,
@@ -164,6 +182,8 @@ export class ProductFeedConfigService {
         markupValue: markupType === 'NONE' ? 0 : markupValue,
         descriptionSuffix,
         defaultCategoryId,
+        syncIntervalMinutes,
+        minStockForAvailable,
       },
     });
 
@@ -189,6 +209,8 @@ export class ProductFeedConfigService {
       markupValue: Prisma.Decimal | number;
       descriptionSuffix: string | null;
       defaultCategoryId: string | null;
+      syncIntervalMinutes: number;
+      minStockForAvailable: number;
       lastSyncAt: Date | null;
       lastSyncStatus: string | null;
       lastSyncError: string | null;
@@ -208,6 +230,8 @@ export class ProductFeedConfigService {
         markupValue: 0,
         descriptionSuffix: null,
         defaultCategoryId: null,
+        syncIntervalMinutes: 15,
+        minStockForAvailable: 1,
         lastSyncAt: null,
         lastSyncStatus: null,
         lastSyncError: null,
@@ -227,6 +251,8 @@ export class ProductFeedConfigService {
       markupValue: Number(row.markupValue),
       descriptionSuffix: row.descriptionSuffix,
       defaultCategoryId: row.defaultCategoryId,
+      syncIntervalMinutes: row.syncIntervalMinutes,
+      minStockForAvailable: row.minStockForAvailable,
       lastSyncAt: row.lastSyncAt,
       lastSyncStatus: row.lastSyncStatus,
       lastSyncError: row.lastSyncError,

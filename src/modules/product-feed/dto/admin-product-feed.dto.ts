@@ -2,6 +2,7 @@ import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsIn,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
@@ -11,6 +12,7 @@ import {
   Min,
   ValidateIf,
 } from 'class-validator';
+import { PRODUCT_FEED_SYNC_INTERVAL_MINUTES } from '../../../common/utils/min-stock-threshold.util';
 
 export const PRODUCT_FEED_CURRENCY_CODES = ['IRT', 'USD', 'AED', 'IQD'] as const;
 export const PRODUCT_FEED_MARKUP_TYPES = ['NONE', 'PERCENT', 'FIXED'] as const;
@@ -86,4 +88,19 @@ export class AdminUpsertProductFeedDto {
   @IsString()
   @MaxLength(64)
   defaultCategoryId?: string | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @IsIn([...PRODUCT_FEED_SYNC_INTERVAL_MINUTES], {
+    message: 'بازه همگام‌سازی فید نامعتبر است',
+  })
+  syncIntervalMinutes?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(1_000_000)
+  minStockForAvailable?: number;
 }

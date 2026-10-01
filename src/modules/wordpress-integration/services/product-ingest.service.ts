@@ -50,13 +50,15 @@ import {
   ListingNotificationBatchService,
 } from '../../../common/notification/listing-notification-batch.service';
 import type { WordPressSyncOptions } from '../../listing/services/listing-command.service';
+import {
+  applyMinStockThreshold,
+  normalizeMinStockForAvailable,
+} from '../../../common/utils/min-stock-threshold.util';
 
 export type WordPressIngestOptions = WordPressSyncOptions & {
   skipAdminNotification?: boolean;
   onAdminAlert?: (item: ListingAlertItem) => void;
 };
-
-
 
 interface ListingDefaults {
 
@@ -68,15 +70,11 @@ interface ListingDefaults {
 
 }
 
-
-
 @Injectable()
 
 export class WordPressProductIngestService {
 
   private defaultsCache: ListingDefaults | null = null;
-
-
 
   constructor(
 
@@ -106,8 +104,6 @@ export class WordPressProductIngestService {
     };
   }
 
-
-
   async ingestOne(
     userId: string,
     dto: WordPressProductDto,
@@ -132,53 +128,33 @@ export class WordPressProductIngestService {
 
     });
 
-
-
     const isUpdate = !!existing;
+    const minStock = await this.connectionService.getMinStockForAvailable(userId);
+    const availability = this.resolveAvailability(dto, minStock);
 
-    const isAvailable = this.isProductAvailable(dto);
-
-
-
-    if (!isAvailable) {
-
+    // پیش‌نویس / حذف‌شده از وردپرس → آرشیو (اگر قبلاً وارد شده)
+    if (!availability.isPublished) {
       if (!isUpdate) {
-
         throw new BadRequestException(
-
-          'فقط محصولات منتشرشده و موجود قابل ارسال هستند',
-
+          'فقط محصولات منتشرشده قابل ارسال هستند',
         );
-
       }
-
       return this.ingestUnavailableUpdate(userId, existing.id, dto);
-
     }
-
-
-
-    if (dto.status && dto.status !== 'publish' && !isUpdate) {
-
-      throw new BadRequestException('فقط محصولات منتشرشده قابل ارسال هستند');
-
-    }
-
-
 
     const defaults = await this.resolveDefaults(userId);
-
     const categoryId = await this.resolveCategoryId(dto, defaults);
-
-    const syncInput = await this.buildSyncInput(userId, dto, defaults, categoryId);
-
-
+    const syncInput = await this.buildSyncInput(
+      userId,
+      dto,
+      defaults,
+      categoryId,
+      availability.siteStock,
+    );
 
     let listing;
 
     let isNew = false;
-
-
 
     if (existing) {
 
@@ -228,11 +204,7 @@ export class WordPressProductIngestService {
 
     }
 
-
-
     await this.connectionService.recordProductActivity(userId, dto.siteUrl);
-
-
 
     return {
 
@@ -247,8 +219,6 @@ export class WordPressProductIngestService {
     };
 
   }
-
-
 
   async ingestBulk(userId: string, products: WordPressProductDto[]) {
 
@@ -292,38 +262,39 @@ export class WordPressProductIngestService {
 
   }
 
-
-
-  private isProductAvailable(dto: WordPressProductDto): boolean {
-
+  /**
+   * isPublished=false → آرشیو/رد ایجاد
+   * siteStock=0 با isPublished=true → روی سایت ناموجود (بدون آرشیو)
+   */
+  private resolveAvailability(
+    dto: WordPressProductDto,
+    minStockForAvailable: number,
+  ): { isPublished: boolean; siteStock: number } {
     if (dto.status && dto.status !== 'publish') {
-
-      return false;
-
+      return { isPublished: false, siteStock: 0 };
     }
 
+    const min = normalizeMinStockForAvailable(minStockForAvailable);
+    const raw = dto.stockQuantity;
+    const hasNumericStock =
+      raw != null && Number.isFinite(Number(raw)) && Number(raw) >= 0;
+
+    if (hasNumericStock) {
+      return {
+        isPublished: true,
+        siteStock: applyMinStockThreshold(Number(raw), min),
+      };
+    }
+
+    // موجودی مدیریت نمی‌شود — فلگ‌های موجودی ووکامرس
     if (dto.inStock === false) {
-
-      return false;
-
+      return { isPublished: true, siteStock: 0 };
     }
-
     const stockStatus = dto.stockStatus?.toLowerCase();
-
     if (stockStatus === 'outofstock' || stockStatus === 'out_of_stock') {
-
-      return false;
-
+      return { isPublished: true, siteStock: 0 };
     }
-
-    if (dto.stockQuantity != null && Number(dto.stockQuantity) <= 0) {
-
-      return false;
-
-    }
-
-    return true;
-
+    return { isPublished: true, siteStock: Math.max(1, min) };
   }
 
   /**
@@ -359,19 +330,6 @@ export class WordPressProductIngestService {
     };
   }
 
-  private resolveStockQuantity(dto: WordPressProductDto): number {
-    if (!this.isProductAvailable(dto)) {
-      return 0;
-    }
-    const raw = dto.stockQuantity;
-    if (raw != null && Number.isFinite(Number(raw)) && Number(raw) >= 0) {
-      return Math.floor(Number(raw));
-    }
-    return 1;
-  }
-
-
-
   private async ingestUnavailableUpdate(
 
     userId: string,
@@ -386,7 +344,7 @@ export class WordPressProductIngestService {
 
     const categoryId = await this.resolveCategoryId(dto, defaults);
 
-    const syncInput = await this.buildSyncInput(userId, dto, defaults, categoryId);
+    const syncInput = await this.buildSyncInput(userId, dto, defaults, categoryId, 0);
 
     const { listing, archived } =
 
@@ -400,11 +358,7 @@ export class WordPressProductIngestService {
 
       );
 
-
-
     await this.connectionService.recordProductActivity(userId, dto.siteUrl);
-
-
 
     return {
 
@@ -422,18 +376,12 @@ export class WordPressProductIngestService {
 
   }
 
-
-
   private async buildSyncInput(
-
     userId: string,
-
     dto: WordPressProductDto,
-
     defaults: ListingDefaults,
-
     categoryId: string,
-
+    siteStock: number,
   ): Promise<WordPressSyncUpdateInput> {
 
     const imageUrls = dto.images
@@ -449,8 +397,6 @@ export class WordPressProductIngestService {
     const { price: regularPrice, compareAtPrice, salePrice } =
       this.resolveSyncPricing(dto);
 
-
-
     const attributesPayload = dto.attributes.map((attr) => ({
 
       name: attr.name,
@@ -464,8 +410,6 @@ export class WordPressProductIngestService {
       options: attr.options,
 
     }));
-
-
 
     const description = buildWordPressListingDescription(dto);
 
@@ -499,15 +443,13 @@ export class WordPressProductIngestService {
 
       cityId: defaults.cityId,
 
-      stockQuantity: this.resolveStockQuantity(dto),
+      stockQuantity: siteStock,
 
       priceCurrencyCode,
 
     };
 
   }
-
-
 
   private toCreateListingDto(
 
@@ -559,8 +501,6 @@ export class WordPressProductIngestService {
 
   }
 
-
-
   private async resolveCategoryId(
 
     dto: WordPressProductDto,
@@ -577,21 +517,15 @@ export class WordPressProductIngestService {
 
     }
 
-
-
     await this.categoriesService.assertCategoryAllowed(categoryId);
 
     return categoryId;
 
   }
 
-
-
   private async resolveDefaults(userId: string): Promise<ListingDefaults> {
 
     if (this.defaultsCache) return this.defaultsCache;
-
-
 
     const category = await this.prisma.category.findFirst({
 
@@ -603,15 +537,11 @@ export class WordPressProductIngestService {
 
     });
 
-
-
     if (!category) {
 
       throw new BadRequestException('دسته‌بندی پیش‌فرض در سیستم یافت نشد');
 
     }
-
-
 
     const userAddress = await this.prisma.address.findFirst({
 
@@ -622,8 +552,6 @@ export class WordPressProductIngestService {
       select: { province: true, city: true },
 
     });
-
-
 
     let province = userAddress
 
@@ -636,8 +564,6 @@ export class WordPressProductIngestService {
         })
 
       : null;
-
-
 
     let city =
 
@@ -660,8 +586,6 @@ export class WordPressProductIngestService {
           })
 
         : null;
-
-
 
     if (!province) {
 
@@ -687,15 +611,11 @@ export class WordPressProductIngestService {
 
     }
 
-
-
     if (!province || !city) {
 
       throw new BadRequestException('مکان پیش‌فرض در سیستم یافت نشد');
 
     }
-
-
 
     this.defaultsCache = {
 
@@ -729,5 +649,4 @@ export class WordPressProductIngestService {
   }
 
 }
-
 

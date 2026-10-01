@@ -6,6 +6,8 @@ export interface DeepenFeedProduct {
   category: string | null;
   image: string | null;
   isAvailable: boolean;
+  /** موجودی عددی منبع؛ اگر نباشد از isAvailable به‌صورت ۱/۰ ساخته می‌شود */
+  stockQuantity: number;
   url: string | null;
 }
 
@@ -25,6 +27,18 @@ function asString(value: unknown): string | null {
   if (value == null) return null;
   const s = String(value).trim();
   return s === '' ? null : s;
+}
+
+function resolveStockQuantity(
+  row: Record<string, unknown>,
+  isAvailable: boolean,
+): number {
+  const raw =
+    row.stock_quantity ?? row.stockQuantity ?? row.quantity ?? row.stock;
+  if (raw != null && raw !== '' && Number.isFinite(Number(raw))) {
+    return Math.max(0, Math.floor(Number(raw)));
+  }
+  return isAvailable ? 1 : 0;
 }
 
 export function parseDeepenFeedPage(raw: unknown): DeepenFeedPage {
@@ -47,6 +61,7 @@ export function parseDeepenFeedPage(raw: unknown): DeepenFeedPage {
     if (!id || !title) continue;
 
     const oldPriceRaw = row.old_price ?? row.oldPrice;
+    const isAvailable = row.is_available !== false && row.isAvailable !== false;
     products.push({
       id,
       title,
@@ -57,7 +72,8 @@ export function parseDeepenFeedPage(raw: unknown): DeepenFeedPage {
           : null,
       category: asString(row.category),
       image: asString(row.image),
-      isAvailable: row.is_available !== false && row.isAvailable !== false,
+      isAvailable,
+      stockQuantity: resolveStockQuantity(row, isAvailable),
       url: asString(row.url),
     });
   }
@@ -67,7 +83,10 @@ export function parseDeepenFeedPage(raw: unknown): DeepenFeedPage {
     1,
     Math.floor(asNumber(body.pages_count) || pageNum),
   );
-  const totalItems = Math.max(0, Math.floor(asNumber(body.total_items) || products.length));
+  const totalItems = Math.max(
+    0,
+    Math.floor(asNumber(body.total_items) || products.length),
+  );
 
   return { products, pageNum, pagesCount, totalItems };
 }
