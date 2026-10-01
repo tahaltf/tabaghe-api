@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UserPanelAccessGuard } from '../auth/guards/user-panel-access.guard';
@@ -16,6 +16,21 @@ export class ProductRequestController {
   @Get('budget-range')
   budgetRange() {
     return this.service.getBudgetRange();
+  }
+
+  @Get('me')
+  @UseGuards(UserPanelAccessGuard)
+  @RequirePanelAccess('dashboard.productRequests')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  listMine(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.service.listMine(user.id, {
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
   }
 
   @Post()

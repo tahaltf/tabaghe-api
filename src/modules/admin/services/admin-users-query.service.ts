@@ -175,7 +175,6 @@ const USER_DETAIL_INCLUDE = {
     orderBy: { createdAt: 'desc' as const },
     take: 100,
   },
-  productFeed: true,
   _count: {
     select: {
       listings: true,

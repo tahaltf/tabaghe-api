@@ -128,6 +128,58 @@ export class ProductRequestService {
     return created!;
   }
 
+  async listMine(
+    userId: string,
+    options: { page?: number; pageSize?: number } = {},
+  ) {
+    const page = Math.max(1, options.page ?? 1);
+    const pageSize = Math.min(50, Math.max(1, options.pageSize ?? 20));
+    const skip = (page - 1) * pageSize;
+    const where = { userId };
+
+    const [items, total] = await Promise.all([
+      this.prisma.productRequest.findMany({
+        where,
+        skip,
+        take: pageSize,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          trackingCode: true,
+          title: true,
+          brand: true,
+          model: true,
+          condition: true,
+          budgetMin: true,
+          budgetMax: true,
+          quantity: true,
+          description: true,
+          status: true,
+          createdAt: true,
+          updatedAt: true,
+          category: {
+            select: {
+              id: true,
+              title: true,
+              parent: { select: { id: true, title: true } },
+            },
+          },
+        },
+      }),
+      this.prisma.productRequest.count({ where }),
+    ]);
+
+    return {
+      items,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      },
+    };
+  }
+
   async getBudgetRange(): Promise<{ min: number; max: number }> {
     const fallbackMin = 0;
     const fallbackMax = 800_000_000;
