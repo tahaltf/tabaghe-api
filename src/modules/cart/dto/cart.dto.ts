@@ -1,10 +1,12 @@
 import { Type } from 'class-transformer';
 import {
+  IsArray,
   IsBoolean,
   IsInt,
   IsOptional,
   IsString,
   Min,
+  ValidateNested,
 } from 'class-validator';
 
 export class AddCartItemDto {
@@ -46,4 +48,22 @@ export class CartCheckoutDto extends CartCheckoutPreviewDto {
   @IsOptional()
   @IsString()
   gateway?: string;
+}
+
+export class CartFxExpectedItemDto {
+  @IsString()
+  listingId!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  unitPrice!: number;
+}
+
+export class CartFxRevalidateDto {
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CartFxExpectedItemDto)
+  items?: CartFxExpectedItemDto[];
 }

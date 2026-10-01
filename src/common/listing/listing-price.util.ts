@@ -66,7 +66,8 @@ export function resolveListingEffectiveUnitPriceToman(
   if (rate == null || !Number.isFinite(rate) || rate <= 0) {
     return Math.round(foreign);
   }
-  return Math.round(foreign * rate);
+  // معادل تومان ارز خارجی → نزدیک‌ترین هزار تومان رو به بالا
+  return Math.ceil((foreign * rate) / 1000) * 1000;
 }
 
 export function isListingOnSale(direct: ListingDirectPriceFields): boolean {

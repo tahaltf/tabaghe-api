@@ -21,6 +21,7 @@ import {
   AddCartItemDto,
   CartCheckoutDto,
   CartCheckoutPreviewDto,
+  CartFxRevalidateDto,
   UpdateCartItemDto,
 } from './dto/cart.dto';
 import { extractClientRequestMeta } from '../../common/http/client-ip.util';
@@ -83,6 +84,15 @@ export class CartController {
     @Body() dto: CartCheckoutPreviewDto,
   ) {
     return this.cartCheckout.preview(user.id, dto);
+  }
+
+  /** قبل از درگاه: بازبینی قیمت کالاهای ارزی با نرخ زنده */
+  @Post('fx-revalidate')
+  revalidateFx(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CartFxRevalidateDto,
+  ) {
+    return this.cartService.revalidateFxPrices(user.id, dto.items);
   }
 
   @Post('checkout')

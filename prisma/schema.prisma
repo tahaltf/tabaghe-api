@@ -1623,6 +1623,10 @@ model CurrencyRate {
   rateMax          Decimal?
   /** نقل‌قول‌های منابع: [{ source, rateToToman, fetchedAt? }] */
   quotes           Json?
+  /** نرخ مبنا برای مقایسه حدود ۲۴ ساعت قبل */
+  rate24hAgo       Decimal?
+  /** زمان ثبت/تازه‌سازی مبنا ۲۴ ساعته */
+  rate24hAgoAt     DateTime?
   source           String   @default("navasan") // n8n-multi | tgju | manual | ...
   fetchedAt        DateTime?
   /** اگر ست باشد و overrideUntil نگذشته باشد، به جای rateToToman استفاده می‌شود */

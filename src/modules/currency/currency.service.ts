@@ -34,11 +34,16 @@ export type CurrencyPublicDto = {
   rateMin: number | null;
   rateMax: number | null;
   quotes: FxQuoteDto[];
+  /** اختلاف تومان نسبت به مبنای ~۲۴ساعته (مثبت = افزایش) */
+  change24hAmount: number | null;
+  /** درصد تغییر ۲۴ ساعته */
+  change24hPercent: number | null;
   rateUpdatedAt: string | null;
   rateSource: string | null;
 };
 
 const OUTLIER_RATIO = 0.15;
+const MS_24H = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class CurrencyService {
@@ -192,7 +197,9 @@ export class CurrencyService {
     const r = Number(rateToToman);
     if (!Number.isFinite(a) || a < 0) return 0;
     if (!Number.isFinite(r) || r <= 0) return 0;
-    return Math.round(a * r);
+    const raw = a * r;
+    // معادل تومان ارز خارجی → نزدیک‌ترین هزار تومان رو به بالا
+    return Math.ceil(raw / 1000) * 1000;
   }
 
   /**
@@ -277,6 +284,17 @@ export class CurrencyService {
 
       const { rate, rateMin, rateMax, quotes, source } = resolved;
 
+      const existingRate = await this.prisma.currencyRate.findUnique({
+        where: { currencyCode: code },
+        select: {
+          rateToToman: true,
+          rate24hAgo: true,
+          rate24hAgoAt: true,
+          fetchedAt: true,
+        },
+      });
+      const baseline = this.resolve24hBaseline(existingRate, rate, fetchedAt);
+
       await this.prisma.currencyRate.upsert({
         where: { currencyCode: code },
         create: {
@@ -285,6 +303,8 @@ export class CurrencyService {
           rateMin,
           rateMax,
           quotes: quotes as unknown as Prisma.InputJsonValue,
+          rate24hAgo: baseline.rate24hAgo,
+          rate24hAgoAt: baseline.rate24hAgoAt,
           source,
           fetchedAt,
         },
@@ -293,6 +313,8 @@ export class CurrencyService {
           rateMin,
           rateMax,
           quotes: quotes as unknown as Prisma.InputJsonValue,
+          rate24hAgo: baseline.rate24hAgo,
+          rate24hAgoAt: baseline.rate24hAgoAt,
           source,
           fetchedAt,
         },
@@ -305,6 +327,78 @@ export class CurrencyService {
       `FX ingest source=${sourceLabel} updated=${updated.join(',') || '-'} skipped=${skipped.join(',') || '-'}`,
     );
     return { updated, skipped, source: sourceLabel };
+  }
+
+  /**
+   * مبنای مقایسه ۲۴ ساعته را تازه نگه می‌دارد:
+   * اگر مبنا نبود یا بیش از ۲۴ ساعت از ثبتش گذشته، نرخ قبلی (یا نرخ جدید) مبنا می‌شود.
+   */
+  private resolve24hBaseline(
+    existing: {
+      rateToToman: Prisma.Decimal;
+      rate24hAgo: Prisma.Decimal | null;
+      rate24hAgoAt: Date | null;
+      fetchedAt: Date | null;
+    } | null,
+    newRate: number,
+    now: Date,
+  ): { rate24hAgo: number; rate24hAgoAt: Date } {
+    if (!existing) {
+      return { rate24hAgo: newRate, rate24hAgoAt: now };
+    }
+
+    const prevRate = Number(existing.rateToToman);
+    const hasPrev = Number.isFinite(prevRate) && prevRate > 0;
+    const baselineRate =
+      existing.rate24hAgo != null ? Number(existing.rate24hAgo) : null;
+    const baselineAt = existing.rate24hAgoAt;
+
+    if (
+      baselineRate == null ||
+      !Number.isFinite(baselineRate) ||
+      baselineRate <= 0 ||
+      !baselineAt
+    ) {
+      return {
+        rate24hAgo: hasPrev ? prevRate : newRate,
+        rate24hAgoAt: existing.fetchedAt ?? now,
+      };
+    }
+
+    if (now.getTime() - baselineAt.getTime() >= MS_24H) {
+      return {
+        rate24hAgo: hasPrev ? prevRate : newRate,
+        rate24hAgoAt: existing.fetchedAt ?? now,
+      };
+    }
+
+    return { rate24hAgo: baselineRate, rate24hAgoAt: baselineAt };
+  }
+
+  private compute24hChange(
+    current: number | null,
+    rate24hAgo: number | null,
+    rate24hAgoAt: Date | null,
+  ): { amount: number | null; percent: number | null } {
+    if (
+      current == null ||
+      !(current > 0) ||
+      rate24hAgo == null ||
+      !(rate24hAgo > 0) ||
+      !rate24hAgoAt
+    ) {
+      return { amount: null, percent: null };
+    }
+    // تا وقتی مبنا خیلی تازه است (کمتر از ~۳۰ دقیقه) تغییر را نشان نده
+    if (Date.now() - rate24hAgoAt.getTime() < 30 * 60 * 1000) {
+      return { amount: null, percent: null };
+    }
+    const amount = current - rate24hAgo;
+    const percent = (amount / rate24hAgo) * 100;
+    if (!Number.isFinite(amount) || !Number.isFinite(percent)) {
+      return { amount: null, percent: null };
+    }
+    return { amount, percent };
   }
 
   /**
@@ -498,6 +592,8 @@ export class CurrencyService {
       rateMin?: Prisma.Decimal | null;
       rateMax?: Prisma.Decimal | null;
       quotes?: Prisma.JsonValue | null;
+      rate24hAgo?: Prisma.Decimal | null;
+      rate24hAgoAt?: Date | null;
       source: string;
       fetchedAt: Date | null;
       manualOverride: Prisma.Decimal | null;
@@ -509,6 +605,8 @@ export class CurrencyService {
     let rateMin: number | null = null;
     let rateMax: number | null = null;
     let quotes: FxQuoteDto[] = [];
+    let change24hAmount: number | null = null;
+    let change24hPercent: number | null = null;
     let rateUpdatedAt: string | null = null;
     let rateSource: string | null = null;
 
@@ -535,6 +633,15 @@ export class CurrencyService {
         rateMin = mn != null && Number.isFinite(mn) && mn > 0 ? mn : null;
         rateMax = mx != null && Number.isFinite(mx) && mx > 0 ? mx : null;
         quotes = this.parseQuotesJson(r.rate.quotes);
+        const ago =
+          r.rate.rate24hAgo != null ? Number(r.rate.rate24hAgo) : null;
+        const change = this.compute24hChange(
+          rateToToman,
+          ago != null && Number.isFinite(ago) && ago > 0 ? ago : null,
+          r.rate.rate24hAgoAt ?? null,
+        );
+        change24hAmount = change.amount;
+        change24hPercent = change.percent;
       } else {
         rateMin = rateToToman;
         rateMax = rateToToman;
@@ -557,6 +664,8 @@ export class CurrencyService {
       rateMin,
       rateMax,
       quotes,
+      change24hAmount,
+      change24hPercent,
       rateUpdatedAt,
       rateSource,
     };

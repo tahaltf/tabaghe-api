@@ -19,6 +19,8 @@ export class CurrencyController {
       rateMin: c.rateMin,
       rateMax: c.rateMax,
       quotes: c.quotes,
+      change24hAmount: c.change24hAmount,
+      change24hPercent: c.change24hPercent,
       updatedAt: c.rateUpdatedAt,
       source: c.rateSource,
     }));
