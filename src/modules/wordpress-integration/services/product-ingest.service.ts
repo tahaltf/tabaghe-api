@@ -469,6 +469,10 @@ export class WordPressProductIngestService {
 
     const description = buildWordPressListingDescription(dto);
 
+    const priceCurrencyCode = dto.priceCurrencyCode?.trim()
+      ? dto.priceCurrencyCode.trim().toUpperCase()
+      : null;
+
     return {
 
       title: dto.title.trim(),
@@ -496,6 +500,8 @@ export class WordPressProductIngestService {
       cityId: defaults.cityId,
 
       stockQuantity: this.resolveStockQuantity(dto),
+
+      priceCurrencyCode,
 
     };
 
@@ -532,6 +538,8 @@ export class WordPressProductIngestService {
       thumbnail: input.thumbnail ?? undefined,
 
       gallery: input.gallery,
+
+      priceCurrencyCode: input.priceCurrencyCode ?? undefined,
 
       direct: {
 

@@ -175,6 +175,7 @@ const USER_DETAIL_INCLUDE = {
     orderBy: { createdAt: 'desc' as const },
     take: 100,
   },
+  productFeed: true,
   _count: {
     select: {
       listings: true,
@@ -599,6 +600,16 @@ export class AdminUsersQueryService {
       data.nationalCardImage = null;
     } else if (nationalCardImageFilename) {
       data.nationalCardImage = nationalCardImageFilename;
+    }
+    if (dto.allowedListingCurrencyCodes !== undefined) {
+      const codes = Array.from(
+        new Set(
+          dto.allowedListingCurrencyCodes
+            .map((c) => String(c).trim().toUpperCase())
+            .filter((c) => c && c !== 'IRT'),
+        ),
+      );
+      data.allowedListingCurrencyCodes = codes;
     }
 
     if (!Object.keys(data).length) {

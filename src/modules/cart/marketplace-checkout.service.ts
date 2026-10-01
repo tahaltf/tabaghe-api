@@ -16,6 +16,9 @@ import { CouponsService } from '../coupons/coupons.service';
 import { PaymentsService } from '../payments/payments.service';
 import { VerificationFeeCalculatorService } from '../fees/verification-fee-calculator.service';
 import type { ClientRequestMeta } from '../../common/http/client-ip.util';
+import { CurrencyService } from '../currency/currency.service';
+import { BASE_CURRENCY_CODE } from '../currency/providers/fx-provider';
+import { resolveListingEffectiveUnitPrice } from '../../common/listing/listing-price.util';
 
 export type MarketplaceCheckoutLine = {
   listingId: string;
@@ -60,6 +63,7 @@ export class MarketplaceCheckoutService {
     private readonly couponsService: CouponsService,
     private readonly paymentsService: PaymentsService,
     private readonly verificationFeeCalculator: VerificationFeeCalculatorService,
+    private readonly currency: CurrencyService,
   ) {}
 
   async previewFromLines(
@@ -377,11 +381,18 @@ export class MarketplaceCheckoutService {
       throw new BadRequestException('آگهی نامعتبر است');
     }
     const shippingDefault = await this.readShippingCost();
-    const unitPrice = Number(
-      listing.direct.salePrice && Number(listing.direct.salePrice) > 0
-        ? listing.direct.salePrice
-        : listing.direct.price,
-    );
+    const currencyCode =
+      listing.priceCurrencyCode?.toUpperCase() || BASE_CURRENCY_CODE;
+    const foreignUnit = resolveListingEffectiveUnitPrice(listing.direct);
+    let unitPrice: number;
+    if (
+      listing.priceTomanCached != null &&
+      Number(listing.priceTomanCached) > 0
+    ) {
+      unitPrice = Math.round(Number(listing.priceTomanCached));
+    } else {
+      unitPrice = await this.currency.toToman(foreignUnit, currencyCode);
+    }
     const qty = Math.max(1, Math.floor(quantity || 1));
     const shippingCost =
       listing.shippingPayer === 'BUYER_PREPAID'

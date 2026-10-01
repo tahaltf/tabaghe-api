@@ -681,9 +681,19 @@ export class ListingQueryService {
       where.AND = [
         {
           OR: [
-            { direct: { price: { gte: min, lte: max } } },
-            { auction: { basePrice: { gte: min, lte: max } } },
-            { exchange: { ownValue: { gte: min, lte: max } } },
+            { priceTomanCached: { gte: min, lte: max } },
+            {
+              AND: [
+                { priceTomanCached: null },
+                {
+                  OR: [
+                    { direct: { price: { gte: min, lte: max } } },
+                    { auction: { basePrice: { gte: min, lte: max } } },
+                    { exchange: { ownValue: { gte: min, lte: max } } },
+                  ],
+                },
+              ],
+            },
           ],
         },
       ];
@@ -698,13 +708,13 @@ export class ListingQueryService {
     switch (sort) {
       case 'price_asc':
         return [
-          { direct: { price: 'asc' } },
+          { priceTomanCached: 'asc' },
           { approvedAt: 'desc' },
           { createdAt: 'desc' },
         ];
       case 'price_desc':
         return [
-          { direct: { price: 'desc' } },
+          { priceTomanCached: 'desc' },
           { approvedAt: 'desc' },
           { createdAt: 'desc' },
         ];

@@ -1,0 +1,5 @@
+DO $$ BEGIN
+  ALTER TYPE "NotificationType" ADD VALUE IF NOT EXISTS 'ADMIN_ALERT_PRODUCT_FEED_SYNC';
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;

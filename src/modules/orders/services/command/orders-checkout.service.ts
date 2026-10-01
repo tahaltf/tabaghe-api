@@ -46,6 +46,8 @@ import {
 } from '../../../../common/upload/order-video-storage.util';
 import { enrichOrderUpdateForCompletion } from '../../order-lifecycle.util';
 import { resolveListingEffectiveUnitPrice } from '../../../../common/listing/listing-price.util';
+import { CurrencyService } from '../../../currency/currency.service';
+import { BASE_CURRENCY_CODE } from '../../../currency/providers/fx-provider';
 import {
   buildOrderTicketSubject,
   formatTicketMessageBody,
@@ -97,6 +99,7 @@ export class OrdersCheckoutService {
     private readonly listingCommand: ListingCommandService,
     private readonly settings: OrdersSettingsService,
     private readonly couponsService: CouponsService,
+    private readonly currency: CurrencyService,
   ) {}
 
   private resolveListingShippingFee(
@@ -174,6 +177,9 @@ export class OrdersCheckoutService {
       let sellerRequestedVerification = false;
       let auctionBlockedDeposit = 0;
       let auctionWinnerBidId: string | null = null;
+      let priceCurrencyCode = BASE_CURRENCY_CODE;
+      let originalUnitPrice: number | null = null;
+      let fxRateToToman: number | null = null;
 
       const shippingSetting = await tx.systemSetting.findUnique({
         where: { key: 'SHIPPING_COST' },
@@ -693,10 +699,24 @@ export class OrdersCheckoutService {
           );
         }
 
-        const unitPrice = listing.direct
+        const foreignUnit = listing.direct
           ? resolveListingEffectiveUnitPrice(listing.direct)
           : 0;
-        finalPrice = unitPrice * orderQuantity;
+        priceCurrencyCode =
+          listing.priceCurrencyCode?.toUpperCase() || BASE_CURRENCY_CODE;
+        originalUnitPrice = foreignUnit;
+        if (priceCurrencyCode === BASE_CURRENCY_CODE) {
+          fxRateToToman = 1;
+          finalPrice = foreignUnit * orderQuantity;
+        } else {
+          const rate = await this.currency.getEffectiveRate(priceCurrencyCode);
+          fxRateToToman = rate.rateToToman;
+          const unitToman = this.currency.applyRate(
+            foreignUnit,
+            rate.rateToToman,
+          );
+          finalPrice = unitToman * orderQuantity;
+        }
         sellerId = listing.authorId;
         categoryId = listing.categoryId;
         itemCondition = listing.condition;
@@ -1007,6 +1027,10 @@ export class OrdersCheckoutService {
         platformFee: platformFee,
         status: orderStatus,
         paymentMethod: paymentMethod,
+        priceCurrencyCode,
+        originalUnitPrice:
+          originalUnitPrice != null ? originalUnitPrice : undefined,
+        fxRateToToman: fxRateToToman != null ? fxRateToToman : undefined,
         requiresVerification: Boolean(
           isHubRequired || orderType === 'EXCHANGE',
         ),

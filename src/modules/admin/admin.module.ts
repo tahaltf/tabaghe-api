@@ -100,6 +100,8 @@ import { CommonModuleModule } from '../../common-module/common-module.module';
 import { ReferralModule } from '../referral/referral.module';
 import { UsersModule } from '../users/users.module';
 import { ZohalModule } from '../zohal/zohal.module';
+import { CurrencyModule } from '../currency/currency.module';
+import { AdminCurrenciesController } from './controllers/admin-currencies.controller';
 
 @Module({
   imports: [
@@ -117,6 +119,7 @@ import { ZohalModule } from '../zohal/zohal.module';
     ReferralModule,
     UsersModule,
     ZohalModule,
+    CurrencyModule,
   ],
   controllers: [
     AdminDashboardController,
@@ -129,6 +132,7 @@ import { ZohalModule } from '../zohal/zohal.module';
     AdminCategoriesController,
     AdminLocationsController,
     AdminSettingsController,
+    AdminCurrenciesController,
     AdminPlansController,
     AdminFeeRulesController,
     AdminVerificationFeeRulesController,

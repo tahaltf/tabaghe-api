@@ -52,4 +52,26 @@ describe('WordPressProductDto validation', () => {
       }),
     ).resolves.toBeDefined();
   });
+
+  it('accepts optional priceCurrencyCode and normalizes to uppercase', async () => {
+    const result = await pipe.transform(
+      { ...baseProduct, priceCurrencyCode: ' usd ' },
+      {
+        type: 'body',
+        metatype: WordPressProductDto,
+      },
+    );
+    expect(result.priceCurrencyCode).toBe('USD');
+  });
+
+  it('omits empty priceCurrencyCode', async () => {
+    const result = await pipe.transform(
+      { ...baseProduct, priceCurrencyCode: '' },
+      {
+        type: 'body',
+        metatype: WordPressProductDto,
+      },
+    );
+    expect(result.priceCurrencyCode).toBeUndefined();
+  });
 });

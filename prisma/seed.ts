@@ -1,6 +1,7 @@
 import { PrismaClient, ListingType, LocationType } from '@prisma/client';
 import { seedDigitalProductCategoryTree } from './seed-data/seed-digital-product-categories';
 import { seedPlatformContent } from './seed-data/seed-platform-content';
+import { seedCurrencies } from './seed-data/seed-currencies';
 import { IRAN_LOCATION_SEED } from './seed-data/iran-locations';
 import { syncIranLocationSlugs } from '../src/common-module/location-slug.util';
 
@@ -48,6 +49,8 @@ async function main() {
     await syncIranLocationSlugs(prisma);
 
     await seedDigitalProductCategoryTree(prisma);
+
+    await seedCurrencies(prisma);
 
     const otherTopCategories = [
         { title: 'خودرو', slug: 'vehicles' },

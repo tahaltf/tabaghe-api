@@ -54,6 +54,7 @@ enum ListingStatus {
 enum ListingImportSource {
   MANUAL
   WORDPRESS
+  JSON_FEED
 }
 
 enum OrderStatus {
@@ -230,6 +231,7 @@ enum NotificationType {
   SYSTEM
   ADMIN_ALERT_NEW_TICKET
   ADMIN_ALERT_NEW_LISTING
+  ADMIN_ALERT_PRODUCT_FEED_SYNC
   ADMIN_ALERT_NEW_USER
   ADMIN_ALERT_CONTACT_MESSAGE
   ADMIN_ALERT_NEW_REPAIR
@@ -397,6 +399,7 @@ model User {
   landingPages        LandingPage[]
   wordpressApiTokens  WordPressApiToken[]
   wordpressConnection WordPressConnection?
+  productFeed         ExternalProductFeed?
   marketingAccounts   MarketingAccount[]
   marketingMediaAssets MarketingMediaAsset[]
   marketingPosts      MarketingPost[]
@@ -437,6 +440,12 @@ model User {
 
   /** دسترسی‌های پنل کاربر — null یا کلید ناموجود = فعال؛ فقط false صریح غیرفعال می‌کند */
   panelAccess         Json?
+
+  /**
+   * ارزهای مجاز برای ثبت قیمت آگهی (غیر از تومان).
+   * خالی = فقط IRT؛ IRT همیشه مجاز است حتی اگر در لیست نباشد.
+   */
+  allowedListingCurrencyCodes String[] @default([])
 
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
@@ -782,6 +791,14 @@ model Listing {
   externalSiteUrl    String?
   shortDescription   String?
   attributes         Json?
+
+  /** ارز قیمت آگهی (IRT=تومان؛ برای مزایده همیشه IRT) */
+  priceCurrencyCode  String   @default("IRT")
+  /**
+   * قیمت مؤثر واحد به تومان (نرخ روز) برای نمایش/فیلتر/مرتب‌سازی.
+   * برای IRT برابر مبلغ مؤثر ارزی؛ برای سایر ارزها از نرخ فعلی محاسبه می‌شود.
+   */
+  priceTomanCached   Decimal?
 
   direct          ListingDirect?
   exchange        ListingExchange?
@@ -1461,6 +1478,13 @@ paymentMethod    PaymentMethod @default(GATEWAY)
   platformFee       Decimal     @default(0)
   sellerRevenue     Decimal
 
+  /** ارز قیمت مبدأ آگهی در لحظه ثبت سفارش */
+  priceCurrencyCode   String   @default("IRT")
+  /** مبلغ واحد به ارز مبدأ (قبل از تبدیل به تومان) */
+  originalUnitPrice   Decimal?
+  /** نرخ تبدیل ۱ واحد ارز مبدأ → تومان در لحظه ثبت سفارش */
+  fxRateToToman       Decimal?
+
   exchangeOfferId   String?
 
   // --- اطلاعات ارسال به خریدار ---
@@ -1565,6 +1589,40 @@ model SystemSetting {
   value       String
   description String?
   updatedAt   DateTime @updatedAt
+}
+
+////////////////////
+/// CURRENCIES / FX
+////////////////////
+
+model Currency {
+  code      String   @id // IRT, USD, AED, TRY, IQD, ...
+  nameFa    String
+  symbol    String
+  isEnabled Boolean  @default(false)
+  sortOrder Int      @default(0)
+  /** تعداد اعشار مجاز برای ورود قیمت */
+  decimals  Int      @default(0)
+  /** نماد آیتم در Navasan (مثلاً usd, aed, try, iqd) — برای IRT خالی است */
+  navasanItem String?
+  rate      CurrencyRate?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isEnabled, sortOrder])
+}
+
+model CurrencyRate {
+  currencyCode     String   @id
+  currency         Currency @relation(fields: [currencyCode], references: [code], onDelete: Cascade)
+  /** ۱ واحد ارز = چند تومان */
+  rateToToman      Decimal  @default(0)
+  source           String   @default("navasan") // navasan | manual
+  fetchedAt        DateTime?
+  /** اگر ست باشد و overrideUntil نگذشته باشد، به جای rateToToman استفاده می‌شود */
+  manualOverride   Decimal?
+  overrideUntil    DateTime?
+  updatedAt        DateTime @updatedAt
 }
 
 /// کلیدهای integration سرور — مقادیر رمزنگاری‌شده (AES-256-GCM) و مدیریت از پنل ادمین
@@ -1792,6 +1850,32 @@ model WordPressConnection {
   lastSyncAt    DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+}
+
+////////////////////
+/// EXTERNAL PRODUCT FEED (Deepen / Emalls JSON)
+////////////////////
+
+model ExternalProductFeed {
+  id                String    @id @default(cuid())
+  userId            String    @unique
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enabled           Boolean   @default(false)
+  feedUrl           String?
+  /** IRT | USD | AED | IQD */
+  currencyCode      String    @default("IRT")
+  /** NONE | PERCENT | FIXED */
+  markupType        String    @default("NONE")
+  markupValue       Decimal   @default(0)
+  descriptionSuffix String?
+  defaultCategoryId String?
+  lastSyncAt        DateTime?
+  /** SUCCESS | FAILED | PARTIAL */
+  lastSyncStatus    String?
+  lastSyncError     String?
+  lastSyncStats     Json?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 }
 
 ////////////////////

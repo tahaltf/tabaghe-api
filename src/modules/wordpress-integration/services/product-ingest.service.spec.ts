@@ -107,6 +107,52 @@ describe('WordPressProductIngestService pricing', () => {
     expect(syncInput.compareAtPrice).toBeNull();
     expect(syncInput.salePrice).toBeNull();
   });
+
+  it('passes priceCurrencyCode through sync input and create DTO', async () => {
+    const dto = {
+      externalProductId: '123',
+      siteUrl: 'https://example.com/',
+      title: 'USD product',
+      description: 'Desc',
+      price: 10,
+      priceCurrencyCode: 'USD',
+      images: [{ url: 'https://example.com/img.jpg' }],
+      attributes: [],
+    } as WordPressProductDto;
+
+    const syncInput = await (service as any).buildSyncInput(
+      'user-1',
+      dto,
+      { categoryId: 'cat-1', provinceId: 'prov-1', cityId: 'city-1' },
+      'cat-1',
+    );
+
+    expect(syncInput.priceCurrencyCode).toBe('USD');
+
+    const createDto = (service as any).toCreateListingDto(syncInput);
+    expect(createDto.priceCurrencyCode).toBe('USD');
+  });
+
+  it('defaults priceCurrencyCode to null when omitted', async () => {
+    const dto = {
+      externalProductId: '123',
+      siteUrl: 'https://example.com/',
+      title: 'IRT product',
+      description: 'Desc',
+      price: 1000,
+      images: [{ url: 'https://example.com/img.jpg' }],
+      attributes: [],
+    } as WordPressProductDto;
+
+    const syncInput = await (service as any).buildSyncInput(
+      'user-1',
+      dto,
+      { categoryId: 'cat-1', provinceId: 'prov-1', cityId: 'city-1' },
+      'cat-1',
+    );
+
+    expect(syncInput.priceCurrencyCode).toBeNull();
+  });
 });
 
 describe('WordPressProductIngestService availability', () => {

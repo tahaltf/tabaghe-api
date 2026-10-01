@@ -1,5 +1,6 @@
 import { Transform } from 'class-transformer';
 import {
+  IsArray,
   IsBoolean,
   IsDateString,
   IsEmail,
@@ -84,4 +85,30 @@ export class AdminUpdateUserProfileDto {
   @Transform(({ value }) => toOptionalBoolean(value))
   @IsBoolean()
   clearNationalCardImage?: boolean;
+
+  /**
+   * ارزهای مجاز برای قیمت‌گذاری آگهی (غیر از تومان).
+   * آرایه خالی = فقط تومان. IRT همیشه مجاز است.
+   */
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') return undefined;
+    if (Array.isArray(value)) return value.map(String);
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) return parsed.map(String);
+      } catch {
+        /* fall through */
+      }
+      return value
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter(Boolean);
+    }
+    return undefined;
+  })
+  @IsArray()
+  @IsString({ each: true })
+  allowedListingCurrencyCodes?: string[];
 }

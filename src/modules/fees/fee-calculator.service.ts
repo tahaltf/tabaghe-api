@@ -198,6 +198,52 @@ export class FeeCalculatorService {
   }
 
   /**
+   * Effective listing fee % for display/markup (user override → category default).
+   * Does not apply FeeRule bands or plan discounts — those affect settlement amount,
+   * not the advertised category percentage shown in the WordPress plugin.
+   */
+  async resolveListingFeePercent(params: {
+    categoryId: string | null | undefined;
+    listingType: ListingType;
+    condition?: ItemCondition | null;
+    sellerId?: string | null;
+  }): Promise<number> {
+    const categoryId = params.categoryId?.trim() || null;
+    if (!categoryId) {
+      return 0;
+    }
+
+    const condition = params.condition ?? ItemCondition.NEW;
+
+    if (params.sellerId) {
+      const userPct = await this.resolveUserFeePercent(
+        params.sellerId,
+        categoryId,
+        params.listingType,
+        condition,
+      );
+      if (userPct !== null && Number.isFinite(userPct)) {
+        return userPct;
+      }
+    }
+
+    const category = await this.prisma.category.findUnique({
+      where: { id: categoryId },
+    });
+    if (!category) {
+      return 0;
+    }
+
+    const { percentage } = this.resolveCategoryFeeParams(
+      category,
+      params.listingType,
+      condition,
+    );
+    const value = Number(percentage);
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  /**
    * Resolves auction deposit % with priority: user override → FeeRule → category condition.
    */
   async resolveAuctionDepositPercent(params: {

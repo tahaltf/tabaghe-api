@@ -5,6 +5,7 @@ import {
   IsDateString,
   IsEnum,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   Max,
@@ -56,19 +57,19 @@ const toBoolean = ({
 class DirectPayloadDto {
   @IsOptional()
   @Type(() => Number)
-  @IsInt()
+  @IsNumber()
   @Min(0)
   price?: number;
 
   @IsOptional()
   @Type(() => Number)
-  @IsInt()
+  @IsNumber()
   @Min(0)
   compareAtPrice?: number;
 
   @IsOptional()
   @Type(() => Number)
-  @IsInt()
+  @IsNumber()
   @Min(0)
   salePrice?: number;
 
@@ -98,13 +99,13 @@ class ExchangePayloadDto {
 
   @IsOptional()
   @Type(() => Number)
-  @IsInt()
+  @IsNumber()
   @Min(0)
   ownValue?: number;
 
   @IsOptional()
   @Type(() => Number)
-  @IsInt()
+  @IsNumber()
   @Min(0)
   extraPaymentAmount?: number;
 
@@ -120,7 +121,7 @@ class ExchangePayloadDto {
 
   @IsOptional()
   @Type(() => Number)
-  @IsInt()
+  @IsNumber()
   @Min(0)
   directPrice?: number;
 }
@@ -297,6 +298,14 @@ export class CreateListingDto {
   @Transform(toBoolean)
   @IsBoolean()
   singleItemSale?: boolean;
+
+  /**
+   * ارز قیمت آگهی (IRT, USD, AED, …).
+   * برای مزایده همیشه IRT.
+   */
+  @IsOptional()
+  @IsString()
+  priceCurrencyCode?: string;
 
   @IsOptional()
   @IsString()

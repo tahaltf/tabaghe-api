@@ -6,6 +6,8 @@ export type ListingDirectPriceFields = {
   salePrice?: number | string | Decimal | null;
 };
 
+export const BASE_LISTING_CURRENCY = 'IRT';
+
 export function resolveListingCompareAtPrice(
   direct: ListingDirectPriceFields,
 ): number | null {
@@ -20,6 +22,7 @@ export function resolveListingCompareAtPrice(
   return compare;
 }
 
+/** مبلغ مؤثر واحد به ارز خود آگهی (بدون تبدیل) */
 export function resolveListingEffectiveUnitPrice(
   direct: ListingDirectPriceFields,
 ): number {
@@ -29,6 +32,41 @@ export function resolveListingEffectiveUnitPrice(
     return sale;
   }
   return base;
+}
+
+/**
+ * مبلغ مؤثر به تومان.
+ * اگر rateToToman داده نشود و ارز IRT باشد همان مبلغ؛ وگرنه amount * rate.
+ */
+export function resolveListingEffectiveUnitPriceToman(
+  direct: ListingDirectPriceFields,
+  options?: {
+    priceCurrencyCode?: string | null;
+    rateToToman?: number | null;
+    /** اگر از قبل کش شده باشد اولویت دارد */
+    priceTomanCached?: number | string | Decimal | null;
+  },
+): number {
+  const cached =
+    options?.priceTomanCached != null
+      ? Number(options.priceTomanCached)
+      : null;
+  if (cached != null && Number.isFinite(cached) && cached > 0) {
+    return Math.round(cached);
+  }
+
+  const foreign = resolveListingEffectiveUnitPrice(direct);
+  const code = (options?.priceCurrencyCode ?? BASE_LISTING_CURRENCY)
+    .trim()
+    .toUpperCase();
+  if (!code || code === BASE_LISTING_CURRENCY) {
+    return Math.round(foreign);
+  }
+  const rate = options?.rateToToman != null ? Number(options.rateToToman) : null;
+  if (rate == null || !Number.isFinite(rate) || rate <= 0) {
+    return Math.round(foreign);
+  }
+  return Math.round(foreign * rate);
 }
 
 export function isListingOnSale(direct: ListingDirectPriceFields): boolean {

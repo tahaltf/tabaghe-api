@@ -71,6 +71,7 @@ const MY_PROFILE_SELECT = {
   inviteCode: true,
   referredById: true,
   panelAccess: true,
+  allowedListingCurrencyCodes: true,
   termsAcceptedAt: true,
   termsAcceptedVersion: true,
   sellerTermsAcceptedAt: true,

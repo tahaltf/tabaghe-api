@@ -59,6 +59,7 @@ import { PaymentsModule } from './modules/payments/payments.module';
 import { SitemapModule } from './modules/sitemap/sitemap.module';
 import { TrackingModule } from './modules/tracking/tracking.module';
 import { WordPressIntegrationModule } from './modules/wordpress-integration/wordpress-integration.module';
+import { ProductFeedModule } from './modules/product-feed/product-feed.module';
 import { MarketingIntegrationModule } from './modules/marketing-integration/marketing-integration.module';
 import { FilesModule } from './modules/files/files.module';
 import { CartModule } from './modules/cart/cart.module';
@@ -66,6 +67,7 @@ import { CouponsModule } from './modules/coupons/coupons.module';
 import { SurveysModule } from './modules/surveys/surveys.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AiContentModule } from './modules/ai-content/ai-content.module';
+import { CurrencyModule } from './modules/currency/currency.module';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -133,12 +135,14 @@ import { AppService } from './app.service';
     SitemapModule,
     TrackingModule,
     WordPressIntegrationModule,
+    ProductFeedModule,
     MarketingIntegrationModule,
     CartModule,
     CouponsModule,
     AnalyticsModule,
     SurveysModule,
     AiContentModule,
+    CurrencyModule,
   ],
   controllers: [AppController],
   providers: [

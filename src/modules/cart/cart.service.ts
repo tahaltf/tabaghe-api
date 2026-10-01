@@ -6,9 +6,11 @@ import {
 import { ListingStatus, ListingType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { UserActionRateLimitService } from '../../common/services/user-action-rate-limit.service';
-import { resolveListingEffectiveUnitPrice } from '../../common/listing/listing-price.util';
+import { resolveListingEffectiveUnitPriceToman } from '../../common/listing/listing-price.util';
 import { formatUserDisplayName } from '../../common/utils/user-display-name.util';
 import { PurchaseOfferService } from '../purchase-offer/purchase-offer.service';
+import { CurrencyService } from '../currency/currency.service';
+import { BASE_CURRENCY_CODE } from '../currency/providers/fx-provider';
 
 const CART_LISTING_INCLUDE = {
   author: {
@@ -35,6 +37,7 @@ export class CartService {
     private readonly prisma: PrismaService,
     private readonly purchaseOfferService: PurchaseOfferService,
     private readonly actionRateLimit: UserActionRateLimitService,
+    private readonly currency: CurrencyService,
   ) {}
 
   async getCart(userId: string) {
@@ -55,66 +58,86 @@ export class CartService {
     const listingMap = new Map(listings.map((l) => [l.id, l]));
     const seller = listings[0]?.author;
     const now = Date.now();
-    const items = cart.items
-      .map((item) => {
-        const listing = listingMap.get(item.listingId);
-        if (!listing) return null;
-        const locked =
-          item.lockedUnitPrice != null &&
-          item.reservedUntil &&
-          item.reservedUntil.getTime() > now
-            ? Number(item.lockedUnitPrice)
-            : null;
-        const unitPrice =
-          locked != null && Number.isFinite(locked)
-            ? locked
-            : listing.direct
-              ? resolveListingEffectiveUnitPrice(listing.direct)
-              : 0;
-        const maxQty = this.resolveMaxQuantity(listing);
-        return {
-          listingId: item.listingId,
-          quantity: Math.min(item.quantity, maxQty),
-          maxQuantity: maxQty,
-          unitPrice,
-          lineTotal: unitPrice * Math.min(item.quantity, maxQty),
-          purchaseOfferId: item.purchaseOfferId ?? null,
-          reservedUntil: item.reservedUntil ?? null,
-          isOfferReservation: Boolean(
-            item.purchaseOfferId &&
-              item.reservedUntil &&
-              item.reservedUntil.getTime() > now,
-          ),
-          listing: {
-            id: listing.id,
-            title: listing.title,
-            thumbnail: listing.thumbnail,
-            status: listing.status,
-            stockQuantity: listing.stockQuantity,
-            singleItemSale: listing.singleItemSale,
-            shippingPayer: listing.shippingPayer,
-            direct: listing.direct
-              ? {
-                  price: Number(listing.direct.price),
-                  compareAtPrice: listing.direct.compareAtPrice
-                    ? Number(listing.direct.compareAtPrice)
-                    : null,
-                  salePrice: listing.direct.salePrice
-                    ? Number(listing.direct.salePrice)
-                    : null,
-                }
+    const items: Array<Record<string, unknown>> = [];
+    for (const item of cart.items) {
+      const listing = listingMap.get(item.listingId);
+      if (!listing) continue;
+      const locked =
+        item.lockedUnitPrice != null &&
+        item.reservedUntil &&
+        item.reservedUntil.getTime() > now
+          ? Number(item.lockedUnitPrice)
+          : null;
+      const currencyCode =
+        listing.priceCurrencyCode?.toUpperCase() || BASE_CURRENCY_CODE;
+      let unitPrice = 0;
+      if (locked != null && Number.isFinite(locked)) {
+        unitPrice = await this.currency.toToman(locked, currencyCode);
+      } else if (listing.direct) {
+        const cached = listing.priceTomanCached
+          ? Number(listing.priceTomanCached)
+          : null;
+        if (cached != null && cached > 0) {
+          unitPrice = Math.round(cached);
+        } else {
+          const foreign = resolveListingEffectiveUnitPriceToman(
+            listing.direct,
+            { priceCurrencyCode: BASE_CURRENCY_CODE },
+          );
+          unitPrice = await this.currency.toToman(foreign, currencyCode);
+        }
+      }
+      const maxQty = this.resolveMaxQuantity(listing);
+      items.push({
+        listingId: item.listingId,
+        quantity: Math.min(item.quantity, maxQty),
+        maxQuantity: maxQty,
+        unitPrice,
+        lineTotal: unitPrice * Math.min(item.quantity, maxQty),
+        purchaseOfferId: item.purchaseOfferId ?? null,
+        reservedUntil: item.reservedUntil ?? null,
+        isOfferReservation: Boolean(
+          item.purchaseOfferId &&
+            item.reservedUntil &&
+            item.reservedUntil.getTime() > now,
+        ),
+        listing: {
+          id: listing.id,
+          title: listing.title,
+          thumbnail: listing.thumbnail,
+          status: listing.status,
+          stockQuantity: listing.stockQuantity,
+          singleItemSale: listing.singleItemSale,
+          shippingPayer: listing.shippingPayer,
+          priceCurrencyCode: currencyCode,
+          priceTomanCached:
+            listing.priceTomanCached != null
+              ? Number(listing.priceTomanCached)
               : null,
-            author: listing.author,
-            category: listing.category,
-          },
-        };
-      })
-      .filter(Boolean);
+          direct: listing.direct
+            ? {
+                price: Number(listing.direct.price),
+                compareAtPrice: listing.direct.compareAtPrice
+                  ? Number(listing.direct.compareAtPrice)
+                  : null,
+                salePrice: listing.direct.salePrice
+                  ? Number(listing.direct.salePrice)
+                  : null,
+              }
+            : null,
+          author: listing.author,
+          category: listing.category,
+        },
+      });
+    }
     return {
       sellerId: cart.sellerId,
       sellerName: seller ? formatUserDisplayName(seller) || null : null,
       items,
-      itemCount: items.reduce((s, i) => s + (i?.quantity ?? 0), 0),
+      itemCount: items.reduce(
+        (s, i) => s + (Number(i.quantity) || 0),
+        0,
+      ),
     };
   }
 

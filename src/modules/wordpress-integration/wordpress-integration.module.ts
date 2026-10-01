@@ -3,6 +3,8 @@ import { NotificationModule } from '../notification/notification.module';
 import { ListingModule } from '../listing/listing.module';
 import { UsersModule } from '../users/users.module';
 import { PrismaModule } from '../../infrastructure/prisma/prisma.module';
+import { CurrencyModule } from '../currency/currency.module';
+import { FeesModule } from '../fees/fees.module';
 import { AdminWordPressPluginController } from './controllers/admin-wordpress-plugin.controller';
 import { WordPressUserController } from './controllers/wordpress-user.controller';
 import { WordPressIngestController } from './controllers/wordpress-ingest.controller';
@@ -13,10 +15,18 @@ import { WordPressStoreSyncService } from './services/store-sync.service';
 import { RemoteImageService } from './services/remote-image.service';
 import { WordPressPluginPackageService } from './services/plugin-package.service';
 import { WordPressCategoriesService } from './services/wordpress-categories.service';
+import { WordPressSellerContextService } from './services/wordpress-seller-context.service';
 import { ApiTokenGuard } from './guards/api-token.guard';
 
 @Module({
-  imports: [PrismaModule, NotificationModule, ListingModule, UsersModule],
+  imports: [
+    PrismaModule,
+    NotificationModule,
+    ListingModule,
+    UsersModule,
+    CurrencyModule,
+    FeesModule,
+  ],
   controllers: [
     WordPressUserController,
     WordPressIngestController,
@@ -30,8 +40,13 @@ import { ApiTokenGuard } from './guards/api-token.guard';
     RemoteImageService,
     WordPressPluginPackageService,
     WordPressCategoriesService,
+    WordPressSellerContextService,
     ApiTokenGuard,
   ],
-  exports: [WordPressApiTokenService, WordPressConnectionService],
+  exports: [
+    WordPressApiTokenService,
+    WordPressConnectionService,
+    RemoteImageService,
+  ],
 })
 export class WordPressIntegrationModule {}

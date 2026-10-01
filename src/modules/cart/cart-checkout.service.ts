@@ -73,53 +73,16 @@ export class CartCheckoutService {
   }> {
     const { cart, items: cartItems } =
       await this.cartService.requireCartItems(userId);
-    const listingIds = cartItems.map((i) => i.listingId);
-    const listings = await this.prisma.listing.findMany({
-      where: { id: { in: listingIds } },
-      include: { direct: true, category: true },
-    });
-    const listingMap = new Map(listings.map((l) => [l.id, l]));
-    const shippingDefault = await this.readShippingCost();
 
-    const items = cartItems.map((ci) => {
-      const listing = listingMap.get(ci.listingId);
-      if (!listing?.direct) {
-        throw new BadRequestException('آگهی نامعتبر در سبد');
-      }
-      const unitPrice = Number(
-        listing.direct.salePrice && Number(listing.direct.salePrice) > 0
-          ? listing.direct.salePrice
-          : listing.direct.price,
+    const items: MarketplaceCheckoutLine[] = [];
+    for (const ci of cartItems) {
+      const line = await this.marketplaceCheckout.buildLineFromListing(
+        ci.listingId,
+        ci.quantity,
       );
-      const lineTotal = unitPrice * ci.quantity;
-      const shippingCost =
-        listing.shippingPayer === 'BUYER_PREPAID'
-          ? listing.shippingCostOverride != null &&
-            listing.shippingCostOverride >= 0
-            ? listing.shippingCostOverride
-            : shippingDefault
-          : 0;
-      return {
-        listingId: ci.listingId,
-        quantity: ci.quantity,
-        unitPrice,
-        lineTotal,
-        shippingCost,
-        categoryId: listing.categoryId,
-        sellerId: listing.authorId,
-        onSale:
-          listing.direct.salePrice != null &&
-          Number(listing.direct.salePrice) > 0,
-      };
-    });
+      items.push(line);
+    }
 
     return { cart: { sellerId: cart.sellerId }, items };
-  }
-
-  private async readShippingCost(): Promise<number> {
-    const row = await this.prisma.systemSetting.findUnique({
-      where: { key: 'SHIPPING_COST' },
-    });
-    return Number(row?.value ?? 0);
   }
 }

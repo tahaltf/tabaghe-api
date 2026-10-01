@@ -100,6 +100,16 @@ export class WordPressProductDto {
   @Min(0)
   salePrice?: number;
 
+  /** Listing currency code (IRT/USD/AED/IQD/TRY). Defaults to IRT when omitted. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(8)
+  @Transform(({ value }) => {
+    if (value == null || value === '') return undefined;
+    return String(value).trim().toUpperCase();
+  })
+  priceCurrencyCode?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(128)

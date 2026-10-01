@@ -105,6 +105,16 @@ export const ADMIN_SECRET_KEYS_REGISTRY: AdminSecretKeyDef[] = [
     placeholder: 'https://api.example.com/api/v1/payments/callback/zibal',
   },
   {
+    key: 'FX_INGEST_SECRET',
+    category: 'general',
+    categoryLabel: 'عمومی',
+    label: 'کلید ingest نرخ ارز (n8n)',
+    description:
+      'رمز مشترک برای POST /api/v1/integrations/fx-rates — هدر X-Fx-Ingest-Key یا Bearer',
+    kind: 'secret',
+    placeholder: 'یک رشته تصادفی بلند',
+  },
+  {
     key: 'ZOHAL_TOKEN',
     category: 'kyc',
     categoryLabel: 'احراز هویت و استعلام',

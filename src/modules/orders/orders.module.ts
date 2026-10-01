@@ -10,6 +10,7 @@ import { OrderReputationModule } from './order-reputation.module';
 import { CouponsModule } from '../coupons/coupons.module';
 import { CartModule } from '../cart/cart.module';
 import { ReferralModule } from '../referral/referral.module';
+import { CurrencyModule } from '../currency/currency.module';
 
 import { OrdersController } from './orders.controller';
 import { OrdersAdminService } from './orders-admin.service';
@@ -41,6 +42,7 @@ import { OrdersSchedulerService } from './services/scheduler/orders-scheduler.se
     CouponsModule,
     forwardRef(() => CartModule),
     ReferralModule,
+    CurrencyModule,
   ],
   controllers: [OrdersController],
   providers: [

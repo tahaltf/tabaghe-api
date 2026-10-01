@@ -44,6 +44,8 @@ import {
   normalizeListingTitleKey,
   parseBulkPriceText,
 } from '../utils/bulk-price-text.util';
+import { CurrencyService } from '../../currency/currency.service';
+import { BASE_CURRENCY_CODE } from '../../currency/providers/fx-provider';
 
 /** حداقل امتیاز (rating) برای ثبت یا ارسال مجدد آگهی */
 export const MIN_LISTING_AUTHOR_RATING = 1;
@@ -79,7 +81,18 @@ export type WordPressSyncUpdateInput = {
   provinceId: string;
   cityId: string;
   stockQuantity: number;
+  /** ارز قیمت (IRT/USD/AED/IQD)؛ برای فید خارجی الزامی است */
+  priceCurrencyCode?: string | null;
 };
+
+function isSyncableImportSource(
+  source: ListingImportSource | null | undefined,
+): boolean {
+  return (
+    source === ListingImportSource.WORDPRESS ||
+    source === ListingImportSource.JSON_FEED
+  );
+}
 
 @Injectable()
 export class ListingCommandService {
@@ -88,6 +101,7 @@ export class ListingCommandService {
     private readonly quotaService: QuotaService,
     private readonly notifications: NotificationService,
     private readonly listingExpiry: ListingExpiryService,
+    private readonly currency: CurrencyService,
   ) {}
 
   async create(
@@ -117,6 +131,21 @@ export class ListingCommandService {
         'برای ذخیره پیش‌نویس در حساب، دسته، استان و شهر را انتخاب کنید.',
       );
     }
+
+    const priceCurrencyCode = await this.currency.assertUserCanUseCurrency(
+      userId,
+      dto.type === ListingType.AUCTION
+        ? BASE_CURRENCY_CODE
+        : dto.priceCurrencyCode,
+      dto.type,
+    );
+    const priceTomanCached = await this.currency.computePriceTomanCached({
+      type: dto.type,
+      priceCurrencyCode,
+      direct: dto.direct,
+      exchange: dto.exchange,
+      auction: dto.auction,
+    });
     const auctionEndDate = this.resolveAuctionEndDate(dto, isDraft);
 
     const listing = await this.prisma.$transaction(async (tx) => {
@@ -175,6 +204,8 @@ export class ListingCommandService {
               ? dto.stockQuantity
               : 1,
           singleItemSale: dto.singleItemSale !== false,
+          priceCurrencyCode,
+          priceTomanCached,
           author: { connect: { id: userId } },
           category: { connect: { id: String(dto.categoryId) } },
           province: { connect: { id: String(dto.provinceId) } },
@@ -287,8 +318,15 @@ export class ListingCommandService {
     const rawMax = Number(map.KYC_UNVERIFIED_MAX_AMOUNT ?? '0');
     const maxAmount = Number.isFinite(rawMax) ? Math.max(0, Math.floor(rawMax)) : 0;
     if (maxAmount > 0 && dto.type === ListingType.DIRECT) {
-      const price = Number(dto.direct?.price ?? 0);
-      if (price > maxAmount) {
+      const priceForeign = Number(dto.direct?.price ?? 0);
+      const currencyCode = this.currency.normalizeCode(dto.priceCurrencyCode);
+      let priceToman = priceForeign;
+      try {
+        priceToman = await this.currency.toToman(priceForeign, currencyCode);
+      } catch {
+        priceToman = priceForeign;
+      }
+      if (priceToman > maxAmount) {
         throw new ForbiddenException(
           `سقف مبلغ آگهی برای کاربر بدون احراز کامل ${maxAmount.toLocaleString('fa-IR')} تومان است.`,
         );
@@ -373,13 +411,34 @@ export class ListingCommandService {
 
     await this.assertCategoriesVisibleOnSite([input.categoryId]);
 
+    const priceCurrencyCode = await this.currency.assertUserCanUseCurrency(
+      userId,
+      input.priceCurrencyCode ?? listing.priceCurrencyCode,
+      ListingType.DIRECT,
+    );
+    const priceTomanCached = await this.currency.computePriceTomanCached({
+      type: ListingType.DIRECT,
+      priceCurrencyCode,
+      direct: {
+        price: input.price,
+        salePrice: input.salePrice,
+      },
+    });
+
     const wasRejected = listing.status === ListingStatus.REJECTED;
     const wasPending = listing.status === ListingStatus.PENDING;
     const shouldRestoreApproved =
       (listing.status === ListingStatus.ARCHIVED ||
         listing.status === ListingStatus.SOLD) &&
-      listing.importSource === ListingImportSource.WORDPRESS &&
+      isSyncableImportSource(listing.importSource) &&
       input.stockQuantity > 0;
+
+    const importSource =
+      listing.importSource === ListingImportSource.JSON_FEED
+        ? ListingImportSource.JSON_FEED
+        : ListingImportSource.WORDPRESS;
+    const sourceLabel =
+      importSource === ListingImportSource.JSON_FEED ? 'فید خارجی' : 'وردپرس';
 
     const data: Prisma.ListingUpdateInput = {
       title: input.title.trim(),
@@ -392,15 +451,21 @@ export class ListingCommandService {
       province: { connect: { id: input.provinceId } },
       city: { connect: { id: input.cityId } },
       stockQuantity: input.stockQuantity,
+      priceCurrencyCode,
+      priceTomanCached,
       direct: {
         upsert: {
           create: {
             price: input.price,
+            compareAtPrice: input.compareAtPrice ?? null,
+            salePrice: input.salePrice ?? null,
             allowExchange: false,
             shippingMethods: [],
           },
           update: {
             price: input.price,
+            compareAtPrice: input.compareAtPrice ?? null,
+            salePrice: input.salePrice ?? null,
           },
         },
       },
@@ -442,12 +507,12 @@ export class ListingCommandService {
         {
           skipAdminNotification: options?.skipAdminNotification,
           onAdminAlert: options?.onAdminAlert,
-          importSource: ListingImportSource.WORDPRESS,
+          importSource,
         },
         wasRejected,
         wasRejected
-          ? `آگهی «${updated.title}» (${listingTypePersianLabel(updated.type)}) پس از رد/اصلاح توسط فروشنده از وردپرس دوباره برای بررسی ارسال شد.`
-          : `آگهی «${updated.title}» (${listingTypePersianLabel(updated.type)}) از وردپرس ویرایش شد و در انتظار بررسی است.`,
+          ? `آگهی «${updated.title}» (${listingTypePersianLabel(updated.type)}) پس از رد/اصلاح توسط فروشنده از ${sourceLabel} دوباره برای بررسی ارسال شد.`
+          : `آگهی «${updated.title}» (${listingTypePersianLabel(updated.type)}) از ${sourceLabel} ویرایش شد و در انتظار بررسی است.`,
         wasRejected
           ? 'آگهی اصلاح‌شده در انتظار تایید'
           : 'آگهی ویرایش‌شده در انتظار تایید',
@@ -514,8 +579,8 @@ export class ListingCommandService {
     listingId: string,
   ): Promise<{ listing: Listing; archived: boolean }> {
     const listing = await this.ensureListingCanBeModified(listingId, userId);
-    if (listing.importSource !== ListingImportSource.WORDPRESS) {
-      throw new BadRequestException('این آگهی از وردپرس وارد نشده است');
+    if (!isSyncableImportSource(listing.importSource)) {
+      throw new BadRequestException('این آگهی از منبع خارجی وارد نشده است');
     }
 
     const archivable = new Set<ListingStatus>([
@@ -580,6 +645,33 @@ export class ListingCommandService {
         ? new Date(dto.auction.endDatetime)
         : (listing.auction?.endDatetime ?? undefined);
 
+    const priceCurrencyCode = await this.currency.assertUserCanUseCurrency(
+      userId,
+      currentType === ListingType.AUCTION
+        ? BASE_CURRENCY_CODE
+        : (dto.priceCurrencyCode ?? listing.priceCurrencyCode),
+      currentType,
+    );
+    const priceTomanCached = await this.currency.computePriceTomanCached({
+      type: currentType,
+      priceCurrencyCode,
+      direct: dto.direct ?? {
+        price: listing.direct ? Number(listing.direct.price) : null,
+        salePrice: listing.direct?.salePrice
+          ? Number(listing.direct.salePrice)
+          : null,
+      },
+      exchange: dto.exchange ?? {
+        ownValue: listing.exchange ? Number(listing.exchange.ownValue) : null,
+        directPrice: listing.exchange?.directPrice
+          ? Number(listing.exchange.directPrice)
+          : null,
+      },
+      auction: dto.auction ?? {
+        basePrice: listing.auction ? Number(listing.auction.basePrice) : null,
+      },
+    });
+
     const wasRejected = listing.status === ListingStatus.REJECTED;
     const wasDraft = listing.status === ListingStatus.DRAFT;
     const updated = await this.prisma.listing.update({
@@ -608,12 +700,15 @@ export class ListingCommandService {
         status: keepDraft ? ListingStatus.DRAFT : ListingStatus.PENDING,
         rejectionReason: null,
         rejectedAt: null,
+        priceCurrencyCode,
+        priceTomanCached,
         ...(wasRejected ? { exchangeOffersSince: new Date() } : {}),
         expiresAt: null,
         expiryReminderSentAt: null,
         ...(dto.stockQuantity !== undefined &&
         dto.stockQuantity >= 0 &&
-        listing.importSource !== ListingImportSource.WORDPRESS
+        listing.importSource !== ListingImportSource.WORDPRESS &&
+        listing.importSource !== ListingImportSource.JSON_FEED
           ? { stockQuantity: dto.stockQuantity }
           : {}),
         ...(dto.singleItemSale !== undefined
@@ -1366,7 +1461,7 @@ export class ListingCommandService {
     if (listing.status === ListingStatus.SOLD) {
       if (
         options?.allowWordPressRestock &&
-        listing.importSource === ListingImportSource.WORDPRESS
+        isSyncableImportSource(listing.importSource)
       ) {
         return listing;
       }

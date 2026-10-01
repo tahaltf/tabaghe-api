@@ -18,6 +18,7 @@ import { ListingMergeService } from './services/listing-merge.service';
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { AuthModule } from '../auth/auth.module';
 import { UsersModule } from '../users/users.module';
+import { CurrencyModule } from '../currency/currency.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { UsersModule } from '../users/users.module';
     AnalyticsModule,
     AuthModule,
     UsersModule,
+    CurrencyModule,
   ],
   controllers: [
     ListingController,
