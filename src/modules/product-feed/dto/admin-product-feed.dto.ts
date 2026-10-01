@@ -1,5 +1,8 @@
 import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsIn,
   IsInt,
@@ -103,4 +106,19 @@ export class AdminUpsertProductFeedDto {
   @Min(1)
   @Max(1_000_000)
   minStockForAvailable?: number;
+}
+
+export class AdminImportProductFeedDto {
+  @IsArray()
+  @ArrayMinSize(1, { message: 'حداقل یک محصول باید انتخاب شود' })
+  @ArrayMaxSize(5000)
+  @IsString({ each: true })
+  productIds!: string[];
+
+  @IsOptional()
+  @Transform(({ value }) => emptyToNull(value))
+  @ValidateIf((_, v) => v != null)
+  @IsString()
+  @MaxLength(64)
+  categoryId?: string | null;
 }

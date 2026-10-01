@@ -5,7 +5,10 @@ import { RolesGuard } from '../../auth/guards/roles.guard';
 import { PermissionsGuard } from '../../auth/guards/permissions.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { RequirePermission } from '../../auth/decorators/require-permission.decorator';
-import { AdminUpsertProductFeedDto } from '../dto/admin-product-feed.dto';
+import {
+  AdminImportProductFeedDto,
+  AdminUpsertProductFeedDto,
+} from '../dto/admin-product-feed.dto';
 import { ProductFeedConfigService } from '../services/product-feed-config.service';
 import { ProductFeedSyncService } from '../services/product-feed-sync.service';
 
@@ -28,6 +31,27 @@ export class AdminProductFeedController {
   @RequirePermission('users.update')
   upsert(@Param('id') userId: string, @Body() dto: AdminUpsertProductFeedDto) {
     return this.config.upsertForUser(userId, dto);
+  }
+
+  @Post('preview')
+  @RequirePermission('users.update')
+  preview(@Param('id') userId: string) {
+    return this.sync.previewUserFeed(userId);
+  }
+
+  @Post('import')
+  @RequirePermission('users.update')
+  async importSelected(
+    @Param('id') userId: string,
+    @Body() dto: AdminImportProductFeedDto,
+  ) {
+    const result = await this.sync.importSelectedProducts(
+      userId,
+      dto.productIds,
+      dto.categoryId,
+    );
+    const config = await this.config.getForUser(userId);
+    return { ...config, syncResult: result };
   }
 
   @Post('sync')

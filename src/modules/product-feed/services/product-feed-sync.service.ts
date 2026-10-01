@@ -34,6 +34,23 @@ export interface ProductFeedSyncResult {
   status: 'SUCCESS' | 'FAILED' | 'PARTIAL';
 }
 
+export interface ProductFeedPreviewItem {
+  id: string;
+  title: string;
+  price: number;
+  oldPrice: number | null;
+  category: string | null;
+  image: string | null;
+  isAvailable: boolean;
+  stockQuantity: number;
+  url: string | null;
+}
+
+export interface ProductFeedPreviewResult {
+  total: number;
+  products: ProductFeedPreviewItem[];
+}
+
 @Injectable()
 export class ProductFeedSyncService {
   private readonly logger = new Logger(ProductFeedSyncService.name);
@@ -45,67 +62,93 @@ export class ProductFeedSyncService {
     private readonly notifications: NotificationService,
   ) {}
 
-  async syncUserFeed(userId: string): Promise<ProductFeedSyncResult> {
-    const feed = await this.prisma.externalProductFeed.findUnique({
-      where: { userId },
-    });
+  async previewUserFeed(userId: string): Promise<ProductFeedPreviewResult> {
+    const feed = await this.requireFeedWithUrl(userId);
+    const products = await this.fetchAllProducts(feed.feedUrl!);
+    return {
+      total: products.length,
+      products: products.map((p) => ({
+        id: p.id,
+        title: p.title,
+        price: p.price,
+        oldPrice: p.oldPrice,
+        category: p.category,
+        image: p.image,
+        isAvailable: p.isAvailable,
+        stockQuantity: p.stockQuantity,
+        url: p.url,
+      })),
+    };
+  }
 
-    if (!feed?.feedUrl) {
-      throw new BadRequestException('آدرس فید برای این کاربر تنظیم نشده است');
-    }
-
+  async importSelectedProducts(
+    userId: string,
+    productIds: string[],
+    categoryId?: string | null,
+  ): Promise<ProductFeedSyncResult> {
+    const feed = await this.requireFeedWithUrl(userId);
     await this.ingestService.assertUserCanCreateListings(userId);
 
-    const feedUrl = normalizeFeedBaseUrl(feed.feedUrl);
-    const result: ProductFeedSyncResult = {
-      created: 0,
-      updated: 0,
-      archived: 0,
-      failed: 0,
-      skipped: 0,
-      errors: [],
-      status: 'SUCCESS',
-    };
+    const uniqueIds = [
+      ...new Set(
+        productIds
+          .map((id) => String(id ?? '').trim())
+          .filter((id) => id.length > 0),
+      ),
+    ];
+    if (uniqueIds.length === 0) {
+      throw new BadRequestException('حداقل یک محصول باید انتخاب شود');
+    }
+
+    const selected = new Set(uniqueIds);
+    const result = this.emptyResult();
 
     try {
-      const products = await this.fetchAllProducts(feed.feedUrl);
+      const allProducts = await this.fetchAllProducts(feed.feedUrl!);
+      const products = allProducts.filter((p) => selected.has(p.id));
+      if (products.length === 0) {
+        throw new BadRequestException(
+          'هیچ‌کدام از محصولات انتخاب‌شده در فید پیدا نشد',
+        );
+      }
+
+      const missing = uniqueIds.filter(
+        (id) => !products.some((p) => p.id === id),
+      );
+      for (const id of missing) {
+        result.failed++;
+        result.errors.push(`محصول ${id}: در فید پیدا نشد`);
+      }
+
+      await this.ingestProducts(
+        userId,
+        feed,
+        products,
+        result,
+        categoryId ? categoryId : undefined,
+      );
+      await this.finalizeSyncResult(userId, result);
+      return result;
+    } catch (err) {
+      if (!(err instanceof BadRequestException)) {
+        await this.markSyncFailed(userId, err);
+      }
+      throw err;
+    }
+  }
+
+  async syncUserFeed(userId: string): Promise<ProductFeedSyncResult> {
+    const feed = await this.requireFeedWithUrl(userId);
+    await this.ingestService.assertUserCanCreateListings(userId);
+
+    const feedUrl = normalizeFeedBaseUrl(feed.feedUrl!);
+    const result = this.emptyResult();
+
+    try {
+      const products = await this.fetchAllProducts(feed.feedUrl!);
       const productIds = new Set(products.map((p) => p.id));
 
-      const batch = this.ingestService.createBatchIngestContext();
-      const ctx = {
-        feedUrl,
-        currencyCode: feed.currencyCode,
-        markupType: feed.markupType,
-        markupValue: Number(feed.markupValue),
-        descriptionSuffix: feed.descriptionSuffix,
-        defaultCategoryId: feed.defaultCategoryId,
-        minStockForAvailable: feed.minStockForAvailable ?? 1,
-      };
-
-      for (const product of products) {
-        try {
-          const r = await this.ingestService.ingestOne(
-            userId,
-            product,
-            ctx,
-            batch.opts,
-          );
-          if (r.skipped) {
-            result.skipped++;
-          } else if (r.archived) {
-            result.archived++;
-          } else if (r.created) {
-            result.created++;
-          } else if (r.updated) {
-            result.updated++;
-          }
-        } catch (err) {
-          result.failed++;
-          result.errors.push(
-            `محصول ${product.id}: ${(err as Error)?.message ?? 'خطای نامشخص'}`,
-          );
-        }
-      }
+      await this.ingestProducts(userId, feed, products, result);
 
       const imported = await this.prisma.listing.findMany({
         where: {
@@ -137,59 +180,147 @@ export class ProductFeedSyncService {
         }
       }
 
-      // خلاصهٔ تغییرات فید برای ادمین؛ نوتیف تکی آگهی‌ها ارسال نمی‌شود تا تکراری نشود
-      await this.notifyAdminFeedSyncSummary(userId, result);
-
-      if (result.failed > 0 && (result.created > 0 || result.updated > 0)) {
-        result.status = 'PARTIAL';
-      } else if (
-        result.failed > 0 &&
-        result.created === 0 &&
-        result.updated === 0 &&
-        result.archived === 0
-      ) {
-        result.status = 'FAILED';
-      }
-
-      await this.prisma.externalProductFeed.update({
-        where: { userId },
-        data: {
-          lastSyncAt: new Date(),
-          lastSyncStatus: result.status,
-          lastSyncError:
-            result.errors.length > 0
-              ? result.errors.slice(0, 5).join(' | ').slice(0, 2000)
-              : null,
-          lastSyncStats: {
-            created: result.created,
-            updated: result.updated,
-            archived: result.archived,
-            failed: result.failed,
-            skipped: result.skipped,
-          } as Prisma.InputJsonValue,
-        },
-      });
-
+      await this.finalizeSyncResult(userId, result);
       return result;
     } catch (err) {
-      const message = (err as Error)?.message ?? 'خطای نامشخص';
-      await this.prisma.externalProductFeed.update({
-        where: { userId },
-        data: {
-          lastSyncAt: new Date(),
-          lastSyncStatus: 'FAILED',
-          lastSyncError: message.slice(0, 2000),
-          lastSyncStats: {
-            created: 0,
-            updated: 0,
-            archived: 0,
-            failed: 1,
-            skipped: 0,
-          } as Prisma.InputJsonValue,
-        },
-      });
+      await this.markSyncFailed(userId, err);
       throw err;
     }
+  }
+
+  private emptyResult(): ProductFeedSyncResult {
+    return {
+      created: 0,
+      updated: 0,
+      archived: 0,
+      failed: 0,
+      skipped: 0,
+      errors: [],
+      status: 'SUCCESS',
+    };
+  }
+
+  private async requireFeedWithUrl(userId: string) {
+    const feed = await this.prisma.externalProductFeed.findUnique({
+      where: { userId },
+    });
+    if (!feed?.feedUrl) {
+      throw new BadRequestException('آدرس فید برای این کاربر تنظیم نشده است');
+    }
+    return feed;
+  }
+
+  private async ingestProducts(
+    userId: string,
+    feed: {
+      feedUrl: string | null;
+      currencyCode: string;
+      markupType: string;
+      markupValue: Prisma.Decimal | number;
+      descriptionSuffix: string | null;
+      defaultCategoryId: string | null;
+      minStockForAvailable: number | null;
+    },
+    products: DeepenFeedProduct[],
+    result: ProductFeedSyncResult,
+    categoryOverride?: string | null,
+  ): Promise<void> {
+    const feedUrl = normalizeFeedBaseUrl(feed.feedUrl!);
+    const batch = this.ingestService.createBatchIngestContext();
+    const ctx = {
+      feedUrl,
+      currencyCode: feed.currencyCode,
+      markupType: feed.markupType,
+      markupValue: Number(feed.markupValue),
+      descriptionSuffix: feed.descriptionSuffix,
+      defaultCategoryId:
+        categoryOverride !== undefined
+          ? categoryOverride
+          : feed.defaultCategoryId,
+      minStockForAvailable: feed.minStockForAvailable ?? 1,
+    };
+
+    for (const product of products) {
+      try {
+        const r = await this.ingestService.ingestOne(
+          userId,
+          product,
+          ctx,
+          batch.opts,
+        );
+        if (r.skipped) {
+          result.skipped++;
+        } else if (r.archived) {
+          result.archived++;
+        } else if (r.created) {
+          result.created++;
+        } else if (r.updated) {
+          result.updated++;
+        }
+      } catch (err) {
+        result.failed++;
+        result.errors.push(
+          `محصول ${product.id}: ${(err as Error)?.message ?? 'خطای نامشخص'}`,
+        );
+      }
+    }
+  }
+
+  private async finalizeSyncResult(
+    userId: string,
+    result: ProductFeedSyncResult,
+  ): Promise<void> {
+    // خلاصهٔ تغییرات فید برای ادمین؛ نوتیف تکی آگهی‌ها ارسال نمی‌شود تا تکراری نشود
+    await this.notifyAdminFeedSyncSummary(userId, result);
+
+    if (result.failed > 0 && (result.created > 0 || result.updated > 0)) {
+      result.status = 'PARTIAL';
+    } else if (
+      result.failed > 0 &&
+      result.created === 0 &&
+      result.updated === 0 &&
+      result.archived === 0
+    ) {
+      result.status = 'FAILED';
+    }
+
+    await this.prisma.externalProductFeed.update({
+      where: { userId },
+      data: {
+        lastSyncAt: new Date(),
+        lastSyncStatus: result.status,
+        lastSyncError:
+          result.errors.length > 0
+            ? result.errors.slice(0, 5).join(' | ').slice(0, 2000)
+            : null,
+        lastSyncStats: {
+          created: result.created,
+          updated: result.updated,
+          archived: result.archived,
+          failed: result.failed,
+          skipped: result.skipped,
+        } as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  private async markSyncFailed(userId: string, err: unknown): Promise<void> {
+    const message = (err as Error)?.message ?? 'خطای نامشخص';
+    await this.prisma.externalProductFeed.update({
+      where: { userId },
+      data: {
+        lastSyncAt: new Date(),
+        lastSyncStatus: 'FAILED',
+        lastSyncError: message.slice(0, 2000),
+        lastSyncStats: {
+          created: 0,
+          updated: 0,
+          archived: 0,
+          failed: 1,
+          skipped: 0,
+        } as Prisma.InputJsonValue,
+      },
+    });
   }
 
   private async notifyAdminFeedSyncSummary(
