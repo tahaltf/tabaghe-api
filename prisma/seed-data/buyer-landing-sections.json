@@ -4,12 +4,12 @@
     "type": "banner",
     "style": { "paddingY": "sm", "maxWidth": "wide" },
     "props": {
-      "headline": "بیعانه را به کارت شخصی نریزید",
-      "subheadline": "اگر فروشنده واقعی است، سفارش داخل طبقه بسته می‌شود. در حالت معمولی پول تا تأیید شما پیش طبقه می‌ماند.",
-      "ctaLabel": "آگهی‌ها",
+      "headline": "پول را به کارت شخصی نریزید",
+      "subheadline": "اگر فروشنده واقعی است، پرداخت داخل سفارش طبقه انجام می‌شود.",
+      "ctaLabel": "دیدن آگهی‌ها",
       "ctaAction": "link",
       "ctaLink": "/listings",
-      "variant": "accent"
+      "variant": "editorial"
     }
   },
   {
