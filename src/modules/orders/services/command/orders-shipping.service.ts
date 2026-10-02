@@ -75,6 +75,7 @@ import {
 } from '../../orders.constants';
 import { BUYER_CONFIRM_ELIGIBLE_STATUSES } from '../query/orders-response-enrichment.service';
 import { OrdersSchedulerService } from '../scheduler/orders-scheduler.service';
+import { OrdersEarlyEscrowService } from './orders-early-escrow.service';
 
 @Injectable()
 export class OrdersShippingService {
@@ -89,6 +90,7 @@ export class OrdersShippingService {
     private readonly responseEnrichment: OrdersResponseEnrichmentService,
     @Inject(forwardRef(() => OrdersSchedulerService))
     private readonly scheduler: OrdersSchedulerService,
+    private readonly earlyEscrow: OrdersEarlyEscrowService,
   ) {}
 
   async updateTrackingCode(
@@ -213,6 +215,11 @@ export class OrdersShippingService {
       where: { id: orderId },
       data: updateData,
     });
+    if (nextShipStatus === OrderStatus.SHIPPED) {
+      await this.prisma.$transaction(async (tx) => {
+        await this.earlyEscrow.tryTrustedShipmentRelease(tx, updated);
+      });
+    }
 
     if (order.type === OrderType.EXCHANGE) {
       await this.exchangeOrderNotify.afterShipmentUpdated(updated, userId);

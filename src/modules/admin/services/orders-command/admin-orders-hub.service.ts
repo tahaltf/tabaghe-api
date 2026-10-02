@@ -34,6 +34,7 @@ import {
   resolveExchangeLegConfirmDeadline,
 } from '../../../../common/order/exchange-hub-confirm-deadline.util';
 import { OperationalNotifyService } from '../../../notification/operational-notify.service';
+import { OrdersEarlyEscrowService } from '../../../orders/services/command/orders-early-escrow.service';
 
 @Injectable()
 export class AdminOrdersHubService {
@@ -44,6 +45,7 @@ export class AdminOrdersHubService {
     private readonly ordersService: OrdersService,
     private readonly listingCommand: ListingCommandService,
     private readonly operationalNotify: OperationalNotifyService,
+    private readonly earlyEscrow: OrdersEarlyEscrowService,
   ) {}
 
   private async dispatchHubNotifications(
@@ -80,6 +82,7 @@ export class AdminOrdersHubService {
         cancelReason: true,
         totalAmount: true,
         sellerRevenue: true,
+        sellerEscrowReleasedAt: true,
         tradeReputationAt: true,
       },
     });
@@ -219,6 +222,14 @@ export class AdminOrdersHubService {
           : {}),
       },
     });
+    if (
+      nextStatus === OrderStatus.SHIPPED_TO_BUYER &&
+      existing.type !== 'EXCHANGE'
+    ) {
+      await this.prisma.$transaction(async (tx) => {
+        await this.earlyEscrow.tryTrustedShipmentRelease(tx, updated);
+      });
+    }
 
     const buyerNote =
       dto.note ??

@@ -25,6 +25,7 @@ import { OrdersDetailQueryService } from './services/query/orders-detail-query.s
 import { OrdersResponseEnrichmentService } from './services/query/orders-response-enrichment.service';
 import { OrdersCheckoutService } from './services/command/orders-checkout.service';
 import { OrdersShippingService } from './services/command/orders-shipping.service';
+import { OrdersEarlyEscrowService } from './services/command/orders-early-escrow.service';
 import { OrdersCompletionService } from './services/command/orders-completion.service';
 import { OrdersUnpaidCancelService } from './services/command/orders-unpaid-cancel.service';
 import { OrdersSchedulerService } from './services/scheduler/orders-scheduler.service';
@@ -54,6 +55,7 @@ import { OrdersSchedulerService } from './services/scheduler/orders-scheduler.se
     OrdersQueryService,
     OrdersCheckoutService,
     OrdersShippingService,
+    OrdersEarlyEscrowService,
     OrdersCompletionService,
     OrdersUnpaidCancelService,
     OrdersSchedulerService,
@@ -71,6 +73,7 @@ import { OrdersSchedulerService } from './services/scheduler/orders-scheduler.se
     OrdersStateMachineService,
     OrdersResponseEnrichmentService,
     OrdersCheckoutService,
+    OrdersEarlyEscrowService,
   ],
 })
 export class OrdersModule {}

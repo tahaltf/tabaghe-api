@@ -227,6 +227,15 @@ export class OrdersSettingsService {
   }
 
 
+  async isReleaseEscrowOnHubVerifiedEnabled(): Promise<boolean> {
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'RELEASE_ESCROW_ON_HUB_VERIFIED' },
+      select: { value: true },
+    });
+    const v = setting?.value?.trim().toLowerCase();
+    return v === 'true' || v === '1' || v === 'yes';
+  }
+
   async getOrderVideoRetentionDays(): Promise<number> {
     const setting = await this.prisma.systemSetting.findUnique({
       where: { key: 'ORDER_COMPLETED_VIDEO_RETENTION_DAYS' },

@@ -72,6 +72,10 @@ export class WalletService {
     return this.escrow.debitOrderScopedBlocked(...args);
   }
 
+  clawbackSellerPayout(...args: Parameters<WalletEscrowService['clawbackSellerPayout']>) {
+    return this.escrow.clawbackSellerPayout(...args);
+  }
+
   releaseEscrow(...args: Parameters<WalletEscrowService['releaseEscrow']>) {
     return this.escrow.releaseEscrow(...args);
   }

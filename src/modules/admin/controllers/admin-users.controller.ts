@@ -38,6 +38,7 @@ import { AdminSetUserActivationDto } from '../dto/admin-user-activation.dto';
 import { AdminSetUserRatingDto } from '../dto/admin-user-rating.dto';
 import { AdminSetUserTrustScoreDto } from '../dto/admin-user-trust-score.dto';
 import { AdminSetUserApprovedDto } from '../dto/admin-user-approved.dto';
+import { AdminSetUserPayoutOnShipmentDto } from '../dto/admin-user-payout-on-shipment.dto';
 import { AdminUpdateUserReferralSettingsDto } from '../dto/admin-user-referral-settings.dto';
 import { AdminCreateUserDto } from '../dto/admin-create-user.dto';
 import { AdminUpdateUserProfileDto } from '../dto/admin-update-user-profile.dto';
@@ -169,6 +170,16 @@ export class AdminUsersQueryController {
     @Body() dto: AdminSetUserApprovedDto,
   ) {
     return this.service.setUserApproved(actor, id, dto.isApproved);
+  }
+
+  @Patch(':id/payout-on-shipment')
+  @RequirePermission('users.update')
+  setPayoutOnShipment(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: AdminSetUserPayoutOnShipmentDto,
+  ) {
+    return this.service.setUserPayoutOnShipment(actor, id, dto.payoutOnShipment);
   }
 
   @Patch(':id/rating')

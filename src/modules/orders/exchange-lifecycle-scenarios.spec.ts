@@ -394,6 +394,11 @@ describe('Exchange lifecycle — hub inspection (scenarios 7–12)', () => {
       notifyExchangeHubInspectionTickets: jest.fn().mockResolvedValue(undefined),
       notifyOrderCompleted: jest.fn().mockResolvedValue(undefined),
     };
+    const earlyEscrow = {
+      tryTrustedShipmentRelease: jest.fn(),
+      tryHubVerifiedRelease: jest.fn(),
+      markReleasedIfNeeded: jest.fn(),
+    };
     const hubService = new AdminOrdersCommandService(
       new AdminOrdersStatusService(
         prisma as never,
@@ -405,6 +410,12 @@ describe('Exchange lifecycle — hub inspection (scenarios 7–12)', () => {
         { assertTransition: jest.fn() } as never,
         notify,
         operationalNotify as never,
+        { creditForCompletedOrder: jest.fn() } as never,
+        {
+          isOrderUnpaid: jest.fn().mockResolvedValue(false),
+          cancelUnpaidOrder: jest.fn(),
+        } as never,
+        earlyEscrow as never,
       ),
       new AdminOrdersHubService(
         prisma as never,
@@ -413,6 +424,7 @@ describe('Exchange lifecycle — hub inspection (scenarios 7–12)', () => {
         { ensureBuyerConfirmDeadline: jest.fn() } as never,
         listingCommand as never,
         operationalNotify as never,
+        earlyEscrow as never,
       ),
       new AdminOrdersInspectionService(
         prisma as never,
@@ -431,6 +443,8 @@ describe('Exchange lifecycle — hub inspection (scenarios 7–12)', () => {
         listingCommand as never,
         notify,
         operationalNotify as never,
+        { creditForCompletedOrder: jest.fn() } as never,
+        earlyEscrow as never,
       ),
     );
 

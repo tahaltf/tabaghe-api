@@ -26,6 +26,11 @@ export class SellerLandingBootstrapService implements OnModuleInit {
         `Seller landing seed: ${sellerResult.action} slug=${sellerResult.slug} sections=${sellerResult.sectionCount}`,
       );
 
+      const buyerResult = await this.landingPages.seedBuyerLanding(force);
+      this.logger.log(
+        `Buyer landing seed: ${buyerResult.action} slug=${buyerResult.slug} sections=${buyerResult.sectionCount}`,
+      );
+
       const inviteResult = await this.landingPages.seedInviteLanding(force);
       this.logger.log(
         `Invite landing seed: ${inviteResult.action} slug=${inviteResult.slug} sections=${inviteResult.sectionCount}`,

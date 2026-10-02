@@ -1,7 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { OrdersCheckoutService } from './services/command/orders-checkout.service';
 import { OrdersShippingService } from './services/command/orders-shipping.service';
+import { OrdersEarlyEscrowService } from './services/command/orders-early-escrow.service';
 import { OrdersCompletionService } from './services/command/orders-completion.service';
+import { OrdersUnpaidCancelService } from './services/command/orders-unpaid-cancel.service';
+import { ReferralRewardService } from '../referral/referral-reward.service';
 import { OrdersSchedulerService } from './services/scheduler/orders-scheduler.service';
 import { OrdersSettingsService } from './orders-settings.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -20,6 +23,7 @@ import { OrdersResponseEnrichmentService } from './services/query/orders-respons
 import { ExchangeOrderNotifyService } from '../notification/exchange-order-notify.service';
 import { OperationalNotifyService } from '../notification/operational-notify.service';
 import { CouponsService } from '../coupons/coupons.service';
+import { CurrencyService } from '../currency/currency.service';
 import {
   ListingStatus,
   OrderStatus,
@@ -62,9 +66,20 @@ describe('Orders domain services', () => {
     getPaymentGatewayConfig: jest.fn(),
   };
   const paymentsMock = { initiateOrderPayment: jest.fn() };
-  const notificationMock = { create: jest.fn() };
+  const notificationMock = {
+    create: jest.fn(),
+    notifyUserTickets: jest.fn().mockResolvedValue(undefined),
+  };
   const operationalNotifyMock = {
     notifyOrderCompleted: jest.fn().mockResolvedValue(undefined),
+    notifyDirectShipmentRegistered: jest.fn().mockResolvedValue(undefined),
+    notifyExchangeBothNoShipmentCancel: jest.fn().mockResolvedValue(undefined),
+    notifyExchangeOneSideNoShipmentCancel: jest.fn().mockResolvedValue(undefined),
+  };
+  const earlyEscrowMock = {
+    tryTrustedShipmentRelease: jest.fn().mockResolvedValue(0),
+    tryHubVerifiedRelease: jest.fn().mockResolvedValue(0),
+    markReleasedIfNeeded: jest.fn(),
   };
   const exchangeOrderNotifyMock = {
     notifyCheckoutProgress: jest.fn(),
@@ -94,6 +109,10 @@ describe('Orders domain services', () => {
       providers: [
         OrdersCheckoutService,
         OrdersShippingService,
+        {
+          provide: OrdersEarlyEscrowService,
+          useValue: earlyEscrowMock,
+        },
         OrdersCompletionService,
         OrdersSchedulerService,
         OrdersSettingsService,
@@ -125,6 +144,21 @@ describe('Orders domain services', () => {
           useValue: enrichmentMock,
         },
         { provide: CouponsService, useValue: {} },
+        {
+          provide: CurrencyService,
+          useValue: {
+            getEffectiveRate: jest.fn().mockResolvedValue(1),
+            applyRate: jest.fn((amount: number) => amount),
+          },
+        },
+        {
+          provide: ReferralRewardService,
+          useValue: { creditForCompletedOrder: jest.fn().mockResolvedValue(undefined) },
+        },
+        {
+          provide: OrdersUnpaidCancelService,
+          useValue: { cancelUnpaidOrder: jest.fn(), isOrderUnpaid: jest.fn() },
+        },
       ],
     }).compile();
 
@@ -197,7 +231,17 @@ describe('Orders domain services', () => {
         }),
       },
       order: {
-        findFirst: jest.fn().mockResolvedValue(null),
+        findFirst: jest
+          .fn()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({
+            id: 'old-order',
+            type: OrderType.EXCHANGE,
+            status: OrderStatus.CANCELLED,
+            exchangeOfferId: null,
+            totalAmount: 0,
+          })
+          .mockResolvedValue(null),
         findUnique: jest.fn().mockResolvedValue({
           id: 'old-order',
           status: OrderStatus.CANCELLED,
@@ -322,7 +366,17 @@ describe('Orders domain services', () => {
         }),
       },
       order: {
-        findFirst: jest.fn().mockResolvedValue(null),
+        findFirst: jest
+          .fn()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({
+            id: 'old-order',
+            type: OrderType.EXCHANGE,
+            status: OrderStatus.AWAITING_PAYMENT,
+            exchangeOfferId: oldOfferId,
+            totalAmount: 250000,
+          })
+          .mockResolvedValue(null),
         findUnique: jest
           .fn()
           .mockResolvedValueOnce({
@@ -734,14 +788,6 @@ describe('Orders domain services', () => {
     );
     expect(walletMock.refundDirectOrderEscrowOnCancel).not.toHaveBeenCalled();
 
-    expect(tx.user.update).toHaveBeenCalledTimes(2);
-    expect(tx.user.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: buyerId } }),
-    );
-    expect(tx.user.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: sellerId } }),
-    );
-
     expect(stateMachineMock.assertTransition).toHaveBeenCalledWith(
       OrderStatus.AWAITING_SHIPMENT_TO_HUB,
       OrderStatus.CANCELLED,
@@ -764,7 +810,7 @@ describe('Orders domain services', () => {
     expect(buyerTicketMessage).not.toContain('جریمه کارشناسی');
     expect(buyerTicketMessage).toContain('۴۰۰٬۰۰۰');
     expect(buyerTicketMessage).not.toContain('۴۰۰٬۰۰۰ تومان، شامل هزینه کارشناسی) به کیف پولتان برگشت');
-    expect(tx.notification.createMany).toHaveBeenCalled();
+    expect(operationalNotifyMock.notifyExchangeBothNoShipmentCancel).toHaveBeenCalled();
   });
 
   it('autoCancelExpiredOrders: direct sale timeout -> CANCELLED + escrow refund txns', async () => {
@@ -895,7 +941,7 @@ describe('Orders domain services', () => {
         }),
       }),
     );
-    expect(tx.notification.createMany).toHaveBeenCalled();
+    expect(notificationMock.notifyUserTickets).toHaveBeenCalled();
   });
 
   it('autoConfirmOrders: exchange auto-confirms only shipped legs (not whole deal)', async () => {
@@ -994,6 +1040,7 @@ describe('Orders domain services', () => {
         listing: { sellerRequiresVerification: false },
       });
       prismaMock.order.update = jest.fn().mockResolvedValue({ ok: true });
+      prismaMock.$transaction.mockImplementation(async (fn: any) => fn({}));
 
       await shipping.updateTrackingCode(
         'seller-1',
@@ -1010,6 +1057,7 @@ describe('Orders domain services', () => {
           status: OrderStatus.SHIPPED,
         }),
       });
+      expect(earlyEscrowMock.tryTrustedShipmentRelease).toHaveBeenCalled();
     });
 
     it('stores seller trackingCode + packagingVideo and sets SHIPPED when hub not needed', async () => {
@@ -1027,6 +1075,7 @@ describe('Orders domain services', () => {
         listing: { sellerRequiresVerification: false },
       });
       prismaMock.order.update = jest.fn().mockResolvedValue({ ok: true });
+      prismaMock.$transaction.mockImplementation(async (fn: any) => fn({}));
 
       await shipping.updateTrackingCode(
         'seller-1',
@@ -1043,6 +1092,45 @@ describe('Orders domain services', () => {
           status: OrderStatus.SHIPPED,
         }),
       });
+      expect(earlyEscrowMock.tryTrustedShipmentRelease).toHaveBeenCalled();
+    });
+
+    it('ارسال به هاب حتی برای فروشنده مورد اعتماد آزادسازی ندارد', async () => {
+      prismaMock.order.findUnique = jest.fn().mockResolvedValue({
+        id: 'ord-hub',
+        type: OrderType.DIRECT,
+        status: OrderStatus.AWAITING_SHIPMENT_TO_HUB,
+        sellerId: 'seller-1',
+        buyerId: 'buyer-1',
+        listingId: 'lst-hub',
+        trackingCode: null,
+        sellerTrackingCode: null,
+        requiresVerification: true,
+        shippingDeadline: new Date(Date.now() + 86_400_000),
+        listing: { sellerRequiresVerification: true },
+      });
+      prismaMock.order.update = jest.fn().mockResolvedValue({
+        id: 'ord-hub',
+        status: OrderStatus.SHIPPED_TO_HUB,
+      });
+      prismaMock.$transaction.mockClear();
+
+      await shipping.updateTrackingCode(
+        'seller-1',
+        'ord-hub',
+        '123456789012345678901234',
+        'video-hub.mp4',
+      );
+
+      expect(prismaMock.order.update).toHaveBeenCalledWith({
+        where: { id: 'ord-hub' },
+        data: expect.objectContaining({
+          status: OrderStatus.SHIPPED_TO_HUB,
+        }),
+      });
+      expect(prismaMock.$transaction).not.toHaveBeenCalled();
+      expect(earlyEscrowMock.tryTrustedShipmentRelease).not.toHaveBeenCalled();
+      expect(walletMock.releaseEscrow).not.toHaveBeenCalled();
     });
   });
 

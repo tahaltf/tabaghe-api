@@ -118,6 +118,7 @@ const USER_LIST_SELECT = {
   isActive: true,
   isVerified: true,
   isApproved: true,
+  payoutOnShipment: true,
   createdAt: true,
   lastLoginAt: true,
   avatar: true,
@@ -765,6 +766,25 @@ export class AdminUsersQueryService {
       where: { id: userId },
       data: { isApproved },
       select: { id: true, isApproved: true },
+    });
+  }
+
+  async setUserPayoutOnShipment(
+    actor: AuthenticatedUser,
+    userId: string,
+    payoutOnShipment: boolean,
+  ): Promise<{ id: string; payoutOnShipment: boolean }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true },
+    });
+    if (!user) throw new NotFoundException('کاربر یافت نشد');
+    this.assertCanManageTarget(actor, user.role);
+
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { payoutOnShipment },
+      select: { id: true, payoutOnShipment: true },
     });
   }
 

@@ -65,6 +65,10 @@ describe('AdminOrdersStatusService - exchange inspection start', () => {
         isOrderUnpaid: jest.fn().mockResolvedValue(false),
         cancelUnpaidOrder: jest.fn(),
       } as never,
+      {
+        tryHubVerifiedRelease: jest.fn(),
+        markReleasedIfNeeded: jest.fn(),
+      } as never,
     );
     return { service, notifyParties, operationalNotify, prisma };
   };

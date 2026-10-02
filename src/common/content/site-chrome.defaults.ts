@@ -166,6 +166,20 @@ export const DEFAULT_FOOTER_QUICK_LINKS: FooterQuickLinkItem[] = [
     enabled: true,
   },
   {
+    id: 'buyer-guide',
+    label: 'راهنمای خریدار',
+    link: '/buyer',
+    icon: 'heroShoppingBag',
+    enabled: true,
+  },
+  {
+    id: 'seller-guide',
+    label: 'راهنمای فروشنده',
+    link: '/seller',
+    icon: 'heroBuildingStorefront',
+    enabled: true,
+  },
+  {
     id: 'faq',
     label: 'سوالات متداول',
     link: '/faq',

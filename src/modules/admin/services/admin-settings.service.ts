@@ -199,6 +199,8 @@ export const SETTING_KEYS = {
   KYC_REQUIRE_FINANCIAL_FOR_WALLET: 'KYC_REQUIRE_FINANCIAL_FOR_WALLET',
   /** ثبت برداشت/تسویه نیازمند احراز مالی */
   KYC_REQUIRE_FINANCIAL_FOR_WITHDRAW: 'KYC_REQUIRE_FINANCIAL_FOR_WITHDRAW',
+  /** آزادسازی سهم فروشنده در فروش مستقیم پس از تایید کارشناسی هاب */
+  RELEASE_ESCROW_ON_HUB_VERIFIED: 'RELEASE_ESCROW_ON_HUB_VERIFIED',
   INQUIRY_MAX_PER_MINUTE: 'INQUIRY_MAX_PER_MINUTE',
   INQUIRY_MAX_PER_DAY: 'INQUIRY_MAX_PER_DAY',
   INQUIRY_MAX_PAYLOAD_CHANGES: 'INQUIRY_MAX_PAYLOAD_CHANGES',
@@ -324,6 +326,8 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
     'اگر true باشد، عملیات واریز/برداشت کیف پول فقط با احراز مالی (تایید هویت + شبا + کارت بانکی) فعال است؛ مشاهده صفحه کیف پول محدود نمی‌شود',
   KYC_REQUIRE_FINANCIAL_FOR_WITHDRAW:
     'اگر true باشد، ثبت درخواست برداشت فقط با احراز مالی (تایید هویت + شبا یا کارت بانکی) فعال است',
+  RELEASE_ESCROW_ON_HUB_VERIFIED:
+    'اگر true باشد، پس از تایید کارشناسی هاب در فروش مستقیم، سهم فروشنده بلافاصله آزاد و قابل برداشت می‌شود (پیش‌فرض خاموش)',
   INQUIRY_MAX_PER_MINUTE:
     'حداکثر درخواست استعلام واقعی (تماس با Zohal) در هر دقیقه برای هر کاربر',
   INQUIRY_MAX_PER_DAY:

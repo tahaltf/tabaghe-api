@@ -386,6 +386,8 @@ model User {
   isVerified          Boolean          @default(false)
   /** کاربر مورد تایید ادمین — روی آگهی‌های او نشان «مورد تایید» نمایش داده می‌شود */
   isApproved          Boolean          @default(false)
+  /** فروشنده مورد اعتماد: بعد از ارسال به خریدار، سهم فروش آزاد و قابل برداشت می‌شود */
+  payoutOnShipment    Boolean          @default(false)
   rating              Float            @default(5)
   reviewCount         Int              @default(0)
   isOnline            Boolean          @default(false)
@@ -1507,6 +1509,10 @@ paymentMethod    PaymentMethod @default(GATEWAY)
   status            OrderStatus @default(PENDING)
   /** زمان نهایی‌شدن سفارش (برای نگهداری موقت ویدیوها) */
   completedAt       DateTime?
+  /** زمان آزادسازی سهم فروشنده از امانت (ممکن است قبل از COMPLETED باشد) */
+  sellerEscrowReleasedAt DateTime?
+  /** TRUSTED_SHIPMENT | HUB_VERIFIED | BUYER_CONFIRM | AUTO_CONFIRM | ADMIN */
+  sellerEscrowReleaseReason String?
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
 

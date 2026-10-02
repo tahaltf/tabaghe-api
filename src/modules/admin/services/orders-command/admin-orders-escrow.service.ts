@@ -29,6 +29,8 @@ import { buildExchangeFinancialSettlementTicketNotifyMessage } from '../../../..
 import { AdminOrdersNotifyService } from './admin-orders-notify.service';
 import { OperationalNotifyService } from '../../../notification/operational-notify.service';
 import { ReferralRewardService } from '../../../referral/referral-reward.service';
+import { OrdersEarlyEscrowService } from '../../../orders/services/command/orders-early-escrow.service';
+import { SELLER_ESCROW_RELEASE_REASON } from '../../../orders/seller-escrow-release.constants';
 
 @Injectable()
 export class AdminOrdersEscrowService {
@@ -41,6 +43,7 @@ export class AdminOrdersEscrowService {
     private readonly notify: AdminOrdersNotifyService,
     private readonly operationalNotify: OperationalNotifyService,
     private readonly referralReward: ReferralRewardService,
+    private readonly earlyEscrow: OrdersEarlyEscrowService,
   ) {}
 
   async resolveEscrow(id: string, dto: ResolveOrderEscrowDto) {
@@ -75,6 +78,7 @@ export class AdminOrdersEscrowService {
           exchangeOfferId: true,
           returnTrackingCode: true,
           exchangeHubInspection: true,
+          sellerEscrowReleasedAt: true,
           tradeReputationAt: true,
         },
       });
@@ -164,7 +168,7 @@ export class AdminOrdersEscrowService {
             sellerRefundable: exchangeSellerRefundable,
           });
         } else if (sellerRevenue > 0) {
-          await this.walletService.debitOrderScopedBlocked(tx, {
+          await this.walletService.clawbackSellerPayout(tx, {
             userId: order.sellerId,
             orderId: order.id,
             listingId: order.listingId,
@@ -175,7 +179,7 @@ export class AdminOrdersEscrowService {
               orderId: order.id,
               listingId: order.listingId,
               description:
-                'لغو معاوضه پس از رد هر دو کالا؛ کسر سهم بلوکه فروشنده',
+                'لغو معاوضه پس از رد هر دو کالا؛ کسر سهم فروشنده',
               adminNote: note ?? null,
             },
           });
@@ -622,6 +626,7 @@ export class AdminOrdersEscrowService {
               .join('\n'),
           },
         });
+        await this.earlyEscrow.tryHubVerifiedRelease(tx, updated);
         if (order.type === 'EXCHANGE') {
           const orderShortId = order.id.slice(-6);
           postTxNotifies.push(async () => {
@@ -748,7 +753,7 @@ export class AdminOrdersEscrowService {
         );
 
         if (sellerRevenue > 0) {
-          await this.walletService.debitOrderScopedBlocked(tx, {
+          await this.walletService.clawbackSellerPayout(tx, {
             userId: order.sellerId,
             orderId: order.id,
             listingId: order.listingId,
@@ -762,7 +767,7 @@ export class AdminOrdersEscrowService {
               listingId: order.listingId,
               adminNote: note ?? null,
               description:
-                'کسر از موجودی بلوکه فروشنده پس از تایید مرجوعی و بازپرداخت کامل',
+                'کسر از موجودی فروشنده پس از تایید مرجوعی و بازپرداخت کامل',
             },
           });
         }
@@ -826,10 +831,18 @@ export class AdminOrdersEscrowService {
               toRelease,
               order.listingId,
               tx,
-              { orderId: order.id },
+              {
+                orderId: order.id,
+                reason: SELLER_ESCROW_RELEASE_REASON.ADMIN,
+              },
             );
           }
         }
+        await this.earlyEscrow.markReleasedIfNeeded(
+          tx,
+          order.id,
+          SELLER_ESCROW_RELEASE_REASON.ADMIN,
+        );
 
         const prevReleaseSeller = order.status;
         const updated = await tx.order.update({
@@ -873,7 +886,7 @@ export class AdminOrdersEscrowService {
       }
 
       if (sellerRevenue > 0) {
-        await this.walletService.debitOrderScopedBlocked(tx, {
+        await this.walletService.clawbackSellerPayout(tx, {
           userId: order.sellerId,
           orderId: order.id,
           listingId: order.listingId,
@@ -887,7 +900,7 @@ export class AdminOrdersEscrowService {
             listingId: order.listingId,
             adminNote: note ?? null,
             description:
-              'کسر از موجودی بلوکه فروشنده به‌دلیل بازپرداخت کامل به خریدار',
+              'کسر از موجودی فروشنده به‌دلیل بازپرداخت کامل به خریدار',
           },
         });
       }

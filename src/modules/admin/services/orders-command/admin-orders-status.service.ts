@@ -34,6 +34,8 @@ import {
   ADMIN_UNPAID_CANCEL_REASON,
   isUnpaidOrderStatus,
 } from '../../../../common/order/unpaid-order.util';
+import { OrdersEarlyEscrowService } from '../../../orders/services/command/orders-early-escrow.service';
+import { SELLER_ESCROW_RELEASE_REASON } from '../../../orders/seller-escrow-release.constants';
 
 @Injectable()
 export class AdminOrdersStatusService {
@@ -49,6 +51,7 @@ export class AdminOrdersStatusService {
     private readonly operationalNotify: OperationalNotifyService,
     private readonly referralReward: ReferralRewardService,
     private readonly unpaidCancel: OrdersUnpaidCancelService,
+    private readonly earlyEscrow: OrdersEarlyEscrowService,
   ) {}
 
   repairBuyerRefundForCancelledOrder(orderId: string) {
@@ -124,6 +127,7 @@ export class AdminOrdersStatusService {
         listingId: true,
         totalAmount: true,
         sellerRevenue: true,
+        sellerEscrowReleasedAt: true,
         returnTrackingCode: true,
         trackingCode: true,
         sellerTrackingCode: true,
@@ -308,7 +312,7 @@ export class AdminOrdersStatusService {
         const sellerRevenue = Number(existing.sellerRevenue || 0);
 
         if (sellerRevenue > 0) {
-          await this.walletService.debitOrderScopedBlocked(tx, {
+          await this.walletService.clawbackSellerPayout(tx, {
             userId: existing.sellerId,
             orderId: existing.id,
             listingId: existing.listing.id,
@@ -322,7 +326,7 @@ export class AdminOrdersStatusService {
               listingId: existing.listing.id,
               adminNote: normalizedNote ?? null,
               description:
-                'کسر از موجودی بلوکه فروشنده به‌دلیل لغو سفارش و بازگشت وجه خریدار',
+                'کسر از موجودی فروشنده به‌دلیل لغو سفارش و بازگشت وجه خریدار',
             },
           });
         }
@@ -449,6 +453,16 @@ export class AdminOrdersStatusService {
         where: { id },
         data: enrichOrderUpdateForCompletion({ status }),
       });
+      if (status === OrderStatus.VERIFIED_AT_HUB) {
+        await this.earlyEscrow.tryHubVerifiedRelease(tx, o);
+      }
+      if (status === OrderStatus.COMPLETED) {
+        await this.earlyEscrow.markReleasedIfNeeded(
+          tx,
+          existing.id,
+          SELLER_ESCROW_RELEASE_REASON.ADMIN,
+        );
+      }
       // مسیر CANCELLED در بالا برگردانده شده؛ اینجا فقط سایر انتقال‌ها (از جمله COMPLETED)
       if (status === OrderStatus.COMPLETED) {
         await this.orderReputation.recordTerminalOutcome(
@@ -535,7 +549,7 @@ export class AdminOrdersStatusService {
           sellerRelease,
           existing.listingId,
           tx,
-          { orderId: existing.id },
+          { orderId: existing.id, reason: SELLER_ESCROW_RELEASE_REASON.ADMIN },
         );
       }
       if (buyerRelease > 0) {
@@ -544,7 +558,7 @@ export class AdminOrdersStatusService {
           buyerRelease,
           existing.listingId,
           tx,
-          { orderId: existing.id },
+          { orderId: existing.id, reason: SELLER_ESCROW_RELEASE_REASON.ADMIN },
         );
       }
       return;
@@ -562,7 +576,7 @@ export class AdminOrdersStatusService {
         sellerRelease,
         existing.listingId,
         tx,
-        { orderId: existing.id },
+        { orderId: existing.id, reason: SELLER_ESCROW_RELEASE_REASON.ADMIN },
       );
     }
   }

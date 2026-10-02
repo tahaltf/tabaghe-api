@@ -505,7 +505,8 @@ export class WalletEscrowService {
   }
 
   /**
-   * حداکثر مبلغی که برای یک سفارش می‌توان از بلوکه آزاد یا کسر کرد (بر اساس DEPOSITهای PENDING همان سفارش).
+   * حداکثر مبلغی که برای یک سفارش می‌توان از بلوکه آزاد یا کسر کرد
+   * (DEPOSIT PENDING همان سفارش منهای UNBLOCK/PENALTY همان سفارش).
    */
   async resolveOrderScopedCap(
     tx: Prisma.TransactionClient,
@@ -577,7 +578,7 @@ export class WalletEscrowService {
     amount: number | string | Decimal,
     listingId: string,
     tx?: Prisma.TransactionClient,
-    opts?: { orderId?: string },
+    opts?: { orderId?: string; reason?: string },
   ) {
     const prisma = tx || this.prisma;
     let amountDec = new Decimal(amount);
@@ -590,7 +591,7 @@ export class WalletEscrowService {
       });
       amountDec = new Decimal(capped);
     }
-    if (amountDec.lte(0)) return;
+    if (amountDec.lte(0)) return 0;
 
     const wallet = await this.query.getWalletByUserId(sellerId);
     const listingTitle = await this.support.listingTitleForWalletTx(prisma, listingId);
@@ -617,10 +618,108 @@ export class WalletEscrowService {
           listingId,
           ...(listingTitle ? { listingTitle } : {}),
           ...(opts?.orderId ? { orderId: opts.orderId } : {}),
-          description: `آزادسازی درآمد فروش برای ${titleQuoted}: مبلغ از «بلوکه‌شده» به موجودی قابل برداشت منتقل شد چون خریدار دریافت کالا را تأیید کرد.`,
+          ...(opts?.reason ? { releaseReason: opts.reason } : {}),
+          description: this.releaseEscrowDescription(titleQuoted, opts?.reason),
         },
       },
     });
+    return amountDec.toNumber();
+  }
+
+  private releaseEscrowDescription(titleQuoted: string, reason?: string): string {
+    switch (reason) {
+      case 'TRUSTED_SHIPMENT':
+        return `آزادسازی درآمد فروش برای ${titleQuoted}: مبلغ از «بلوکه‌شده» به موجودی قابل برداشت منتقل شد چون فروشنده مورد اعتماد پس از ارسال به خریدار تسویه زودهنگام دارد.`;
+      case 'HUB_VERIFIED':
+        return `آزادسازی درآمد فروش برای ${titleQuoted}: مبلغ از «بلوکه‌شده» به موجودی قابل برداشت منتقل شد چون کارشناسی هاب تایید شد.`;
+      case 'ADMIN':
+        return `آزادسازی درآمد فروش برای ${titleQuoted}: مبلغ از «بلوکه‌شده» به موجودی قابل برداشت منتقل شد با دستور ادمین.`;
+      case 'AUTO_CONFIRM':
+        return `آزادسازی درآمد فروش برای ${titleQuoted}: مبلغ از «بلوکه‌شده» به موجودی قابل برداشت منتقل شد چون مهلت تایید خریدار به پایان رسید.`;
+      default:
+        return `آزادسازی درآمد فروش برای ${titleQuoted}: مبلغ از «بلوکه‌شده» به موجودی قابل برداشت منتقل شد چون خریدار دریافت کالا را تأیید کرد.`;
+    }
+  }
+
+  /**
+   * کسر سهم فروشنده برای ریفاند: اول بلوکهٔ همان سفارش، بعد موجودی قابل برداشت.
+   * اگر موجودی کافی نباشد خطا می‌دهد تا موجودی سفارش‌های دیگر دست نخورد.
+   */
+  async clawbackSellerPayout(
+    tx: Prisma.TransactionClient,
+    params: {
+      userId: string;
+      orderId: string;
+      listingId: string;
+      requestedAmount: number | string | Decimal;
+      penaltyMeta: Prisma.InputJsonValue;
+      referenceId?: string;
+    },
+  ): Promise<{ fromBlocked: number; fromAvailable: number }> {
+    const requested = Math.max(
+      0,
+      Number(new Decimal(params.requestedAmount)) || 0,
+    );
+    if (requested <= 0) return { fromBlocked: 0, fromAvailable: 0 };
+
+    const fromBlocked = await this.debitOrderScopedBlocked(tx, {
+      userId: params.userId,
+      orderId: params.orderId,
+      listingId: params.listingId,
+      requestedAmount: requested,
+      penaltyMeta: params.penaltyMeta,
+      referenceId: params.referenceId,
+    });
+    const remain = Math.max(0, requested - fromBlocked);
+    if (remain <= 0) return { fromBlocked, fromAvailable: 0 };
+
+    const wallet = await tx.wallet.upsert({
+      where: { userId: params.userId },
+      create: {
+        userId: params.userId,
+        balanceAvailable: 0,
+        balanceBlocked: 0,
+      },
+      update: {},
+      select: { id: true, balanceAvailable: true },
+    });
+    const available = Math.max(0, Number(wallet.balanceAvailable) || 0);
+    if (available < remain) {
+      const shortfall = remain - available;
+      throw new BadRequestException(
+        `موجودی قابل برداشت فروشنده برای بازگشت وجه کافی نیست (کسری ${shortfall.toLocaleString('fa-IR')} تومان). اگر مبلغ قبلاً برداشت شده، رسیدگی دستی لازم است.`,
+      );
+    }
+
+    await tx.wallet.update({
+      where: { userId: params.userId },
+      data: { balanceAvailable: { decrement: remain } },
+    });
+
+    const baseMeta =
+      params.penaltyMeta &&
+      typeof params.penaltyMeta === 'object' &&
+      !Array.isArray(params.penaltyMeta)
+        ? { ...(params.penaltyMeta as Record<string, unknown>) }
+        : {};
+    await tx.walletTransaction.create({
+      data: {
+        walletId: wallet.id,
+        amount: remain,
+        type: WalletTransactionType.PENALTY,
+        status: WalletTransactionStatus.SUCCESS,
+        referenceId: params.referenceId ?? params.orderId,
+        meta: {
+          ...baseMeta,
+          kind: String(baseMeta['kind'] ?? 'order-escrow'),
+          phase: 'seller_available_debit',
+          orderId: params.orderId,
+          listingId: params.listingId,
+          clawbackFrom: 'available',
+        } as Prisma.InputJsonValue,
+      },
+    });
+    return { fromBlocked, fromAvailable: remain };
   }
 
   escrowDepositBelongsToOrder(
@@ -683,8 +782,8 @@ export class WalletEscrowService {
 
   /**
    * مجموع مبلغ بلوکه‌شدهٔ مربوط به یک سفارش مشخص برای یک کاربر.
-   * فقط DEPOSITهای PENDING همان سفارش/آگهی شمرده می‌شوند تا عملیات یک سفارش
-   * روی بلوکهٔ سفارش دیگر اثر نگذارد.
+   * DEPOSITهای PENDING منهای UNBLOCK/PENALTY همان سفارش تا آزادسازی دوباره
+   * یا کسر از بلوکهٔ سفارش دیگر رخ ندهد.
    */
   async getOrderScopedBlockedAmount(
     tx: Prisma.TransactionClient,
@@ -706,7 +805,22 @@ export class WalletEscrowService {
           { referenceId: params.listingId },
         ],
       },
-      select: { amount: true, meta: true, referenceId: true },
+      select: { amount: true, meta: true, referenceId: true, type: true },
+    });
+
+    const releasedOrDebited = await tx.walletTransaction.findMany({
+      where: {
+        walletId: wallet.id,
+        status: WalletTransactionStatus.SUCCESS,
+        type: {
+          in: [WalletTransactionType.UNBLOCK, WalletTransactionType.PENALTY],
+        },
+        OR: [
+          { referenceId: params.orderId },
+          { referenceId: params.listingId },
+        ],
+      },
+      select: { amount: true, meta: true, type: true },
     });
 
     const orderEscrowPhases = new Set([
@@ -716,6 +830,11 @@ export class WalletEscrowService {
       'shipping_blocked',
     ]);
     const auctionEscrowPhases = new Set(['seller_blocked', 'shipping_blocked']);
+    const debitPhases = new Set([
+      'seller_blocked_debit',
+      'seller_settlement_debit',
+      'seller_available_debit',
+    ]);
 
     let scopedBlocked = 0;
     for (const row of pendingDeposits) {
@@ -735,7 +854,21 @@ export class WalletEscrowService {
 
       scopedBlocked += Math.max(0, Number(row.amount) || 0);
     }
-    return scopedBlocked;
+
+    for (const row of releasedOrDebited) {
+      const meta = (row.meta ?? {}) as Record<string, unknown>;
+      const phase = String(meta['phase'] ?? '').trim();
+      if (!this.escrowDepositBelongsToOrder(meta, params)) continue;
+      if (row.type === WalletTransactionType.UNBLOCK) {
+        if (phase !== 'seller_released') continue;
+      } else if (row.type === WalletTransactionType.PENALTY) {
+        if (!debitPhases.has(phase)) continue;
+      } else {
+        continue;
+      }
+      scopedBlocked -= Math.max(0, Number(row.amount) || 0);
+    }
+    return Math.max(0, scopedBlocked);
   }
 
   async payFromAvailable(

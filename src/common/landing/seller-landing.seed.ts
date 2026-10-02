@@ -3,13 +3,14 @@ import { join } from 'node:path';
 import { coerceLandingSections } from './landing-sections.util';
 
 export const SELLER_LANDING_SLUG = 'seller';
-export const SELLER_LANDING_SECTION_COUNT = 9;
+export const SELLER_LANDING_SECTION_COUNT = 17;
 
 const SELLER_LANDING_META = {
-  seoTitle: 'طبقه | فروشنده شو',
-  seoDescription: 'فروش تخصصی کالای دیجیتال در طبقه',
-  showHeader: false,
-  showFooter: false,
+  seoTitle: 'طبقه | فروش بدون بیعانهٔ مبهم',
+  seoDescription:
+    'برای فروشنده: پول خریدار تا تأیید پیش طبقه می‌ماند، مسیر کالا ثبت می‌شود، و از حجره تا وردپرس می‌توانی بفروشی.',
+  showHeader: true,
+  showFooter: true,
 } as const;
 
 function seedDataPath(): string {
@@ -27,9 +28,9 @@ export function sellerLandingSeedMeta(): Record<string, unknown> {
 }
 
 export function sellerLandingSeedTitle(): string {
-  return 'جذب فروشندگان';
+  return 'راهنمای فروشنده';
 }
 
 export function sellerLandingSeedDescription(): string {
-  return 'لندینگ جذب فروشندگان تهران';
+  return 'صفحهٔ کامل فروش در طبقه';
 }

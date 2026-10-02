@@ -45,6 +45,11 @@ function createAdminOrdersCommandService(deps: {
     notifyExchangeHubInspectionTickets: jest.fn().mockResolvedValue(undefined),
     notifyOrderCompleted: jest.fn().mockResolvedValue(undefined),
   };
+  const earlyEscrow = {
+    tryTrustedShipmentRelease: jest.fn(),
+    tryHubVerifiedRelease: jest.fn(),
+    markReleasedIfNeeded: jest.fn(),
+  };
   const status = new AdminOrdersStatusService(
     deps.prisma as never,
     appSettings as never,
@@ -55,6 +60,12 @@ function createAdminOrdersCommandService(deps: {
     stateMachine as never,
     notify,
     operationalNotify as never,
+    { creditForCompletedOrder: jest.fn() } as never,
+    {
+      isOrderUnpaid: jest.fn().mockResolvedValue(false),
+      cancelUnpaidOrder: jest.fn(),
+    } as never,
+    earlyEscrow as never,
   );
   const hub = new AdminOrdersHubService(
     deps.prisma as never,
@@ -67,6 +78,7 @@ function createAdminOrdersCommandService(deps: {
       notifyExchangeHubItemReceived: jest.fn().mockResolvedValue(undefined),
       notifyExchangeHubOutboundShipped: jest.fn().mockResolvedValue(undefined),
     } as never,
+    earlyEscrow as never,
   );
   const inspection = new AdminOrdersInspectionService(
     deps.prisma as never,
@@ -85,6 +97,8 @@ function createAdminOrdersCommandService(deps: {
     deps.listingCommand as never,
     notify,
     operationalNotify as never,
+    { creditForCompletedOrder: jest.fn() } as never,
+    earlyEscrow as never,
   );
   return new AdminOrdersCommandService(status, hub, inspection, escrow);
 }
@@ -602,7 +616,7 @@ describe('AdminOrdersCommandService - exchange release escrow', () => {
       400,
       'lst-1',
       expect.anything(),
-      { orderId: 'ord-release-1' },
+      { orderId: 'ord-release-1', reason: 'ADMIN' },
     );
   });
 });

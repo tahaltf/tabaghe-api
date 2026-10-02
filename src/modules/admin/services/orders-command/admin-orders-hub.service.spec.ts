@@ -52,6 +52,7 @@ describe('AdminOrdersHubService - exchange outbound notifications', () => {
       ordersService as never,
       {} as never,
       operationalNotify as never,
+      { tryTrustedShipmentRelease: jest.fn() } as never,
     );
 
     return { service, prisma, operationalNotify, existing };

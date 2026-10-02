@@ -34,6 +34,20 @@ import {
   inviteLandingSeedTitle,
   loadInviteLandingSeedSections,
 } from '../../common/landing/invite-landing.seed';
+import {
+  BUYER_LANDING_SLUG,
+  buyerLandingSeedDescription,
+  buyerLandingSeedMeta,
+  buyerLandingSeedTitle,
+  loadBuyerLandingSeedSections,
+} from '../../common/landing/buyer-landing.seed';
+import {
+  SELLER_LANDING_SLUG,
+  loadSellerLandingSeedSections,
+  sellerLandingSeedDescription,
+  sellerLandingSeedMeta,
+  sellerLandingSeedTitle,
+} from '../../common/landing/seller-landing.seed';
 import { mergeHomepageLayout } from '../../common/homepage/homepage-layout.util';
 import { AppSettingsService } from '../../shared/settings/app-settings.service';
 import { parsePaymentGatewaysJson } from '../../modules/payments/payment-gateways.catalog';
@@ -533,6 +547,30 @@ export class CommonContentService {
         description: inviteLandingSeedDescription(),
         sections: loadInviteLandingSeedSections(),
         meta: inviteLandingSeedMeta(),
+        updatedAt: new Date(),
+      };
+    }
+
+    if (slug === SELLER_LANDING_SLUG) {
+      return {
+        id: 'fallback-seller',
+        slug: SELLER_LANDING_SLUG,
+        title: sellerLandingSeedTitle(),
+        description: sellerLandingSeedDescription(),
+        sections: loadSellerLandingSeedSections(),
+        meta: sellerLandingSeedMeta(),
+        updatedAt: new Date(),
+      };
+    }
+
+    if (slug === BUYER_LANDING_SLUG) {
+      return {
+        id: 'fallback-buyer',
+        slug: BUYER_LANDING_SLUG,
+        title: buyerLandingSeedTitle(),
+        description: buyerLandingSeedDescription(),
+        sections: loadBuyerLandingSeedSections(),
+        meta: buyerLandingSeedMeta(),
         updatedAt: new Date(),
       };
     }

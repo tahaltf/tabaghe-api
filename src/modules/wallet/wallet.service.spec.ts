@@ -28,6 +28,7 @@ function createWalletService(prismaMock: unknown, notificationMock: unknown) {
     { issue: jest.fn(), consume: jest.fn() } as any,
     { assertCardMatchesNationalCode: jest.fn() } as any,
     { isCardMatchActive: jest.fn().mockResolvedValue(false) } as any,
+    {} as any,
   );
   return new WalletService(query, block, escrow, refund, depositWithdraw);
 }
@@ -62,6 +63,9 @@ describe('WalletService - refundExchangeExtraOnCancel', () => {
       },
       walletTransaction: {
         findMany: jest.fn(async ({ where }: any) => {
+          if (where.type?.in || where.type === WalletTransactionType.UNBLOCK) {
+            return [];
+          }
           return scopedDeposits[where.walletId as string] ?? [];
         }),
         create: jest.fn().mockResolvedValue({}),
@@ -142,6 +146,9 @@ describe('WalletService - refundExchangeExtraOnCancel', () => {
       },
       walletTransaction: {
         findMany: jest.fn(async ({ where }: any) => {
+          if (where.type?.in || where.type === WalletTransactionType.UNBLOCK) {
+            return [];
+          }
           return scopedDeposits[where.walletId as string] ?? [];
         }),
         create: jest.fn().mockResolvedValue({}),
@@ -832,7 +839,7 @@ describe('WalletService - order-scoped blocked isolation', () => {
         findUnique: jest.fn().mockResolvedValue({ id: 'seller-wallet' }),
       },
       walletTransaction: {
-        findMany: jest.fn().mockResolvedValue(deposits),
+        findMany: jest.fn().mockResolvedValueOnce(deposits).mockResolvedValueOnce([]),
       },
     };
 
@@ -860,18 +867,22 @@ describe('WalletService - order-scoped blocked isolation', () => {
         update: jest.fn().mockResolvedValue({}),
       },
       walletTransaction: {
-        findMany: jest.fn().mockResolvedValue([
-          {
-            amount: 200_000,
-            referenceId: 'ord-1',
-            meta: {
-              kind: 'order-escrow',
-              phase: 'seller_blocked',
-              orderId: 'ord-1',
-              listingId: 'lst-1',
+        findMany: jest
+          .fn()
+          .mockResolvedValueOnce([
+            {
+              amount: 200_000,
+              type: WalletTransactionType.DEPOSIT,
+              referenceId: 'ord-1',
+              meta: {
+                kind: 'order-escrow',
+                phase: 'seller_blocked',
+                orderId: 'ord-1',
+                listingId: 'lst-1',
+              },
             },
-          },
-        ]),
+          ])
+          .mockResolvedValueOnce([]),
         create: jest.fn().mockResolvedValue({}),
       },
     };
@@ -891,5 +902,194 @@ describe('WalletService - order-scoped blocked isolation', () => {
 
     getWalletByUserId.mockRestore();
     listingTitleForWalletTx.mockRestore();
+  });
+
+  it('getOrderScopedBlockedAmount: UNBLOCK همان سفارش را از سقف کم می‌کند', async () => {
+    const service = createWalletService(prismaMock, notificationMock);
+    const tx: any = {
+      wallet: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'seller-wallet' }),
+      },
+      walletTransaction: {
+        findMany: jest
+          .fn()
+          .mockResolvedValueOnce([
+            {
+              amount: 200_000,
+              type: WalletTransactionType.DEPOSIT,
+              referenceId: 'ord-1',
+              meta: {
+                kind: 'order-escrow',
+                phase: 'seller_blocked',
+                orderId: 'ord-1',
+                listingId: 'lst-1',
+              },
+            },
+          ])
+          .mockResolvedValueOnce([
+            {
+              amount: 200_000,
+              type: WalletTransactionType.UNBLOCK,
+              meta: {
+                kind: 'order-escrow',
+                phase: 'seller_released',
+                orderId: 'ord-1',
+                listingId: 'lst-1',
+              },
+            },
+          ]),
+      },
+    };
+
+    const scoped = await service.getOrderScopedBlockedAmount(tx, {
+      userId: 'seller-1',
+      orderId: 'ord-1',
+      listingId: 'lst-1',
+    });
+    expect(scoped).toBe(0);
+  });
+
+  it('releaseEscrow دوم برای همان سفارش دیگر آزاد نمی‌کند', async () => {
+    const service = createWalletService(prismaMock, notificationMock);
+    const getWalletByUserId = jest
+      .spyOn(WalletQueryService.prototype, 'getWalletByUserId')
+      .mockResolvedValue({ id: 'seller-wallet' } as any);
+
+    const tx: any = {
+      wallet: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'seller-wallet' }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      walletTransaction: {
+        findMany: jest
+          .fn()
+          .mockResolvedValueOnce([
+            {
+              amount: 200_000,
+              type: WalletTransactionType.DEPOSIT,
+              referenceId: 'ord-1',
+              meta: {
+                kind: 'order-escrow',
+                phase: 'seller_blocked',
+                orderId: 'ord-1',
+                listingId: 'lst-1',
+              },
+            },
+          ])
+          .mockResolvedValueOnce([
+            {
+              amount: 200_000,
+              type: WalletTransactionType.UNBLOCK,
+              meta: {
+                kind: 'order-escrow',
+                phase: 'seller_released',
+                orderId: 'ord-1',
+                listingId: 'lst-1',
+              },
+            },
+          ]),
+        create: jest.fn().mockResolvedValue({}),
+      },
+    };
+
+    const released = await service.releaseEscrow('seller-1', 200_000, 'lst-1', tx, {
+      orderId: 'ord-1',
+    });
+    expect(released).toBe(0);
+    expect(tx.wallet.update).not.toHaveBeenCalled();
+    getWalletByUserId.mockRestore();
+  });
+
+  it('clawbackSellerPayout از موجودی قابل برداشت کم می‌کند اگر بلوکه خالی باشد', async () => {
+    const service = createWalletService(prismaMock, notificationMock);
+    const tx: any = {
+      wallet: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'seller-wallet' }),
+        upsert: jest.fn().mockResolvedValue({
+          id: 'seller-wallet',
+          balanceAvailable: 200_000,
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      walletTransaction: {
+        findMany: jest
+          .fn()
+          .mockResolvedValueOnce([
+            {
+              amount: 200_000,
+              type: WalletTransactionType.DEPOSIT,
+              referenceId: 'ord-1',
+              meta: {
+                kind: 'order-escrow',
+                phase: 'seller_blocked',
+                orderId: 'ord-1',
+                listingId: 'lst-1',
+              },
+            },
+          ])
+          .mockResolvedValueOnce([
+            {
+              amount: 200_000,
+              type: WalletTransactionType.UNBLOCK,
+              meta: {
+                kind: 'order-escrow',
+                phase: 'seller_released',
+                orderId: 'ord-1',
+                listingId: 'lst-1',
+              },
+            },
+          ]),
+        create: jest.fn().mockResolvedValue({}),
+      },
+    };
+
+    const result = await service.clawbackSellerPayout(tx, {
+      userId: 'seller-1',
+      orderId: 'ord-1',
+      listingId: 'lst-1',
+      requestedAmount: 200_000,
+      penaltyMeta: { debitReason: 'test-refund' },
+    });
+    expect(result).toEqual({ fromBlocked: 0, fromAvailable: 200_000 });
+    expect(tx.wallet.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { balanceAvailable: { decrement: 200_000 } },
+      }),
+    );
+  });
+
+  it('clawbackSellerPayout اگر موجودی کافی نباشد خطا می‌دهد', async () => {
+    const service = createWalletService(prismaMock, notificationMock);
+    const tx: any = {
+      wallet: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'seller-wallet' }),
+        upsert: jest
+          .fn()
+          .mockResolvedValueOnce({ id: 'seller-wallet' })
+          .mockResolvedValueOnce({
+            id: 'seller-wallet',
+            balanceAvailable: 10_000,
+          }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      walletTransaction: {
+        findMany: jest
+          .fn()
+          .mockResolvedValueOnce([])
+          .mockResolvedValueOnce([]),
+        create: jest.fn().mockResolvedValue({}),
+      },
+    };
+
+    await expect(
+      service.clawbackSellerPayout(tx, {
+        userId: 'seller-1',
+        orderId: 'ord-1',
+        listingId: 'lst-1',
+        requestedAmount: 200_000,
+        penaltyMeta: { debitReason: 'test-refund' },
+      }),
+    ).rejects.toThrow(/موجودی قابل برداشت فروشنده/);
+    expect(tx.wallet.update).not.toHaveBeenCalled();
   });
 });

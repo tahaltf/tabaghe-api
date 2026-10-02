@@ -60,6 +60,12 @@ export class AdminLandingPagesController {
     return this.service.seedSellerLanding(body?.force ?? false);
   }
 
+  @Post('seed-buyer')
+  @RequirePermission('landing_pages.create')
+  seedBuyer(@Body() body?: { force?: boolean }) {
+    return this.service.seedBuyerLanding(body?.force ?? false);
+  }
+
   @Post('seed-invite')
   @RequirePermission('landing_pages.create')
   seedInvite(@Body() body?: { force?: boolean }) {

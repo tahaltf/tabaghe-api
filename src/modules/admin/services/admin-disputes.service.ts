@@ -27,6 +27,8 @@ import { enrichOrderUpdateForCompletion } from '../../orders/order-lifecycle.uti
 import { ListingCommandService } from '../../listing/services/listing-command.service';
 import { WalletService } from '../../wallet/wallet.service';
 import { ReferralRewardService } from '../../referral/referral-reward.service';
+import { OrdersEarlyEscrowService } from '../../orders/services/command/orders-early-escrow.service';
+import { SELLER_ESCROW_RELEASE_REASON } from '../../orders/seller-escrow-release.constants';
 
 const DISPUTE_INCLUDE = {
   listing: {
@@ -76,6 +78,7 @@ export class AdminDisputesService {
     private readonly listingCommand: ListingCommandService,
     private readonly walletService: WalletService,
     private readonly referralReward: ReferralRewardService,
+    private readonly earlyEscrow: OrdersEarlyEscrowService,
   ) {}
 
   async list(
@@ -236,10 +239,18 @@ export class AdminDisputesService {
                 toRelease,
                 order.listingId,
                 tx,
-                { orderId: order.id },
+                {
+                  orderId: order.id,
+                  reason: SELLER_ESCROW_RELEASE_REASON.ADMIN,
+                },
               );
             }
           }
+          await this.earlyEscrow.markReleasedIfNeeded(
+            tx,
+            order.id,
+            SELLER_ESCROW_RELEASE_REASON.ADMIN,
+          );
           await this.orderReputation.applyTrustPointsPenalty(
             tx,
             [order.buyerId],
@@ -301,7 +312,7 @@ export class AdminDisputesService {
                 },
               },
             });
-            await this.walletService.debitOrderScopedBlocked(tx, {
+            await this.walletService.clawbackSellerPayout(tx, {
               userId: order.sellerId,
               orderId: order.id,
               listingId: order.listingId,
@@ -313,7 +324,7 @@ export class AdminDisputesService {
                 orderId: order.id,
                 listingId: order.listingId,
                 description:
-                  'کسر از سهم بلوکه‌شده فروشنده بابت مصالحه جزئی شکایت',
+                  'کسر از سهم فروشنده بابت مصالحه جزئی شکایت',
               },
             });
           }
@@ -331,10 +342,18 @@ export class AdminDisputesService {
                 toRelease,
                 order.listingId,
                 tx,
-                { orderId: order.id },
+                {
+                  orderId: order.id,
+                  reason: SELLER_ESCROW_RELEASE_REASON.ADMIN,
+                },
               );
             }
           }
+          await this.earlyEscrow.markReleasedIfNeeded(
+            tx,
+            order.id,
+            SELLER_ESCROW_RELEASE_REASON.ADMIN,
+          );
           await tx.order.update({
             where: { id },
             data: enrichOrderUpdateForCompletion({

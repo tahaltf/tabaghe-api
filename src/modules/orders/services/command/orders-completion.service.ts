@@ -65,6 +65,8 @@ import {
 } from '../../exchange-order-sync.util';
 import { formatMinutesDurationFa } from '../../../../common/duration-format.util';
 import { OrdersSettingsService } from '../../orders-settings.service';
+import { OrdersEarlyEscrowService } from './orders-early-escrow.service';
+import { SELLER_ESCROW_RELEASE_REASON } from '../../seller-escrow-release.constants';
 import { OrdersResponseEnrichmentService } from '../query/orders-response-enrichment.service';
 import {
   AWAITING_SELLER_SHIPMENT_STATUSES,
@@ -91,6 +93,7 @@ export class OrdersCompletionService {
     private readonly settings: OrdersSettingsService,
     private readonly responseEnrichment: OrdersResponseEnrichmentService,
     private readonly referralReward: ReferralRewardService,
+    private readonly earlyEscrow: OrdersEarlyEscrowService,
   ) {}
 
   async submitReturnTrackingCode(
@@ -322,7 +325,7 @@ export class OrdersCompletionService {
       );
 
       if (sellerRevenue > 0) {
-        await this.walletService.debitOrderScopedBlocked(tx, {
+        await this.walletService.clawbackSellerPayout(tx, {
           userId: order.sellerId,
           orderId: order.id,
           listingId: order.listingId,
@@ -335,7 +338,7 @@ export class OrdersCompletionService {
             orderId: order.id,
             listingId: order.listingId,
             description:
-              'کسر از موجودی بلوکه فروشنده پس از تایید دریافت مرجوعی',
+              'کسر از موجودی فروشنده پس از تایید دریافت مرجوعی',
           },
         });
       }
@@ -727,9 +730,17 @@ export class OrdersCompletionService {
           sellerRelease,
           order.listingId,
           tx,
-          { orderId: order.id },
+          {
+            orderId: order.id,
+            reason: SELLER_ESCROW_RELEASE_REASON.BUYER_CONFIRM,
+          },
         );
       }
+      await this.earlyEscrow.markReleasedIfNeeded(
+        tx,
+        order.id,
+        SELLER_ESCROW_RELEASE_REASON.BUYER_CONFIRM,
+      );
 
       // 🎯 تغییر وضعیت به تکمیل شده (تسویه نهایی)
       const prevDirectStatus = order.status;

@@ -5,7 +5,7 @@ import {
 } from './seller-landing.seed';
 
 describe('seller landing seed', () => {
-  it('has 9 normalized sections matching builder count', () => {
+  it('has the full seller page section count', () => {
     const sections = loadSellerLandingSeedSections();
     expect(sections.length).toBe(SELLER_LANDING_SECTION_COUNT);
     expect(coerceLandingSections(sections).length).toBe(

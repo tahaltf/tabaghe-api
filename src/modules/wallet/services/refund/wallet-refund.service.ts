@@ -268,7 +268,7 @@ export class WalletRefundService {
         select: { id: true },
       });
       if (!existingSellerDebit) {
-        const debited = await this.escrow.debitOrderScopedBlocked(tx, {
+        const clawed = await this.escrow.clawbackSellerPayout(tx, {
           userId: params.sellerId,
           orderId: params.orderId,
           listingId: params.listingId,
@@ -281,9 +281,10 @@ export class WalletRefundService {
             orderId: params.orderId,
             listingId: params.listingId,
             ...(listingTitle ? { listingTitle } : {}),
-            description: `لغو معامله برای ${titleQuoted}: مبلغ بلوکه‌شده از کیف پول شما برداشته شد چون سفارش لغو شد (${params.cancelReason}).`,
+            description: `لغو معامله برای ${titleQuoted}: مبلغ از کیف پول شما برداشته شد چون سفارش لغو شد (${params.cancelReason}).`,
           },
         });
+        const debited = clawed.fromBlocked + clawed.fromAvailable;
         if (debited > 0) {
           const pendingForOrder = await tx.walletTransaction.findMany({
             where: {
