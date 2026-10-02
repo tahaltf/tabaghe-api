@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { coerceLandingSections } from './landing-sections.util';
 
 export const SELLER_LANDING_SLUG = 'seller';
-export const SELLER_LANDING_SECTION_COUNT = 17;
+export const SELLER_LANDING_SECTION_COUNT = 18;
 
 const SELLER_LANDING_META = {
   seoTitle: 'طبقه | فروش بدون بیعانهٔ مبهم',
