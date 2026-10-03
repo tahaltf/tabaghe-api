@@ -15,11 +15,23 @@ export function resolveListingCompareAtPrice(
   if (sale == null || !Number.isFinite(sale) || sale <= 0) {
     return null;
   }
-  const compare = Number(direct.price);
-  if (!Number.isFinite(compare) || compare <= sale) {
-    return null;
+
+  const fromCompareAt =
+    direct.compareAtPrice != null ? Number(direct.compareAtPrice) : null;
+  if (
+    fromCompareAt != null &&
+    Number.isFinite(fromCompareAt) &&
+    fromCompareAt > sale
+  ) {
+    return fromCompareAt;
   }
-  return compare;
+
+  const fromPrice = Number(direct.price);
+  if (Number.isFinite(fromPrice) && fromPrice > sale) {
+    return fromPrice;
+  }
+
+  return null;
 }
 
 /** مبلغ مؤثر واحد به ارز خود آگهی (بدون تبدیل) */
@@ -28,7 +40,14 @@ export function resolveListingEffectiveUnitPrice(
 ): number {
   const base = Number(direct.price);
   const sale = direct.salePrice != null ? Number(direct.salePrice) : null;
-  if (sale != null && Number.isFinite(sale) && sale > 0 && sale < base) {
+  if (sale == null || !Number.isFinite(sale) || sale <= 0) {
+    return base;
+  }
+  if (sale < base) {
+    return sale;
+  }
+  const compare = resolveListingCompareAtPrice(direct);
+  if (compare != null && sale < compare) {
     return sale;
   }
   return base;

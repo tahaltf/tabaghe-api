@@ -4,11 +4,20 @@ import {
 } from './listing-price.util';
 
 describe('resolveListingCompareAtPrice', () => {
-  it('returns base price when sale is active', () => {
+  it('prefers compareAtPrice over base price when sale is active', () => {
     expect(
       resolveListingCompareAtPrice({
         price: 1_000_000,
         compareAtPrice: 1_200_000,
+        salePrice: 850_000,
+      }),
+    ).toBe(1_200_000);
+  });
+
+  it('falls back to base price when compareAtPrice is missing', () => {
+    expect(
+      resolveListingCompareAtPrice({
+        price: 1_000_000,
         salePrice: 850_000,
       }),
     ).toBe(1_000_000);

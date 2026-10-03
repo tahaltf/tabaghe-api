@@ -60,6 +60,57 @@ describe('WordPressProductIngestService pricing', () => {
     expect(syncInput.salePrice).toBe(80_000);
   });
 
+  it('uses regularPrice as list price when payload price is the WooCommerce sale amount', async () => {
+    const dto = {
+      externalProductId: '123',
+      siteUrl: 'https://example.com/',
+      title: 'WC convention sale',
+      description: 'Desc',
+      price: 80_000,
+      regularPrice: 100_000,
+      salePrice: 80_000,
+      images: [{ url: 'https://example.com/img.jpg' }],
+      attributes: [],
+    } as WordPressProductDto;
+
+    const syncInput = await (service as any).buildSyncInput(
+      'user-1',
+      dto,
+      { categoryId: 'cat-1', provinceId: 'prov-1', cityId: 'city-1' },
+      'cat-1',
+      1,
+    );
+
+    expect(syncInput.price).toBe(100_000);
+    expect(syncInput.compareAtPrice).toBe(100_000);
+    expect(syncInput.salePrice).toBe(80_000);
+  });
+
+  it('infers sale from effective price when salePrice is omitted but below regularPrice', async () => {
+    const dto = {
+      externalProductId: '123',
+      siteUrl: 'https://example.com/',
+      title: 'Implicit sale product',
+      description: 'Desc',
+      price: 80_000,
+      regularPrice: 100_000,
+      images: [{ url: 'https://example.com/img.jpg' }],
+      attributes: [],
+    } as WordPressProductDto;
+
+    const syncInput = await (service as any).buildSyncInput(
+      'user-1',
+      dto,
+      { categoryId: 'cat-1', provinceId: 'prov-1', cityId: 'city-1' },
+      'cat-1',
+      1,
+    );
+
+    expect(syncInput.price).toBe(100_000);
+    expect(syncInput.compareAtPrice).toBe(100_000);
+    expect(syncInput.salePrice).toBe(80_000);
+  });
+
   it('drops the discount (instead of failing) when regularPrice is missing and effective price equals salePrice', async () => {
     const dto = {
       externalProductId: '123',

@@ -309,23 +309,56 @@ export class WordPressProductIngestService {
     compareAtPrice: number | null;
     salePrice: number | null;
   } {
-    const regularRaw = Number(dto.regularPrice ?? dto.price ?? 0);
-    const priceFallback = Number(dto.price ?? 0);
-    const basePrice =
-      Number.isFinite(regularRaw) && regularRaw > 0 ? regularRaw : priceFallback;
+    const explicitRegular =
+      dto.regularPrice != null ? Number(dto.regularPrice) : null;
+    const effectivePrice = Number(dto.price ?? 0);
+    let saleRaw = dto.salePrice != null ? Number(dto.salePrice) : null;
 
-    const saleRaw = dto.salePrice != null ? Number(dto.salePrice) : null;
+    // List/original price: prefer regularPrice, otherwise the payload price.
+    let listPrice =
+      explicitRegular != null &&
+      Number.isFinite(explicitRegular) &&
+      explicitRegular > 0
+        ? explicitRegular
+        : effectivePrice;
+
+    // Older plugins may send effective `price` below regular without salePrice.
+    if (
+      (saleRaw == null || !Number.isFinite(saleRaw) || saleRaw <= 0) &&
+      Number.isFinite(effectivePrice) &&
+      effectivePrice > 0 &&
+      Number.isFinite(listPrice) &&
+      effectivePrice < listPrice
+    ) {
+      saleRaw = effectivePrice;
+    }
+
+    // If payload `price` was the sale amount (WC convention) but regular exists,
+    // keep listPrice as the higher original amount.
+    if (
+      saleRaw != null &&
+      Number.isFinite(saleRaw) &&
+      saleRaw > 0 &&
+      Number.isFinite(listPrice) &&
+      listPrice <= saleRaw &&
+      explicitRegular != null &&
+      Number.isFinite(explicitRegular) &&
+      explicitRegular > saleRaw
+    ) {
+      listPrice = explicitRegular;
+    }
+
     const hasValidSale =
       saleRaw != null &&
       Number.isFinite(saleRaw) &&
       saleRaw > 0 &&
-      Number.isFinite(basePrice) &&
-      basePrice > 0 &&
-      saleRaw < basePrice;
+      Number.isFinite(listPrice) &&
+      listPrice > 0 &&
+      saleRaw < listPrice;
 
     return {
-      price: Number.isFinite(basePrice) ? basePrice : 0,
-      compareAtPrice: hasValidSale ? basePrice : null,
+      price: Number.isFinite(listPrice) ? listPrice : 0,
+      compareAtPrice: hasValidSale ? listPrice : null,
       salePrice: hasValidSale ? saleRaw : null,
     };
   }
