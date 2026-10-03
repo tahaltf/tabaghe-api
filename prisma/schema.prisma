@@ -1641,6 +1641,25 @@ model CurrencyRate {
   updatedAt        DateTime @updatedAt
 }
 
+/// تابلو بازار (طلا، سکه، تتر، نفت، ...) — جدا از ارزهای لیستینگ
+model MarketRate {
+  code      String   @id // GOLD_18K, USDT, COIN_EMAMI, ...
+  nameFa    String
+  category  String   // gold | coin | crypto | fx | commodity | other
+  /** مقدار عددی نرمال‌شده */
+  value     Decimal  @default(0)
+  /** واحد مقدار: toman | usd | ratio | other */
+  unit      String   @default("toman")
+  source    String   @default("n8n")
+  change    String?
+  /** نقل‌قول‌ها / متادیتای منبع */
+  meta      Json?
+  fetchedAt DateTime?
+  updatedAt DateTime @updatedAt
+
+  @@index([category, code])
+}
+
 /// کلیدهای integration سرور — مقادیر رمزنگاری‌شده (AES-256-GCM) و مدیریت از پنل ادمین
 model SystemSecret {
   id             String   @id @default(cuid())

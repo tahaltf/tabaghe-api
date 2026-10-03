@@ -25,4 +25,10 @@ export class CurrencyController {
       source: c.rateSource,
     }));
   }
+
+  /** تابلو عمومی بازار (طلا، سکه، تتر، نفت، ...) */
+  @Get('market')
+  listMarket() {
+    return this.currency.listMarketRates();
+  }
 }

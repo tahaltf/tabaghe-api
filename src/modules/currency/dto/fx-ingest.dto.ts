@@ -10,6 +10,7 @@ import {
   ValidateNested,
   ValidateIf,
 } from 'class-validator';
+import { MarketIngestItemDto } from './market-ingest.dto';
 
 export class FxIngestQuoteDto {
   @IsString()
@@ -42,11 +43,19 @@ export class FxIngestRateItemDto {
 }
 
 export class FxIngestRatesDto {
+  /** ارزهای لیستینگ؛ اگر فقط market بفرستید می‌تواند خالی باشد */
+  @IsOptional()
   @IsArray()
-  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => FxIngestRateItemDto)
-  rates!: FxIngestRateItemDto[];
+  rates?: FxIngestRateItemDto[];
+
+  /** تابلو بازار (طلا، سکه، تتر، نفت، ...) */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MarketIngestItemDto)
+  market?: MarketIngestItemDto[];
 
   /** اگر rial باشد مقادیر ÷۱۰ به تومان تبدیل می‌شوند */
   @IsOptional()

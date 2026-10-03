@@ -110,7 +110,7 @@ export const ADMIN_SECRET_KEYS_REGISTRY: AdminSecretKeyDef[] = [
     categoryLabel: 'عمومی',
     label: 'کلید ingest نرخ ارز (n8n)',
     description:
-      'رمز مشترک برای POST /api/v1/integrations/fx-rates — هدر X-Fx-Ingest-Key یا Bearer',
+      'رمز مشترک برای POST/GET /api/v1/integrations/fx-rates — هدر X-Fx-Ingest-Key یا Bearer',
     kind: 'secret',
     placeholder: 'یک رشته تصادفی بلند',
   },

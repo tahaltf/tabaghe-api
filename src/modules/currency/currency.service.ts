@@ -8,6 +8,7 @@ import { ListingType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { BASE_CURRENCY_CODE } from './providers/fx-provider';
 import type { FxIngestRatesDto } from './dto/fx-ingest.dto';
+import type { MarketIngestItemDto } from './dto/market-ingest.dto';
 
 export type EffectiveRate = {
   currencyCode: string;
@@ -244,12 +245,13 @@ export class CurrencyService {
   }
 
   /**
-   * دریافت نرخ از n8n / اتوماسیون خارجی و ذخیره در CurrencyRate.
+   * دریافت نرخ از n8n / اتوماسیون خارجی و ذخیره در CurrencyRate (+ اختیاری تابلو MarketRate).
    * اگر quotes چندمنبعی باشد → min/max/mid؛ در غیر این صورت تک‌نرخی.
    */
   async ingestRates(dto: FxIngestRatesDto): Promise<{
     updated: string[];
     skipped: string[];
+    marketUpdated: string[];
     source: string;
   }> {
     const sourceLabel = (dto.source?.trim() || 'n8n').slice(0, 64);
@@ -257,8 +259,14 @@ export class CurrencyService {
     const fetchedAt = new Date();
     const updated: string[] = [];
     const skipped: string[] = [];
+    const rates = dto.rates ?? [];
+    const marketItems = dto.market ?? [];
 
-    for (const item of dto.rates) {
+    if (!rates.length && !marketItems.length) {
+      throw new BadRequestException('حداقل rates یا market لازم است');
+    }
+
+    for (const item of rates) {
       const code = this.normalizeCode(item.code);
       if (code === BASE_CURRENCY_CODE) {
         skipped.push(code);
@@ -323,10 +331,122 @@ export class CurrencyService {
       await this.refreshListingPriceCacheForCurrency(code);
     }
 
+    const marketUpdated = marketItems.length
+      ? await this.ingestMarketItems(marketItems, sourceLabel, fetchedAt)
+      : [];
+
     this.logger.log(
-      `FX ingest source=${sourceLabel} updated=${updated.join(',') || '-'} skipped=${skipped.join(',') || '-'}`,
+      `FX ingest source=${sourceLabel} updated=${updated.join(',') || '-'} skipped=${skipped.join(',') || '-'} market=${marketUpdated.join(',') || '-'}`,
     );
-    return { updated, skipped, source: sourceLabel };
+    return { updated, skipped, marketUpdated, source: sourceLabel };
+  }
+
+  async ingestMarketItems(
+    items: MarketIngestItemDto[],
+    defaultSource = 'n8n',
+    fetchedAt = new Date(),
+  ): Promise<string[]> {
+    const updated: string[] = [];
+    for (const item of items) {
+      const code = String(item.code || '')
+        .trim()
+        .toUpperCase()
+        .replace(/[^A-Z0-9_]/g, '_')
+        .slice(0, 64);
+      if (!code) continue;
+
+      let value = Number(item.value);
+      if (!Number.isFinite(value) || value < 0) continue;
+      const unitRaw = (item.unit || 'toman').toLowerCase();
+      let unit = unitRaw;
+      if (unitRaw === 'rial') {
+        value = value / 10;
+        unit = 'toman';
+      }
+      if (!['toman', 'usd', 'ratio', 'other'].includes(unit)) {
+        unit = 'other';
+      }
+
+      const nameFa = String(item.nameFa || code).trim().slice(0, 128) || code;
+      const category = String(item.category || 'other')
+        .trim()
+        .toLowerCase()
+        .slice(0, 32) || 'other';
+      const source = String(item.source || defaultSource)
+        .trim()
+        .slice(0, 64) || defaultSource;
+      const change = item.change != null
+        ? String(item.change).trim().slice(0, 64) || null
+        : null;
+
+      await this.prisma.marketRate.upsert({
+        where: { code },
+        create: {
+          code,
+          nameFa,
+          category,
+          value,
+          unit,
+          source,
+          change,
+          fetchedAt,
+        },
+        update: {
+          nameFa,
+          category,
+          value,
+          unit,
+          source,
+          change,
+          fetchedAt,
+        },
+      });
+      updated.push(code);
+    }
+    return updated;
+  }
+
+  async listMarketRates() {
+    const rows = await this.prisma.marketRate.findMany({
+      orderBy: [{ category: 'asc' }, { code: 'asc' }],
+    });
+    return rows.map((r) => ({
+      code: r.code,
+      nameFa: r.nameFa,
+      category: r.category,
+      value: Number(r.value),
+      unit: r.unit,
+      source: r.source,
+      change: r.change,
+      fetchedAt: r.fetchedAt?.toISOString() ?? null,
+      updatedAt: r.updatedAt.toISOString(),
+    }));
+  }
+
+  /** پاسخ یکپارچه برای GET دستی / اتوماسیون */
+  async getAllRatesSnapshot() {
+    const [currencies, market] = await Promise.all([
+      this.listAllAdmin(),
+      this.listMarketRates(),
+    ]);
+    return {
+      unit: 'toman' as const,
+      currencies: currencies.map((c) => ({
+        code: c.code,
+        nameFa: c.nameFa,
+        rateToToman: c.rateToToman,
+        rateMin: c.rateMin,
+        rateMax: c.rateMax,
+        quotes: c.quotes,
+        change24hAmount: c.change24hAmount,
+        change24hPercent: c.change24hPercent,
+        updatedAt: c.rateUpdatedAt,
+        source: c.rateSource,
+        isEnabled: c.isEnabled,
+      })),
+      market,
+      fetchedAt: new Date().toISOString(),
+    };
   }
 
   /**
