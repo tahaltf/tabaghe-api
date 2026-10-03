@@ -63,13 +63,6 @@ export const DEFAULT_HEADER_NAV: HeaderNavItem[] = [
   },
   { id: 'plans', label: 'ظرفیت و پلن‌ها', link: '/plans', enabled: true },
   { id: 'help', label: 'راهنما', link: '/help', enabled: true },
-  {
-    id: 'become-seller',
-    label: 'فروشنده شوید',
-    link: '/seller',
-    enabled: true,
-    isCta: true,
-  },
 ];
 
 export const DEFAULT_HEADER_ACTIONS: HeaderActionsConfig = {
