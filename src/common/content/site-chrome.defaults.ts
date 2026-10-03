@@ -10,6 +10,8 @@ export type HeaderNavItem = {
   queryType?: ListingTypeGate | '';
   enabled: boolean;
   isSpecial?: boolean;
+  /** دکمهٔ متمایز انتهای منو (مثلاً فروشنده شوید) */
+  isCta?: boolean;
   requiresType?: ListingTypeGate | '';
 };
 
@@ -60,14 +62,14 @@ export const DEFAULT_HEADER_NAV: HeaderNavItem[] = [
     requiresType: 'AUCTION',
   },
   { id: 'plans', label: 'ظرفیت و پلن‌ها', link: '/plans', enabled: true },
-  {
-    id: 'introduction',
-    label: 'چگونه کار می‌کند',
-    link: '/introduction',
-    enabled: true,
-  },
   { id: 'help', label: 'راهنما', link: '/help', enabled: true },
-  { id: 'blog', label: 'بلاگ', link: '/blog', enabled: true },
+  {
+    id: 'become-seller',
+    label: 'فروشنده شوید',
+    link: '/seller',
+    enabled: true,
+    isCta: true,
+  },
 ];
 
 export const DEFAULT_HEADER_ACTIONS: HeaderActionsConfig = {
@@ -283,6 +285,7 @@ export function parseHeaderNavJson(
       queryType: asListingType(row['queryType']),
       enabled: row['enabled'] !== false && row['enabled'] !== 'false',
       isSpecial: row['isSpecial'] === true || row['isSpecial'] === 'true',
+      isCta: row['isCta'] === true || row['isCta'] === 'true',
       requiresType: asListingType(row['requiresType']),
     });
   }
