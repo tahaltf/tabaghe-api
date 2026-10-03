@@ -28,6 +28,9 @@ API_BASE_IMAGE="tabagheh-api-base:latest"
 
 BASE_HASH_FILE="$ROOT/.deploy-api-base-hash"
 DEPLOY_STATUS_FILE="$ROOT/.deploy-last-status"
+DEPLOY_SHA_FE_FILE="$ROOT/.deploy-frontend-sha"
+DEPLOY_SHA_BE_FILE="$ROOT/.deploy-backend-sha"
+DEPLOY_SHA_CR_FILE="$ROOT/.deploy-crawler-sha"
 
 log() { echo "[deploy] $*"; }
 
@@ -401,6 +404,7 @@ if [ -d "$CRAWLER/.git" ]; then
   NEW_CR="$(repo_head "$CRAWLER")"
 fi
 
+# «تغییر نسبت به pull قبلی» — اگر کسی قبلاً pull کرده ولی image نساخته، این صفر می‌ماند.
 FE_CHANGED=0
 BE_CHANGED=0
 CR_CHANGED=0
@@ -408,6 +412,18 @@ CR_CHANGED=0
 [ "$OLD_BE" != "$NEW_BE" ] && BE_CHANGED=1
 [ -n "$OLD_CR" ] && [ "$OLD_CR" != "$NEW_CR" ] && CR_CHANGED=1
 [ -z "$OLD_CR" ] && [ -n "$NEW_CR" ] && CR_CHANGED=1
+
+# «تصویر ساخته‌شده برای این SHA نیست» — حتی اگر pull تکراری باشد، image عقب‌افتاده را می‌سازد.
+read_deploy_sha() {
+  local f="$1"
+  if [ -f "$f" ]; then cat "$f"; else echo ""; fi
+}
+BUILT_FE="$(read_deploy_sha "$DEPLOY_SHA_FE_FILE")"
+BUILT_BE="$(read_deploy_sha "$DEPLOY_SHA_BE_FILE")"
+BUILT_CR="$(read_deploy_sha "$DEPLOY_SHA_CR_FILE")"
+[ -n "$NEW_FE" ] && [ "$BUILT_FE" != "$NEW_FE" ] && FE_CHANGED=1
+[ -n "$NEW_BE" ] && [ "$BUILT_BE" != "$NEW_BE" ] && BE_CHANGED=1
+[ -n "$NEW_CR" ] && [ "$BUILT_CR" != "$NEW_CR" ] && CR_CHANGED=1
 
 BUILD_FE=0
 BUILD_BE=0
@@ -421,6 +437,7 @@ fi
 
 if [ "$DEPLOY_SERVICES" = "auto" ]; then
   log "auto mode: frontend=$([ "$BUILD_FE" = 1 ] && echo build || echo skip) backend=$([ "$BUILD_BE" = 1 ] && echo build || echo skip) crawler=$([ "$BUILD_CR" = 1 ] && echo build || echo skip)"
+  log "sha backend: git=$NEW_BE built=${BUILT_BE:-none}"
 fi
 
 cd "$ROOT"
@@ -436,16 +453,19 @@ if [ "$BUILD_BE" = "1" ]; then
   ensure_api_base
   log "building backend image..."
   docker build -t "$BACKEND_IMAGE" "$BACKEND"
+  echo "$NEW_BE" > "$DEPLOY_SHA_BE_FILE"
 fi
 
 if [ "$BUILD_FE" = "1" ]; then
   log "building frontend image (cached SSR — first run slow, later runs faster)..."
   docker_build_with_local_cache frontend "$FRONTEND_IMAGE" "$FRONTEND"
+  echo "$NEW_FE" > "$DEPLOY_SHA_FE_FILE"
 fi
 
 if [ "$BUILD_CR" = "1" ]; then
   log "building crawler image..."
   docker build -t "$CRAWLER_IMAGE" "$CRAWLER"
+  echo "$NEW_CR" > "$DEPLOY_SHA_CR_FILE"
 fi
 
 if [ "$BUILD_FE" = "0" ] && [ "$BUILD_BE" = "0" ] && [ "$BUILD_CR" = "0" ]; then
