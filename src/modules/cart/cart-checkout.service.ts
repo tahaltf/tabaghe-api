@@ -79,6 +79,7 @@ export class CartCheckoutService {
       const line = await this.marketplaceCheckout.buildLineFromListing(
         ci.listingId,
         ci.quantity,
+        ci.variationId,
       );
       items.push(line);
     }

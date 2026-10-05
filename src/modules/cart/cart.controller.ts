@@ -49,28 +49,29 @@ export class CartController {
       user.id,
       dto.listingId,
       dto.quantity ?? 1,
+      dto.variationId,
     );
   }
 
-  @Patch('items/:listingId')
+  @Patch('items/:itemId')
   updateItem(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('listingId') listingId: string,
+    @Param('itemId') itemId: string,
     @Body() dto: UpdateCartItemDto,
   ) {
     return this.cartService.updateItemQuantity(
       user.id,
-      listingId,
+      itemId,
       dto.quantity,
     );
   }
 
-  @Delete('items/:listingId')
+  @Delete('items/:itemId')
   removeItem(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('listingId') listingId: string,
+    @Param('itemId') itemId: string,
   ) {
-    return this.cartService.removeItem(user.id, listingId);
+    return this.cartService.removeItem(user.id, itemId);
   }
 
   @Delete()

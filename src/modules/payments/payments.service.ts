@@ -32,6 +32,7 @@ import {
   isKnownPaymentGatewayType,
   type PaymentGatewayName,
 } from './payment-gateways.catalog';
+import { decrementSoldStock } from '../../common/listing/listing-variation.util';
 
 @Injectable()
 export class PaymentsService {
@@ -656,18 +657,10 @@ export class PaymentsService {
         data: { status: nextStatus, shippingDeadline: deadline },
       });
 
-      const purchasedQty = locked.quantity ?? 1;
-      const nextStock = Math.max(
-        0,
-        (listing?.stockQuantity ?? 1) - purchasedQty,
-      );
-      await tx.listing.update({
-        where: { id: locked.listingId },
-        data: {
-          stockQuantity: nextStock,
-          status:
-            nextStock <= 0 ? ListingStatus.SOLD : ListingStatus.APPROVED,
-        },
+      await decrementSoldStock(tx, {
+        listingId: locked.listingId,
+        variationId: locked.variationId,
+        quantity: locked.quantity ?? 1,
       });
     }
 

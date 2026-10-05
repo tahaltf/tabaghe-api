@@ -15,6 +15,7 @@ import {
   OrderType,
 } from '@prisma/client';
 import Decimal from 'decimal.js';
+import { decrementSoldStock } from '../../../../common/listing/listing-variation.util';
 import { WalletSupportService } from '../support/wallet-support.service';
 import { WalletQueryService } from '../query/wallet-query.service';
 import { WalletBlockService } from '../block/wallet-block.service';
@@ -1254,22 +1255,10 @@ export class WalletEscrowService {
           });
         }
 
-        const listing = await tx.listing.findUnique({
-          where: { id: order.listingId },
-          select: { stockQuantity: true },
-        });
-        const purchasedQty = order.quantity ?? 1;
-        const nextStock = Math.max(
-          0,
-          (listing?.stockQuantity ?? 1) - purchasedQty,
-        );
-        await tx.listing.update({
-          where: { id: order.listingId },
-          data: {
-            stockQuantity: nextStock,
-            status:
-              nextStock <= 0 ? ListingStatus.SOLD : ListingStatus.APPROVED,
-          },
+        await decrementSoldStock(tx, {
+          listingId: order.listingId,
+          variationId: order.variationId,
+          quantity: order.quantity ?? 1,
         });
       }
     });

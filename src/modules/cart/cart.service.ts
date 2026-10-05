@@ -10,6 +10,7 @@ import {
   resolveListingEffectiveUnitPrice,
   resolveListingEffectiveUnitPriceToman,
 } from '../../common/listing/listing-price.util';
+import { formatVariationLabel } from '../../common/listing/listing-variation.util';
 import { formatUserDisplayName } from '../../common/utils/user-display-name.util';
 import { PurchaseOfferService } from '../purchase-offer/purchase-offer.service';
 import { CurrencyService } from '../currency/currency.service';
@@ -47,7 +48,10 @@ export class CartService {
     const cart = await this.prisma.cart.findUnique({
       where: { userId },
       include: {
-        items: { orderBy: { createdAt: 'asc' } },
+        items: {
+          orderBy: { createdAt: 'asc' },
+          include: { variation: true },
+        },
       },
     });
     if (!cart || cart.items.length === 0) {
@@ -65,6 +69,19 @@ export class CartService {
     for (const item of cart.items) {
       const listing = listingMap.get(item.listingId);
       if (!listing) continue;
+      const variation =
+        item.variation && item.variation.isActive ? item.variation : null;
+      const priceFields = variation
+        ? {
+            price: Number(variation.price),
+            compareAtPrice:
+              variation.compareAtPrice != null
+                ? Number(variation.compareAtPrice)
+                : null,
+            salePrice:
+              variation.salePrice != null ? Number(variation.salePrice) : null,
+          }
+        : listing.direct;
       const locked =
         item.lockedUnitPrice != null &&
         item.reservedUntil &&
@@ -76,23 +93,27 @@ export class CartService {
       let unitPrice = 0;
       if (locked != null && Number.isFinite(locked)) {
         unitPrice = await this.currency.toToman(locked, currencyCode);
-      } else if (listing.direct) {
-        const cached = listing.priceTomanCached
-          ? Number(listing.priceTomanCached)
-          : null;
+      } else if (priceFields) {
+        const cached =
+          !variation && listing.priceTomanCached
+            ? Number(listing.priceTomanCached)
+            : null;
         if (cached != null && cached > 0) {
           unitPrice = Math.round(cached);
         } else {
-          const foreign = resolveListingEffectiveUnitPriceToman(
-            listing.direct,
-            { priceCurrencyCode: BASE_CURRENCY_CODE },
-          );
+          const foreign = resolveListingEffectiveUnitPrice(priceFields);
           unitPrice = await this.currency.toToman(foreign, currencyCode);
         }
       }
-      const maxQty = this.resolveMaxQuantity(listing);
+      const maxQty = this.resolveMaxQuantity(listing, variation);
+      const variationLabel = variation
+        ? formatVariationLabel(variation.attributes)
+        : null;
       items.push({
+        id: item.id,
         listingId: item.listingId,
+        variationId: variation?.id ?? null,
+        variationLabel,
         quantity: Math.min(item.quantity, maxQty),
         maxQuantity: maxQty,
         unitPrice,
@@ -107,25 +128,31 @@ export class CartService {
         listing: {
           id: listing.id,
           title: listing.title,
-          thumbnail: listing.thumbnail,
+          thumbnail: variation?.imageUrl || listing.thumbnail,
           status: listing.status,
-          stockQuantity: listing.stockQuantity,
-          singleItemSale: listing.singleItemSale,
+          stockQuantity: variation
+            ? variation.stockQuantity
+            : listing.stockQuantity,
+          singleItemSale: variation ? false : listing.singleItemSale,
+          isVariable: listing.isVariable,
           shippingPayer: listing.shippingPayer,
           priceCurrencyCode: currencyCode,
-          priceTomanCached:
-            listing.priceTomanCached != null
+          priceTomanCached: variation
+            ? unitPrice
+            : listing.priceTomanCached != null
               ? Number(listing.priceTomanCached)
               : null,
-          direct: listing.direct
+          direct: priceFields
             ? {
-                price: Number(listing.direct.price),
-                compareAtPrice: listing.direct.compareAtPrice
-                  ? Number(listing.direct.compareAtPrice)
-                  : null,
-                salePrice: listing.direct.salePrice
-                  ? Number(listing.direct.salePrice)
-                  : null,
+                price: Number(priceFields.price),
+                compareAtPrice:
+                  priceFields.compareAtPrice != null
+                    ? Number(priceFields.compareAtPrice)
+                    : null,
+                salePrice:
+                  priceFields.salePrice != null
+                    ? Number(priceFields.salePrice)
+                    : null,
               }
             : null,
           author: listing.author,
@@ -144,7 +171,12 @@ export class CartService {
     };
   }
 
-  async addItem(userId: string, listingId: string, quantity = 1) {
+  async addItem(
+    userId: string,
+    listingId: string,
+    quantity = 1,
+    variationId?: string | null,
+  ) {
     await this.actionRateLimit.consumeOrThrow(
       userId,
       'cart-add-item',
@@ -166,6 +198,7 @@ export class CartService {
       throw new BadRequestException('نمی‌توانید آگهی خودتان را بخرید');
     }
 
+    const variation = await this.resolveCartVariation(listing, variationId);
     const reservedForOther =
       await this.purchaseOfferService.isListingReservedForOther(
         listingId,
@@ -177,11 +210,12 @@ export class CartService {
       );
     }
 
-    const maxQty = this.resolveMaxQuantity(listing);
+    const maxQty = this.resolveMaxQuantity(listing, variation);
     if (maxQty <= 0) {
       throw new BadRequestException('موجودی این کالا تمام شده است');
     }
     const qty = Math.min(Math.max(1, quantity), maxQty);
+    const variationKey = variation?.id ?? '';
 
     let cart = await this.prisma.cart.findUnique({ where: { userId } });
     if (!cart) {
@@ -195,15 +229,31 @@ export class CartService {
     }
 
     const existing = await this.prisma.cartItem.findUnique({
-      where: { cartId_listingId: { cartId: cart.id, listingId } },
+      where: {
+        cartId_listingId_variationKey: {
+          cartId: cart.id,
+          listingId,
+          variationKey,
+        },
+      },
     });
     const newQty = Math.min(maxQty, (existing?.quantity ?? 0) + qty);
 
     await this.prisma.cartItem.upsert({
       where: {
-        cartId_listingId: { cartId: cart.id, listingId },
+        cartId_listingId_variationKey: {
+          cartId: cart.id,
+          listingId,
+          variationKey,
+        },
       },
-      create: { cartId: cart.id, listingId, quantity: newQty },
+      create: {
+        cartId: cart.id,
+        listingId,
+        variationId: variation?.id ?? null,
+        variationKey,
+        quantity: newQty,
+      },
       update: { quantity: newQty },
     });
 
@@ -212,12 +262,13 @@ export class CartService {
 
   async updateItemQuantity(
     userId: string,
-    listingId: string,
+    itemId: string,
     quantity: number,
   ) {
     const cart = await this.requireCart(userId);
-    const item = await this.prisma.cartItem.findUnique({
-      where: { cartId_listingId: { cartId: cart.id, listingId } },
+    const item = await this.prisma.cartItem.findFirst({
+      where: { id: itemId, cartId: cart.id },
+      include: { variation: true },
     });
     if (!item) throw new NotFoundException('آیتم در سبد یافت نشد');
 
@@ -228,10 +279,15 @@ export class CartService {
     }
 
     const listing = await this.prisma.listing.findUnique({
-      where: { id: listingId },
+      where: { id: item.listingId },
     });
     if (!listing) throw new NotFoundException('آگهی یافت نشد');
-    const maxQty = this.resolveMaxQuantity(listing);
+    const variation =
+      item.variation && item.variation.isActive ? item.variation : null;
+    if (listing.isVariable && !variation) {
+      throw new BadRequestException('این تنوع دیگر قابل خرید نیست');
+    }
+    const maxQty = this.resolveMaxQuantity(listing, variation);
     const qty = Math.min(Math.max(1, quantity), maxQty);
 
     await this.prisma.cartItem.update({
@@ -241,19 +297,20 @@ export class CartService {
     return this.getCart(userId);
   }
 
-  async removeItem(userId: string, listingId: string) {
+  async removeItem(userId: string, itemId: string) {
     const cart = await this.requireCart(userId);
-    const item = await this.prisma.cartItem.findUnique({
-      where: { cartId_listingId: { cartId: cart.id, listingId } },
+    const item = await this.prisma.cartItem.findFirst({
+      where: { id: itemId, cartId: cart.id },
     });
-    if (item?.purchaseOfferId) {
+    if (!item) throw new NotFoundException('آیتم در سبد یافت نشد');
+    if (item.purchaseOfferId) {
       await this.purchaseOfferService.releaseReservation(
         item.purchaseOfferId,
         'removed_from_cart',
       );
     } else {
-      await this.prisma.cartItem.deleteMany({
-        where: { cartId: cart.id, listingId },
+      await this.prisma.cartItem.delete({
+        where: { id: item.id },
       });
     }
     await this.pruneEmptyCart(cart.id);
@@ -299,11 +356,20 @@ export class CartService {
    */
   async revalidateFxPrices(
     userId: string,
-    expectedItems?: Array<{ listingId: string; unitPrice: number }>,
+    expectedItems?: Array<{
+      listingId: string;
+      unitPrice: number;
+      variationId?: string | null;
+    }>,
   ) {
     const cart = await this.prisma.cart.findUnique({
       where: { userId },
-      include: { items: { orderBy: { createdAt: 'asc' } } },
+      include: {
+        items: {
+          orderBy: { createdAt: 'asc' },
+          include: { variation: true },
+        },
+      },
     });
     if (!cart || cart.items.length === 0) {
       return {
@@ -325,7 +391,10 @@ export class CartService {
             Number.isFinite(Number(e.unitPrice)) &&
             Number(e.unitPrice) > 0,
         )
-        .map((e) => [e.listingId, Math.round(Number(e.unitPrice))]),
+        .map((e) => [
+          e.variationId ? `${e.listingId}:${e.variationId}` : e.listingId,
+          Math.round(Number(e.unitPrice)),
+        ]),
     );
 
     const listings = await this.prisma.listing.findMany({
@@ -341,9 +410,25 @@ export class CartService {
 
     for (const item of cart.items) {
       const listing = listingMap.get(item.listingId);
-      if (!listing?.direct) continue;
+      if (!listing) continue;
+      if (!listing.direct && !item.variation) continue;
 
-      const maxQty = this.resolveMaxQuantity(listing);
+      const variation =
+        item.variation && item.variation.isActive ? item.variation : null;
+      const priceFields = variation
+        ? {
+            price: Number(variation.price),
+            salePrice:
+              variation.salePrice != null ? Number(variation.salePrice) : null,
+            compareAtPrice:
+              variation.compareAtPrice != null
+                ? Number(variation.compareAtPrice)
+                : null,
+          }
+        : listing?.direct;
+      if (!priceFields) continue;
+
+      const maxQty = this.resolveMaxQuantity(listing!, variation);
       const qty = Math.min(item.quantity, maxQty);
       const currencyCode =
         listing.priceCurrencyCode?.toUpperCase() || BASE_CURRENCY_CODE;
@@ -360,55 +445,62 @@ export class CartService {
         continue;
       }
 
-      if (currencyCode === BASE_CURRENCY_CODE) {
-        const unit = resolveListingEffectiveUnitPriceToman(listing.direct, {
-          priceCurrencyCode: BASE_CURRENCY_CODE,
-        });
+      if (currencyCode === BASE_CURRENCY_CODE || variation) {
+        const unit = variation
+          ? await this.currency.toToman(
+              resolveListingEffectiveUnitPrice(priceFields),
+              currencyCode,
+            )
+          : resolveListingEffectiveUnitPriceToman(priceFields, {
+              priceCurrencyCode: BASE_CURRENCY_CODE,
+            });
         previousSubtotal += unit * qty;
         newSubtotal += unit * qty;
         continue;
       }
 
       const cachedUnit =
-        listing.priceTomanCached != null &&
-        Number(listing.priceTomanCached) > 0
-          ? Math.round(Number(listing.priceTomanCached))
+        listing!.priceTomanCached != null &&
+        Number(listing!.priceTomanCached) > 0
+          ? Math.round(Number(listing!.priceTomanCached))
           : null;
-      const expectedUnit = expectedMap.get(listing.id) ?? null;
+      const expectedKey = variation
+        ? `${listing!.id}:${variation.id}`
+        : listing!.id;
+      const expectedUnit = expectedMap.get(expectedKey) ?? null;
       const previousUnit =
         expectedUnit ??
         cachedUnit ??
         (await this.currency.toToman(
-          resolveListingEffectiveUnitPrice(listing.direct),
+          resolveListingEffectiveUnitPrice(priceFields),
           currencyCode,
         ));
 
       const newUnit = await this.currency.computePriceTomanCached({
-        type: listing.type,
+        type: listing!.type,
         priceCurrencyCode: currencyCode,
         direct: {
-          price: Number(listing.direct.price),
+          price: Number(priceFields.price),
           salePrice:
-            listing.direct.salePrice != null
-              ? Number(listing.direct.salePrice)
-              : null,
+            priceFields.salePrice != null ? Number(priceFields.salePrice) : null,
         },
       });
 
       previousSubtotal += previousUnit * qty;
       newSubtotal += newUnit * qty;
 
-      if (cachedUnit !== newUnit) {
+      if (!variation && cachedUnit !== newUnit) {
         await this.prisma.listing.update({
-          where: { id: listing.id },
+          where: { id: listing!.id },
           data: { priceTomanCached: newUnit },
         });
       }
 
       if (previousUnit !== newUnit) {
         changedItems.push({
-          listingId: listing.id,
-          title: listing.title,
+          listingId: listing!.id,
+          variationId: variation?.id ?? null,
+          title: listing!.title,
           quantity: qty,
           previousUnitPrice: previousUnit,
           newUnitPrice: newUnit,
@@ -451,10 +543,36 @@ export class CartService {
     }
   }
 
-  private resolveMaxQuantity(listing: {
-    stockQuantity: number;
-    singleItemSale: boolean;
-  }): number {
+  private async resolveCartVariation(
+    listing: { id: string; isVariable: boolean },
+    variationId?: string | null,
+  ) {
+    if (listing.isVariable) {
+      if (!variationId) {
+        throw new BadRequestException('برای این محصول باید یک تنوع انتخاب کنید');
+      }
+      const variation = await this.prisma.listingVariation.findFirst({
+        where: { id: variationId, listingId: listing.id, isActive: true },
+      });
+      if (!variation) {
+        throw new BadRequestException('این تنوع دیگر قابل خرید نیست');
+      }
+      return variation;
+    }
+    if (variationId) {
+      throw new BadRequestException('این آگهی تنوع ندارد');
+    }
+    return null;
+  }
+
+  private resolveMaxQuantity(
+    listing: {
+      stockQuantity: number;
+      singleItemSale: boolean;
+    },
+    variation?: { stockQuantity: number } | null,
+  ): number {
+    if (variation) return Math.max(0, variation.stockQuantity ?? 0);
     const stock = listing.stockQuantity ?? 1;
     if (listing.singleItemSale !== false) return stock > 0 ? 1 : 0;
     return Math.max(0, stock);

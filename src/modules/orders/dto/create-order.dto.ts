@@ -9,6 +9,10 @@ export class CreateOrderDto {
 
   @IsOptional()
   @IsString()
+  variationId?: string;
+
+  @IsOptional()
+  @IsString()
   addressId?: string;
 
   @IsEnum(OrderType)

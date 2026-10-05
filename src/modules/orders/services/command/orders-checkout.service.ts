@@ -46,6 +46,10 @@ import {
 } from '../../../../common/upload/order-video-storage.util';
 import { enrichOrderUpdateForCompletion } from '../../order-lifecycle.util';
 import { resolveListingEffectiveUnitPrice } from '../../../../common/listing/listing-price.util';
+import {
+  decrementSoldStock,
+  formatVariationLabel,
+} from '../../../../common/listing/listing-variation.util';
 import { CurrencyService } from '../../../currency/currency.service';
 import { BASE_CURRENCY_CODE } from '../../../currency/providers/fx-provider';
 import {
@@ -180,6 +184,8 @@ export class OrdersCheckoutService {
       let priceCurrencyCode = BASE_CURRENCY_CODE;
       let originalUnitPrice: number | null = null;
       let fxRateToToman: number | null = null;
+      let orderVariationId: string | null = null;
+      let orderVariationLabel: string | null = null;
 
       const shippingSetting = await tx.systemSetting.findUnique({
         where: { key: 'SHIPPING_COST' },
@@ -684,11 +690,44 @@ export class OrdersCheckoutService {
         if (!listing || listing.status !== 'APPROVED')
           throw new BadRequestException('آگهی یافت نشد یا فروخته شده');
 
-        const availableStock = listing.stockQuantity ?? 1;
+        const requestedVariationId =
+          typeof dto.variationId === 'string' && dto.variationId.trim()
+            ? dto.variationId.trim()
+            : null;
+        if (listing.isVariable && !requestedVariationId) {
+          throw new BadRequestException('برای این محصول باید یک تنوع انتخاب کنید');
+        }
+        if (!listing.isVariable && requestedVariationId) {
+          throw new BadRequestException('این آگهی تنوع ندارد');
+        }
+        const variation = requestedVariationId
+          ? await tx.listingVariation.findFirst({
+              where: {
+                id: requestedVariationId,
+                listingId,
+                isActive: true,
+              },
+            })
+          : null;
+        if (requestedVariationId && !variation) {
+          throw new BadRequestException('این تنوع دیگر قابل خرید نیست');
+        }
+        if (variation) {
+          orderVariationId = variation.id;
+          orderVariationLabel = formatVariationLabel(variation.attributes);
+        }
+
+        const availableStock = variation
+          ? variation.stockQuantity
+          : (listing.stockQuantity ?? 1);
         if (availableStock <= 0) {
           throw new BadRequestException('موجودی این کالا تمام شده است');
         }
-        if (listing.singleItemSale !== false && orderQuantity > 1) {
+        if (
+          !variation &&
+          listing.singleItemSale !== false &&
+          orderQuantity > 1
+        ) {
           throw new BadRequestException(
             'این آگهی فقط به‌صورت تکی قابل خرید است',
           );
@@ -699,8 +738,21 @@ export class OrdersCheckoutService {
           );
         }
 
-        const foreignUnit = listing.direct
-          ? resolveListingEffectiveUnitPrice(listing.direct)
+        const priceFields = variation
+          ? {
+              price: Number(variation.price),
+              compareAtPrice:
+                variation.compareAtPrice != null
+                  ? Number(variation.compareAtPrice)
+                  : null,
+              salePrice:
+                variation.salePrice != null
+                  ? Number(variation.salePrice)
+                  : null,
+            }
+          : listing.direct;
+        const foreignUnit = priceFields
+          ? resolveListingEffectiveUnitPrice(priceFields)
           : 0;
         priceCurrencyCode =
           listing.priceCurrencyCode?.toUpperCase() || BASE_CURRENCY_CODE;
@@ -735,7 +787,10 @@ export class OrdersCheckoutService {
       // نکته: حذف سفارشِ معلقِ «کاربر دیگر» برای همین آگهی یک سوراخ امنیتی است.
       // فقط سفارش‌های معلق/کنسل‌شده‌ی همین کاربر قابل پاکسازی هستند.
       const existingOrders = await tx.order.findMany({
-        where: { listingId },
+        where: {
+          listingId,
+          ...(orderVariationId ? { variationId: orderVariationId } : {}),
+        },
         select: { id: true, status: true, buyerId: true },
         take: 5,
         orderBy: { createdAt: 'desc' },
@@ -790,6 +845,7 @@ export class OrdersCheckoutService {
         await tx.order.deleteMany({
           where: {
             listingId,
+            ...(orderVariationId ? { variationId: orderVariationId } : {}),
             buyerId,
             status: {
               in: [
@@ -1020,6 +1076,12 @@ export class OrdersCheckoutService {
         listing: { connect: { id: listingId } },
         type: orderType as any,
         quantity: orderType === 'DIRECT' ? orderQuantity : 1,
+        ...(orderVariationId
+          ? {
+              variation: { connect: { id: orderVariationId } },
+              variationLabel: orderVariationLabel,
+            }
+          : {}),
         finalPrice: finalPrice,
         shippingCost: shippingCost,
         totalAmount: totalPayable,
@@ -1107,22 +1169,10 @@ export class OrdersCheckoutService {
             data: { status: ListingStatus.SOLD },
           });
         } else if (orderType === 'DIRECT') {
-          const listingRow = await tx.listing.findUnique({
-            where: { id: listingId },
-            select: { stockQuantity: true },
-          });
-          const purchasedQty = orderQuantity;
-          const nextStock = Math.max(
-            0,
-            (listingRow?.stockQuantity ?? 1) - purchasedQty,
-          );
-          await tx.listing.update({
-            where: { id: listingId },
-            data: {
-              stockQuantity: nextStock,
-              status:
-                nextStock <= 0 ? ListingStatus.SOLD : ListingStatus.APPROVED,
-            },
+          await decrementSoldStock(tx, {
+            listingId,
+            variationId: orderVariationId,
+            quantity: orderQuantity,
           });
         } else {
           await tx.listing.update({

@@ -233,6 +233,71 @@ function toNestedArray<T extends object>(
 export const transformGalleryOrder = ({ value }: { value: unknown }) =>
   toNestedArray(GalleryOrderSlotDto, value);
 
+export class VariationAxisDto {
+  @IsString()
+  name!: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  options!: string[];
+}
+
+export class VariationAttributeValueDto {
+  @IsString()
+  name!: string;
+
+  @IsString()
+  value!: string;
+}
+
+export class ListingVariationInputDto {
+  @IsOptional()
+  @IsString()
+  id?: string;
+
+  @IsOptional()
+  @IsString()
+  sku?: string | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  price?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  compareAtPrice?: number | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  salePrice?: number | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  stockQuantity?: number;
+
+  @IsOptional()
+  @IsString()
+  imageUrl?: string | null;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => VariationAttributeValueDto)
+  attributes!: VariationAttributeValueDto[];
+}
+
+export const transformVariationAxes = ({ value }: { value: unknown }) =>
+  toNestedArray(VariationAxisDto, value);
+export const transformVariations = ({ value }: { value: unknown }) =>
+  toNestedArray(ListingVariationInputDto, value);
+
 export class CreateListingDto {
   @IsEnum(ListingType)
   type!: ListingType;
@@ -298,6 +363,26 @@ export class CreateListingDto {
   @Transform(toBoolean)
   @IsBoolean()
   singleItemSale?: boolean;
+
+  /** محصول متغیر؛ فقط فروش مستقیم دستی */
+  @IsOptional()
+  @Transform(toBoolean)
+  @IsBoolean()
+  isVariable?: boolean;
+
+  @IsOptional()
+  @Transform(transformVariationAxes)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => VariationAxisDto)
+  variationAttributes?: VariationAxisDto[];
+
+  @IsOptional()
+  @Transform(transformVariations)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ListingVariationInputDto)
+  variations?: ListingVariationInputDto[];
 
   /**
    * ارز قیمت آگهی (IRT, USD, AED, …).

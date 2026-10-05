@@ -765,10 +765,12 @@ model Listing {
   shippingPayer   ShippingPayer  @default(BUYER_PREPAID)
   /** null = هزینه ارسال پیش‌فرض سایت (SHIPPING_COST) */
   shippingCostOverride Int?
-  /** موجودی قابل فروش؛ پیش‌فرض ۱ */
+  /** موجودی قابل فروش؛ پیش‌فرض ۱. برای محصول متغیر برابر جمع موجودی تنوع‌هاست */
   stockQuantity   Int            @default(1)
   /** فقط فروش تکی — حتی با موجودی بیشتر، خریدار فقط ۱ عدد می‌تواند بخرد */
   singleItemSale  Boolean        @default(true)
+  /** فروش مستقیم با چند ترکیب قیمت/موجودی */
+  isVariable      Boolean        @default(false)
 
   rejectionReason String?
   deleteReason    String?
@@ -805,6 +807,7 @@ model Listing {
   direct          ListingDirect?
   exchange        ListingExchange?
   auction         ListingAuction?
+  variations      ListingVariation[]
   quotaLedger     QuotaLedger[]
   exchangeOffers  ExchangeOffer[]
   purchaseOffers  PurchaseOffer[]
@@ -885,6 +888,32 @@ model ListingDirect {
   salePrice       Decimal?
   allowExchange   Boolean  @default(false)
   shippingMethods String[]
+}
+
+model ListingVariation {
+  id             String   @id @default(cuid())
+  listingId      String
+  listing        Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  sku            String?
+  price          Decimal
+  compareAtPrice Decimal?
+  salePrice      Decimal?
+  stockQuantity  Int      @default(0)
+  imageUrl       String?
+  /** [{ name, value }] */
+  attributes     Json
+  /** کلید یکتا مثل رنگ=قرمز|سایز=L */
+  attributeKey   String
+  sortOrder      Int      @default(0)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  cartItems CartItem[]
+  orders    Order[]
+
+  @@unique([listingId, attributeKey])
+  @@index([listingId, isActive])
 }
 
 model ListingExchange {
@@ -1472,6 +1501,10 @@ paymentMethod    PaymentMethod @default(GATEWAY)
   type              OrderType
   /** تعداد خریداری‌شده در فروش مستقیم */
   quantity          Int         @default(1)
+  variationId       String?
+  variation         ListingVariation? @relation(fields: [variationId], references: [id], onDelete: SetNull)
+  /** اسنپ‌شات متنی تنوع در لحظه سفارش، مثل «رنگ: قرمز / سایز: L» */
+  variationLabel    String?
 
   // --- بخش مالی و کمیسیون ---
   finalPrice        Decimal
@@ -1561,6 +1594,7 @@ paymentMethod    PaymentMethod @default(GATEWAY)
   @@index([sellerId, status])
   @@index([status, disputedAt])
   @@index([listingId, createdAt])
+  @@index([variationId])
 }
 
 /** پاداش یک‌باره معرف به‌ازای هر سفارش تکمیل‌شده فروشنده دعوت‌شده */
@@ -1943,6 +1977,10 @@ model CartItem {
   cart             Cart           @relation(fields: [cartId], references: [id], onDelete: Cascade)
   listingId        String
   quantity         Int            @default(1)
+  variationId      String?
+  variation        ListingVariation? @relation(fields: [variationId], references: [id], onDelete: SetNull)
+  /** خالی برای محصول ساده؛ برابر variationId برای تنوع تا یکتایی با null نشکند */
+  variationKey     String         @default("")
   /** رزرو ناشی از پیشنهاد خرید تأییدشده */
   purchaseOfferId  String?        @unique
   purchaseOffer    PurchaseOffer? @relation(fields: [purchaseOfferId], references: [id], onDelete: SetNull)
@@ -1951,8 +1989,9 @@ model CartItem {
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
-  @@unique([cartId, listingId])
+  @@unique([cartId, listingId, variationKey])
   @@index([listingId])
+  @@index([variationId])
   @@index([reservedUntil])
 }
 

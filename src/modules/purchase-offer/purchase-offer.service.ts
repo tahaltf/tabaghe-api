@@ -48,6 +48,7 @@ export class PurchaseOfferService {
         type: true,
         status: true,
         title: true,
+        isVariable: true,
         direct: true,
       },
     });
@@ -56,6 +57,11 @@ export class PurchaseOfferService {
     if (listing.type !== ListingType.DIRECT) {
       throw new BadRequestException(
         'پیشنهاد خرید فقط برای آگهی فروش مستقیم مجاز است',
+      );
+    }
+    if (listing.isVariable) {
+      throw new BadRequestException(
+        'برای محصول متغیر پیشنهاد خرید ثبت نمی‌شود؛ تنوع را انتخاب کنید و با قیمت همان تنوع بخرید',
       );
     }
     if (listing.status !== ListingStatus.APPROVED) {
@@ -380,14 +386,16 @@ export class PurchaseOfferService {
 
       await tx.cartItem.upsert({
         where: {
-          cartId_listingId: {
+          cartId_listingId_variationKey: {
             cartId: cart.id,
             listingId: offer.listingId,
+            variationKey: '',
           },
         },
         create: {
           cartId: cart.id,
           listingId: offer.listingId,
+          variationKey: '',
           quantity: 1,
           purchaseOfferId: offer.id,
           lockedUnitPrice: amount,

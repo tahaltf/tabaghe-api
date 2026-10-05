@@ -22,6 +22,10 @@ import { validateListingSalePricing } from '../../../common/listing/listing-pric
 
 const ADMIN_LISTING_INCLUDE = {
   direct: true,
+  variations: {
+    where: { isActive: true },
+    orderBy: { sortOrder: 'asc' as const },
+  },
   auction: true,
   exchange: true,
   province: { select: { id: true, name: true } },

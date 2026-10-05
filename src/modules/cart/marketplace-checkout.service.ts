@@ -22,6 +22,7 @@ import { resolveListingEffectiveUnitPrice } from '../../common/listing/listing-p
 
 export type MarketplaceCheckoutLine = {
   listingId: string;
+  variationId?: string | null;
   quantity: number;
   unitPrice: number;
   lineTotal: number;
@@ -153,6 +154,7 @@ export class MarketplaceCheckoutService {
 
       const order = await this.ordersCheckout.handleUniversalOrder(userId, {
         listingId: item.listingId,
+        variationId: item.variationId ?? undefined,
         quantity: item.quantity,
         orderType: OrderType.DIRECT,
         paymentMethod: input.paymentMethod,
@@ -372,6 +374,7 @@ export class MarketplaceCheckoutService {
   async buildLineFromListing(
     listingId: string,
     quantity: number,
+    variationId?: string | null,
   ): Promise<MarketplaceCheckoutLine> {
     const listing = await this.prisma.listing.findUnique({
       where: { id: listingId },
@@ -380,12 +383,39 @@ export class MarketplaceCheckoutService {
     if (!listing?.direct) {
       throw new BadRequestException('آگهی نامعتبر است');
     }
+    let variation: {
+      id: string;
+      price: { toString(): string } | number | string;
+      salePrice: { toString(): string } | number | string | null;
+      isActive: boolean;
+    } | null = null;
+    if (listing.isVariable) {
+      if (!variationId) {
+        throw new BadRequestException('برای این محصول باید یک تنوع انتخاب کنید');
+      }
+      variation = await this.prisma.listingVariation.findFirst({
+        where: { id: variationId, listingId, isActive: true },
+      });
+      if (!variation) {
+        throw new BadRequestException('این تنوع دیگر قابل خرید نیست');
+      }
+    } else if (variationId) {
+      throw new BadRequestException('این آگهی تنوع ندارد');
+    }
     const shippingDefault = await this.readShippingCost();
     const currencyCode =
       listing.priceCurrencyCode?.toUpperCase() || BASE_CURRENCY_CODE;
-    const foreignUnit = resolveListingEffectiveUnitPrice(listing.direct);
+    const priceFields = variation
+      ? {
+          price: Number(variation.price),
+          salePrice:
+            variation.salePrice != null ? Number(variation.salePrice) : null,
+        }
+      : listing.direct;
+    const foreignUnit = resolveListingEffectiveUnitPrice(priceFields);
     let unitPrice: number;
     if (
+      !variation &&
       listing.priceTomanCached != null &&
       Number(listing.priceTomanCached) > 0
     ) {
@@ -403,6 +433,7 @@ export class MarketplaceCheckoutService {
         : 0;
     return {
       listingId,
+      variationId: variation?.id ?? null,
       quantity: qty,
       unitPrice,
       lineTotal: unitPrice * qty,
@@ -410,8 +441,7 @@ export class MarketplaceCheckoutService {
       categoryId: listing.categoryId,
       sellerId: listing.authorId,
       onSale:
-        listing.direct.salePrice != null &&
-        Number(listing.direct.salePrice) > 0,
+        priceFields.salePrice != null && Number(priceFields.salePrice) > 0,
     };
   }
 

@@ -19,6 +19,8 @@ import {
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { normalizeMultilineText } from '../../../common/multiline-text.util';
 import { validateListingSalePricing } from '../../../common/listing/listing-price.util';
+import { normalizeVariableListing } from '../../../common/listing/listing-variation.util';
+import { syncListingVariations } from '../../../common/listing/listing-variation.persist';
 import { NotificationService } from '../../notification/notification.service';
 import { QuotaService } from '../../quota/quota.service';
 import { ListingExpiryService } from './listing-expiry.service';
@@ -111,6 +113,10 @@ export class ListingCommandService {
   ): Promise<Listing> {
     await this.assertListingTypeEnabledForCreate(dto.type);
     const isDraft = dto.asDraft === true;
+    const variablePlan =
+      dto.isVariable === true
+        ? this.prepareVariableFields(dto, isDraft, options?.importSource, dto.type)
+        : null;
     this.validateListingPayload(dto, false, dto.type, isDraft);
     await this.assertCategoriesVisibleOnSite([
       dto.categoryId,
@@ -204,6 +210,7 @@ export class ListingCommandService {
               ? dto.stockQuantity
               : 1,
           singleItemSale: dto.singleItemSale !== false,
+          isVariable: dto.isVariable === true,
           priceCurrencyCode,
           priceTomanCached,
           author: { connect: { id: userId } },
@@ -243,6 +250,14 @@ export class ListingCommandService {
               : undefined,
         },
       });
+
+      if (variablePlan) {
+        await syncListingVariations(tx, listing.id, {
+          isVariable: true,
+          axes: variablePlan.axes,
+          variations: variablePlan.variations,
+        });
+      }
 
       return listing;
     });
@@ -626,6 +641,15 @@ export class ListingCommandService {
     }
     const keepDraft =
       dto.asDraft === true && listing.status === ListingStatus.DRAFT;
+    const variablePlan =
+      dto.isVariable === true
+        ? this.prepareVariableFields(
+            dto,
+            keepDraft,
+            listing.importSource,
+            currentType,
+          )
+        : null;
     this.validateListingPayload(dto, true, currentType, keepDraft);
     await this.assertCategoriesVisibleOnSite([
       dto.categoryId,
@@ -674,7 +698,8 @@ export class ListingCommandService {
 
     const wasRejected = listing.status === ListingStatus.REJECTED;
     const wasDraft = listing.status === ListingStatus.DRAFT;
-    const updated = await this.prisma.listing.update({
+    const updated = await this.prisma.$transaction(async (tx) => {
+    const row = await tx.listing.update({
       where: { id: listingId },
       data: {
         title: dto.title,
@@ -714,6 +739,9 @@ export class ListingCommandService {
         ...(dto.singleItemSale !== undefined
           ? { singleItemSale: dto.singleItemSale !== false }
           : {}),
+        ...(dto.isVariable !== undefined
+          ? { isVariable: dto.isVariable === true }
+          : {}),
         ...(dto.categoryId && {
           category: { connect: { id: dto.categoryId } },
         }),
@@ -730,6 +758,21 @@ export class ListingCommandService {
           auctionEndDate,
         ),
       },
+    });
+      if (variablePlan) {
+        await syncListingVariations(tx, listingId, {
+          isVariable: true,
+          axes: variablePlan.axes,
+          variations: variablePlan.variations,
+        });
+      } else if (dto.isVariable === false && listing.isVariable) {
+        await syncListingVariations(tx, listingId, {
+          isVariable: false,
+          axes: [],
+          variations: [],
+        });
+      }
+      return row;
     });
 
     if (updated.status === ListingStatus.PENDING) {
@@ -942,6 +985,7 @@ export class ListingCommandService {
         title: true,
         status: true,
         stockQuantity: true,
+        isVariable: true,
         direct: { select: { price: true, salePrice: true } },
       },
     });
@@ -991,6 +1035,21 @@ export class ListingCommandService {
       }
 
       const listing = matches[0];
+      if (listing.isVariable) {
+        skipped.push({
+          lineNumber: item.lineNumber,
+          query: item.query,
+          status: 'skipped',
+          code: 'locked',
+          reason:
+            'این آگهی محصول متغیر است؛ قیمت هر تنوع را از ویرایش آگهی عوض کنید',
+          listingId: listing.id,
+          title: listing.title,
+          newPrice: item.price,
+        });
+        continue;
+      }
+
       if (!listing.direct) {
         skipped.push({
           lineNumber: item.lineNumber,
@@ -1336,6 +1395,37 @@ export class ListingCommandService {
         `ثبت آگهی ${listingTypePersianLabel(type)} در حال حاضر فعال نیست.`,
       );
     }
+  }
+
+  private prepareVariableFields(
+    dto: CreateListingDto | UpdateListingDto,
+    isDraft: boolean,
+    importSource: ListingImportSource | null | undefined,
+    type: ListingType | undefined,
+  ) {
+    if (isSyncableImportSource(importSource)) {
+      throw new BadRequestException(
+        'آگهی واردشده از منبع خارجی نمی‌تواند محصول متغیر شود',
+      );
+    }
+    if (type && type !== ListingType.DIRECT) {
+      throw new BadRequestException('محصول متغیر فقط برای فروش مستقیم است');
+    }
+    const plan = normalizeVariableListing({
+      isDraft,
+      axes: dto.variationAttributes,
+      variations: dto.variations,
+    });
+    dto.direct = {
+      ...(dto.direct ?? {}),
+      price: plan.direct.price,
+      compareAtPrice: plan.direct.compareAtPrice ?? undefined,
+      salePrice: plan.direct.salePrice ?? undefined,
+      allowExchange: false,
+    };
+    dto.stockQuantity = plan.stockQuantity;
+    dto.singleItemSale = plan.singleItemSale;
+    return plan;
   }
 
   private validateListingPayload(

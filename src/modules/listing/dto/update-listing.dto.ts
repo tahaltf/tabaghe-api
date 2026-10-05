@@ -4,7 +4,11 @@ import { IsArray, IsOptional, ValidateNested } from 'class-validator';
 import {
   CreateListingDto,
   GalleryOrderSlotDto,
+  ListingVariationInputDto,
+  VariationAxisDto,
   transformGalleryOrder,
+  transformVariationAxes,
+  transformVariations,
 } from './create-listing.dto';
 
 /**
@@ -18,4 +22,18 @@ export class UpdateListingDto extends PartialType(CreateListingDto) {
   @ValidateNested({ each: true })
   @Type(() => GalleryOrderSlotDto)
   declare galleryOrder?: GalleryOrderSlotDto[];
+
+  @IsOptional()
+  @Transform(transformVariationAxes)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => VariationAxisDto)
+  declare variationAttributes?: VariationAxisDto[];
+
+  @IsOptional()
+  @Transform(transformVariations)
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ListingVariationInputDto)
+  declare variations?: ListingVariationInputDto[];
 }

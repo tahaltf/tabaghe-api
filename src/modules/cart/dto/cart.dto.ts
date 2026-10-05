@@ -18,6 +18,10 @@ export class AddCartItemDto {
   @IsInt()
   @Min(1)
   quantity?: number;
+
+  @IsOptional()
+  @IsString()
+  variationId?: string;
 }
 
 export class UpdateCartItemDto {
@@ -53,6 +57,10 @@ export class CartCheckoutDto extends CartCheckoutPreviewDto {
 export class CartFxExpectedItemDto {
   @IsString()
   listingId!: string;
+
+  @IsOptional()
+  @IsString()
+  variationId?: string;
 
   @Type(() => Number)
   @IsInt()

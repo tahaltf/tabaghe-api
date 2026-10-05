@@ -59,6 +59,7 @@ const LIST_ITEM_SELECT = {
   isFeatured: true,
   featuredAt: true,
   stockQuantity: true,
+  isVariable: true,
   exchangeOffersSince: true,
   mergeGroupId: true,
   direct: {
@@ -115,6 +116,10 @@ const LIST_ITEM_SELECT = {
  */
 const DETAIL_INCLUDE = {
   direct: true,
+  variations: {
+    where: { isActive: true },
+    orderBy: { sortOrder: 'asc' as const },
+  },
   auction: {
     include: {
       bids: {
@@ -527,17 +532,21 @@ export class ListingQueryService {
   async checkAvailability(
     listingId: string,
     viewerId?: string | null,
+    variationId?: string | null,
   ): Promise<boolean> {
     const listing = await this.prisma.listing.findUnique({
       where: { id: listingId },
       select: {
         type: true,
         status: true,
+        isVariable: true,
+        stockQuantity: true,
         orders: {
           where: {
             status: {
               in: [OrderStatus.PENDING, OrderStatus.AWAITING_PAYMENT],
             },
+            ...(variationId ? { variationId } : {}),
           },
           select: { status: true, buyerId: true },
           orderBy: { createdAt: 'desc' },
@@ -547,6 +556,18 @@ export class ListingQueryService {
     });
     if (!listing || listing.status !== ListingStatus.APPROVED) return false;
 
+    if (listing.isVariable) {
+      if (variationId) {
+        const variation = await this.prisma.listingVariation.findFirst({
+          where: { id: variationId, listingId, isActive: true },
+          select: { stockQuantity: true },
+        });
+        if (!variation || variation.stockQuantity <= 0) return false;
+      } else if ((listing.stockQuantity ?? 0) <= 0) {
+        return false;
+      }
+    }
+
     const activePurchaseReservation = await this.prisma.purchaseOffer.findFirst({
       where: {
         listingId,
@@ -555,12 +576,16 @@ export class ListingQueryService {
       },
       select: { buyerId: true },
     });
-    if (activePurchaseReservation) {
+    if (activePurchaseReservation && !listing.isVariable) {
       if (viewerId && activePurchaseReservation.buyerId === viewerId) {
         // ادامه می‌دهیم تا سفارش checkout هم چک شود
       } else {
         return false;
       }
+    }
+
+    if (listing.isVariable && (listing.stockQuantity ?? 0) > 1 && !variationId) {
+      return true;
     }
 
     const checkoutOrder = listing.orders[0];

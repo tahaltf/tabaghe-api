@@ -204,8 +204,13 @@ export class ListingController {
   async checkAvailability(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser | null,
+    @Query('variationId') variationId?: string,
   ) {
-    const available = await this.queryService.checkAvailability(id, user?.id);
+    const available = await this.queryService.checkAvailability(
+      id,
+      user?.id,
+      variationId,
+    );
     return { available };
   }
 
