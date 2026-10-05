@@ -59,6 +59,80 @@ export class WordPressProductCategoryDto {
   slug!: string;
 }
 
+export class WordPressVariationAttributeDto {
+  @IsString()
+  @MaxLength(200)
+  name!: string;
+
+  @IsString()
+  @MaxLength(200)
+  value!: string;
+}
+
+export class WordPressVariationAxisDto {
+  @IsString()
+  @MaxLength(200)
+  name!: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  options!: string[];
+}
+
+export class WordPressVariationDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  externalVariationId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  sku?: string | null;
+
+  @IsNumber()
+  @Min(0)
+  price!: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  regularPrice?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  salePrice?: number | null;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === null || value === undefined || value === '') return null;
+    const n = Number(value);
+    if (!Number.isFinite(n)) return null;
+    const qty = Math.floor(n);
+    if (qty < 0) return null;
+    return qty;
+  })
+  @ValidateIf((_, value) => value != null)
+  @IsInt()
+  @Min(0)
+  stockQuantity?: number | null;
+
+  @IsOptional()
+  @IsBoolean()
+  inStock?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  imageUrl?: string | null;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => WordPressVariationAttributeDto)
+  attributes!: WordPressVariationAttributeDto[];
+}
+
 export class WordPressProductDto {
   @IsString()
   @MaxLength(64)
@@ -152,6 +226,22 @@ export class WordPressProductDto {
   @ValidateNested({ each: true })
   @Type(() => WordPressProductAttributeDto)
   attributes!: WordPressProductAttributeDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  isVariable?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => WordPressVariationAxisDto)
+  variationAttributes?: WordPressVariationAxisDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => WordPressVariationDto)
+  variations?: WordPressVariationDto[];
 
   @IsOptional()
   @IsArray()

@@ -74,4 +74,33 @@ describe('WordPressProductDto validation', () => {
     );
     expect(result.priceCurrencyCode).toBeUndefined();
   });
+
+  it('accepts variable product payload with variations', async () => {
+    const result = await pipe.transform(
+      {
+        ...baseProduct,
+        isVariable: true,
+        variationAttributes: [{ name: 'سایز', options: ['S', 'M'] }],
+        variations: [
+          {
+            externalVariationId: '10',
+            price: 1000,
+            regularPrice: 1200,
+            salePrice: 1000,
+            stockQuantity: 2,
+            inStock: true,
+            attributes: [{ name: 'سایز', value: 'S' }],
+          },
+        ],
+      },
+      {
+        type: 'body',
+        metatype: WordPressProductDto,
+      },
+    );
+    expect(result.isVariable).toBe(true);
+    expect(result.variations).toHaveLength(1);
+    expect(result.variations[0].price).toBe(1000);
+    expect(result.variationAttributes[0].name).toBe('سایز');
+  });
 });

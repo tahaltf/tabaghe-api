@@ -209,6 +209,118 @@ describe('WordPressProductIngestService pricing', () => {
 
     expect(syncInput.priceCurrencyCode).toBeNull();
   });
+
+  it('maps variable products with per-variation sale prices and stock', async () => {
+    remoteImagesMock.downloadMany
+      .mockResolvedValueOnce(['gallery-1.jpg'])
+      .mockResolvedValueOnce(['var-a.jpg'])
+      .mockResolvedValueOnce([]);
+
+    const dto = {
+      externalProductId: '99',
+      siteUrl: 'https://example.com/',
+      title: 'Variable shirt',
+      description: 'A variable product description long enough for sync.',
+      price: 80_000,
+      regularPrice: 100_000,
+      salePrice: 80_000,
+      images: [{ url: 'https://example.com/img.jpg' }],
+      attributes: [
+        {
+          name: 'سایز',
+          slug: 'pa_size',
+          visible: true,
+          variation: true,
+          options: ['S', 'M'],
+        },
+      ],
+      isVariable: true,
+      variationAttributes: [{ name: 'سایز', options: ['S', 'M'] }],
+      variations: [
+        {
+          externalVariationId: '1',
+          price: 100_000,
+          regularPrice: 100_000,
+          salePrice: 80_000,
+          stockQuantity: 3,
+          inStock: true,
+          imageUrl: 'https://example.com/var-a.jpg',
+          attributes: [{ name: 'سایز', value: 'S' }],
+        },
+        {
+          externalVariationId: '2',
+          price: 120_000,
+          regularPrice: 120_000,
+          salePrice: null,
+          stockQuantity: null,
+          inStock: true,
+          attributes: [{ name: 'سایز', value: 'M' }],
+        },
+      ],
+    } as WordPressProductDto;
+
+    const syncInput = await (service as any).buildSyncInput(
+      'user-1',
+      dto,
+      { categoryId: 'cat-1', provinceId: 'prov-1', cityId: 'city-1' },
+      'cat-1',
+      5,
+      1,
+    );
+
+    expect(syncInput.isVariable).toBe(true);
+    expect(syncInput.variations).toHaveLength(2);
+    expect(syncInput.variations[0]).toMatchObject({
+      price: 100_000,
+      compareAtPrice: 100_000,
+      salePrice: 80_000,
+      stockQuantity: 3,
+      imageUrl: 'var-a.jpg',
+      attributes: [{ name: 'سایز', value: 'S' }],
+    });
+    expect(syncInput.variations[1]).toMatchObject({
+      price: 120_000,
+      salePrice: null,
+      stockQuantity: 1,
+      attributes: [{ name: 'سایز', value: 'M' }],
+    });
+    expect(syncInput.stockQuantity).toBe(4);
+    expect(syncInput.price).toBe(100_000);
+    expect(syncInput.salePrice).toBe(80_000);
+
+    const createDto = (service as any).toCreateListingDto(syncInput);
+    expect(createDto.isVariable).toBe(true);
+    expect(createDto.variations).toHaveLength(2);
+    expect(createDto.variationAttributes).toEqual([
+      { name: 'سایز', options: ['S', 'M'] },
+    ]);
+  });
+
+  it('does not mark as variable when variations are empty', async () => {
+    const dto = {
+      externalProductId: '99',
+      siteUrl: 'https://example.com/',
+      title: 'Broken variable',
+      description: 'Desc',
+      price: 50_000,
+      images: [{ url: 'https://example.com/img.jpg' }],
+      attributes: [],
+      isVariable: true,
+      variationAttributes: [{ name: 'رنگ', options: ['قرمز'] }],
+      variations: [],
+    } as WordPressProductDto;
+
+    const syncInput = await (service as any).buildSyncInput(
+      'user-1',
+      dto,
+      { categoryId: 'cat-1', provinceId: 'prov-1', cityId: 'city-1' },
+      'cat-1',
+      1,
+    );
+
+    expect(syncInput.isVariable).toBe(false);
+    expect(syncInput.variations).toBeUndefined();
+  });
 });
 
 describe('WordPressProductIngestService availability', () => {

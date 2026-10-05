@@ -69,6 +69,16 @@ export type WordPressSyncOptions = {
   onAdminAlert?: (item: ListingAlertItem) => void;
 };
 
+export type WordPressSyncVariationInput = {
+  sku?: string | null;
+  price: number;
+  compareAtPrice?: number | null;
+  salePrice?: number | null;
+  stockQuantity: number;
+  imageUrl?: string | null;
+  attributes: Array<{ name: string; value: string }>;
+};
+
 export type WordPressSyncUpdateInput = {
   title: string;
   description: string;
@@ -85,6 +95,9 @@ export type WordPressSyncUpdateInput = {
   stockQuantity: number;
   /** ارز قیمت (IRT/USD/AED/IQD)؛ برای فید خارجی الزامی است */
   priceCurrencyCode?: string | null;
+  isVariable?: boolean;
+  variationAttributes?: Array<{ name: string; options: string[] }>;
+  variations?: WordPressSyncVariationInput[];
 };
 
 function isSyncableImportSource(
@@ -115,7 +128,13 @@ export class ListingCommandService {
     const isDraft = dto.asDraft === true;
     const variablePlan =
       dto.isVariable === true
-        ? this.prepareVariableFields(dto, isDraft, options?.importSource, dto.type)
+        ? this.prepareVariableFields(
+            dto,
+            isDraft,
+            options?.importSource,
+            dto.type,
+            { allowImportedVariable: isSyncableImportSource(options?.importSource) },
+          )
         : null;
     this.validateListingPayload(dto, false, dto.type, isDraft);
     await this.assertCategoriesVisibleOnSite([
@@ -418,7 +437,23 @@ export class ListingCommandService {
     }
     this.assertAuthorCanPublishListing(author.rating);
 
-    if (Number(input.price) <= 0) {
+    const variablePlan =
+      input.isVariable === true && (input.variations?.length ?? 0) > 0
+        ? normalizeVariableListing({
+            axes: input.variationAttributes,
+            variations: input.variations,
+          })
+        : null;
+
+    const syncPrice = variablePlan?.direct.price ?? input.price;
+    const syncCompareAt =
+      variablePlan?.direct.compareAtPrice ?? input.compareAtPrice ?? null;
+    const syncSalePrice =
+      variablePlan?.direct.salePrice ?? input.salePrice ?? null;
+    const syncStock =
+      variablePlan?.stockQuantity ?? input.stockQuantity;
+
+    if (Number(syncPrice) <= 0) {
       throw new BadRequestException(
         'برای ثبت آگهی، این موارد را تکمیل کنید: قیمت فروش (باید بیشتر از صفر باشد)',
       );
@@ -435,8 +470,8 @@ export class ListingCommandService {
       type: ListingType.DIRECT,
       priceCurrencyCode,
       direct: {
-        price: input.price,
-        salePrice: input.salePrice,
+        price: syncPrice,
+        salePrice: syncSalePrice,
       },
     });
 
@@ -446,7 +481,7 @@ export class ListingCommandService {
       (listing.status === ListingStatus.ARCHIVED ||
         listing.status === ListingStatus.SOLD) &&
       isSyncableImportSource(listing.importSource) &&
-      input.stockQuantity > 0;
+      syncStock > 0;
 
     const importSource =
       listing.importSource === ListingImportSource.JSON_FEED
@@ -465,22 +500,26 @@ export class ListingCommandService {
       category: { connect: { id: input.categoryId } },
       province: { connect: { id: input.provinceId } },
       city: { connect: { id: input.cityId } },
-      stockQuantity: input.stockQuantity,
+      stockQuantity: syncStock,
+      singleItemSale: variablePlan
+        ? variablePlan.singleItemSale
+        : true,
+      isVariable: variablePlan != null,
       priceCurrencyCode,
       priceTomanCached,
       direct: {
         upsert: {
           create: {
-            price: input.price,
-            compareAtPrice: input.compareAtPrice ?? null,
-            salePrice: input.salePrice ?? null,
+            price: syncPrice,
+            compareAtPrice: syncCompareAt,
+            salePrice: syncSalePrice,
             allowExchange: false,
             shippingMethods: [],
           },
           update: {
-            price: input.price,
-            compareAtPrice: input.compareAtPrice ?? null,
-            salePrice: input.salePrice ?? null,
+            price: syncPrice,
+            compareAtPrice: syncCompareAt,
+            salePrice: syncSalePrice,
           },
         },
       },
@@ -509,10 +548,26 @@ export class ListingCommandService {
       data.rejectedAt = null;
     }
 
-    const updated = await this.prisma.listing.update({
-      where: { id: listingId },
-      data,
-      include: { direct: true },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.listing.update({
+        where: { id: listingId },
+        data,
+        include: { direct: true },
+      });
+      if (variablePlan) {
+        await syncListingVariations(tx, listingId, {
+          isVariable: true,
+          axes: variablePlan.axes,
+          variations: variablePlan.variations,
+        });
+      } else if (listing.isVariable) {
+        await syncListingVariations(tx, listingId, {
+          isVariable: false,
+          axes: [],
+          variations: [],
+        });
+      }
+      return row;
     });
 
     if (notifyPendingReview) {
@@ -1402,8 +1457,12 @@ export class ListingCommandService {
     isDraft: boolean,
     importSource: ListingImportSource | null | undefined,
     type: ListingType | undefined,
+    options?: { allowImportedVariable?: boolean },
   ) {
-    if (isSyncableImportSource(importSource)) {
+    if (
+      isSyncableImportSource(importSource) &&
+      options?.allowImportedVariable !== true
+    ) {
       throw new BadRequestException(
         'آگهی واردشده از منبع خارجی نمی‌تواند محصول متغیر شود',
       );

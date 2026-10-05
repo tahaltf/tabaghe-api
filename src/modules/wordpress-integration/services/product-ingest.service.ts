@@ -150,6 +150,7 @@ export class WordPressProductIngestService {
       defaults,
       categoryId,
       availability.siteStock,
+      minStock,
     );
 
     let listing;
@@ -415,33 +416,24 @@ export class WordPressProductIngestService {
     defaults: ListingDefaults,
     categoryId: string,
     siteStock: number,
+    minStockForAvailable = 1,
   ): Promise<WordPressSyncUpdateInput> {
-
     const imageUrls = dto.images
-
       .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
-
       .map((img) => img.url);
 
     const gallery = await this.remoteImages.downloadMany(imageUrls);
-
     const thumbnail = gallery[0] ?? null;
 
     const { price: regularPrice, compareAtPrice, salePrice } =
       this.resolveSyncPricing(dto);
 
     const attributesPayload = dto.attributes.map((attr) => ({
-
       name: attr.name,
-
       slug: attr.slug,
-
       visible: attr.visible,
-
       variation: attr.variation,
-
       options: attr.options,
-
     }));
 
     const description = buildWordPressListingDescription(dto);
@@ -450,88 +442,185 @@ export class WordPressProductIngestService {
       ? dto.priceCurrencyCode.trim().toUpperCase()
       : null;
 
+    const mappedVariations = await this.mapSyncVariations(
+      dto,
+      minStockForAvailable,
+    );
+    const isVariable =
+      dto.isVariable === true &&
+      mappedVariations.length > 0 &&
+      (dto.variationAttributes?.length ?? 0) > 0;
+
+    let stockQuantity = siteStock;
+    let price = regularPrice;
+    let compareAt = compareAtPrice;
+    let sale = salePrice;
+
+    if (isVariable) {
+      stockQuantity = mappedVariations.reduce(
+        (sum, row) => sum + row.stockQuantity,
+        0,
+      );
+      // Parent list/sale from cheapest effective variation (normalizeVariableListing will refine).
+      const priced = mappedVariations
+        .filter((row) => row.price > 0)
+        .sort((a, b) => {
+          const aEff = a.salePrice != null && a.salePrice < a.price ? a.salePrice : a.price;
+          const bEff = b.salePrice != null && b.salePrice < b.price ? b.salePrice : b.price;
+          return aEff - bEff;
+        });
+      const best = priced[0];
+      if (best) {
+        price = best.price;
+        compareAt = best.compareAtPrice ?? null;
+        sale = best.salePrice ?? null;
+      }
+    }
+
     return {
-
       title: dto.title.trim(),
-
       description,
-
       shortDescription: dto.shortDescription ?? null,
-
       attributes: attributesPayload as Prisma.InputJsonValue,
-
       gallery,
-
       thumbnail,
-
-      price: regularPrice,
-
-      compareAtPrice,
-
-      salePrice,
-
+      price,
+      compareAtPrice: compareAt,
+      salePrice: sale,
       categoryId,
-
       provinceId: defaults.provinceId,
-
       cityId: defaults.cityId,
-
-      stockQuantity: siteStock,
-
+      stockQuantity,
       priceCurrencyCode,
-
+      isVariable,
+      variationAttributes: isVariable
+        ? (dto.variationAttributes ?? []).map((axis) => ({
+            name: axis.name,
+            options: axis.options,
+          }))
+        : undefined,
+      variations: isVariable ? mappedVariations : undefined,
     };
+  }
 
+  private async mapSyncVariations(
+    dto: WordPressProductDto,
+    minStockForAvailable: number,
+  ): Promise<
+    Array<{
+      sku?: string | null;
+      price: number;
+      compareAtPrice?: number | null;
+      salePrice?: number | null;
+      stockQuantity: number;
+      imageUrl?: string | null;
+      attributes: Array<{ name: string; value: string }>;
+    }>
+  > {
+    if (dto.isVariable !== true || !Array.isArray(dto.variations)) {
+      return [];
+    }
+
+    const min = normalizeMinStockForAvailable(minStockForAvailable);
+    const out: Array<{
+      sku?: string | null;
+      price: number;
+      compareAtPrice?: number | null;
+      salePrice?: number | null;
+      stockQuantity: number;
+      imageUrl?: string | null;
+      attributes: Array<{ name: string; value: string }>;
+    }> = [];
+
+    for (const variation of dto.variations) {
+      const priced = this.resolveSyncPricing({
+        ...dto,
+        price: variation.price,
+        regularPrice: variation.regularPrice ?? variation.price,
+        salePrice: variation.salePrice ?? null,
+      });
+      if (!(priced.price > 0)) {
+        continue;
+      }
+
+      const attrs = (variation.attributes ?? [])
+        .map((attr) => ({
+          name: String(attr.name ?? '').trim(),
+          value: String(attr.value ?? '').trim(),
+        }))
+        .filter((attr) => attr.name && attr.value);
+      if (!attrs.length) {
+        continue;
+      }
+
+      let imageUrl: string | null = null;
+      const remoteImage = variation.imageUrl?.trim();
+      if (remoteImage) {
+        const downloaded = await this.remoteImages.downloadMany([remoteImage]);
+        imageUrl = downloaded[0] ?? null;
+      }
+
+      out.push({
+        sku: variation.sku ?? null,
+        price: priced.price,
+        compareAtPrice: priced.compareAtPrice,
+        salePrice: priced.salePrice,
+        stockQuantity: this.resolveVariationSiteStock(variation, min),
+        imageUrl,
+        attributes: attrs,
+      });
+    }
+
+    return out;
+  }
+
+  private resolveVariationSiteStock(
+    variation: {
+      stockQuantity?: number | null;
+      inStock?: boolean;
+    },
+    minStockForAvailable: number,
+  ): number {
+    const raw = variation.stockQuantity;
+    const hasNumericStock =
+      raw != null && Number.isFinite(Number(raw)) && Number(raw) >= 0;
+    if (hasNumericStock) {
+      return applyMinStockThreshold(Number(raw), minStockForAvailable);
+    }
+    if (variation.inStock === false) {
+      return 0;
+    }
+    return Math.max(1, minStockForAvailable);
   }
 
   private toCreateListingDto(
-
     input: WordPressSyncUpdateInput,
-
   ): CreateListingDto {
-
     return {
-
       type: ListingType.DIRECT,
-
       title: input.title,
-
       categoryId: input.categoryId,
-
       provinceId: input.provinceId,
-
       cityId: input.cityId,
-
       condition: ItemCondition.NEW,
-
       description: input.description,
-
       shippingPayer: ShippingPayer.BUYER_PREPAID,
-
       stockQuantity: input.stockQuantity,
-
       thumbnail: input.thumbnail ?? undefined,
-
       gallery: input.gallery,
-
       priceCurrencyCode: input.priceCurrencyCode ?? undefined,
-
+      isVariable: input.isVariable === true,
+      variationAttributes:
+        input.isVariable === true ? input.variationAttributes : undefined,
+      variations: input.isVariable === true ? input.variations : undefined,
       direct: {
-
         price: input.price,
-
         compareAtPrice: input.compareAtPrice ?? null,
-
         salePrice: input.salePrice ?? null,
-
         allowExchange: false,
-
         shippingMethods: [],
-
       },
-
     };
-
   }
 
   private async resolveCategoryId(
