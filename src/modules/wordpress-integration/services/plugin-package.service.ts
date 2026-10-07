@@ -18,6 +18,21 @@ export interface WordPressPluginPackageStatus {
   latestVersion: string | null;
 }
 
+export interface WordPressPluginUpdateManifest extends WordPressPluginPackageStatus {
+  slug: string;
+  plugin: string;
+  name: string;
+  homepage: string;
+  downloadUrl: string | null;
+  requires: string;
+  requiresPhp: string;
+  tested: string;
+  sections: {
+    description: string;
+    changelog: string;
+  };
+}
+
 @Injectable()
 export class WordPressPluginPackageService {
   private readonly zipPath = join(
@@ -88,6 +103,33 @@ export class WordPressPluginPackageService {
       sizeBytes: stat.size,
       updatedAt: stat.mtime.toISOString(),
       latestVersion,
+    };
+  }
+
+  async getUpdateManifest(
+    apiV1Base: string,
+  ): Promise<WordPressPluginUpdateManifest> {
+    const status = await this.getStatus();
+    const base = apiV1Base.replace(/\/$/, '');
+    return {
+      ...status,
+      slug: 'tabagheh-sync',
+      plugin: 'tabagheh-sync/tabagheh-sync.php',
+      name: 'Tabagheh Sync',
+      homepage: 'https://tabagheh.com',
+      downloadUrl: status.ready
+        ? `${base}/integrations/wordpress/plugin/download`
+        : null,
+      requires: '6.0',
+      requiresPhp: '8.0',
+      tested: '6.7',
+      sections: {
+        description:
+          'ارسال محصولات ووکامرس به بازار طبقه برای بررسی و انتشار.',
+        changelog: status.latestVersion
+          ? `نسخه ${status.latestVersion}`
+          : 'آخرین نسخه منتشرشده افزونه همگام‌سازی طبقه.',
+      },
     };
   }
 }

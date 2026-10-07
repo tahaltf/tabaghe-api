@@ -9,6 +9,7 @@ import { AdminWordPressPluginController } from './controllers/admin-wordpress-pl
 import { AdminWordPressSyncPolicyController } from './controllers/admin-wordpress-sync-policy.controller';
 import { WordPressUserController } from './controllers/wordpress-user.controller';
 import { WordPressIngestController } from './controllers/wordpress-ingest.controller';
+import { WordPressPluginPublicController } from './controllers/wordpress-plugin-public.controller';
 import { WordPressApiTokenService } from './services/api-token.service';
 import { WordPressConnectionService } from './services/connection.service';
 import { WordPressProductIngestService } from './services/product-ingest.service';
@@ -31,6 +32,7 @@ import { ApiTokenGuard } from './guards/api-token.guard';
   controllers: [
     WordPressUserController,
     WordPressIngestController,
+    WordPressPluginPublicController,
     AdminWordPressPluginController,
     AdminWordPressSyncPolicyController,
   ],
