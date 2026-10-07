@@ -136,7 +136,7 @@ describe('WordPressProductIngestService pricing', () => {
     expect(syncInput.salePrice).toBeNull();
   });
 
-  it('drops the discount when salePrice exceeds regularPrice instead of blocking the sync', async () => {
+  it('recovers sale from effective price when salePrice is invalid but below regularPrice', async () => {
     const dto = {
       externalProductId: '123',
       siteUrl: 'https://example.com/',
@@ -158,8 +158,8 @@ describe('WordPressProductIngestService pricing', () => {
     );
 
     expect(syncInput.price).toBe(100_000);
-    expect(syncInput.compareAtPrice).toBeNull();
-    expect(syncInput.salePrice).toBeNull();
+    expect(syncInput.compareAtPrice).toBe(100_000);
+    expect(syncInput.salePrice).toBe(90_000);
   });
 
   it('passes priceCurrencyCode through sync input and create DTO', async () => {
@@ -294,6 +294,89 @@ describe('WordPressProductIngestService pricing', () => {
     expect(createDto.variationAttributes).toEqual([
       { name: 'سایز', options: ['S', 'M'] },
     ]);
+  });
+
+  it('derives variable axes from variations when plugin omits isVariable/axes', async () => {
+    remoteImagesMock.downloadMany.mockResolvedValueOnce(['gallery-1.jpg']);
+
+    const dto = {
+      externalProductId: '77',
+      siteUrl: 'https://example.com/',
+      title: 'Implicit variable',
+      description: 'A variable product description long enough for sync.',
+      price: 90_000,
+      regularPrice: 90_000,
+      images: [{ url: 'https://example.com/img.jpg' }],
+      attributes: [
+        {
+          name: 'رنگ',
+          slug: 'pa_color',
+          visible: true,
+          variation: true,
+          options: ['قرمز', 'آبی'],
+        },
+      ],
+      isVariable: false,
+      variations: [
+        {
+          externalVariationId: '10',
+          price: 90_000,
+          regularPrice: 90_000,
+          stockQuantity: 2,
+          inStock: true,
+          attributes: [{ name: 'رنگ', value: 'قرمز' }],
+        },
+        {
+          externalVariationId: '11',
+          price: 95_000,
+          regularPrice: 95_000,
+          stockQuantity: 1,
+          inStock: true,
+          attributes: [{ name: 'رنگ', value: 'آبی' }],
+        },
+      ],
+    } as WordPressProductDto;
+
+    const syncInput = await (service as any).buildSyncInput(
+      'user-1',
+      dto,
+      { categoryId: 'cat-1', provinceId: 'prov-1', cityId: 'city-1' },
+      'cat-1',
+      1,
+      1,
+    );
+
+    expect(syncInput.isVariable).toBe(true);
+    expect(syncInput.variations).toHaveLength(2);
+    expect(syncInput.variationAttributes).toEqual([
+      { name: 'رنگ', options: ['قرمز', 'آبی'] },
+    ]);
+  });
+
+  it('keeps 38M list and 28M sale when recovering WC-style discount payload', async () => {
+    const dto = {
+      externalProductId: '38-28',
+      siteUrl: 'https://example.com/',
+      title: 'Discounted phone',
+      description: 'Desc',
+      price: 28_000_000,
+      regularPrice: 38_000_000,
+      salePrice: null,
+      images: [{ url: 'https://example.com/img.jpg' }],
+      attributes: [],
+    } as WordPressProductDto;
+
+    const syncInput = await (service as any).buildSyncInput(
+      'user-1',
+      dto,
+      { categoryId: 'cat-1', provinceId: 'prov-1', cityId: 'city-1' },
+      'cat-1',
+      1,
+    );
+
+    expect(syncInput.price).toBe(38_000_000);
+    expect(syncInput.compareAtPrice).toBe(38_000_000);
+    expect(syncInput.salePrice).toBe(28_000_000);
   });
 
   it('does not mark as variable when variations are empty', async () => {

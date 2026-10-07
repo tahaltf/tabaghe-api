@@ -12,23 +12,33 @@ export function resolveListingCompareAtPrice(
   direct: ListingDirectPriceFields,
 ): number | null {
   const sale = direct.salePrice != null ? Number(direct.salePrice) : null;
-  if (sale == null || !Number.isFinite(sale) || sale <= 0) {
-    return null;
-  }
-
   const fromCompareAt =
     direct.compareAtPrice != null ? Number(direct.compareAtPrice) : null;
+  const fromPrice = Number(direct.price);
+
+  if (sale != null && Number.isFinite(sale) && sale > 0) {
+    if (
+      fromCompareAt != null &&
+      Number.isFinite(fromCompareAt) &&
+      fromCompareAt > sale
+    ) {
+      return fromCompareAt;
+    }
+    if (Number.isFinite(fromPrice) && fromPrice > sale) {
+      return fromPrice;
+    }
+  }
+
+  // Defensive: compareAt > price with no usable sale means price is already
+  // the discounted amount (common for partially synced WP rows).
   if (
     fromCompareAt != null &&
     Number.isFinite(fromCompareAt) &&
-    fromCompareAt > sale
+    Number.isFinite(fromPrice) &&
+    fromPrice > 0 &&
+    fromCompareAt > fromPrice
   ) {
     return fromCompareAt;
-  }
-
-  const fromPrice = Number(direct.price);
-  if (Number.isFinite(fromPrice) && fromPrice > sale) {
-    return fromPrice;
   }
 
   return null;

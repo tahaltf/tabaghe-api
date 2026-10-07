@@ -349,6 +349,24 @@ export class WordPressProductIngestService {
       listPrice = explicitRegular;
     }
 
+    // Recover WC-style payloads where only the discounted amount arrived in
+    // `price`/`salePrice` but a higher list was still provided as regularPrice.
+    if (
+      explicitRegular != null &&
+      Number.isFinite(explicitRegular) &&
+      explicitRegular > 0 &&
+      Number.isFinite(effectivePrice) &&
+      effectivePrice > 0 &&
+      effectivePrice < explicitRegular &&
+      (saleRaw == null ||
+        !Number.isFinite(saleRaw) ||
+        saleRaw <= 0 ||
+        saleRaw >= explicitRegular)
+    ) {
+      listPrice = explicitRegular;
+      saleRaw = effectivePrice;
+    }
+
     const hasValidSale =
       saleRaw != null &&
       Number.isFinite(saleRaw) &&
@@ -446,10 +464,12 @@ export class WordPressProductIngestService {
       dto,
       minStockForAvailable,
     );
+    const variationAttributes = this.resolveVariationAxes(
+      dto,
+      mappedVariations,
+    );
     const isVariable =
-      dto.isVariable === true &&
-      mappedVariations.length > 0 &&
-      (dto.variationAttributes?.length ?? 0) > 0;
+      mappedVariations.length > 0 && variationAttributes.length > 0;
 
     let stockQuantity = siteStock;
     let price = regularPrice;
@@ -493,14 +513,64 @@ export class WordPressProductIngestService {
       stockQuantity,
       priceCurrencyCode,
       isVariable,
-      variationAttributes: isVariable
-        ? (dto.variationAttributes ?? []).map((axis) => ({
-            name: axis.name,
-            options: axis.options,
-          }))
-        : undefined,
+      variationAttributes: isVariable ? variationAttributes : undefined,
       variations: isVariable ? mappedVariations : undefined,
     };
+  }
+
+  private resolveVariationAxes(
+    dto: WordPressProductDto,
+    variations: Array<{ attributes: Array<{ name: string; value: string }> }>,
+  ): Array<{ name: string; options: string[] }> {
+    const fromDto = (dto.variationAttributes ?? [])
+      .map((axis) => ({
+        name: String(axis.name ?? '').trim(),
+        options: [
+          ...new Set(
+            (axis.options ?? [])
+              .map((option) => String(option ?? '').trim())
+              .filter(Boolean),
+          ),
+        ],
+      }))
+      .filter((axis) => axis.name && axis.options.length);
+
+    if (fromDto.length && variations.length) {
+      // Keep only options that actually appear on synced variations.
+      const used = new Map<string, Set<string>>();
+      for (const variation of variations) {
+        for (const attr of variation.attributes) {
+          const set = used.get(attr.name) ?? new Set<string>();
+          set.add(attr.value);
+          used.set(attr.name, set);
+        }
+      }
+      const aligned = fromDto
+        .map((axis) => ({
+          name: axis.name,
+          options: [...(used.get(axis.name) ?? [])],
+        }))
+        .filter((axis) => axis.options.length > 0);
+      if (aligned.length) return aligned;
+    }
+
+    if (fromDto.length) return fromDto;
+
+    const derived: Array<{ name: string; options: string[] }> = [];
+    for (const variation of variations) {
+      for (const attr of variation.attributes) {
+        let axis = derived.find((item) => item.name === attr.name);
+        if (!axis) {
+          if (derived.length >= 3) continue;
+          axis = { name: attr.name, options: [] };
+          derived.push(axis);
+        }
+        if (!axis.options.includes(attr.value)) {
+          axis.options.push(attr.value);
+        }
+      }
+    }
+    return derived.filter((axis) => axis.options.length > 0);
   }
 
   private async mapSyncVariations(
@@ -517,7 +587,7 @@ export class WordPressProductIngestService {
       attributes: Array<{ name: string; value: string }>;
     }>
   > {
-    if (dto.isVariable !== true || !Array.isArray(dto.variations)) {
+    if (!Array.isArray(dto.variations) || dto.variations.length === 0) {
       return [];
     }
 

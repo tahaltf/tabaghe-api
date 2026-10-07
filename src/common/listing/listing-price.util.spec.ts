@@ -22,6 +22,16 @@ describe('resolveListingCompareAtPrice', () => {
       }),
     ).toBe(1_000_000);
   });
+
+  it('uses compareAtPrice over price when salePrice is missing', () => {
+    expect(
+      resolveListingCompareAtPrice({
+        price: 28_000_000,
+        compareAtPrice: 38_000_000,
+        salePrice: null,
+      }),
+    ).toBe(38_000_000);
+  });
 });
 
 describe('validateListingSalePricing', () => {
