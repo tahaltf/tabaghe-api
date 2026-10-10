@@ -49,6 +49,16 @@ export interface TrustStripItem {
   requiresListingType?: 'AUCTION' | 'EXCHANGE' | null;
 }
 
+export type HeroFloatBadgeTone = 'success' | 'blue' | 'accent' | 'violet' | 'amber';
+
+export interface HeroFloatBadge {
+  id: string;
+  icon: string;
+  title: string;
+  subtitle: string;
+  tone?: HeroFloatBadgeTone;
+}
+
 export interface HomePageLayout {
   version: 1;
   sections: HomeSection[];
@@ -63,8 +73,13 @@ export type HomeSection =
         headlineAccent?: string;
         subheadline?: string;
         showSearch: boolean;
+        /** @deprecated Prefer showFloatBadges — soft-mapped in merge */
         showFloatingCards: boolean;
         useSiteBanner?: boolean;
+        visualImage?: string | null;
+        showVisual?: boolean;
+        floatBadges?: HeroFloatBadge[];
+        showFloatBadges?: boolean;
       };
     })
   | (HomeSectionBase & {

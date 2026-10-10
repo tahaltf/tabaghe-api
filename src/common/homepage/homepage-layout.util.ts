@@ -1,9 +1,36 @@
 import type {
+  HeroFloatBadge,
+  HeroFloatBadgeTone,
   HomePageLayout,
   HomeSection,
   HomeSectionType,
   SliderVariant,
 } from '../../shared/contracts/homepage-layout';
+
+export const DEFAULT_HERO_FLOAT_BADGES: HeroFloatBadge[] = [
+  {
+    id: 'float-escrow',
+    icon: 'heroShieldCheck',
+    title: 'پرداخت میانجی امن',
+    subtitle: 'وجه تا تأیید تحویل نزد طبقه',
+    tone: 'success',
+  },
+  {
+    id: 'float-inspect',
+    icon: 'heroClipboardDocumentCheck',
+    title: 'کارشناسی تخصصی',
+    subtitle: 'بررسی فنی قبل از تحویل',
+    tone: 'blue',
+  },
+];
+
+const VALID_FLOAT_TONES = new Set<HeroFloatBadgeTone>([
+  'success',
+  'blue',
+  'accent',
+  'violet',
+  'amber',
+]);
 
 const VALID_TYPES = new Set<HomeSectionType>([
   'hero',
@@ -42,6 +69,10 @@ export const DEFAULT_HOMEPAGE_LAYOUT: HomePageLayout = {
         showSearch: true,
         showFloatingCards: true,
         useSiteBanner: true,
+        visualImage: null,
+        showVisual: true,
+        floatBadges: structuredClone(DEFAULT_HERO_FLOAT_BADGES),
+        showFloatBadges: true,
       },
     },
     {
@@ -190,6 +221,26 @@ function asBool(v: unknown, fallback: boolean): boolean {
   return typeof v === 'boolean' ? v : fallback;
 }
 
+function coerceFloatBadges(raw: unknown, fallback: HeroFloatBadge[]): HeroFloatBadge[] {
+  if (!Array.isArray(raw) || !raw.length) return structuredClone(fallback);
+  const out: HeroFloatBadge[] = [];
+  for (let i = 0; i < Math.min(raw.length, 2); i++) {
+    const item = raw[i];
+    if (!item || typeof item !== 'object') continue;
+    const r = item as Record<string, unknown>;
+    const def = fallback[i] ?? fallback[0];
+    const toneRaw = asString(r['tone'], def?.tone ?? 'success') as HeroFloatBadgeTone;
+    out.push({
+      id: asString(r['id'], def?.id ?? `float-${i}`),
+      icon: asString(r['icon'], def?.icon ?? 'heroShieldCheck'),
+      title: asString(r['title'], def?.title ?? ''),
+      subtitle: asString(r['subtitle'], def?.subtitle ?? ''),
+      tone: VALID_FLOAT_TONES.has(toneRaw) ? toneRaw : (def?.tone ?? 'success'),
+    });
+  }
+  return out.length ? out : structuredClone(fallback);
+}
+
 function asNumber(v: unknown, fallback: number): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
@@ -217,7 +268,25 @@ function coerceSection(raw: unknown, index: number): HomeSection | null {
     : {}) as Record<string, unknown>;
 
   switch (type) {
-    case 'hero':
+    case 'hero': {
+      const defHero = DEFAULT_HOMEPAGE_LAYOUT.sections.find((s) => s.type === 'hero');
+      const defProps =
+        defHero && defHero.type === 'hero'
+          ? defHero.props
+          : {
+              headline: 'همه‌چیز، در یک',
+              showSearch: true,
+              showFloatingCards: true,
+              useSiteBanner: true,
+              showVisual: true,
+              showFloatBadges: true,
+              floatBadges: DEFAULT_HERO_FLOAT_BADGES,
+            };
+      const showFloatingCards = asBool(props['showFloatingCards'], defProps.showFloatingCards ?? true);
+      const showFloatBadges =
+        typeof props['showFloatBadges'] === 'boolean'
+          ? props['showFloatBadges']
+          : showFloatingCards;
       return {
         id,
         type,
@@ -225,20 +294,22 @@ function coerceSection(raw: unknown, index: number): HomeSection | null {
         style,
         props: {
           badge: asString(props['badge']),
-          headline: asString(
-            props['headline'],
-            (() => {
-              const h = DEFAULT_HOMEPAGE_LAYOUT.sections.find((s) => s.type === 'hero');
-              return h && h.type === 'hero' ? h.props.headline : 'همه‌چیز، در یک';
-            })(),
-          ),
+          headline: asString(props['headline'], defProps.headline),
           headlineAccent: asString(props['headlineAccent'], 'طبقه'),
           subheadline: asString(props['subheadline']),
           showSearch: asBool(props['showSearch'], true),
-          showFloatingCards: asBool(props['showFloatingCards'], true),
+          showFloatingCards,
           useSiteBanner: asBool(props['useSiteBanner'], true),
+          visualImage: asString(props['visualImage']) || null,
+          showVisual: asBool(props['showVisual'], defProps.showVisual ?? true),
+          floatBadges: coerceFloatBadges(
+            props['floatBadges'],
+            defProps.floatBadges ?? DEFAULT_HERO_FLOAT_BADGES,
+          ),
+          showFloatBadges,
         },
       };
+    }
     case 'trust-strip': {
       const itemsRaw = Array.isArray(props['items']) ? props['items'] : [];
       const defaultItems =

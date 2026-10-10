@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
@@ -83,6 +83,16 @@ export class AdminListingListQueryDto extends AdminListQueryDto {
   @IsOptional()
   @IsEnum(ListingImportSource)
   importSource?: ListingImportSource;
+
+  /** فیلتر محصول متغیر / ساده */
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === true || value === 'true' || value === '1') return true;
+    if (value === false || value === 'false' || value === '0') return false;
+    return undefined;
+  })
+  @IsBoolean()
+  isVariable?: boolean;
 }
 
 export class AdminSetListingStatusDto {

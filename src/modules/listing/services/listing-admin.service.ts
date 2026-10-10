@@ -19,11 +19,12 @@ import { TRADE_REPUTATION_PENALTY_DELTA } from '../../orders/order-reputation.se
 import { ListingExpiryService } from './listing-expiry.service';
 import { ListingNotificationBatchService } from '../../../common/notification/listing-notification-batch.service';
 import { validateListingSalePricing } from '../../../common/listing/listing-price.util';
+import { normalizeVariableListing } from '../../../common/listing/listing-variation.util';
+import { syncListingVariations } from '../../../common/listing/listing-variation.persist';
 
 const ADMIN_LISTING_INCLUDE = {
   direct: true,
   variations: {
-    where: { isActive: true },
     orderBy: { sortOrder: 'asc' as const },
   },
   auction: true,
@@ -190,6 +191,14 @@ export class ListingAdminService {
       throw new BadRequestException('این آگهی در وضعیت فعلی قابل ویرایش نیست');
     }
 
+    const clearingVariable = dto.isVariable === false;
+    const syncingVariable =
+      !clearingVariable &&
+      (dto.isVariable === true ||
+        (listing.isVariable &&
+          (dto.variations !== undefined ||
+            dto.variationAttributes !== undefined)));
+
     const activeOrder = await this.prisma.order.findFirst({
       where: {
         listingId,
@@ -197,7 +206,10 @@ export class ListingAdminService {
       },
       select: { id: true },
     });
-    const touchesPrice = PRICE_FIELDS.some((f) => dto[f] !== undefined);
+    const touchesPrice =
+      PRICE_FIELDS.some((f) => dto[f] !== undefined) ||
+      dto.salePrice !== undefined ||
+      syncingVariable;
     if (activeOrder && touchesPrice) {
       throw new BadRequestException(
         'به‌دلیل سفارش فعال روی این آگهی، تغییر قیمت امکان‌پذیر نیست. سایر فیلدها را می‌توانید ویرایش کنید.',
@@ -231,7 +243,29 @@ export class ListingAdminService {
           ? dto.testPeriodDays
           : null;
     }
-    if (dto.stockQuantity !== undefined) {
+    const hasVariationPayload =
+      dto.isVariable !== undefined ||
+      dto.variations !== undefined ||
+      dto.variationAttributes !== undefined;
+
+    if (
+      listing.isVariable &&
+      !hasVariationPayload &&
+      (dto.price !== undefined ||
+        dto.salePrice !== undefined ||
+        dto.compareAtPrice !== undefined ||
+        dto.stockQuantity !== undefined)
+    ) {
+      throw new BadRequestException(
+        'برای آگهی متغیر، قیمت و موجودی را از طریق تنوع‌ها ویرایش کنید',
+      );
+    }
+
+    if (syncingVariable && listing.type !== ListingType.DIRECT) {
+      throw new BadRequestException('محصول متغیر فقط برای فروش مستقیم است');
+    }
+
+    if (dto.stockQuantity !== undefined && !syncingVariable) {
       if (dto.stockQuantity < 0) {
         throw new BadRequestException('موجودی نمی‌تواند منفی باشد');
       }
@@ -265,10 +299,23 @@ export class ListingAdminService {
       throw new BadRequestException('فیلدهای مزایده فقط برای آگهی مزایده قابل ویرایش است');
     }
 
+    const variablePlan = syncingVariable
+      ? normalizeVariableListing({
+          axes: dto.variationAttributes,
+          variations: dto.variations,
+        })
+      : null;
+
+    if (variablePlan) {
+      listingData.stockQuantity = variablePlan.stockQuantity;
+      listingData.singleItemSale = variablePlan.singleItemSale;
+    }
+
     const touchesDirectPricing =
-      dto.price !== undefined ||
-      dto.compareAtPrice !== undefined ||
-      dto.salePrice !== undefined;
+      !syncingVariable &&
+      (dto.price !== undefined ||
+        dto.compareAtPrice !== undefined ||
+        dto.salePrice !== undefined);
     if (touchesDirectPricing && listing.direct) {
       const price = dto.price ?? Number(listing.direct.price);
       const salePrice =
@@ -295,6 +342,32 @@ export class ListingAdminService {
           data: exchangeData,
         });
       }
+
+      if (variablePlan) {
+        await syncListingVariations(tx, listingId, {
+          isVariable: true,
+          axes: variablePlan.axes,
+          variations: variablePlan.variations,
+        });
+        if (listing.direct) {
+          await tx.listingDirect.update({
+            where: { listingId },
+            data: {
+              price: variablePlan.direct.price,
+              compareAtPrice: variablePlan.direct.compareAtPrice,
+              salePrice: variablePlan.direct.salePrice,
+              allowExchange: false,
+            },
+          });
+        }
+      } else if (clearingVariable && listing.isVariable) {
+        await syncListingVariations(tx, listingId, {
+          isVariable: false,
+          axes: [],
+          variations: [],
+        });
+      }
+
       if (touchesDirectPricing && listing.direct) {
         const directPatch: Prisma.ListingDirectUpdateInput = {};
         const effectivePrice = dto.price ?? Number(listing.direct.price);

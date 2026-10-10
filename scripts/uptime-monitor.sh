@@ -8,20 +8,23 @@
 #
 # Behavior:
 #   - UP → 2 consecutive failures → SMS «قطع» (once; retries if send failed)
+#   - Disk <100MB free → treat as DOWN immediately (threshold=1) + SMS
+#   - State stored on /dev/shm first so full root disk still tracks FAIL_COUNT
+#   - On probe failure: host .env SMS first (API/DB often also down)
 #   - DOWN → keep probing, no repeat SMS (unless pending_sms=down)
 #   - DOWN → first success → SMS «وصل» (retries until send succeeds)
 #   - FORCE_UPTIME_SMS=وصل|قطع — send immediately (manual)
 #
-# Env:
+# Env (MUST be in api/.env for DB/disk outages — panel alone is not enough):
 #   UPTIME_MONITOR_ENABLED=0|1     (default 1; host kill-switch)
 #   UPTIME_FAIL_THRESHOLD=2        (consecutive fails before DOWN)
 #   CHECK_GATEWAY=1
 #   HEALTH_URL / GATEWAY_URL
-#   SMS_UPTIME_ALERT_ENABLED=0|1   (.env fallback when API down; panel preferred via API)
-#   SMS_UPTIME_ALERT_TEMPLATE_ID=...     (sms.ir — جدا از قالب دیپلوی)
+#   SMS_UPTIME_ALERT_ENABLED=0|1
+#   SMS_UPTIME_ALERT_RECIPIENTS=0912...,0913...
+#   SMS_UPTIME_ALERT_TEMPLATE_ID=...     (sms.ir — یا SMS_IR_LINE_NUMBER برای bulk)
 #   SMS_UPTIME_ALERT_TEMPLATE_NAME=...   (kavenegar)
-#   SMS_UPTIME_ALERT_STATUS_PARAMETER=STATUS
-#   SMS_UPTIME_ALERT_DETAIL_PARAMETER=DETAIL
+#   SMS_IR_API_KEY / SMS_IR_LINE_NUMBER
 #   DEPLOY_NOTIFY_TOKEN=...        (optional)
 #
 set -euo pipefail
@@ -30,10 +33,33 @@ ROOT="${ROOT:-/app/tabagheh}"
 UPTIME_MONITOR_ENABLED="${UPTIME_MONITOR_ENABLED:-1}"
 UPTIME_FAIL_THRESHOLD="${UPTIME_FAIL_THRESHOLD:-2}"
 CHECK_GATEWAY="${CHECK_GATEWAY:-1}"
-STATE_FILE="${UPTIME_STATE_FILE:-$ROOT/.uptime-monitor-state}"
+# Prefer tmpfs for state: when / is full, disk-backed state cannot update and
+# FAIL_COUNT never reaches threshold → SMS «قطع» never fires (this outage class).
+STATE_FILE_DISK="${UPTIME_STATE_FILE:-$ROOT/.uptime-monitor-state}"
+STATE_FILE_SHM="${UPTIME_STATE_SHM:-/dev/shm/tabagheh-uptime-monitor.state}"
+STATE_FILE="$STATE_FILE_SHM"
+PROBE_FAILED=0
+DISK_CRITICAL=0
 
 log() { echo "[uptime $(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 warn() { echo "[uptime $(date '+%Y-%m-%d %H:%M:%S')] WARN: $*" >&2; }
+
+disk_avail_kb() {
+  # Avail KB for / (portable-ish); empty on failure
+  df -Pk / 2>/dev/null | awk 'NR==2 {print $4}'
+}
+
+check_disk_critical() {
+  local avail
+  avail="$(disk_avail_kb)"
+  [[ "$avail" =~ ^[0-9]+$ ]] || return 1
+  # < 100MB free → critical (Postgres cannot write postmaster.pid)
+  if (( avail < 102400 )); then
+    DISK_CRITICAL=1
+    return 0
+  fi
+  return 1
+}
 
 ENV_FILES=()
 _add_env_file() {
@@ -218,32 +244,54 @@ probe_site() {
   return 1
 }
 
+_parse_state_file() {
+  local f="$1"
+  [[ -f "$f" ]] || return 1
+  STATUS="$(grep -E '^status=' "$f" 2>/dev/null | tail -n1 | cut -d= -f2- || true)"
+  FAIL_COUNT="$(grep -E '^fail_count=' "$f" 2>/dev/null | tail -n1 | cut -d= -f2- || true)"
+  PENDING_SMS="$(grep -E '^pending_sms=' "$f" 2>/dev/null | tail -n1 | cut -d= -f2- || true)"
+  return 0
+}
+
 read_state() {
   STATUS="up"
   FAIL_COUNT=0
   PENDING_SMS=""
-  if [[ -f "$STATE_FILE" ]]; then
-    # shellcheck disable=SC1090
-    # status=up|down, fail_count=N, pending_sms=up|down (retry SMS after failed send)
-    STATUS="$(grep -E '^status=' "$STATE_FILE" 2>/dev/null | tail -n1 | cut -d= -f2- || true)"
-    FAIL_COUNT="$(grep -E '^fail_count=' "$STATE_FILE" 2>/dev/null | tail -n1 | cut -d= -f2- || true)"
-    PENDING_SMS="$(grep -E '^pending_sms=' "$STATE_FILE" 2>/dev/null | tail -n1 | cut -d= -f2- || true)"
+  # Prefer shm (survives full root disk); fall back to disk copy from before outage
+  if ! _parse_state_file "$STATE_FILE_SHM"; then
+    _parse_state_file "$STATE_FILE_DISK" || true
   fi
   [[ "$STATUS" == "down" ]] || STATUS="up"
   [[ "$FAIL_COUNT" =~ ^[0-9]+$ ]] || FAIL_COUNT=0
   [[ "$PENDING_SMS" == "up" || "$PENDING_SMS" == "down" ]] || PENDING_SMS=""
+  STATE_FILE="$STATE_FILE_SHM"
 }
 
 write_state() {
   local st="$1"
   local fc="$2"
   local pending="${3:-}"
-  {
+  local body
+  body="$(
     printf 'status=%s\nfail_count=%s\nupdated=%s\n' "$st" "$fc" "$(date -Iseconds 2>/dev/null || date)"
     if [[ -n "$pending" ]]; then
       printf 'pending_sms=%s\n' "$pending"
     fi
-  } > "$STATE_FILE"
+  )"
+  # Always try tmpfs first (works when / is 100% full)
+  if printf '%s' "$body" > "$STATE_FILE_SHM" 2>/dev/null; then
+    STATE_FILE="$STATE_FILE_SHM"
+    # Best-effort mirror to disk for reboot persistence
+    printf '%s' "$body" > "$STATE_FILE_DISK" 2>/dev/null || true
+    return 0
+  fi
+  if printf '%s' "$body" > "$STATE_FILE_DISK" 2>/dev/null; then
+    STATE_FILE="$STATE_FILE_DISK"
+    warn "state نوشته شد روی دیسک (shm ناموفق)"
+    return 0
+  fi
+  warn "نتوانست state را بنویسد (دیسک پر؟) — SMS همچنان تلاش می‌شود"
+  return 0
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -298,29 +346,15 @@ send_sms_kavenegar() {
     --data-urlencode "message=${msg}" >/dev/null 2>&1
 }
 
-notify_admins_sms() {
+notify_via_env() {
   local status_fa="$1"
   local detail="$2"
-
-  local api_rc=0
-  if notify_via_api "$status_fa" "$detail"; then
-    return 0
-  else
-    api_rc=$?
-  fi
-  if [[ "$api_rc" -eq 2 ]]; then
-    # Panel reached but sent=0 (template/recipients/disabled) — do NOT pretend success,
-    # otherwise recovery SMS «وصل» is skipped forever after state flips to up.
-    warn "پنل در دسترس بود ولی SMS ارسال نشد — بدون fallback (caller باید retry کند)"
-    return 1
-  fi
-  warn "ارسال از API ناموفق — fallback به .env"
 
   local enabled_env
   enabled_env="$(load_env_var SMS_UPTIME_ALERT_ENABLED)"
   enabled_env="${enabled_env:-1}"
   if [[ "$enabled_env" == "0" || "$enabled_env" == "false" ]]; then
-    warn "SMS_UPTIME_ALERT_ENABLED=0 — fallback SMS ارسال نشد"
+    warn "SMS_UPTIME_ALERT_ENABLED=0 — host SMS ارسال نشد"
     return 1
   fi
 
@@ -333,7 +367,7 @@ notify_admins_sms() {
     recipients_raw="$(load_env_var SMS_ADMIN_LOGIN_ALERT_RECIPIENTS)"
   fi
   if [[ -z "${recipients_raw// /}" ]]; then
-    warn "SMS ارسال نشد: گیرنده در پنل یا .env ست نشده"
+    warn "SMS ارسال نشد: گیرنده در .env ست نشده (SMS_UPTIME_ALERT_RECIPIENTS) — پنل وقتی DB قطع است در دسترس نیست"
     return 1
   fi
 
@@ -341,7 +375,13 @@ notify_admins_sms() {
   provider="$(load_env_var ACTIVE_SMS_PROVIDER)"
   provider="$(echo "${provider:-smsir}" | tr '[:upper:]' '[:lower:]')"
   template_id="$(load_env_var SMS_UPTIME_ALERT_TEMPLATE_ID)"
+  if [[ -z "$template_id" || "$template_id" == "0" ]]; then
+    template_id="$(load_env_var SMS_DEPLOY_ALERT_TEMPLATE_ID)"
+  fi
   template_name="$(load_env_var SMS_UPTIME_ALERT_TEMPLATE_NAME)"
+  if [[ -z "$template_name" ]]; then
+    template_name="$(load_env_var SMS_DEPLOY_ALERT_TEMPLATE_NAME)"
+  fi
   line_number="$(load_env_var SMS_IR_LINE_NUMBER)"
   status_param="$(load_env_var SMS_UPTIME_ALERT_STATUS_PARAMETER)"
   status_param="${status_param:-STATUS}"
@@ -366,7 +406,7 @@ notify_admins_sms() {
 
   if [[ "$provider" != "kavenegar" ]]; then
     if [[ -z "$template_id" || "$template_id" == "0" ]] && [[ -z "$line_number" ]]; then
-      warn "SMS ارسال نشد: SMS_UPTIME_ALERT_TEMPLATE_ID را در پنل یا api/.env ست کنید"
+      warn "SMS ارسال نشد: SMS_UPTIME_ALERT_TEMPLATE_ID یا SMS_IR_LINE_NUMBER را در api/.env ست کنید"
       return 1
     fi
   fi
@@ -399,10 +439,53 @@ notify_admins_sms() {
   [[ "$ok" -gt 0 ]]
 }
 
+notify_admins_sms() {
+  local status_fa="$1"
+  local detail="$2"
+
+  # When health already failed, API SMS path usually cannot read panel settings
+  # from Postgres either — prefer host .env first so DB outages still alert.
+  if [[ "$PROBE_FAILED" -eq 1 || "$DISK_CRITICAL" -eq 1 ]]; then
+    if notify_via_env "$status_fa" "$detail"; then
+      return 0
+    fi
+    warn "host .env SMS ناموفق — تلاش از طریق API..."
+  fi
+
+  local api_rc=0
+  if notify_via_api "$status_fa" "$detail"; then
+    return 0
+  else
+    api_rc=$?
+  fi
+  if [[ "$api_rc" -eq 2 ]]; then
+    # Panel reached but sent=0 (template/recipients/disabled) — do NOT pretend success,
+    # otherwise recovery SMS «وصل» is skipped forever after state flips to up.
+    # Still try .env if panel settings incomplete but host env is configured.
+    warn "پنل در دسترس بود ولی SMS ارسال نشد — fallback به .env"
+    notify_via_env "$status_fa" "$detail"
+    return $?
+  fi
+
+  if [[ "$PROBE_FAILED" -eq 1 || "$DISK_CRITICAL" -eq 1 ]]; then
+    warn "API و .env هر دو ناموفق"
+    return 1
+  fi
+
+  warn "ارسال از API ناموفق — fallback به .env"
+  notify_via_env "$status_fa" "$detail"
+}
+
 # --- main ---
 # Manual: FORCE_UPTIME_SMS=وصل|قطع ROOT=/app/tabagheh bash uptime-monitor.sh
 read_state
 PROBE_REASON=""
+
+if check_disk_critical; then
+  avail_kb="$(disk_avail_kb)"
+  log "DISK CRITICAL: / avail=${avail_kb:-?}KB"
+  PROBE_REASON="DiskFull"
+fi
 
 if [[ -n "${FORCE_UPTIME_SMS:-}" ]]; then
   log "FORCE_UPTIME_SMS=${FORCE_UPTIME_SMS}"
@@ -419,7 +502,7 @@ if [[ -n "${FORCE_UPTIME_SMS:-}" ]]; then
   exit 1
 fi
 
-if probe_site; then
+if probe_site && [[ "$DISK_CRITICAL" -eq 0 ]]; then
   log "probe OK (prev status=$STATUS fail_count=$FAIL_COUNT pending=${PENDING_SMS:-none}${GATEWAY_OK_URL:+ gw=$GATEWAY_OK_URL})"
   need_up_sms=0
   if [[ "$STATUS" == "down" || "$PENDING_SMS" == "up" ]]; then
@@ -439,9 +522,15 @@ if probe_site; then
   exit 0
 fi
 
-# probe failed
+# probe failed and/or disk critically full
+PROBE_FAILED=1
 FAIL_COUNT=$((FAIL_COUNT + 1))
-log "probe FAILED (${PROBE_REASON:-unknown}) fail_count=$FAIL_COUNT/$threshold (prev=$STATUS pending=${PENDING_SMS:-none})"
+# Disk-full outages must alert on first tick: state may not persist on a full /
+effective_threshold="$threshold"
+if [[ "$DISK_CRITICAL" -eq 1 ]]; then
+  effective_threshold=1
+fi
+log "probe FAILED (${PROBE_REASON:-unknown}) fail_count=$FAIL_COUNT/$effective_threshold (prev=$STATUS pending=${PENDING_SMS:-none})"
 
 if [[ "$STATUS" == "down" ]]; then
   # Still down; retry pending «قطع» SMS if previous send failed
@@ -459,7 +548,7 @@ if [[ "$STATUS" == "down" ]]; then
 fi
 
 # currently considered up (or first run)
-if (( FAIL_COUNT >= threshold )); then
+if (( FAIL_COUNT >= effective_threshold )); then
   log "threshold reached — sending SMS قطع"
   if notify_admins_sms "قطع" "سامانه از دسترس خارج شد (${PROBE_REASON:-down})"; then
     write_state "down" "$FAIL_COUNT"

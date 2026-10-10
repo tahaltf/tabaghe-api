@@ -269,6 +269,15 @@ export class AdminSettingsController {
     return this.service.resetHomepageLayout(actor);
   }
 
+  /** Upload hero product/visual image for homepage layout (stored as path in hero.props.visualImage). */
+  @Post('homepage-hero-visual')
+  @RequirePermission('homepage.update')
+  @UseInterceptors(FileInterceptor('image', bannerMulterOptions))
+  uploadHomepageHeroVisual(@UploadedFile() file?: Express.Multer.File) {
+    if (!file) throw new BadRequestException('فایلی ارسال نشده است');
+    return { filename: file.filename, image: `banners/${file.filename}` };
+  }
+
   /**
    * ارسال آزمایشی SMS نتیجه دیپلوی با تنظیمات پنل (گیرنده/قالب/کلید).
    */

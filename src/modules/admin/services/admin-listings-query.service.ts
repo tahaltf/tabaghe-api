@@ -49,6 +49,7 @@ const LISTING_LIST_INCLUDE = {
       _count: { select: { listings: true } },
     },
   },
+  _count: { select: { variations: true } },
 } satisfies Prisma.ListingInclude;
 
 type AdminListingAuthor = Prisma.ListingGetPayload<{
@@ -96,6 +97,7 @@ export class AdminListingsQueryService {
     if (query.categoryId) where.categoryId = query.categoryId;
     if (query.provinceId) where.provinceId = query.provinceId;
     if (query.importSource) where.importSource = query.importSource;
+    if (query.isVariable !== undefined) where.isVariable = query.isVariable;
     if (query.search) {
       const s = query.search.trim();
       where.OR = [
@@ -127,6 +129,7 @@ export class AdminListingsQueryService {
         ...item,
         mergeGroupMemberCount: item.mergeGroup?._count?.listings ?? 0,
         isMerged: Boolean(item.mergeGroupId),
+        variationCount: item._count?.variations ?? 0,
       })),
       pagination: buildPaginationMeta(page, pageSize, total),
     };
@@ -152,6 +155,9 @@ export class AdminListingsQueryService {
         },
         direct: true,
         exchange: true,
+        variations: {
+          orderBy: { sortOrder: 'asc' },
+        },
         auction: {
           include: {
             highestBidder: {

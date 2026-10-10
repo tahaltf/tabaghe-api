@@ -115,17 +115,58 @@ export class AdminGiteaIpAllowlistService {
     return v === '0' || v === 'false' || v === 'off' || v === 'no';
   }
 
+  private runningInDocker(): boolean {
+    try {
+      return existsSync('/.dockerenv');
+    } catch {
+      return false;
+    }
+  }
+
   private resolveReloadCommands(): string[] {
     const fromEnv = process.env.GITEA_IP_ALLOWLIST_RELOAD_CMD?.trim();
     if (fromEnv) return [fromEnv];
     if (this.isAutoReloadDisabled()) return [];
+
     // Prefer test-then-reload; sudo -n for passwordless sudoers common on app hosts.
-    return [
+    const hostCmds = [
       'nginx -t && nginx -s reload',
       'sudo -n nginx -t && sudo -n nginx -s reload',
       'systemctl reload nginx',
       'sudo -n systemctl reload nginx',
     ];
+
+    // API usually runs in Docker without nginx/sudo — try host via docker.sock if mounted.
+    // Requires: docker CLI in image + /var/run/docker.sock, and host nginx (or named container).
+    const dockerHost = (
+      process.env.GITEA_IP_ALLOWLIST_DOCKER_HOST_NGINX ?? '1'
+    )
+      .trim()
+      .toLowerCase();
+    const dockerGateway = (
+      process.env.GITEA_IP_ALLOWLIST_DOCKER_GATEWAY ?? 'tabagheh-gateway'
+    ).trim();
+    const dockerCmds: string[] = [];
+    if (dockerHost !== '0' && dockerHost !== 'false' && dockerHost !== 'off') {
+      // nsenter into PID 1 mount namespace (works when container is privileged or has CAP_SYS_ADMIN)
+      dockerCmds.push(
+        'nsenter -t 1 -m -u -i -n -- nginx -t && nsenter -t 1 -m -u -i -n -- nginx -s reload',
+      );
+      // docker CLI against host socket
+      dockerCmds.push(
+        'docker run --rm --privileged --pid=host alpine:3.20 nsenter -t 1 -m -u -i -n -- sh -c "nginx -t && nginx -s reload"',
+      );
+    }
+    if (dockerGateway) {
+      dockerCmds.push(
+        `docker exec ${dockerGateway} nginx -t && docker exec ${dockerGateway} nginx -s reload`,
+      );
+    }
+
+    if (this.runningInDocker()) {
+      return [...dockerCmds, ...hostCmds];
+    }
+    return [...hostCmds, ...dockerCmds];
   }
 
   private runShell(cmd: string): { ok: boolean; output: string } {

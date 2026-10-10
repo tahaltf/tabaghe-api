@@ -13,6 +13,35 @@ GITEA_IP_ALLOWLIST_RELOAD_CMD='sudo -n nginx -t && sudo -n nginx -s reload'
 ```
 
 If the API runs in Docker, bind-mount those host paths into the container (writable).
+Otherwise the API writes only inside the container and **host nginx never sees the new IPs**.
+
+### Docker (Tabagheh production)
+
+In `docker-compose` for `backend`:
+
+```yaml
+volumes:
+  - /etc/nginx/snippets/gitea-ip-allowlist.conf:/app/ops/nginx/gitea-ip-allowlist.conf
+  - /var/www/gitea-forbidden/gitea-ip-forbidden.html:/app/ops/nginx/gitea-ip-forbidden.html
+  - /var/run/docker.sock:/var/run/docker.sock
+```
+
+In `api/.env`:
+
+```bash
+GITEA_IP_ALLOWLIST_FILE=/app/ops/nginx/gitea-ip-allowlist.conf
+GITEA_IP_FORBIDDEN_HTML=/app/ops/nginx/gitea-ip-forbidden.html
+# Host nginx (SSL for git.tabagheh.com) — needs docker.sock mounted:
+GITEA_IP_ALLOWLIST_RELOAD_CMD=docker run --rm --privileged --pid=host alpine:3.20 nsenter -t 1 -m -u -i -n -- sh -c "nginx -t && nginx -s reload"
+```
+
+One-shot apply if reload failed from admin UI:
+
+```bash
+cd /app/tabagheh
+docker compose cp backend:/app/ops/nginx/gitea-ip-allowlist.conf /etc/nginx/snippets/gitea-ip-allowlist.conf
+nginx -t && systemctl reload nginx
+```
 
 ## 2. Include in the Gitea vhost
 
@@ -39,7 +68,7 @@ server {
 tabagheh-api ALL=(root) NOPASSWD: /usr/sbin/nginx -t, /usr/sbin/nginx -s reload
 ```
 
-Without this, the API can write the file but nginx keeps the old ACL until a manual reload.
+Without this (or the Docker reload cmd above), the API can write the file but nginx keeps the old ACL until a manual reload.
 
 ## 4. Verify
 
