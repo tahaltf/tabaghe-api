@@ -42,10 +42,42 @@ export class CommonCategoryService {
     });
   }
 
-  /** فقط دسته‌های ریشه‌ای که در خود یا زیرشاخه‌شان آگهی دارند (صفحه اصلی) */
+  /**
+   * دسته‌های صفحه اصلی: ترجیح با زیرشاخه‌های دارای آگهی تا نوار خانه
+   * با یک ریشه تنها خالی نماند؛ در نبود فرزند، خود ریشه برمی‌گردد.
+   */
   async getHomeCategories() {
     const tree = await this.getCategories();
-    return tree.filter((c) => (c.listingCount ?? 0) > 0);
+    type Cat = (typeof tree)[number];
+    const out: Cat[] = [];
+    const seen = new Set<string>();
+
+    const push = (node: Cat) => {
+      if (seen.has(node.id)) return;
+      seen.add(node.id);
+      const { children: _children, ...rest } = node;
+      out.push(rest as Cat);
+    };
+
+    const walk = (nodes: Cat[]) => {
+      for (const node of nodes) {
+        const kids = (node.children ?? []).filter(
+          (c) => (c.listingCount ?? 0) > 0,
+        );
+        if (kids.length > 0) {
+          walk(kids);
+          continue;
+        }
+        if ((node.listingCount ?? 0) > 0) {
+          push(node);
+        }
+      }
+    };
+
+    walk(tree);
+    return out.sort(
+      (a, b) => (b.listingCount ?? 0) - (a.listingCount ?? 0),
+    );
   }
 
   /** صفحه لندینگ SEO دسته‌بندی */
