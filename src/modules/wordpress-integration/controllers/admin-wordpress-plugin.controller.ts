@@ -50,6 +50,6 @@ export class AdminWordPressPluginController {
     if (!file?.filename) {
       throw new BadRequestException('فایل ZIP افزونه ارسال نشد');
     }
-    return this.pluginPackageService.getStatus();
+    return this.pluginPackageService.validateUploadedZipAndSyncVersion();
   }
 }

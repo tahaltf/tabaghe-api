@@ -135,6 +135,8 @@ export class CommonContentService {
       'FOOTER_TAGLINE',
       'LANDING_PAGES_URL_PREFIX',
       'CAMPAIGN_LINK_URL_PREFIX',
+      'ADMIN_PANEL_BASE_PATH',
+      'ADMIN_LOGIN_PATH',
       'TICKET_ATTACHMENT_ALLOWED_MIME_TYPES',
       'TICKET_ATTACHMENT_MAX_SIZE_MB',
       'THEME_VARIANT',
@@ -364,6 +366,28 @@ export class CommonContentService {
           .replace(/^\/+|\/+$/g, '');
         if (!raw) return 'ref';
         return /^[a-z0-9-]+$/.test(raw) ? raw : 'ref';
+      })(),
+      adminPanelBasePath: (() => {
+        const raw = map.ADMIN_PANEL_BASE_PATH?.trim()
+          .toLowerCase()
+          .replace(/^\/+|\/+$/g, '');
+        if (!raw) return 'admin';
+        return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(raw) &&
+          raw.length >= 2 &&
+          raw.length <= 40
+          ? raw
+          : 'admin';
+      })(),
+      adminLoginPath: (() => {
+        const raw = map.ADMIN_LOGIN_PATH?.trim()
+          .toLowerCase()
+          .replace(/^\/+|\/+$/g, '');
+        if (!raw) return 'admin-auth';
+        return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(raw) &&
+          raw.length >= 2 &&
+          raw.length <= 40
+          ? raw
+          : 'admin-auth';
       })(),
       ticketAttachmentSettings: (() => {
         const allowedMimeTypes = parseTicketAttachmentMimeTypes(

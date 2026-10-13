@@ -217,6 +217,10 @@ export const SETTING_KEYS = {
   LANDING_PAGES_URL_PREFIX: 'LANDING_PAGES_URL_PREFIX',
   /** پیشوند URL لینک‌های ردیابی کمپین (مثلاً ref → /ref/my-slug) */
   CAMPAIGN_LINK_URL_PREFIX: 'CAMPAIGN_LINK_URL_PREFIX',
+  /** اسلاگ پایه پنل ادمین (مثلاً admin → /admin/**) */
+  ADMIN_PANEL_BASE_PATH: 'ADMIN_PANEL_BASE_PATH',
+  /** اسلاگ صفحه لاگین ادمین (مثلاً admin-auth → /admin-auth) */
+  ADMIN_LOGIN_PATH: 'ADMIN_LOGIN_PATH',
   TICKET_ATTACHMENT_ALLOWED_MIME_TYPES: 'TICKET_ATTACHMENT_ALLOWED_MIME_TYPES',
   TICKET_ATTACHMENT_MAX_SIZE_MB: 'TICKET_ATTACHMENT_MAX_SIZE_MB',
   TELEGRAM_BOT_ENABLED: 'TELEGRAM_BOT_ENABLED',
@@ -352,6 +356,10 @@ const KNOWN_DESCRIPTIONS: Record<string, string> = {
     'پیشوند URL صفحات لندینگ (فقط حروف کوچک انگلیسی و خط تیره؛ مثلاً p → /p/slug)',
   CAMPAIGN_LINK_URL_PREFIX:
     'پیشوند URL لینک‌های ردیابی کمپین (مثلاً ref → /ref/slug؛ ref همیشه برای سازگاری فعال می‌ماند)',
+  ADMIN_PANEL_BASE_PATH:
+    'اسلاگ پایه پنل ادمین (فقط a-z، 0-9 و خط تیره؛ ۲–۴۰ کاراکتر؛ مثلاً admin → /admin)',
+  ADMIN_LOGIN_PATH:
+    'اسلاگ صفحه ورود ادمین (مثلاً admin-auth → /admin-auth؛ نباید با مسیر پنل یکسان باشد)',
   OTP_RESEND_COOLDOWN_SECONDS:
     'حداقل فاصله بین دو درخواست OTP برای یک شماره (ثانیه)',
   TRADE_REPUTATION_SUCCESS_DELTA:
@@ -671,6 +679,7 @@ export class AdminSettingsService {
   async upsert(dto: UpsertSettingDto, actor?: AuthenticatedUser) {
     this.assertValidSettingValue(dto.key, dto.value);
     await this.assertProductRequestBudgetRange([dto]);
+    await this.assertAdminPathSettings([dto]);
     const existing = await this.prisma.systemSetting.findUnique({
       where: { key: dto.key },
       select: { value: true },
@@ -693,6 +702,7 @@ export class AdminSettingsService {
       this.assertValidSettingValue(item.key, item.value);
     }
     await this.assertProductRequestBudgetRange(items);
+    await this.assertAdminPathSettings(items);
     const keys = items.map((i) => i.key);
     const existingRows = await this.prisma.systemSetting.findMany({
       where: { key: { in: keys } },
@@ -791,7 +801,124 @@ export class AdminSettingsService {
           err instanceof Error ? err.message : 'پیکربندی مجوزها نامعتبر است',
         );
       }
+      return;
     }
+    if (
+      key === SETTING_KEYS.ADMIN_PANEL_BASE_PATH ||
+      key === SETTING_KEYS.ADMIN_LOGIN_PATH
+    ) {
+      this.parseAdminUrlSegment(
+        value,
+        key === SETTING_KEYS.ADMIN_PANEL_BASE_PATH
+          ? 'مسیر پنل ادمین'
+          : 'مسیر ورود ادمین',
+      );
+    }
+  }
+
+  private static readonly DEFAULT_ADMIN_PANEL_BASE_PATH = 'admin';
+  private static readonly DEFAULT_ADMIN_LOGIN_PATH = 'admin-auth';
+  private static readonly ADMIN_URL_SEGMENT_RE =
+    /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+  private static readonly RESERVED_ADMIN_URL_SEGMENTS = new Set([
+    'api',
+    'auth',
+    'blog',
+    'cart',
+    'categories',
+    'category',
+    'checkout',
+    'common',
+    'complete-profile',
+    'contact',
+    'dashboard',
+    'faq',
+    'faqs',
+    'help',
+    'introduction',
+    'invite',
+    'listing',
+    'listings',
+    'locations',
+    'orders',
+    'p',
+    'payment-result',
+    'plans',
+    'ref',
+    'seller',
+    'survey',
+    'terms',
+    'about',
+    'privacy',
+  ]);
+
+  private parseAdminUrlSegment(value: string, label: string): string {
+    const raw = String(value ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/^\/+|\/+$/g, '');
+    if (
+      raw.length < 2 ||
+      raw.length > 40 ||
+      !AdminSettingsService.ADMIN_URL_SEGMENT_RE.test(raw)
+    ) {
+      throw new BadRequestException(
+        `${label} باید ۲ تا ۴۰ کاراکتر و فقط شامل حروف کوچک انگلیسی، عدد و خط تیره باشد`,
+      );
+    }
+    if (AdminSettingsService.RESERVED_ADMIN_URL_SEGMENTS.has(raw)) {
+      throw new BadRequestException(
+        `${label} با مسیر رزروشدهٔ «${raw}» تداخل دارد`,
+      );
+    }
+    return raw;
+  }
+
+  private async assertAdminPathSettings(
+    items: Array<{ key: string; value: string }>,
+  ): Promise<void> {
+    const panelKey = SETTING_KEYS.ADMIN_PANEL_BASE_PATH;
+    const loginKey = SETTING_KEYS.ADMIN_LOGIN_PATH;
+    const incomingPanel = items.find((item) => item.key === panelKey);
+    const incomingLogin = items.find((item) => item.key === loginKey);
+    if (!incomingPanel && !incomingLogin) return;
+
+    let panel =
+      incomingPanel != null
+        ? this.parseAdminUrlSegment(incomingPanel.value, 'مسیر پنل ادمین')
+        : null;
+    let login =
+      incomingLogin != null
+        ? this.parseAdminUrlSegment(incomingLogin.value, 'مسیر ورود ادمین')
+        : null;
+
+    if (panel == null || login == null) {
+      const rows = await this.prisma.systemSetting.findMany({
+        where: { key: { in: [panelKey, loginKey] } },
+        select: { key: true, value: true },
+      });
+      if (panel == null) {
+        const stored = rows.find((row) => row.key === panelKey)?.value;
+        panel = stored
+          ? this.parseAdminUrlSegment(stored, 'مسیر پنل ادمین')
+          : AdminSettingsService.DEFAULT_ADMIN_PANEL_BASE_PATH;
+      }
+      if (login == null) {
+        const stored = rows.find((row) => row.key === loginKey)?.value;
+        login = stored
+          ? this.parseAdminUrlSegment(stored, 'مسیر ورود ادمین')
+          : AdminSettingsService.DEFAULT_ADMIN_LOGIN_PATH;
+      }
+    }
+
+    if (panel === login) {
+      throw new BadRequestException(
+        'مسیر پنل ادمین و مسیر ورود ادمین نباید یکسان باشند',
+      );
+    }
+
+    if (incomingPanel) incomingPanel.value = panel;
+    if (incomingLogin) incomingLogin.value = login;
   }
 
   getPaymentGatewayCatalog() {
