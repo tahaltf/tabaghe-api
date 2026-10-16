@@ -1,4 +1,5 @@
 import type { Request } from 'express';
+import { buildCorsOrigins } from '../../config/cors-origins.util';
 export {
   extractClientIp,
   extractUserAgent,
@@ -21,6 +22,42 @@ export function normalizeQueryParams(
   return out;
 }
 
+function isAllowedCampaignTarget(url: URL, frontendAppUrl: string): boolean {
+  const allowed = new Set(buildCorsOrigins(frontendAppUrl));
+  return allowed.has(url.origin);
+}
+
+/** Normalize/validate campaign target URLs (same-site absolute or safe relative). */
+export function normalizeCampaignTargetUrl(
+  targetUrl: string,
+  frontendAppUrl?: string,
+): string {
+  const base = (
+    frontendAppUrl ||
+    process.env.FRONTEND_APP_URL ||
+    'https://tabagheh.com'
+  ).replace(/\/+$/, '');
+  const trimmed = String(targetUrl ?? '').trim();
+  if (!trimmed) {
+    throw new Error('targetUrl is required');
+  }
+  if (/^https?:\/\//i.test(trimmed)) {
+    const url = new URL(trimmed);
+    if (!isAllowedCampaignTarget(url, base)) {
+      throw new Error('targetUrl origin is not allowed');
+    }
+    return url.toString();
+  }
+  if (
+    !trimmed.startsWith('/') ||
+    trimmed.startsWith('//') ||
+    trimmed.includes('://')
+  ) {
+    throw new Error('targetUrl must be a relative path or allowed absolute URL');
+  }
+  return trimmed;
+}
+
 export function buildRedirectUrl(
   targetUrl: string,
   incomingQuery: Record<string, string>,
@@ -31,9 +68,20 @@ export function buildRedirectUrl(
 
   if (/^https?:\/\//i.test(targetUrl)) {
     url = new URL(targetUrl);
+    if (!isAllowedCampaignTarget(url, frontendAppUrl)) {
+      url = new URL('/', `${base}/`);
+    }
   } else {
-    const path = targetUrl.startsWith('/') ? targetUrl : `/${targetUrl}`;
-    url = new URL(path, `${base}/`);
+    const trimmed = targetUrl.trim();
+    if (
+      !trimmed.startsWith('/') ||
+      trimmed.startsWith('//') ||
+      trimmed.includes('://')
+    ) {
+      url = new URL('/', `${base}/`);
+    } else {
+      url = new URL(trimmed, `${base}/`);
+    }
   }
 
   for (const [key, value] of Object.entries(incomingQuery)) {
@@ -85,5 +133,7 @@ export function parseAbCookie(cookieHeader: string | undefined, splitGroup: stri
 
 export function buildAbSetCookie(splitGroup: string, linkId: string, maxAgeSec = 60 * 60 * 24 * 30): string {
   const name = abSplitCookieName(splitGroup);
-  return `${name}=${encodeURIComponent(linkId)}; Path=/; Max-Age=${maxAgeSec}; SameSite=Lax; HttpOnly`;
+  const secure =
+    process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  return `${name}=${encodeURIComponent(linkId)}; Path=/; Max-Age=${maxAgeSec}; SameSite=Lax; HttpOnly${secure}`;
 }

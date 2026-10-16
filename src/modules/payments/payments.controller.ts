@@ -22,6 +22,10 @@ import {
   isKnownPaymentGatewayType,
   type PaymentGatewayName,
 } from './payment-gateways.catalog';
+import {
+  InitiateGatewayOnlyDto,
+  InitiateWalletTopupDto,
+} from './dto/initiate-payment.dto';
 
 @Controller('payments')
 export class PaymentsController {
@@ -35,7 +39,7 @@ export class PaymentsController {
   async initiateCheckoutSession(
     @CurrentUser() user: AuthenticatedUser,
     @Param('sessionId') sessionId: string,
-    @Body() body: { gateway?: string },
+    @Body() body: InitiateGatewayOnlyDto,
     @Req() req: Request,
   ) {
     const gateway = await this.resolveInitiateGateway(body?.gateway);
@@ -54,7 +58,7 @@ export class PaymentsController {
   async initiateOrderPayment(
     @CurrentUser() user: AuthenticatedUser,
     @Param('orderId') orderId: string,
-    @Body() body: { gateway?: string },
+    @Body() body: InitiateGatewayOnlyDto,
     @Req() req: Request,
   ) {
     const gateway = await this.resolveInitiateGateway(body?.gateway);
@@ -73,7 +77,7 @@ export class PaymentsController {
   async initiateRepairPayment(
     @CurrentUser() user: AuthenticatedUser,
     @Param('repairId') repairId: string,
-    @Body() body: { gateway?: string },
+    @Body() body: InitiateGatewayOnlyDto,
     @Req() req: Request,
   ) {
     const gateway = await this.resolveInitiateGateway(body?.gateway);
@@ -91,7 +95,7 @@ export class PaymentsController {
   @UseGuards(JwtAuthGuard)
   async initiateWalletTopup(
     @CurrentUser() user: AuthenticatedUser,
-    @Body() body: { amount: number; gateway?: string },
+    @Body() body: InitiateWalletTopupDto,
     @Req() req: Request,
   ) {
     const gateway = await this.resolveInitiateGateway(body?.gateway);
@@ -152,31 +156,22 @@ export class PaymentsController {
   }
 
   private buildCallbackBase(
-    req: Request,
+    _req: Request,
     gateway?: PaymentGatewayName,
   ): string {
     const name = gateway ?? this.appSettings.getActivePaymentGateway();
-    const protoHeader = req.headers['x-forwarded-proto'];
-    const hostHeader = req.headers['x-forwarded-host'];
-    const protocol =
-      (Array.isArray(protoHeader) ? protoHeader[0] : protoHeader) ||
-      req.protocol ||
-      'https';
-    const host =
-      (Array.isArray(hostHeader) ? hostHeader[0] : hostHeader) ||
-      req.get('host');
-    if (!host) {
-      return this.appSettings.getPaymentGatewayConfig(name).callbackUrl;
-    }
-    return `${protocol}://${host}/api/v1/payments/callback/${name}`;
+    // Never trust Host / X-Forwarded-* for payment callbacks (host header poisoning).
+    return this.appSettings.getPaymentGatewayConfig(name).callbackUrl;
   }
 
   private buildReturnUrl(req: Request): string {
+    const fallback = this.appSettings.getPaymentReturnUrl();
     const origin = req.get('origin');
     if (origin && /^https?:\/\//i.test(origin)) {
-      return `${origin.replace(/\/$/, '')}/payment-result`;
+      const candidate = `${origin.replace(/\/$/, '')}/payment-result`;
+      return resolveSafeReturnUrl(candidate, fallback).toString();
     }
-    return this.appSettings.getPaymentReturnUrl();
+    return fallback;
   }
 
   private resolveReturnTarget(query: Record<string, unknown>): URL {

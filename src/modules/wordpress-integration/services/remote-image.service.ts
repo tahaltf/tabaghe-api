@@ -12,6 +12,7 @@ import {
   LISTING_UPLOAD_DIR,
   processListingImageAtPath,
 } from '../../../common/upload/listing-image-process.util';
+import { safeEgressFetch } from '../../../common/security/safe-egress-url.util';
 
 const UPLOAD_PATH = LISTING_UPLOAD_DIR;
 const ALLOWED_EXT = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp']);
@@ -45,11 +46,14 @@ export class RemoteImageService {
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
     try {
-      const response = await fetch(url, {
-        signal: controller.signal,
-        redirect: 'follow',
-        headers: { 'User-Agent': 'Tabaghe-WordPress-Sync/1.0' },
-      });
+      const response = await safeEgressFetch(
+        url,
+        {
+          signal: controller.signal,
+          headers: { 'User-Agent': 'Tabaghe-WordPress-Sync/1.0' },
+        },
+        { allowHttpInNonProduction: true },
+      );
 
       if (!response.ok) {
         throw new BadRequestException(`HTTP ${response.status}`);

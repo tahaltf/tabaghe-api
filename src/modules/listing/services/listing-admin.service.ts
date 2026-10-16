@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import {
   ExchangeOfferStatus,
   Listing,
+  ListingImportSource,
   ListingStatus,
   ListingType,
   NotificationType,
@@ -10,6 +11,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { normalizeMultilineText } from '../../../common/multiline-text.util';
+import { sanitizeListingDescription } from '../../../common/sanitize/html-sanitizer.util';
 import { QuotaService } from '../../quota/quota.service';
 import { RejectListingDto } from '../dto/reject-listing.dto';
 import { AdminListingCorrectionsDto } from '../dto/admin-listing-corrections.dto';
@@ -133,8 +135,14 @@ export class ListingAdminService {
       listingData.title = title;
     }
     if (dto.description !== undefined) {
+      const allowRich =
+        listing.importSource === ListingImportSource.WORDPRESS ||
+        listing.importSource === ListingImportSource.JSON_FEED;
       listingData.description =
-        normalizeMultilineText(dto.description).trim() || null;
+        sanitizeListingDescription(
+          normalizeMultilineText(dto.description).trim(),
+          allowRich,
+        ) || null;
     }
 
     const exchangeData: Prisma.ListingExchangeUpdateInput = {};
@@ -143,7 +151,10 @@ export class ListingAdminService {
     }
     if (dto.desiredDescription !== undefined) {
       exchangeData.desiredDescription =
-        normalizeMultilineText(dto.desiredDescription).trim() || null;
+        sanitizeListingDescription(
+          normalizeMultilineText(dto.desiredDescription).trim(),
+          false,
+        ) || null;
     }
     const patchExchange = Object.keys(exchangeData).length > 0;
 
@@ -225,8 +236,14 @@ export class ListingAdminService {
       listingData.title = title;
     }
     if (dto.description !== undefined) {
+      const allowRich =
+        listing.importSource === ListingImportSource.WORDPRESS ||
+        listing.importSource === ListingImportSource.JSON_FEED;
       listingData.description =
-        normalizeMultilineText(dto.description).trim() || '';
+        sanitizeListingDescription(
+          normalizeMultilineText(dto.description).trim(),
+          allowRich,
+        ) || '';
     }
     if (dto.shippingPayer !== undefined) {
       listingData.shippingPayer = dto.shippingPayer;
@@ -278,7 +295,10 @@ export class ListingAdminService {
     }
     if (dto.desiredDescription !== undefined) {
       exchangeData.desiredDescription =
-        normalizeMultilineText(dto.desiredDescription).trim() || null;
+        sanitizeListingDescription(
+          normalizeMultilineText(dto.desiredDescription).trim(),
+          false,
+        ) || null;
     }
     const patchExchange = Object.keys(exchangeData).length > 0;
     if (patchExchange && !listing.exchange) {

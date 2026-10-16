@@ -68,12 +68,13 @@ export class MarketingInstagramWebhookController {
 
   @Post('webhook')
   async receive(@Req() req: Request, @Res() res: Response) {
-    res.status(200).send('EVENT_RECEIVED');
     const raw = (req as Request & { rawBody?: Buffer }).rawBody;
     const sig = req.headers['x-hub-signature-256'] as string | undefined;
-    if (raw && sig && !this.webhook.verifySignature(raw, sig)) {
-      return;
+    if (!raw || !sig || !this.webhook.verifySignature(raw, sig)) {
+      return res.status(401).send('Invalid signature');
     }
+    // Acknowledge after verification so forged payloads are never processed.
+    res.status(200).send('EVENT_RECEIVED');
     try {
       await this.webhook.handlePayload(
         (req.body || {}) as Parameters<

@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { OtpPurpose } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { SmsService } from '../../sms/sms.service';
-import { isTestOtpPhone, TEST_OTP_CODE } from '../../../shared/test-users';
+import { shouldUseFixedTestOtp, TEST_OTP_CODE } from '../../../shared/test-users';
 
 const DEFAULT_OTP_TTL_MINUTES = 5;
 const DEFAULT_OTP_RESEND_COOLDOWN_SECONDS = 120;
@@ -49,7 +49,7 @@ export class OtpService {
       this.logger.debug(`OTP issued for ${phone} (dev only)`);
     }
 
-    if (isTestOtpPhone(phone)) {
+    if (shouldUseFixedTestOtp(phone)) {
       return { sent: true };
     }
 
@@ -147,7 +147,7 @@ export class OtpService {
   }
 
   private generateCode(phone: string): string {
-    if (isTestOtpPhone(phone)) return TEST_OTP_CODE;
+    if (shouldUseFixedTestOtp(phone)) return TEST_OTP_CODE;
     return Math.floor(10000 + Math.random() * 90000).toString();
   }
 }

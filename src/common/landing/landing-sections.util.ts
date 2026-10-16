@@ -1,3 +1,5 @@
+import { sanitizeJsonStrings } from '../sanitize/html-sanitizer.util';
+
 /** نرمال‌سازی فیلد sections لندینگ از DB یا DTO — فقط بلوک‌های با type معتبر */
 const VALID_SECTION_TYPES = new Set([
   'hero',
@@ -52,5 +54,7 @@ function isValidSection(item: unknown): boolean {
 }
 
 export function coerceLandingSections(raw: unknown): unknown[] {
-  return unwrapSectionsRaw(raw).filter(isValidSection);
+  return unwrapSectionsRaw(raw)
+    .filter(isValidSection)
+    .map((section) => sanitizeJsonStrings(section)) as unknown[];
 }

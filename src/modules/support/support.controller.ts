@@ -17,6 +17,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../shared/contracts/auth';
 import { ticketAttachmentMulterOptions } from '../../common/upload/ticket-attachment-upload.config';
+import { validateUploadedFileSignature } from '../../common/upload/validate-uploaded-file.util';
 
 @Controller('support')
 @UseGuards(JwtAuthGuard)
@@ -55,6 +56,11 @@ export class SupportController {
     @Body() dto: CreateTicketDto,
     @UploadedFile() file?: Express.Multer.File,
   ) {
+    validateUploadedFileSignature(
+      file,
+      ['jpeg', 'png', 'webp', 'gif', 'pdf'],
+      'پیوست تیکت',
+    );
     return this.supportService.createTicket(user.id, dto, file);
   }
 
@@ -66,6 +72,11 @@ export class SupportController {
     @Body() dto: SendMessageDto,
     @UploadedFile() file?: Express.Multer.File,
   ) {
+    validateUploadedFileSignature(
+      file,
+      ['jpeg', 'png', 'webp', 'gif', 'pdf'],
+      'پیوست تیکت',
+    );
     return this.supportService.sendMessage(id, user.id, dto.message, file);
   }
 }

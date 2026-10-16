@@ -55,3 +55,17 @@ export const ALL_TEST_OTP_PHONES = [
 export function isTestOtpPhone(phone: string): boolean {
   return (ALL_TEST_OTP_PHONES as readonly string[]).includes(phone);
 }
+
+/**
+ * Fixed test OTP is allowed only outside production, or when ALLOW_TEST_OTP=1.
+ * Never enable this in production unless explicitly opted in for a controlled test env.
+ */
+export function isTestOtpEnabled(): boolean {
+  if (process.env.ALLOW_TEST_OTP === '1') return true;
+  return process.env.NODE_ENV !== 'production';
+}
+
+/** True when this phone may receive the fixed TEST_OTP_CODE. */
+export function shouldUseFixedTestOtp(phone: string): boolean {
+  return isTestOtpEnabled() && isTestOtpPhone(phone);
+}

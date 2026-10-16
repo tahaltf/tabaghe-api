@@ -17,7 +17,7 @@ import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { resolveAdminRecipientUserIds } from '../utils/admin-recipient.util';
 
 @Controller('admin/sms')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.ADMIN)
 export class AdminSmsController {
   constructor(
@@ -26,6 +26,7 @@ export class AdminSmsController {
   ) {}
 
   @Post('broadcast')
+  @RequirePermission('notifications.create')
   async broadcast(@Body() dto: AdminSmsBroadcastDto) {
     const userIds = await resolveAdminRecipientUserIds(
       this.prisma,

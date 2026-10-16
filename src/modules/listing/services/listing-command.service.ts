@@ -18,6 +18,10 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { normalizeMultilineText } from '../../../common/multiline-text.util';
+import {
+  sanitizeListingDescription,
+  sanitizeRichHtml,
+} from '../../../common/sanitize/html-sanitizer.util';
 import { validateListingSalePricing } from '../../../common/listing/listing-price.util';
 import { normalizeVariableListing } from '../../../common/listing/listing-variation.util';
 import { syncListingVariations } from '../../../common/listing/listing-variation.persist';
@@ -208,7 +212,11 @@ export class ListingCommandService {
           type: dto.type,
           status: isDraft ? ListingStatus.DRAFT : ListingStatus.PENDING,
           condition: dto.condition,
-          description: normalizeMultilineText(dto.description ?? ''),
+          description: sanitizeListingDescription(
+            normalizeMultilineText(dto.description ?? ''),
+            options?.importSource === ListingImportSource.WORDPRESS ||
+              options?.importSource === ListingImportSource.JSON_FEED,
+          ),
           shippingPayer: dto.shippingPayer,
           exchangePayer: dto.exchangePayer ?? ExchangePayer.NONE,
           // فقط مقدار صریح true؛ هر چیز دیگر (undefined، "false"، 0، …) = false
@@ -222,7 +230,10 @@ export class ListingCommandService {
           importSource: options?.importSource,
           externalSiteUrl: options?.externalSiteUrl,
           externalProductId: options?.externalProductId,
-          shortDescription: options?.shortDescription ?? null,
+          shortDescription:
+            options?.shortDescription != null
+              ? sanitizeRichHtml(options.shortDescription)
+              : null,
           attributes: options?.attributes,
           stockQuantity:
             dto.stockQuantity != null && dto.stockQuantity >= 0
@@ -248,7 +259,10 @@ export class ListingCommandService {
                   desiredCategoryId: dto.exchange?.desiredCategoryId ?? '',
                   desiredTitle: dto.exchange?.desiredTitle ?? '',
                   desiredDescription: dto.exchange?.desiredDescription != null
-                    ? normalizeMultilineText(dto.exchange.desiredDescription)
+                    ? sanitizeListingDescription(
+                        normalizeMultilineText(dto.exchange.desiredDescription),
+                        false,
+                      )
                     : dto.exchange?.desiredDescription,
                   ownValue: dto.exchange?.ownValue ?? 0,
                   extraPaymentAmount: dto.exchange?.extraPaymentAmount ?? 0,
@@ -492,8 +506,14 @@ export class ListingCommandService {
 
     const data: Prisma.ListingUpdateInput = {
       title: input.title.trim(),
-      description: normalizeMultilineText(input.description),
-      shortDescription: input.shortDescription ?? null,
+      description: sanitizeListingDescription(
+        normalizeMultilineText(input.description),
+        true,
+      ),
+      shortDescription:
+        input.shortDescription != null
+          ? sanitizeRichHtml(input.shortDescription)
+          : null,
       attributes: input.attributes,
       gallery: input.gallery,
       thumbnail: input.thumbnail,
@@ -614,8 +634,14 @@ export class ListingCommandService {
       where: { id: listingId },
       data: {
         title: input.title.trim(),
-        description: normalizeMultilineText(input.description),
-        shortDescription: input.shortDescription ?? null,
+        description: sanitizeListingDescription(
+          normalizeMultilineText(input.description),
+          true,
+        ),
+        shortDescription:
+          input.shortDescription != null
+            ? sanitizeRichHtml(input.shortDescription)
+            : null,
         attributes: input.attributes,
         gallery: input.gallery,
         thumbnail: input.thumbnail,
@@ -759,7 +785,11 @@ export class ListingCommandService {
       data: {
         title: dto.title,
         description: dto.description !== undefined
-          ? normalizeMultilineText(dto.description)
+          ? sanitizeListingDescription(
+              normalizeMultilineText(dto.description),
+              listing.importSource === ListingImportSource.WORDPRESS ||
+                listing.importSource === ListingImportSource.JSON_FEED,
+            )
           : dto.description,
         condition: dto.condition,
         shippingPayer: dto.shippingPayer,

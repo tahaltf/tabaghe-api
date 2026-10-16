@@ -10,8 +10,8 @@ const ALLOWED_MIME_REGEX = /\/(jpg|jpeg|png|webp)$/;
 
 /**
  * Multer options for bank-transfer / manual deposit receipt images.
- * Files are stored under `/uploads/deposit-receipts/` and served
- * as static assets so the admin can review them.
+ * Files are stored under `uploads/deposit-receipts/` and served only via
+ * authenticated `/api/v1/files/deposit-receipts/...` (not public static).
  */
 export const depositReceiptMulterOptions: MulterOptions = {
   storage: diskStorage({

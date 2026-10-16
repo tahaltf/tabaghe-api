@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -8,6 +9,7 @@ import {
   UpdateCampaignLinkDto,
 } from './dto/campaign-link.dto';
 import { TrackingService } from './tracking.service';
+import { normalizeCampaignTargetUrl } from './tracking.util';
 
 @Injectable()
 export class AdminCampaignLinksService {
@@ -44,13 +46,23 @@ export class AdminCampaignLinksService {
     return row;
   }
 
+  private safeTargetUrl(raw: string): string {
+    try {
+      return normalizeCampaignTargetUrl(raw);
+    } catch {
+      throw new BadRequestException(
+        'آدرس مقصد کمپین باید مسیر نسبی سایت یا origin مجاز باشد',
+      );
+    }
+  }
+
   async create(dto: CreateCampaignLinkDto, createdById?: string) {
     await this.tracking.assertSlugAvailable(dto.slug);
     return this.prisma.campaignLink.create({
       data: {
         name: dto.name.trim(),
         slug: dto.slug.trim().toLowerCase(),
-        targetUrl: dto.targetUrl.trim(),
+        targetUrl: this.safeTargetUrl(dto.targetUrl),
         description: dto.description?.trim() || null,
         isActive: dto.isActive ?? true,
         splitGroup: dto.splitGroup?.trim() || null,
@@ -74,7 +86,7 @@ export class AdminCampaignLinksService {
           ? { slug: dto.slug.trim().toLowerCase() }
           : {}),
         ...(dto.targetUrl !== undefined
-          ? { targetUrl: dto.targetUrl.trim() }
+          ? { targetUrl: this.safeTargetUrl(dto.targetUrl) }
           : {}),
         ...(dto.description !== undefined
           ? { description: dto.description?.trim() || null }

@@ -26,6 +26,7 @@ import {
   AdminUpdateTicketDto,
 } from '../dto/admin-ticket.dto';
 import { ticketAttachmentMulterOptions } from '../../../common/upload/ticket-attachment-upload.config';
+import { validateUploadedFileSignature } from '../../../common/upload/validate-uploaded-file.util';
 
 @Controller('admin/tickets')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
@@ -52,6 +53,11 @@ export class AdminTicketsController {
     @Body() dto: AdminCreateTicketDto,
     @UploadedFile() file?: Express.Multer.File,
   ) {
+    validateUploadedFileSignature(
+      file,
+      ['jpeg', 'png', 'webp', 'gif', 'pdf'],
+      'پیوست تیکت',
+    );
     return this.service.createForUser(userId, dto, file);
   }
 
@@ -63,6 +69,11 @@ export class AdminTicketsController {
     @Body() dto: AdminReplyTicketDto,
     @UploadedFile() file?: Express.Multer.File,
   ) {
+    validateUploadedFileSignature(
+      file,
+      ['jpeg', 'png', 'webp', 'gif', 'pdf'],
+      'پیوست تیکت',
+    );
     return this.service.reply(id, dto, file);
   }
 

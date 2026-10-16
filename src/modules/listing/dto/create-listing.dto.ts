@@ -9,6 +9,7 @@ import {
   IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
   ValidateIf,
   ValidateNested,
@@ -314,6 +315,7 @@ export class CreateListingDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(50_000)
   description?: string;
 
   @ValidateIf((o) => o.asDraft !== true)

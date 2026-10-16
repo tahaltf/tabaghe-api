@@ -24,6 +24,7 @@ import { RequirePermission } from '../auth/decorators/require-permission.decorat
 import { UserPanelAccessGuard } from '../auth/guards/user-panel-access.guard';
 import { RequirePanelAccess } from '../auth/decorators/require-panel-access.decorator';
 import { depositReceiptMulterOptions } from '../../common/upload/deposit-receipt-upload.config';
+import { validateUploadedFileSignature } from '../../common/upload/validate-uploaded-file.util';
 
 @Controller('wallet')
 @UseGuards(JwtAuthGuard)
@@ -82,6 +83,11 @@ export class WalletController {
     @Body()
     body: { amount: number; trackingCode?: string; description?: string },
   ) {
+    validateUploadedFileSignature(
+      file,
+      ['jpeg', 'png', 'webp'],
+      'تصویر رسید واریز',
+    );
     return this.walletService.requestDeposit(req.user.id, {
       amount: body.amount,
       receiptImage: file ? `deposit-receipts/${file.filename}` : null,

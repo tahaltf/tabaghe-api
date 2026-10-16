@@ -281,7 +281,18 @@ async function bootstrap() {
   });
 
   // ۴. محدودیت حجم درخواست برای آپلود تصاویر و مدارک
-  app.use(json({ limit: '20mb' }));
+  // Capture rawBody for Instagram webhook HMAC verification.
+  app.use(
+    json({
+      limit: '20mb',
+      verify: (req, _res, buf) => {
+        const url = req.url ?? '';
+        if (url.includes('/integrations/marketing/instagram/webhook')) {
+          (req as typeof req & { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+        }
+      },
+    }),
+  );
   app.use(urlencoded({ extended: true, limit: '20mb' }));
 
   // ۵. پایپ اعتبارسنجی گلوبال (قلب تپنده امنیت DTOهای ما)
@@ -300,10 +311,25 @@ async function bootstrap() {
     }),
   );
 
-  // ۶. سرو کردن فایل‌های آپلودی (اگر از S3 استفاده نمی‌کنی و روی سرور ذخیره میشن)
-  app.useStaticAssets(join(__dirname, '..', 'uploads'), {
-    prefix: '/uploads/',
-  });
+  // ۶. فقط پوشه‌های عمومی آپلود؛ مدارک/تیکت/رسید فقط از /api/v1/files با ACL.
+  const uploadsRoot = join(process.cwd(), 'uploads');
+  const publicUploadDirs = [
+    'listings',
+    'banners',
+    'brand',
+    'marketing',
+    'ai-content',
+    'inspection-certificate',
+    'repairs',
+    'orders',
+    'avatars',
+    'product-requests',
+  ] as const;
+  for (const dir of publicUploadDirs) {
+    app.useStaticAssets(join(uploadsRoot, dir), {
+      prefix: `/uploads/${dir}/`,
+    });
+  }
 
   // ۷. مدیریت پورت: اگر پورت اشغال بود، خودکار روی پورت بعدی بالا بیاید
   const preferredPort = Number(process.env.PORT || 3000);

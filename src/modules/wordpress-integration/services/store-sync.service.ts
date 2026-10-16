@@ -13,6 +13,7 @@ import { ListingCommandService } from '../../listing/services/listing-command.se
 import { WordPressProductDto } from '../dto/wordpress-product.dto';
 import { WordPressConnectionService } from './connection.service';
 import { WordPressProductIngestService } from './product-ingest.service';
+import { safeEgressFetch } from '../../../common/security/safe-egress-url.util';
 
 interface WordPressStoreCatalogResponse {
   productIds: string[];
@@ -169,14 +170,18 @@ export class WordPressStoreSyncService {
 
     let response: Response;
     try {
-      response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          'X-Tabagheh-Catalog-Secret': catalogSecret,
+      response = await safeEgressFetch(
+        url,
+        {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            'X-Tabagheh-Catalog-Secret': catalogSecret,
+          },
+          signal: AbortSignal.timeout(60_000),
         },
-        signal: AbortSignal.timeout(60_000),
-      });
+        { allowHttpInNonProduction: true },
+      );
     } catch (err) {
       this.logger.warn(`WP catalog fetch failed for ${url}: ${String(err)}`);
       throw new ServiceUnavailableException(

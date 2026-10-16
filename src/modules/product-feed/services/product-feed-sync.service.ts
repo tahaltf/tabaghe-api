@@ -23,6 +23,7 @@ import {
 } from '../utils/product-feed.util';
 import { ProductFeedIngestService } from './product-feed-ingest.service';
 import { isDueForSync } from '../../../common/utils/min-stock-threshold.util';
+import { safeEgressFetch } from '../../../common/security/safe-egress-url.util';
 
 export interface ProductFeedSyncResult {
   created: number;
@@ -449,14 +450,18 @@ export class ProductFeedSyncService {
     const url = buildFeedPageUrl(feedUrl, page);
     let response: Response;
     try {
-      response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          'User-Agent': 'Tabaghe-ProductFeed/1.0',
+      response = await safeEgressFetch(
+        url,
+        {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            'User-Agent': 'Tabaghe-ProductFeed/1.0',
+          },
+          signal: AbortSignal.timeout(60_000),
         },
-        signal: AbortSignal.timeout(60_000),
-      });
+        { allowHttpInNonProduction: true },
+      );
     } catch (err) {
       this.logger.warn(`Feed fetch failed for ${url}: ${String(err)}`);
       throw new ServiceUnavailableException(

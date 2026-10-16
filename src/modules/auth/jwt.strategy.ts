@@ -7,8 +7,8 @@ import { UserRole } from '@prisma/client';
 import { AuthenticatedUser, JwtPayload } from '../../shared/contracts/auth';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 
-/** بدون کش، هر درخواست احراز‌شده یک round-trip اضافه به DB دارد. */
-const JWT_VALIDATE_CACHE_TTL_MS = 12_000;
+/** بدون کش، هر درخواست احراز‌شده یک round-trip اضافه به DB دارد. Short TTL limits stale disabled/role state. */
+const JWT_VALIDATE_CACHE_TTL_MS = 3_000;
 const JWT_VALIDATE_CACHE_MAX = 8_000;
 
 @Injectable()
