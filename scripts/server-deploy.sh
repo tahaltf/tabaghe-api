@@ -303,20 +303,74 @@ should_build_service() {
   esac
 }
 
+# When deploy runs on the same host as Gitea, prefer the bare repo on disk.
+# Avoids HTTPS "bad pack header" / early EOF against git.tabagheh.com.
+GITEA_REPOS_ROOT="${GITEA_REPOS_ROOT:-/var/lib/gitea/git/repositories}"
+
+local_gitea_mirror() {
+  local dir="$1"
+  local url owner repo
+  url="$(git -C "$dir" remote get-url origin 2>/dev/null || true)"
+  [ -n "$url" ] || return 0
+
+  # https://git.tabagheh.com/taha/tabaghe-frontend.git
+  # git@git.tabagheh.com:taha/tabaghe-frontend.git
+  if [[ "$url" =~ git\.tabagheh\.com[:/]+([^/]+)/([^/]+?)(\.git)?$ ]]; then
+    owner="${BASH_REMATCH[1]}"
+    repo="${BASH_REMATCH[2]}"
+    echo "$GITEA_REPOS_ROOT/$owner/${repo}.git"
+  fi
+}
+
 sync_repo() {
   local dir="$1"
   local name="$2"
+  local mirror=""
 
   if [ ! -d "$dir/.git" ]; then
     log "skip $name (no git repo at $dir)"
     return 0
   fi
 
-  log "updating $name..."
   cd "$dir"
-  git fetch origin "$BRANCH"
+  mirror="$(local_gitea_mirror "$dir")"
+
+  if [ -n "$mirror" ] && [ -d "$mirror" ]; then
+    log "updating $name via local Gitea mirror..."
+    git -c "safe.directory=$mirror" fetch "$mirror" \
+      "+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}"
+  else
+    log "updating $name..."
+    if ! git fetch origin "$BRANCH"; then
+      log "ERROR: git fetch failed for $name (no local mirror at ${mirror:-unknown})"
+      return 1
+    fi
+  fi
+
   git reset --hard "origin/$BRANCH"
   git clean -fd
+}
+
+reload_gateway_nginx() {
+  local conf="$FRONTEND/nginx.conf"
+  if [ ! -f "$conf" ]; then
+    return 0
+  fi
+
+  # Gateway mounts host frontend/nginx.conf — reload so CSP/header changes apply
+  # without waiting for a frontend image rebuild.
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'tabagheh-gateway'; then
+    log "reloading gateway nginx (CSP / headers from $conf)..."
+    docker exec tabagheh-gateway nginx -t
+    docker exec tabagheh-gateway nginx -s reload
+    return 0
+  fi
+
+  if docker compose ps --status running gateway 2>/dev/null | grep -q gateway; then
+    log "reloading compose gateway nginx..."
+    docker compose exec -T gateway nginx -t
+    docker compose exec -T gateway nginx -s reload
+  fi
 }
 
 ensure_api_base() {
@@ -487,6 +541,9 @@ fi
 
 # Keep infrastructure services running (service names match server compose)
 docker compose up -d db gateway 2>/dev/null || docker compose up -d tabagheh-postgres tabagheh-gateway 2>/dev/null || true
+
+# Apply host-mounted gateway nginx.conf (CSP, etc.) after frontend sync
+reload_gateway_nginx
 
 # Always apply pending Prisma migrations when the backend image exists.
 # Frontend-only deploys still ship an API client that expects current columns;
