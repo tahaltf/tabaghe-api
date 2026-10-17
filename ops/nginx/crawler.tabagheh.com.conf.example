@@ -1,0 +1,65 @@
+# Example edge nginx vhost for crawler.tabagheh.com
+# Copy to /etc/nginx/sites-available/ and enable after TLS certs exist.
+#
+# Prerequisites:
+#   - snippet: /etc/nginx/snippets/crawler-ip-allowlist.conf
+#   - 403 page: /var/www/crawler-forbidden/crawler-ip-forbidden.html
+#   - crawler container listening on 127.0.0.1:5050 (app) and optionally 127.0.0.1:6080 (noVNC)
+
+upstream tabagheh_crawler {
+    server 127.0.0.1:5050;
+    keepalive 8;
+}
+
+upstream tabagheh_crawler_vnc {
+    server 127.0.0.1:6080;
+    keepalive 4;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name crawler.tabagheh.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name crawler.tabagheh.com;
+
+    # ssl_certificate     /etc/letsencrypt/live/crawler.tabagheh.com/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/crawler.tabagheh.com/privkey.pem;
+
+    include /etc/nginx/snippets/crawler-ip-allowlist.conf;
+
+    error_page 403 /crawler-ip-forbidden.html;
+    location = /crawler-ip-forbidden.html {
+        alias /var/www/crawler-forbidden/crawler-ip-forbidden.html;
+        default_type text/html;
+        internal;
+    }
+
+    client_max_body_size 20m;
+
+    location / {
+        proxy_pass http://tabagheh_crawler;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+    }
+
+    # Optional: browser captcha assist (same IP ACL as above)
+    location /vnc/ {
+        proxy_pass http://tabagheh_crawler_vnc/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 3600s;
+    }
+}

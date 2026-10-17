@@ -197,6 +197,12 @@ export const ADMIN_PERMISSION_CATALOG: AdminPermissionDef[] = [
     { action: 'update', label: 'ویرایش / فعال‌سازی محدودیت' },
     { action: 'delete', label: 'حذف IP مجاز' },
   ]),
+  ...defs('crawler_ip_allowlist', 'دسترسی کرالر (IP)', 2875, [
+    { action: 'view', label: 'مشاهده لیست IP مجاز کرالر' },
+    { action: 'create', label: 'افزودن IP مجاز کرالر' },
+    { action: 'update', label: 'ویرایش / فعال‌سازی محدودیت کرالر' },
+    { action: 'delete', label: 'حذف IP مجاز کرالر' },
+  ]),
   ...defs('auction_ops', 'عملیات مزایده', 2900, [
     { action: 'view', label: 'مشاهده عملیات مزایده' },
     { action: 'update', label: 'اجرای عملیات مزایده' },
@@ -279,10 +285,10 @@ export const ADMIN_ROUTE_PERMISSIONS = {
     '/admin/backup',
     '/admin/system-jobs',
     '/admin/server-monitor',
-    '/admin/crawler',
     '/admin/wordpress-plugin',
     '/admin/roles',
     '/admin/gitea-ip-allowlist',
+    '/admin/crawler-ip-allowlist',
   ],
   /** نگاشت مسیر فرانت → پرمیشن view لازم */
   routeViewPermission: {
@@ -333,6 +339,7 @@ export const ADMIN_ROUTE_PERMISSIONS = {
     '/admin/fee-rules': 'fee_rules.view',
     '/admin/verification-fee-rules': 'verification_fee_rules.view',
     '/admin/gitea-ip-allowlist': 'gitea_ip_allowlist.view',
+    '/admin/crawler-ip-allowlist': 'crawler_ip_allowlist.view',
     '/admin/auction-ops': 'auction_ops.view',
     '/admin/logs': 'logs.view',
   } as const,

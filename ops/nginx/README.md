@@ -75,3 +75,37 @@ Without this (or the Docker reload cmd above), the API can write the file but ng
 1. Add an IP in Admin → دسترسی Gitea
 2. Sync message should contain `nginx reload OK`
 3. That IP can reach `git.tabagheh.com` without restarting the server
+
+---
+
+# Crawler IP allowlist (nginx)
+
+Same pattern as Gitea, for `crawler.tabagheh.com`.
+
+## Env
+
+```bash
+CRAWLER_IP_ALLOWLIST_FILE=/etc/nginx/snippets/crawler-ip-allowlist.conf
+CRAWLER_IP_FORBIDDEN_HTML=/var/www/crawler-forbidden/crawler-ip-forbidden.html
+CRAWLER_IP_ALLOWLIST_RELOAD_CMD='sudo -n nginx -t && sudo -n nginx -s reload'
+CRAWLER_IP_ALLOWLIST_ALWAYS=127.0.0.1
+```
+
+Docker bind-mounts (backend service):
+
+```yaml
+volumes:
+  - /etc/nginx/snippets/crawler-ip-allowlist.conf:/app/ops/nginx/crawler-ip-allowlist.conf
+  - /var/www/crawler-forbidden/crawler-ip-forbidden.html:/app/ops/nginx/crawler-ip-forbidden.html
+```
+
+## Vhost
+
+See `crawler.tabagheh.com.conf.example` in this folder. Include the snippet and 403 page the same way as Gitea.
+
+## Verify
+
+1. Admin → دسترسی کرالر (IP)
+2. Add your office/laptop IP, enable enforcement
+3. Sync message should contain `nginx reload OK`
+4. Unlisted IPs get the branded 403 page on `crawler.tabagheh.com`

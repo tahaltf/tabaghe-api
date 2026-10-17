@@ -19,6 +19,7 @@ import { AdminPlansController } from './controllers/admin-plans.controller';
 import { AdminFeeRulesController } from './controllers/admin-fee-rules.controller';
 import { AdminVerificationFeeRulesController } from './controllers/admin-verification-fee-rules.controller';
 import { AdminGiteaIpAllowlistController } from './controllers/admin-gitea-ip-allowlist.controller';
+import { AdminCrawlerIpAllowlistController } from './controllers/admin-crawler-ip-allowlist.controller';
 import { AdminRepairsController } from './controllers/admin-repairs.controller';
 import { AdminProductRequestsController } from './controllers/admin-product-requests.controller';
 import { AdminTicketsController } from './controllers/admin-tickets.controller';
@@ -40,7 +41,6 @@ import { AdminPlatformContentController } from './controllers/admin-platform-con
 import { AdminServerStorageController } from './controllers/admin-server-storage.controller';
 import { AdminServerMonitorController } from './controllers/admin-server-monitor.controller';
 import { AdminSystemJobsController } from './controllers/admin-system-jobs.controller';
-import { AdminCrawlerController } from './controllers/admin-crawler.controller';
 import { AdminRolesController } from './controllers/admin-roles.controller';
 
 // Services
@@ -65,6 +65,7 @@ import { AdminPlansService } from './services/admin-plans.service';
 import { AdminFeeRulesService } from './services/admin-fee-rules.service';
 import { AdminVerificationFeeRulesService } from './services/admin-verification-fee-rules.service';
 import { AdminGiteaIpAllowlistService } from './services/admin-gitea-ip-allowlist.service';
+import { AdminCrawlerIpAllowlistService } from './services/admin-crawler-ip-allowlist.service';
 import { AdminRepairsService } from './services/admin-repairs.service';
 import { AdminProductRequestsService } from './services/admin-product-requests.service';
 import { AdminTicketsService } from './services/admin-tickets.service';
@@ -85,7 +86,6 @@ import { AdminBackupService } from './services/admin-backup.service';
 import { AdminPlatformContentService } from './services/admin-platform-content.service';
 import { AdminServerStorageService } from './services/admin-server-storage.service';
 import { AdminServerMonitorService } from './services/admin-server-monitor.service';
-import { AdminCrawlerService } from './services/admin-crawler.service';
 import { AdminBackupScheduler } from './services/admin-backup.scheduler';
 import { AdminSystemJobsService } from './services/admin-system-jobs.service';
 import { AdminRolesService } from './services/admin-roles.service';
@@ -137,6 +137,7 @@ import { AdminCurrenciesController } from './controllers/admin-currencies.contro
     AdminFeeRulesController,
     AdminVerificationFeeRulesController,
     AdminGiteaIpAllowlistController,
+    AdminCrawlerIpAllowlistController,
     AdminRepairsController,
     AdminProductRequestsController,
     AdminTicketsController,
@@ -158,7 +159,6 @@ import { AdminCurrenciesController } from './controllers/admin-currencies.contro
     AdminServerStorageController,
     AdminServerMonitorController,
     AdminSystemJobsController,
-    AdminCrawlerController,
     AdminRolesController,
   ],
   providers: [
@@ -183,6 +183,7 @@ import { AdminCurrenciesController } from './controllers/admin-currencies.contro
     AdminFeeRulesService,
     AdminVerificationFeeRulesService,
     AdminGiteaIpAllowlistService,
+    AdminCrawlerIpAllowlistService,
     AdminRepairsService,
     AdminProductRequestsService,
     AdminTicketsService,
@@ -202,7 +203,6 @@ import { AdminCurrenciesController } from './controllers/admin-currencies.contro
     AdminPlatformContentService,
     AdminServerStorageService,
     AdminServerMonitorService,
-    AdminCrawlerService,
     AdminBackupScheduler,
     AdminSystemJobsService,
     UserRatingHistoryService,

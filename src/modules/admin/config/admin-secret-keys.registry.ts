@@ -254,14 +254,6 @@ export const ADMIN_SECRET_KEYS_REGISTRY: AdminSecretKeyDef[] = [
     placeholder: 'mailto:support@example.com',
   },
   {
-    key: 'CRAWLER_SERVICE_URL',
-    category: 'crawler',
-    categoryLabel: 'خزشگر',
-    label: 'آدرس سرویس خزشگر',
-    kind: 'url',
-    placeholder: 'http://127.0.0.1:5050',
-  },
-  {
     key: 'API_URL',
     category: 'general',
     categoryLabel: 'عمومی',
