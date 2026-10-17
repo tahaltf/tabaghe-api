@@ -313,6 +313,12 @@ local_gitea_mirror() {
   url="$(git -C "$dir" remote get-url origin 2>/dev/null || true)"
   [ -n "$url" ] || return 0
 
+  # origin already points at the bare repo on disk
+  if [[ "$url" == /* ]] && [ -d "$url" ]; then
+    echo "$url"
+    return 0
+  fi
+
   # https://git.tabagheh.com/taha/tabaghe-frontend.git
   # git@git.tabagheh.com:taha/tabaghe-frontend.git
   if [[ "$url" =~ git\.tabagheh\.com[:/]+([^/]+)/([^/]+?)(\.git)?$ ]]; then
@@ -337,6 +343,8 @@ sync_repo() {
 
   if [ -n "$mirror" ] && [ -d "$mirror" ]; then
     log "updating $name via local Gitea mirror..."
+    # bare repos are owned by gitea uid (1000); root needs safe.directory
+    git config --global --add safe.directory "$mirror" 2>/dev/null || true
     git -c "safe.directory=$mirror" fetch "$mirror" \
       "+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}"
   else
