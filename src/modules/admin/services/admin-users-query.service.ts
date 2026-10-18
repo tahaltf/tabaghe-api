@@ -246,22 +246,7 @@ export class AdminUsersQueryService {
     const pageSize = query.pageSize ?? 20;
     const skip = (page - 1) * pageSize;
 
-    const where: Prisma.UserWhereInput = {};
-    if (query.status) where.status = query.status;
-    if (query.role) where.role = query.role;
-    if (actor.role === UserRole.ADMIN) {
-      where.role = UserRole.USER;
-    }
-    if (query.search) {
-      const s = query.search.trim();
-      where.OR = [
-        { phone: { contains: s } },
-        { firstName: { contains: s, mode: 'insensitive' } },
-        { lastName: { contains: s, mode: 'insensitive' } },
-        { email: { contains: s, mode: 'insensitive' } },
-        { nationalCode: { contains: s } },
-      ];
-    }
+    const where = this.buildListWhere(actor, query);
 
     const orderBy: Prisma.UserOrderByWithRelationInput = this.buildOrderBy(
       query.sortBy,
@@ -287,6 +272,57 @@ export class AdminUsersQueryService {
     }));
 
     return { items, pagination: buildPaginationMeta(page, pageSize, total) };
+  }
+
+  /**
+   * خروجی TXT شماره موبایل کاربران (هر خط: 09XXXXXXXXX,)
+   * فیلترهای لیست (جستجو / وضعیت / نقش) اعمال می‌شود؛ صفحه‌بندی خیر.
+   */
+  async exportPhonesTxt(
+    actor: AuthenticatedUser,
+    query: AdminUserListQueryDto,
+  ): Promise<string> {
+    const where = this.buildListWhere(actor, query);
+    const rows = await this.prisma.user.findMany({
+      where,
+      select: { phone: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const unique: string[] = [];
+    const seen = new Set<string>();
+    for (const row of rows) {
+      const phone = normalizeIranMobile(row.phone);
+      if (!phone || seen.has(phone)) continue;
+      seen.add(phone);
+      unique.push(phone);
+    }
+
+    if (!unique.length) return '';
+    return unique.map((phone) => `${phone},`).join('\n') + '\n';
+  }
+
+  private buildListWhere(
+    actor: AuthenticatedUser,
+    query: AdminUserListQueryDto,
+  ): Prisma.UserWhereInput {
+    const where: Prisma.UserWhereInput = {};
+    if (query.status) where.status = query.status;
+    if (query.role) where.role = query.role;
+    if (actor.role === UserRole.ADMIN) {
+      where.role = UserRole.USER;
+    }
+    if (query.search) {
+      const s = query.search.trim();
+      where.OR = [
+        { phone: { contains: s } },
+        { firstName: { contains: s, mode: 'insensitive' } },
+        { lastName: { contains: s, mode: 'insensitive' } },
+        { email: { contains: s, mode: 'insensitive' } },
+        { nationalCode: { contains: s } },
+      ];
+    }
+    return where;
   }
 
   /**

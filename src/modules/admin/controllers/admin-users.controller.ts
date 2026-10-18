@@ -5,6 +5,7 @@ import {
   DefaultValuePipe,
   Delete,
   Get,
+  Header,
   NotFoundException,
   Param,
   Patch,
@@ -16,6 +17,7 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import { RawResponse } from '../../../common/decorators/raw-response.decorator';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Express } from 'express';
 import { nationalCardMulterOptions } from '../../../common/upload/national-card-upload.config';
@@ -65,6 +67,20 @@ export class AdminUsersQueryController {
     @Query() query: AdminUserListQueryDto,
   ) {
     return this.service.list(actor, query);
+  }
+
+  @Get('export-phones.txt')
+  @RawResponse()
+  @Header('Content-Type', 'text/plain; charset=utf-8')
+  @Header(
+    'Content-Disposition',
+    'attachment; filename="user-phones.txt"',
+  )
+  exportPhonesTxt(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Query() query: AdminUserListQueryDto,
+  ) {
+    return this.service.exportPhonesTxt(actor, query);
   }
 
   @Get(':id')

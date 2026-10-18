@@ -32,6 +32,10 @@ export class AppSettingsService {
     return this.secrets.get('SMS_IR_API_KEY');
   }
 
+  getSmsIrLineNumber(): string {
+    return this.secrets.get('SMS_IR_LINE_NUMBER')?.trim() ?? '';
+  }
+
   /** @deprecated Use getSmsIrApiKey() */
   getSmsApiKey(): string {
     return this.getSmsIrApiKey();
