@@ -151,6 +151,12 @@ export const ADMIN_PERMISSION_CATALOG: AdminPermissionDef[] = [
     { action: 'view', label: 'مشاهده باشگاه' },
     { action: 'update', label: 'مدیریت باشگاه' },
   ]),
+  ...defs('seller_crm', 'CRM فروشندگان', 2320, [
+    { action: 'view', label: 'مشاهده CRM فروشندگان' },
+    { action: 'create', label: 'ایجاد لید فروشنده' },
+    { action: 'update', label: 'ویرایش / پیگیری لید' },
+    { action: 'delete', label: 'حذف لید' },
+  ]),
   ...defs('marketing', 'مارکتینگ', 2350, [
     { action: 'view', label: 'مشاهده مارکتینگ' },
     { action: 'create', label: 'ایجاد محتوا / پاسخ دایرکت' },
@@ -319,6 +325,7 @@ export const ADMIN_ROUTE_PERMISSIONS = {
     '/admin/campaign-links': 'campaign_links.view',
     '/admin/surveys': 'surveys.view',
     '/admin/customer-club': 'customer_club.view',
+    '/admin/seller-crm': 'seller_crm.view',
     '/admin/marketing': 'marketing.view',
     '/admin/marketing/accounts': 'marketing.view',
     '/admin/marketing/oauth-callback': 'marketing.view',

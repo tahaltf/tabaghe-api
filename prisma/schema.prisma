@@ -435,6 +435,9 @@ model User {
   aiContentRequests   AiContentRequest[]
   listingMergeRequests ListingMergeRequest[] @relation("MergeRequestRequester")
   listingMergeReviews  ListingMergeRequest[] @relation("MergeRequestReviewer")
+  sellerLeadsConverted SellerLead[]  @relation("SellerLeadConvertedUser")
+  sellerLeadsCreated   SellerLead[]  @relation("SellerLeadCreatedBy")
+  sellerLeadActivities SellerLeadActivity[] @relation("SellerLeadActivityAdmin")
 
   /** نقش سفارشی پنل ادمین — فقط برای role=ADMIN معنا دارد */
   adminRoleId         String?
@@ -2291,4 +2294,90 @@ model MarketingInsightSnapshot {
 
   @@index([accountId, metricKey, capturedAt])
   @@index([accountId, capturedAt])
+}
+
+////////////////////
+/// SELLER CRM (جذب فروشنده)
+////////////////////
+
+enum SellerLeadStage {
+  NEW
+  CONTACTED
+  INTERESTED
+  ONBOARDING
+  WON
+  LOST
+}
+
+enum SellerLeadSource {
+  INSTAGRAM
+  BAZAAR_VISIT
+  REFERRAL
+  WEBSITE
+  DIVAR
+  TELEGRAM
+  OTHER
+}
+
+enum SellerLeadLostReason {
+  NO_RESPONSE
+  NO_INTEREST
+  COMPETITOR
+  NOT_FIT
+  OTHER
+}
+
+enum SellerLeadActivityType {
+  NOTE
+  CALL
+  SMS
+  STAGE_CHANGE
+  FOLLOW_UP_SET
+  SYSTEM
+}
+
+model SellerLead {
+  id               String                @id @default(cuid())
+  fullName         String
+  shopName         String?
+  phone            String
+  city             String?
+  province         String?
+  categoryHint     String?
+  source           SellerLeadSource      @default(OTHER)
+  stage            SellerLeadStage       @default(NEW)
+  lostReason       SellerLeadLostReason?
+  notes            String?
+  nextFollowUpAt   DateTime?
+  convertedUserId  String?
+  convertedUser    User?                 @relation("SellerLeadConvertedUser", fields: [convertedUserId], references: [id], onDelete: SetNull)
+  createdByAdminId String
+  createdByAdmin   User                  @relation("SellerLeadCreatedBy", fields: [createdByAdminId], references: [id], onDelete: Restrict)
+  activities       SellerLeadActivity[]
+  convertedAt      DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  @@index([stage])
+  @@index([nextFollowUpAt])
+  @@index([phone])
+  @@index([source])
+  @@index([stage, nextFollowUpAt])
+  @@index([convertedUserId])
+  @@index([createdByAdminId])
+}
+
+model SellerLeadActivity {
+  id               String                 @id @default(cuid())
+  leadId           String
+  lead             SellerLead             @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  type             SellerLeadActivityType
+  body             String?
+  meta             Json?
+  createdByAdminId String?
+  createdByAdmin   User?                  @relation("SellerLeadActivityAdmin", fields: [createdByAdminId], references: [id], onDelete: SetNull)
+  createdAt        DateTime               @default(now())
+
+  @@index([leadId, createdAt])
+  @@index([createdByAdminId])
 }

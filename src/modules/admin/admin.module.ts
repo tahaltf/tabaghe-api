@@ -32,6 +32,7 @@ import { AdminLogsController } from './controllers/admin-logs.controller';
 import { AdminPlatformWalletController } from './controllers/admin-platform-wallet.controller';
 import { AdminContactMessagesController } from './controllers/admin-contact-messages.controller';
 import { AdminCustomerClubController } from './controllers/admin-customer-club.controller';
+import { AdminSellerCrmController } from './controllers/admin-seller-crm.controller';
 import { AdminBlogController } from './controllers/admin-blog.controller';
 import { AdminLandingPagesController } from './controllers/admin-landing-pages.controller';
 import { AdminBadgesController } from './controllers/admin-badges.controller';
@@ -90,6 +91,7 @@ import { AdminBackupScheduler } from './services/admin-backup.scheduler';
 import { AdminSystemJobsService } from './services/admin-system-jobs.service';
 import { AdminRolesService } from './services/admin-roles.service';
 import { AdminRbacBootstrapService } from './services/admin-rbac-bootstrap.service';
+import { AdminSellerCrmService } from './services/admin-seller-crm.service';
 import { OrdersModule } from '../orders/orders.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { ListingModule } from '../listing/listing.module';
@@ -150,6 +152,7 @@ import { AdminCurrenciesController } from './controllers/admin-currencies.contro
     AdminPlatformWalletController,
     AdminContactMessagesController,
     AdminCustomerClubController,
+    AdminSellerCrmController,
     AdminBlogController,
     AdminLandingPagesController,
     AdminBadgesController,
@@ -208,6 +211,7 @@ import { AdminCurrenciesController } from './controllers/admin-currencies.contro
     UserRatingHistoryService,
     AdminRolesService,
     AdminRbacBootstrapService,
+    AdminSellerCrmService,
   ],
 })
 export class AdminModule {}
