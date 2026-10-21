@@ -1,4 +1,4 @@
-﻿-- CreateEnum
+-- CreateEnum
 CREATE TYPE "SellerLeadStage" AS ENUM ('NEW', 'CONTACTED', 'INTERESTED', 'ONBOARDING', 'WON', 'LOST');
 
 -- CreateEnum
