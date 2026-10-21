@@ -326,6 +326,7 @@ export const ADMIN_ROUTE_PERMISSIONS = {
     '/admin/surveys': 'surveys.view',
     '/admin/customer-club': 'customer_club.view',
     '/admin/seller-crm': 'seller_crm.view',
+    '/admin/seller-crm/quick': 'seller_crm.view',
     '/admin/marketing': 'marketing.view',
     '/admin/marketing/accounts': 'marketing.view',
     '/admin/marketing/oauth-callback': 'marketing.view',
