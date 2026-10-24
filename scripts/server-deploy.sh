@@ -303,15 +303,29 @@ should_build_service() {
   esac
 }
 
-# When deploy runs on the same host as Gitea, prefer the bare repo on disk.
-# Avoids HTTPS "bad pack header" / early EOF against git.tabagheh.com.
-GITEA_REPOS_ROOT="${GITEA_REPOS_ROOT:-/var/lib/gitea/git/repositories}"
+# Optional legacy: local Gitea bare repos (disabled when origin is GitHub).
+# Set USE_GITEA_MIRROR=1 only if you still deploy from git.tabagheh.com remotes.
+USE_GITEA_MIRROR="${USE_GITEA_MIRROR:-0}"
+GITEA_REPOS_ROOT="${GITEA_REPOS_ROOT:-/data/git/repositories}"
+# Host path when Gitea runs in Docker (bind-mounted data):
+#   /var/lib/docker/volumes/... or whatever mounts into the container at /data/git/repositories
+# Default below matches common host layout if you bind-mount Gitea data:
+if [ ! -d "$GITEA_REPOS_ROOT" ] && [ -d /var/lib/gitea/git/repositories ]; then
+  GITEA_REPOS_ROOT=/var/lib/gitea/git/repositories
+fi
 
 local_gitea_mirror() {
   local dir="$1"
   local url owner repo
   url="$(git -C "$dir" remote get-url origin 2>/dev/null || true)"
   [ -n "$url" ] || return 0
+
+  # GitHub remotes always fetch from origin (never on-disk Gitea)
+  if [[ "$url" == *github.com* ]]; then
+    return 0
+  fi
+
+  [ "$USE_GITEA_MIRROR" = "1" ] || return 0
 
   # origin already points at the bare repo on disk
   if [[ "$url" == /* ]] && [ -d "$url" ]; then
@@ -332,6 +346,7 @@ sync_repo() {
   local dir="$1"
   local name="$2"
   local mirror=""
+  local origin_url=""
 
   if [ ! -d "$dir/.git" ]; then
     log "skip $name (no git repo at $dir)"
@@ -339,6 +354,7 @@ sync_repo() {
   fi
 
   cd "$dir"
+  origin_url="$(git remote get-url origin 2>/dev/null || true)"
   mirror="$(local_gitea_mirror "$dir")"
 
   if [ -n "$mirror" ] && [ -d "$mirror" ]; then
@@ -348,9 +364,9 @@ sync_repo() {
     git -c "safe.directory=$mirror" fetch "$mirror" \
       "+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}"
   else
-    log "updating $name..."
+    log "updating $name from origin (${origin_url:-unknown})..."
     if ! git fetch origin "$BRANCH"; then
-      log "ERROR: git fetch failed for $name (no local mirror at ${mirror:-unknown})"
+      log "ERROR: git fetch failed for $name — check origin remote and GitHub credentials"
       return 1
     fi
   fi
