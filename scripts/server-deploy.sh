@@ -530,7 +530,10 @@ if [ "$BUILD_BE" = "1" ]; then
   # Do not pass --cache-from on that tag — BuildKit looks for a cache manifest and errors.
   ensure_api_base
   log "building backend image..."
-  docker build -t "$BACKEND_IMAGE" "$BACKEND"
+  # --network=host: npm ci inside BuildKit often ETIMEDOUT on default bridge
+  docker build --network=host \
+    --build-arg NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmmirror.com}" \
+    -t "$BACKEND_IMAGE" "$BACKEND"
   echo "$NEW_BE" > "$DEPLOY_SHA_BE_FILE"
 fi
 
