@@ -7,6 +7,9 @@ WORKDIR /app
 
 # Iran / restricted networks often time out on registry.npmjs.org
 ARG NPM_REGISTRY=https://registry.npmmirror.com
+# Prisma engines (binaries.prisma.sh) often ECONNRESET from restricted networks
+ARG PRISMA_ENGINES_MIRROR=https://registry.npmmirror.com/-/binary/prisma
+ENV PRISMA_ENGINES_MIRROR=$PRISMA_ENGINES_MIRROR
 RUN npm config set registry "$NPM_REGISTRY" \
  && npm config set fetch-retries 5 \
  && npm config set fetch-retry-mintimeout 20000 \
@@ -47,6 +50,8 @@ FROM api-base AS production
 ENV NODE_ENV=production
 
 ARG NPM_REGISTRY=https://registry.npmmirror.com
+ARG PRISMA_ENGINES_MIRROR=https://registry.npmmirror.com/-/binary/prisma
+ENV PRISMA_ENGINES_MIRROR=$PRISMA_ENGINES_MIRROR
 RUN npm config set registry "$NPM_REGISTRY" \
  && npm config set fetch-retries 5 \
  && npm config set fetch-retry-mintimeout 20000 \
