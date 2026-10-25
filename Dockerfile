@@ -5,13 +5,20 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
+# Iran / restricted networks often time out on registry.npmjs.org
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+RUN npm config set registry "$NPM_REGISTRY" \
+ && npm config set fetch-retries 5 \
+ && npm config set fetch-retry-mintimeout 20000 \
+ && npm config set fetch-retry-maxtimeout 120000
+
 COPY package*.json ./
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 # Avoid accidental binary downloads from test-only packages if reintroduced
 ENV REDISMS_DISABLE_POSTINSTALL=1
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --legacy-peer-deps
+    npm ci --legacy-peer-deps --no-audit --no-fund
 
 COPY . .
 
@@ -39,10 +46,16 @@ FROM api-base AS production
 
 ENV NODE_ENV=production
 
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+RUN npm config set registry "$NPM_REGISTRY" \
+ && npm config set fetch-retries 5 \
+ && npm config set fetch-retry-mintimeout 20000 \
+ && npm config set fetch-retry-maxtimeout 120000
+
 COPY package*.json ./
-# 🟢 حالا این دستور بدون تلاش برای دانلود کروم و بدون خطا اجرا می‌شود
+# Production deps only — Chromium comes from tabagheh-api-base
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --only=production --legacy-peer-deps
+    npm ci --omit=dev --legacy-peer-deps --no-audit --no-fund
 
 # کپی کردن خروجی‌های اصلی از استیج بیلد
 COPY --from=build /app/dist ./dist
