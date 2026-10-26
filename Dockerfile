@@ -5,6 +5,9 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
+# Nest/TypeScript compile OOMs at default ~2GB heap on this codebase
+ENV NODE_OPTIONS="--max-old-space-size=4096"
+
 # Iran / restricted networks often time out on registry.npmjs.org
 ARG NPM_REGISTRY=https://registry.npmmirror.com
 # Prisma engines (binaries.prisma.sh) often ECONNRESET from restricted networks
