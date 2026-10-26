@@ -566,7 +566,10 @@ fi
 
 if [ "$BUILD_FE" = "1" ]; then
   log "building frontend image (cached SSR — first run slow, later runs faster)..."
-  docker_build_with_local_cache frontend "$FRONTEND_IMAGE" "$FRONTEND"
+  # --network=host: npm ci inside BuildKit often ETIMEDOUT on default bridge
+  docker_build_with_local_cache frontend "$FRONTEND_IMAGE" "$FRONTEND" \
+    --network=host \
+    --build-arg "NPM_REGISTRY=${NPM_REGISTRY:-https://registry.npmmirror.com}"
   echo "$NEW_FE" > "$DEPLOY_SHA_FE_FILE"
 fi
 
