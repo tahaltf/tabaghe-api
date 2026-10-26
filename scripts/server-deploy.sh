@@ -243,6 +243,8 @@ image_exists() {
 }
 
 # Persistent BuildKit cache on disk — survives image retag/rebuild (frontend SSR stays ~3–6 min vs 15).
+# Do NOT --cache-from :latest/:previous — those are runtime images without a BuildKit cache
+# manifest; BuildKit spends ~30s each and prints ERROR importing cache manifest (non-fatal).
 docker_build_with_local_cache() {
   local cache_name="$1"
   local tag="$2"
@@ -256,14 +258,6 @@ docker_build_with_local_cache() {
   local -a args=()
   if [ -n "$(ls -A "$cache_dir" 2>/dev/null)" ]; then
     args+=(--cache-from "type=local,src=$cache_dir")
-  fi
-  if image_exists "$tag"; then
-    args+=(--cache-from "$tag")
-  fi
-  local prev
-  prev="$(previous_tag "$tag")"
-  if image_exists "$prev"; then
-    args+=(--cache-from "$prev")
   fi
 
   docker build \
