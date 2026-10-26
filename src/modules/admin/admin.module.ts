@@ -34,6 +34,8 @@ import { AdminPlatformWalletController } from './controllers/admin-platform-wall
 import { AdminContactMessagesController } from './controllers/admin-contact-messages.controller';
 import { AdminCustomerClubController } from './controllers/admin-customer-club.controller';
 import { AdminSellerCrmController } from './controllers/admin-seller-crm.controller';
+import { SellerCrmIngestController } from './controllers/seller-crm-ingest.controller';
+import { SellerCrmIngestGuard } from './guards/seller-crm-ingest.guard';
 import { AdminBlogController } from './controllers/admin-blog.controller';
 import { AdminLandingPagesController } from './controllers/admin-landing-pages.controller';
 import { AdminBadgesController } from './controllers/admin-badges.controller';
@@ -156,6 +158,7 @@ import { AdminCurrenciesController } from './controllers/admin-currencies.contro
     AdminContactMessagesController,
     AdminCustomerClubController,
     AdminSellerCrmController,
+    SellerCrmIngestController,
     AdminBlogController,
     AdminLandingPagesController,
     AdminBadgesController,
@@ -216,6 +219,7 @@ import { AdminCurrenciesController } from './controllers/admin-currencies.contro
     AdminRolesService,
     AdminRbacBootstrapService,
     AdminSellerCrmService,
+    SellerCrmIngestGuard,
   ],
 })
 export class AdminModule {}

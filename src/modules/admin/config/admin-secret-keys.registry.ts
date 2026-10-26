@@ -115,6 +115,26 @@ export const ADMIN_SECRET_KEYS_REGISTRY: AdminSecretKeyDef[] = [
     placeholder: 'یک رشته تصادفی بلند',
   },
   {
+    key: 'SELLER_CRM_INGEST_SECRET',
+    category: 'crawler',
+    categoryLabel: 'کرالر',
+    label: 'کلید ingest لید دیوار',
+    description:
+      'رمز مشترک برای POST /api/v1/integrations/seller-crm/divar-leads — هدر X-Seller-Crm-Ingest-Key یا Bearer (همان مقدار روی کرالر)',
+    kind: 'secret',
+    placeholder: 'یک رشته تصادفی بلند',
+  },
+  {
+    key: 'SELLER_CRM_CRAWLER_ADMIN_ID',
+    category: 'crawler',
+    categoryLabel: 'کرالر',
+    label: 'ادمین ثبت‌کننده لید کرالر',
+    description:
+      'شناسه User ادمین برای createdByAdminId هنگام ثبت خودکار لید از کرالر دیوار (اختیاری؛ در غیر این صورت قدیمی‌ترین ادمین)',
+    kind: 'text',
+    placeholder: 'cuid ادمین',
+  },
+  {
     key: 'ZOHAL_TOKEN',
     category: 'kyc',
     categoryLabel: 'احراز هویت و استعلام',

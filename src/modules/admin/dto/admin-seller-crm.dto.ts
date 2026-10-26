@@ -207,3 +207,46 @@ export class AdminImportSellerLeadsDto {
   @IsEnum(SellerLeadSource)
   defaultSource?: SellerLeadSource;
 }
+
+/** Body برای POST /integrations/seller-crm/divar-leads (کرالر) */
+export class AdminIngestDivarSellerLeadDto {
+  @IsString()
+  @MinLength(10)
+  @MaxLength(20)
+  phone!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  fullName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  shopName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  categoryHint?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  notes?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  adUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  adId?: string;
+}

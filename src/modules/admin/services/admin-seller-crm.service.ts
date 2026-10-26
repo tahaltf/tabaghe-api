@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import {
   Prisma,
@@ -10,8 +11,10 @@ import {
   SellerLeadLostReason,
   SellerLeadSource,
   SellerLeadStage,
+  UserRole,
 } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { ServerSecretConfigService } from '../../../shared/settings/server-secret-config.service';
 import { normalizeIranMobile } from '../utils/admin-recipient.util';
 import { AdminSmsIrService } from './admin-smsir.service';
 import {
@@ -20,6 +23,7 @@ import {
   AdminCreateSellerLeadActivityDto,
   AdminCreateSellerLeadDto,
   AdminImportSellerLeadsDto,
+  AdminIngestDivarSellerLeadDto,
   AdminSellerLeadListQueryDto,
   AdminSellerLeadSmsDto,
   AdminUpdateSellerLeadDto,
@@ -64,6 +68,7 @@ export class AdminSellerCrmService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly smsIr: AdminSmsIrService,
+    private readonly secrets: ServerSecretConfigService,
   ) {}
 
   async list(query: AdminSellerLeadListQueryDto) {
@@ -225,6 +230,66 @@ export class AdminSellerCrmService {
       wonTotal,
       conversionRate,
       avgDaysToConvert,
+    };
+  }
+
+  /**
+   * ثبت خودکار لید از کرالر دیوار.
+   * لید باز تکراری → skipped (نه Conflict) تا کرالر اسپم نکند.
+   */
+  async ingestDivarLead(dto: AdminIngestDivarSellerLeadDto) {
+    const phone = this.requirePhone(dto.phone);
+    const existing = await this.prisma.sellerLead.findFirst({
+      where: { phone, stage: { in: OPEN_STAGES } },
+      select: { id: true, fullName: true, stage: true },
+    });
+    if (existing) {
+      return {
+        status: 'skipped' as const,
+        reason: 'open_lead_exists',
+        existingLeadId: existing.id,
+        existingStage: existing.stage,
+      };
+    }
+
+    const adminId = await this.resolveCrawlerAdminId();
+    const fullName = this.resolveDivarFullName(dto.fullName);
+    const notes = this.buildDivarNotes(dto);
+
+    const matchedUser = await this.findUserByPhone(phone);
+    const lead = await this.prisma.sellerLead.create({
+      data: {
+        fullName,
+        shopName: dto.shopName?.trim() || null,
+        phone,
+        city: dto.city?.trim() || null,
+        categoryHint: dto.categoryHint?.trim() || null,
+        source: SellerLeadSource.DIVAR,
+        notes,
+        createdByAdminId: adminId,
+        convertedUserId: matchedUser?.id ?? null,
+        activities: {
+          create: {
+            type: SellerLeadActivityType.SYSTEM,
+            body: 'ثبت خودکار از کرالر دیوار',
+            createdByAdminId: adminId,
+            meta: {
+              adId: dto.adId?.trim() || undefined,
+              adUrl: dto.adUrl?.trim() || undefined,
+              ...(matchedUser ? { matchedUserId: matchedUser.id } : {}),
+            },
+          },
+        },
+      },
+      select: {
+        ...LEAD_CARD_SELECT,
+        notes: true,
+      },
+    });
+
+    return {
+      status: 'created' as const,
+      lead,
     };
   }
 
@@ -791,5 +856,53 @@ export class AdminSellerCrmService {
       تلگرام: SellerLeadSource.TELEGRAM,
     };
     return map[raw] ?? map[raw.toLowerCase()] ?? null;
+  }
+
+  private resolveDivarFullName(raw?: string): string {
+    const trimmed = (raw ?? '').trim().replace(/\s+/g, ' ');
+    if (trimmed.length >= 2) {
+      return trimmed.slice(0, 120);
+    }
+    return 'فروشنده دیوار';
+  }
+
+  private buildDivarNotes(dto: AdminIngestDivarSellerLeadDto): string | null {
+    const parts: string[] = [];
+    const adUrl = dto.adUrl?.trim();
+    const adId = dto.adId?.trim();
+    const extra = dto.notes?.trim();
+    if (adUrl) parts.push(`آگهی: ${adUrl}`);
+    if (adId) parts.push(`شناسه دیوار: ${adId}`);
+    if (extra) parts.push(extra);
+    if (parts.length === 0) return null;
+    return parts.join('\n').slice(0, 2000);
+  }
+
+  private async resolveCrawlerAdminId(): Promise<string> {
+    const configured = this.secrets.get('SELLER_CRM_CRAWLER_ADMIN_ID')?.trim();
+    if (configured) {
+      const user = await this.prisma.user.findFirst({
+        where: { id: configured, role: UserRole.ADMIN },
+        select: { id: true },
+      });
+      if (!user) {
+        throw new ServiceUnavailableException(
+          'SELLER_CRM_CRAWLER_ADMIN_ID معتبر نیست یا ادمین نیست',
+        );
+      }
+      return user.id;
+    }
+
+    const fallback = await this.prisma.user.findFirst({
+      where: { role: UserRole.ADMIN },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    if (!fallback) {
+      throw new ServiceUnavailableException(
+        'هیچ ادمینی برای ثبت لید کرالر یافت نشد — SELLER_CRM_CRAWLER_ADMIN_ID را تنظیم کنید',
+      );
+    }
+    return fallback.id;
   }
 }
