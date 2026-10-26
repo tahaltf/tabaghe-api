@@ -20,6 +20,7 @@ import { AdminFeeRulesController } from './controllers/admin-fee-rules.controlle
 import { AdminVerificationFeeRulesController } from './controllers/admin-verification-fee-rules.controller';
 import { AdminGiteaIpAllowlistController } from './controllers/admin-gitea-ip-allowlist.controller';
 import { AdminCrawlerIpAllowlistController } from './controllers/admin-crawler-ip-allowlist.controller';
+import { CrawlerPanelAuthController } from './controllers/crawler-panel-auth.controller';
 import { AdminRepairsController } from './controllers/admin-repairs.controller';
 import { AdminProductRequestsController } from './controllers/admin-product-requests.controller';
 import { AdminTicketsController } from './controllers/admin-tickets.controller';
@@ -67,6 +68,7 @@ import { AdminFeeRulesService } from './services/admin-fee-rules.service';
 import { AdminVerificationFeeRulesService } from './services/admin-verification-fee-rules.service';
 import { AdminGiteaIpAllowlistService } from './services/admin-gitea-ip-allowlist.service';
 import { AdminCrawlerIpAllowlistService } from './services/admin-crawler-ip-allowlist.service';
+import { AdminCrawlerPanelUsersService } from './services/admin-crawler-panel-users.service';
 import { AdminRepairsService } from './services/admin-repairs.service';
 import { AdminProductRequestsService } from './services/admin-product-requests.service';
 import { AdminTicketsService } from './services/admin-tickets.service';
@@ -140,6 +142,7 @@ import { AdminCurrenciesController } from './controllers/admin-currencies.contro
     AdminVerificationFeeRulesController,
     AdminGiteaIpAllowlistController,
     AdminCrawlerIpAllowlistController,
+    CrawlerPanelAuthController,
     AdminRepairsController,
     AdminProductRequestsController,
     AdminTicketsController,

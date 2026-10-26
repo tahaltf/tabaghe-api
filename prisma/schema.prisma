@@ -1831,8 +1831,28 @@ model CrawlerIpAllowlistEntry {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  panelUsers CrawlerPanelUser[]
+
   @@unique([ipCidr])
   @@index([enabled])
+}
+
+/// App-level login for crawler.tabagheh.com /gate (username + password from Tabagheh admin).
+model CrawlerPanelUser {
+  id                 String                   @id @default(cuid())
+  username           String                   @unique
+  passwordHash       String
+  displayName        String
+  enabled            Boolean                  @default(true)
+  notes              String?
+  ipAllowlistEntryId String?
+  ipAllowlistEntry   CrawlerIpAllowlistEntry? @relation(fields: [ipAllowlistEntryId], references: [id], onDelete: SetNull)
+  lastLoginAt        DateTime?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  @@index([enabled])
+  @@index([ipAllowlistEntryId])
 }
 
 model BlogPost {
