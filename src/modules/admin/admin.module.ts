@@ -190,6 +190,7 @@ import { AdminCurrenciesController } from './controllers/admin-currencies.contro
     AdminVerificationFeeRulesService,
     AdminGiteaIpAllowlistService,
     AdminCrawlerIpAllowlistService,
+    AdminCrawlerPanelUsersService,
     AdminRepairsService,
     AdminProductRequestsService,
     AdminTicketsService,
