@@ -569,7 +569,17 @@ fi
 
 if [ "$BUILD_CR" = "1" ]; then
   log "building crawler image..."
-  docker build -t "$CRAWLER_IMAGE" "$CRAWLER"
+  # Playwright base + apt/novnc needs free space; reclaim dangling layers first.
+  df -h / /var/lib/docker 2>/dev/null || df -h /
+  docker builder prune -f >/dev/null 2>&1 || true
+  docker image prune -f >/dev/null 2>&1 || true
+  if ! docker build -t "$CRAWLER_IMAGE" "$CRAWLER"; then
+    log "crawler build failed — trying deeper docker prune then one retry..."
+    docker builder prune -af >/dev/null 2>&1 || true
+    docker image prune -af >/dev/null 2>&1 || true
+    df -h / || true
+    docker build -t "$CRAWLER_IMAGE" "$CRAWLER"
+  fi
   echo "$NEW_CR" > "$DEPLOY_SHA_CR_FILE"
 fi
 
