@@ -4,12 +4,17 @@ set -euo pipefail
 # Tabagheh production deploy — run on server: /app/tabagheh
 #
 # Modes:
-#   ./deploy.sh                         auto: pull all, build only changed services
+#   ./deploy.sh                         auto: pull + build frontend/backend only when changed
 #   DEPLOY_SERVICES=all ./deploy.sh     force build frontend + backend + crawler
 #   DEPLOY_SERVICES=frontend ./deploy.sh
 #   DEPLOY_SERVICES=backend ./deploy.sh
-#   DEPLOY_SERVICES=crawler ./deploy.sh
+#   DEPLOY_SERVICES=crawler ./deploy.sh # crawler is opt-in (never built in auto — slow image)
+#   DEPLOY_SERVICES=frontend,backend ./deploy.sh
 #   FORCE_BASE_BUILD=1 ./deploy.sh      rebuild Chromium base image
+#
+# Crawler is intentionally excluded from "auto": Playwright/opencv builds take
+# 10–20+ minutes on this host. Deploy crawler only via its own workflow or
+# DEPLOY_SERVICES=crawler|all.
 #
 # Auto-rollback: before rebuild, :latest is tagged :previous. If migrate or
 # post-deploy health/gateway checks fail, :previous is restored to :latest and
@@ -277,10 +282,29 @@ file_hash() {
   sha256sum "$1" | awk '{print $1}'
 }
 
+# Crawler only when explicitly requested (never via auto).
+wants_crawler() {
+  case "$DEPLOY_SERVICES" in
+    all|crawler) return 0 ;;
+    auto) return 1 ;;
+    *)
+      case ",$DEPLOY_SERVICES," in
+        *,crawler,*) return 0 ;;
+        *) return 1 ;;
+      esac
+      ;;
+  esac
+}
+
 should_build_service() {
   local name="$1"
   local changed="$2"
   local image="$3"
+
+  # Keep crawler off the hot path for FE/BE deploys.
+  if [ "$name" = "crawler" ] && ! wants_crawler; then
+    return 1
+  fi
 
   case "$DEPLOY_SERVICES" in
     all) return 0 ;;
@@ -446,8 +470,11 @@ if [ "${_TABAGHEH_DEPLOY_BOOTSTRAPPED:-0}" != "1" ]; then
 
   sync_repo "$FRONTEND" "frontend"
   sync_repo "$BACKEND" "backend"
-  if [ -d "$CRAWLER/.git" ]; then
+  # Skip crawler git pull unless this deploy targets crawler (keeps FE/BE fast).
+  if wants_crawler && [ -d "$CRAWLER/.git" ]; then
     sync_repo "$CRAWLER" "crawler"
+  elif [ -d "$CRAWLER/.git" ]; then
+    log "skipping crawler git sync (DEPLOY_SERVICES=$DEPLOY_SERVICES)"
   fi
 
   if [ ! -f "$BACKEND/scripts/server-deploy.sh" ]; then
