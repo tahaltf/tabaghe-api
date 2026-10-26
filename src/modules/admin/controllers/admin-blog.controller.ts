@@ -19,6 +19,7 @@ import { PermissionsGuard } from '../../auth/guards/permissions.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { RequirePermission } from '../../auth/decorators/require-permission.decorator';
 import { bannerMulterOptions } from '../../../common/upload/banner-upload.config';
+import { ImageOptimizeService } from '../../../common/upload/image-optimize.service';
 import { AdminBlogService } from '../services/admin-blog.service';
 import {
   AdminCreateBlogPostDto,
@@ -30,7 +31,10 @@ import {
 @Roles(UserRole.ADMIN)
 @RequirePermission('blog.view')
 export class AdminBlogController {
-  constructor(private readonly service: AdminBlogService) {}
+  constructor(
+    private readonly service: AdminBlogService,
+    private readonly imageOptimize: ImageOptimizeService,
+  ) {}
 
   @Get()
   list() {
@@ -58,8 +62,12 @@ export class AdminBlogController {
   @Post('upload-image')
   @RequirePermission('blog.create')
   @UseInterceptors(FileInterceptor('image', bannerMulterOptions))
-  uploadImage(@UploadedFile() file?: Express.Multer.File) {
+  async uploadImage(@UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('فایلی ارسال نشده است');
-    return { filename: file.filename, image: `banners/${file.filename}` };
+    const optimized = await this.imageOptimize.optimizeContentUpload(file);
+    return {
+      filename: optimized.filename,
+      image: `banners/${optimized.filename}`,
+    };
   }
 }

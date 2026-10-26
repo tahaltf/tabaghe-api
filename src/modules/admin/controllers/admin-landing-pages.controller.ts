@@ -21,6 +21,7 @@ import { PermissionsGuard } from '../../auth/guards/permissions.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { RequirePermission } from '../../auth/decorators/require-permission.decorator';
 import { bannerMulterOptions } from '../../../common/upload/banner-upload.config';
+import { ImageOptimizeService } from '../../../common/upload/image-optimize.service';
 import { AdminLandingPagesService } from '../services/admin-landing-pages.service';
 import {
   AdminCreateLandingPageDto,
@@ -32,7 +33,10 @@ import {
 @Roles(UserRole.ADMIN)
 @RequirePermission('landing_pages.view')
 export class AdminLandingPagesController {
-  constructor(private readonly service: AdminLandingPagesService) {}
+  constructor(
+    private readonly service: AdminLandingPagesService,
+    private readonly imageOptimize: ImageOptimizeService,
+  ) {}
 
   @Get()
   list() {
@@ -42,9 +46,13 @@ export class AdminLandingPagesController {
   @Post('upload-media')
   @RequirePermission('landing_pages.create')
   @UseInterceptors(FileInterceptor('image', bannerMulterOptions))
-  uploadMedia(@UploadedFile() file?: Express.Multer.File) {
+  async uploadMedia(@UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('فایلی ارسال نشده است');
-    return { filename: file.filename, image: `banners/${file.filename}` };
+    const optimized = await this.imageOptimize.optimizeContentUpload(file);
+    return {
+      filename: optimized.filename,
+      image: `banners/${optimized.filename}`,
+    };
   }
 
   @Post()

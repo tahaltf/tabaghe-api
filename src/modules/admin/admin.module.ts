@@ -47,6 +47,9 @@ import { AdminServerStorageController } from './controllers/admin-server-storage
 import { AdminServerMonitorController } from './controllers/admin-server-monitor.controller';
 import { AdminSystemJobsController } from './controllers/admin-system-jobs.controller';
 import { AdminRolesController } from './controllers/admin-roles.controller';
+import { AdminImageOptimizeController } from './controllers/admin-image-optimize.controller';
+import { ImageOptimizeService } from '../../common/upload/image-optimize.service';
+import { AdminImageOptimizeService } from './services/admin-image-optimize.service';
 
 // Services
 import { AdminDashboardService } from './services/admin-dashboard.service';
@@ -170,6 +173,7 @@ import { AdminCurrenciesController } from './controllers/admin-currencies.contro
     AdminServerMonitorController,
     AdminSystemJobsController,
     AdminRolesController,
+    AdminImageOptimizeController,
   ],
   providers: [
     AdminDashboardService,
@@ -221,6 +225,8 @@ import { AdminCurrenciesController } from './controllers/admin-currencies.contro
     AdminRbacBootstrapService,
     AdminSellerCrmService,
     SellerCrmIngestGuard,
+    ImageOptimizeService,
+    AdminImageOptimizeService,
   ],
 })
 export class AdminModule {}

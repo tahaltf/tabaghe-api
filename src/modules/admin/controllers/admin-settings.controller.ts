@@ -31,6 +31,7 @@ import { SetAdminSecretDto } from '../dto/admin-secret.dto';
 import { bannerMulterOptions } from '../../../common/upload/banner-upload.config';
 import { brandLogoMulterOptions, licenseIconMulterOptions } from '../../../common/upload/brand-logo-upload.config';
 import { inspectionCertificateAssetMulterOptions } from '../../../common/upload/inspection-certificate-asset-upload.config';
+import { ImageOptimizeService } from '../../../common/upload/image-optimize.service';
 import { SmsService } from '../../sms/sms.service';
 import { ZohalSettingsService } from '../../zohal/zohal-settings.service';
 import type { ZohalFailureService } from '../../zohal/zohal-settings.constants';
@@ -45,6 +46,7 @@ export class AdminSettingsController {
     private readonly secretKeys: AdminSecretKeysService,
     private readonly sms: SmsService,
     private readonly zohalSettings: ZohalSettingsService,
+    private readonly imageOptimize: ImageOptimizeService,
   ) {}
 
   @Get()
@@ -118,7 +120,8 @@ export class AdminSettingsController {
   @UseInterceptors(FileInterceptor('banner', bannerMulterOptions))
   async uploadBanner(@UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('فایلی ارسال نشده است');
-    return this.service.setBanner(file.filename);
+    const optimized = await this.imageOptimize.optimizeBannerUpload(file);
+    return this.service.setBanner(optimized.filename);
   }
 
   @Delete('banner')
@@ -131,7 +134,8 @@ export class AdminSettingsController {
   @UseInterceptors(FileInterceptor('file', brandLogoMulterOptions))
   async uploadMediaFallbackLogo(@UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('فایلی ارسال نشده است');
-    return this.service.setMediaFallbackLogo(file.filename);
+    const optimized = await this.imageOptimize.optimizeBrandUpload(file);
+    return this.service.setMediaFallbackLogo(optimized.filename);
   }
 
   @Delete('media-fallback-logo')
@@ -143,7 +147,8 @@ export class AdminSettingsController {
   @UseInterceptors(FileInterceptor('file', brandLogoMulterOptions))
   async uploadUserLogo(@UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('فایلی ارسال نشده است');
-    return this.service.setUserAppLogo(file.filename);
+    const optimized = await this.imageOptimize.optimizeBrandUpload(file);
+    return this.service.setUserAppLogo(optimized.filename);
   }
 
   @Delete('user-logo')
@@ -155,7 +160,8 @@ export class AdminSettingsController {
   @UseInterceptors(FileInterceptor('file', brandLogoMulterOptions))
   async uploadUserLogoLight(@UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('فایلی ارسال نشده است');
-    return this.service.setUserAppLogoLight(file.filename);
+    const optimized = await this.imageOptimize.optimizeBrandUpload(file);
+    return this.service.setUserAppLogoLight(optimized.filename);
   }
 
   @Delete('user-logo-light')
@@ -167,7 +173,8 @@ export class AdminSettingsController {
   @UseInterceptors(FileInterceptor('file', brandLogoMulterOptions))
   async uploadUserLogoDark(@UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('فایلی ارسال نشده است');
-    return this.service.setUserAppLogoDark(file.filename);
+    const optimized = await this.imageOptimize.optimizeBrandUpload(file);
+    return this.service.setUserAppLogoDark(optimized.filename);
   }
 
   @Delete('user-logo-dark')
@@ -180,7 +187,8 @@ export class AdminSettingsController {
   @UseInterceptors(FileInterceptor('file', brandLogoMulterOptions))
   async uploadPwaAppIcon(@UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('فایلی ارسال نشده است');
-    return this.service.setPwaAppIcon(file.filename);
+    const optimized = await this.imageOptimize.optimizeBrandUpload(file);
+    return this.service.setPwaAppIcon(optimized.filename);
   }
 
   @Delete('pwa-app-icon')
@@ -194,7 +202,8 @@ export class AdminSettingsController {
   @UseInterceptors(FileInterceptor('file', brandLogoMulterOptions))
   async uploadPwaFavicon(@UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('فایلی ارسال نشده است');
-    return this.service.setPwaAppFavicon(file.filename);
+    const optimized = await this.imageOptimize.optimizeBrandUpload(file);
+    return this.service.setPwaAppFavicon(optimized.filename);
   }
 
   @Delete('pwa-favicon')
@@ -207,7 +216,8 @@ export class AdminSettingsController {
   @UseInterceptors(FileInterceptor('file', brandLogoMulterOptions))
   async uploadAdminLogo(@UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('فایلی ارسال نشده است');
-    return this.service.setAdminPanelLogo(file.filename);
+    const optimized = await this.imageOptimize.optimizeBrandUpload(file);
+    return this.service.setAdminPanelLogo(optimized.filename);
   }
 
   @Delete('admin-logo')
@@ -273,9 +283,13 @@ export class AdminSettingsController {
   @Post('homepage-hero-visual')
   @RequirePermission('homepage.update')
   @UseInterceptors(FileInterceptor('image', bannerMulterOptions))
-  uploadHomepageHeroVisual(@UploadedFile() file?: Express.Multer.File) {
+  async uploadHomepageHeroVisual(@UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('فایلی ارسال نشده است');
-    return { filename: file.filename, image: `banners/${file.filename}` };
+    const optimized = await this.imageOptimize.optimizeBannerUpload(file);
+    return {
+      filename: optimized.filename,
+      image: `banners/${optimized.filename}`,
+    };
   }
 
   /**

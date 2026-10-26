@@ -25,6 +25,7 @@
     "seed:test-users": "ts-node prisma/seed-test-users.ts",
     "seed:seller-landing": "ts-node scripts/seed-seller-landing.ts",
     "migrate:listing-images": "ts-node scripts/migrate-listing-image-variants.ts",
+    "migrate:optimize-uploads": "ts-node -r tsconfig-paths/register scripts/migrate-optimize-uploads.ts",
     "load:smoke": "node scripts/load-smoke.mjs",
     "seed:content": "node prisma/seed-content.js",
     "test:phase1": "jest --testPathPattern=\"web-otp-template|seller-landing.seed|landing-sections\"",
