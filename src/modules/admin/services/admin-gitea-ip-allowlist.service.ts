@@ -1,3 +1,7 @@
+/**
+ * DISABLED (قابل برگشت): دسترسی Gitea IP
+ * از admin.module خارج شده — فایل برای احیای بعدی نگه داشته شده است.
+ */
 import {
   BadRequestException,
   ConflictException,
