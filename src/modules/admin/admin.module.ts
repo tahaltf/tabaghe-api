@@ -18,7 +18,8 @@ import { AdminSettingsController } from './controllers/admin-settings.controller
 import { AdminPlansController } from './controllers/admin-plans.controller';
 import { AdminFeeRulesController } from './controllers/admin-fee-rules.controller';
 import { AdminVerificationFeeRulesController } from './controllers/admin-verification-fee-rules.controller';
-import { AdminGiteaIpAllowlistController } from './controllers/admin-gitea-ip-allowlist.controller';
+// DISABLED (قابل برگشت): دسترسی Gitea IP — فایل‌ها نگه داشته شده‌اند
+// import { AdminGiteaIpAllowlistController } from './controllers/admin-gitea-ip-allowlist.controller';
 import { AdminCrawlerIpAllowlistController } from './controllers/admin-crawler-ip-allowlist.controller';
 import { CrawlerPanelAuthController } from './controllers/crawler-panel-auth.controller';
 import { AdminRepairsController } from './controllers/admin-repairs.controller';
@@ -68,7 +69,7 @@ import { AdminSecretKeysService } from './services/admin-secret-keys.service';
 import { AdminPlansService } from './services/admin-plans.service';
 import { AdminFeeRulesService } from './services/admin-fee-rules.service';
 import { AdminVerificationFeeRulesService } from './services/admin-verification-fee-rules.service';
-import { AdminGiteaIpAllowlistService } from './services/admin-gitea-ip-allowlist.service';
+// DISABLED: import { AdminGiteaIpAllowlistService } from './services/admin-gitea-ip-allowlist.service';
 import { AdminCrawlerIpAllowlistService } from './services/admin-crawler-ip-allowlist.service';
 import { AdminCrawlerPanelUsersService } from './services/admin-crawler-panel-users.service';
 import { AdminRepairsService } from './services/admin-repairs.service';
@@ -142,7 +143,7 @@ import { AdminCurrenciesController } from './controllers/admin-currencies.contro
     AdminPlansController,
     AdminFeeRulesController,
     AdminVerificationFeeRulesController,
-    AdminGiteaIpAllowlistController,
+    // DISABLED: AdminGiteaIpAllowlistController,
     AdminCrawlerIpAllowlistController,
     CrawlerPanelAuthController,
     AdminRepairsController,
@@ -191,7 +192,7 @@ import { AdminCurrenciesController } from './controllers/admin-currencies.contro
     AdminPlansService,
     AdminFeeRulesService,
     AdminVerificationFeeRulesService,
-    AdminGiteaIpAllowlistService,
+    // DISABLED: AdminGiteaIpAllowlistService,
     AdminCrawlerIpAllowlistService,
     AdminCrawlerPanelUsersService,
     AdminRepairsService,

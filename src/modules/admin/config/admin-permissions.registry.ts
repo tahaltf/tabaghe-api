@@ -197,12 +197,13 @@ export const ADMIN_PERMISSION_CATALOG: AdminPermissionDef[] = [
     { action: 'update', label: 'ویرایش قانون کارشناسی' },
     { action: 'delete', label: 'حذف قانون کارشناسی' },
   ]),
-  ...defs('gitea_ip_allowlist', 'دسترسی Gitea (IP)', 2870, [
-    { action: 'view', label: 'مشاهده لیست IP مجاز Gitea' },
-    { action: 'create', label: 'افزودن IP مجاز' },
-    { action: 'update', label: 'ویرایش / فعال‌سازی محدودیت' },
-    { action: 'delete', label: 'حذف IP مجاز' },
-  ]),
+  // DISABLED (قابل برگشت): دسترسی Gitea IP
+  // ...defs('gitea_ip_allowlist', 'دسترسی Gitea (IP)', 2870, [
+  //   { action: 'view', label: 'مشاهده لیست IP مجاز Gitea' },
+  //   { action: 'create', label: 'افزودن IP مجاز' },
+  //   { action: 'update', label: 'ویرایش / فعال‌سازی محدودیت' },
+  //   { action: 'delete', label: 'حذف IP مجاز' },
+  // ]),
   ...defs('crawler_ip_allowlist', 'دسترسی کرالر', 2875, [
     { action: 'view', label: 'مشاهده لیست IP مجاز کرالر' },
     { action: 'create', label: 'افزودن IP مجاز کرالر' },
@@ -293,7 +294,7 @@ export const ADMIN_ROUTE_PERMISSIONS = {
     '/admin/server-monitor',
     '/admin/wordpress-plugin',
     '/admin/roles',
-    '/admin/gitea-ip-allowlist',
+    // DISABLED: '/admin/gitea-ip-allowlist',
     '/admin/crawler-ip-allowlist',
   ],
   /** نگاشت مسیر فرانت → پرمیشن view لازم */
@@ -346,7 +347,7 @@ export const ADMIN_ROUTE_PERMISSIONS = {
     '/admin/notification-settings': 'notification_settings.view',
     '/admin/fee-rules': 'fee_rules.view',
     '/admin/verification-fee-rules': 'verification_fee_rules.view',
-    '/admin/gitea-ip-allowlist': 'gitea_ip_allowlist.view',
+    // DISABLED: '/admin/gitea-ip-allowlist': 'gitea_ip_allowlist.view',
     '/admin/crawler-ip-allowlist': 'crawler_ip_allowlist.view',
     '/admin/auction-ops': 'auction_ops.view',
     '/admin/logs': 'logs.view',

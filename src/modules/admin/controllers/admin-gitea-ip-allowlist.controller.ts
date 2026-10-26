@@ -1,3 +1,7 @@
+/**
+ * DISABLED (قابل برگشت): دسترسی Gitea IP
+ * از admin.module و منو/روت فرانت خارج شده — برای فعال‌سازی دوباره uncomment کنید.
+ */
 import {
   Body,
   Controller,
