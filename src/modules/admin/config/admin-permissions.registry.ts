@@ -203,7 +203,7 @@ export const ADMIN_PERMISSION_CATALOG: AdminPermissionDef[] = [
     { action: 'update', label: 'ویرایش / فعال‌سازی محدودیت' },
     { action: 'delete', label: 'حذف IP مجاز' },
   ]),
-  ...defs('crawler_ip_allowlist', 'دسترسی کرالر (IP)', 2875, [
+  ...defs('crawler_ip_allowlist', 'دسترسی کرالر', 2875, [
     { action: 'view', label: 'مشاهده لیست IP مجاز کرالر' },
     { action: 'create', label: 'افزودن IP مجاز کرالر' },
     { action: 'update', label: 'ویرایش / فعال‌سازی محدودیت کرالر' },

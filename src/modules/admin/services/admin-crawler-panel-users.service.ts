@@ -6,6 +6,7 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { timingSafeEqual } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import {
@@ -51,7 +52,10 @@ export class AdminCrawlerPanelUsersService {
         'ورود پنل کرالر پیکربندی نشده است (CRAWLER_GATE_SHARED_SECRET)',
       );
     }
-    if (!candidate || candidate.trim() !== expected) {
+    const got = (candidate || '').trim();
+    const a = Buffer.from(expected);
+    const b = Buffer.from(got);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
       throw new UnauthorizedException('کلید احراز هویت کرالر نامعتبر است');
     }
   }
