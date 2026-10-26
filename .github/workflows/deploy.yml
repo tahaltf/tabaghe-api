@@ -28,9 +28,14 @@ jobs:
         run: npm ci
 
       - name: Generate Prisma client
+        env:
+          # prisma.config.ts requires DATABASE_URL even for `prisma generate`
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/ci?schema=public
         run: npx prisma generate
 
       - name: Test
+        env:
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/ci?schema=public
         run: npm test
 
   deploy:
@@ -55,4 +60,9 @@ jobs:
               echo "Missing /app/tabagheh/.env on server"
               exit 1
             fi
+            # If seller_crm migration was left failed (e.g. old UTF-8 BOM), clear it so migrate deploy can retry.
+            docker compose run --rm --no-deps --entrypoint npx backend \
+              prisma migrate resolve --rolled-back 20261021140000_seller_crm \
+              >/tmp/seller_crm_resolve.log 2>&1 \
+              || echo "seller_crm resolve skipped (already applied/absent)"
             DEPLOY_SERVICES=backend bash ./deploy.sh
