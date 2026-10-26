@@ -6,6 +6,7 @@ export type AdminSecretKeyCategory =
   | 'kyc'
   | 'web_push'
   | 'crawler'
+  | 'seo'
   | 'general';
 
 export type AdminSecretValueKind = 'secret' | 'url' | 'text';
@@ -272,6 +273,26 @@ export const ADMIN_SECRET_KEYS_REGISTRY: AdminSecretKeyDef[] = [
     label: 'VAPID Subject',
     kind: 'text',
     placeholder: 'mailto:support@example.com',
+  },
+  {
+    key: 'GSC_SERVICE_ACCOUNT_JSON',
+    category: 'seo',
+    categoryLabel: 'سئو / Search Console',
+    label: 'JSON کلید Service Account گوگل',
+    description:
+      'کل محتوای فایل JSON سرویس‌اکانت را بچسبانید. ایمیل همان اکانت را در Search Console به‌عنوان کاربر اضافه کنید.',
+    kind: 'secret',
+    placeholder: '{"type":"service_account",...}',
+  },
+  {
+    key: 'GSC_SITE_URL',
+    category: 'seo',
+    categoryLabel: 'سئو / Search Console',
+    label: 'آدرس Property سرچ کنسول',
+    description:
+      'مثلاً sc-domain:example.com یا https://www.example.com/',
+    kind: 'text',
+    placeholder: 'sc-domain:tabagheh.com',
   },
   {
     key: 'API_URL',

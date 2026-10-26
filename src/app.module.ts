@@ -66,6 +66,7 @@ import { CartModule } from './modules/cart/cart.module';
 import { CouponsModule } from './modules/coupons/coupons.module';
 import { SurveysModule } from './modules/surveys/surveys.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { SiteAnalyticsModule } from './modules/site-analytics/site-analytics.module';
 import { AiContentModule } from './modules/ai-content/ai-content.module';
 import { CurrencyModule } from './modules/currency/currency.module';
 
@@ -140,6 +141,7 @@ import { AppService } from './app.service';
     CartModule,
     CouponsModule,
     AnalyticsModule,
+    SiteAnalyticsModule,
     SurveysModule,
     AiContentModule,
     CurrencyModule,

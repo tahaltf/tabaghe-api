@@ -104,6 +104,10 @@ export const ADMIN_PERMISSION_CATALOG: AdminPermissionDef[] = [
   ...defs('listing_analytics', 'آمار بازدید آگهی', 1400, [
     { action: 'view', label: 'مشاهده آمار' },
   ]),
+  ...defs('site_analytics', 'مانیتورینگ ترافیک', 1450, [
+    { action: 'view', label: 'مشاهده مانیتورینگ ترافیک' },
+    { action: 'update', label: 'همگام‌سازی و تنظیمات' },
+  ]),
   ...defs('categories', 'دسته‌بندی‌ها', 1500, [
     { action: 'view', label: 'مشاهده دسته‌ها' },
     { action: 'create', label: 'ایجاد دسته' },
@@ -254,6 +258,7 @@ export const DEFAULT_ADMIN_ROLES: DefaultAdminRoleDef[] = [
       'categories.update',
       'locations.view',
       'listing_analytics.view',
+      'site_analytics.view',
       'users.view',
     ],
   },
@@ -317,6 +322,7 @@ export const ADMIN_ROUTE_PERMISSIONS = {
     '/admin/contact-messages': 'contact_messages.view',
     '/admin/notifications': 'notifications.view',
     '/admin/listing-analytics': 'listing_analytics.view',
+    '/admin/site-analytics': 'site_analytics.view',
     '/admin/categories': 'categories.view',
     '/admin/locations': 'locations.view',
     '/admin/homepage': 'homepage.view',

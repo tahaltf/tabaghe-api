@@ -2401,3 +2401,151 @@ model SellerLeadActivity {
   @@index([leadId, createdAt])
   @@index([createdByAdminId])
 }
+
+////////////////////
+/// SITE ANALYTICS + SEARCH CONSOLE
+////////////////////
+
+enum GscPropertyStatus {
+  DISCONNECTED
+  CONNECTED
+  ERROR
+}
+
+model SiteSession {
+  id           String         @id
+  userId       String?
+  firstSeenAt  DateTime       @default(now())
+  lastSeenAt   DateTime       @default(now())
+  landingPath  String?
+  referrer     String?
+  utmSource    String?
+  utmMedium    String?
+  utmCampaign  String?
+  device       String?
+  pageViews    SitePageView[]
+
+  @@index([userId, lastSeenAt])
+  @@index([firstSeenAt])
+  @@index([lastSeenAt])
+}
+
+model SitePageView {
+  id        String      @id @default(cuid())
+  sessionId String
+  session   SiteSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userId    String?
+  path      String
+  title     String?
+  referrer  String?
+  viewedAt  DateTime    @default(now())
+
+  @@index([path, viewedAt])
+  @@index([viewedAt])
+  @@index([sessionId, path, viewedAt])
+  @@index([userId, viewedAt])
+}
+
+model SiteDailySite {
+  id         String   @id @default(cuid())
+  date       DateTime @db.Date
+  pageviews  Int      @default(0)
+  sessions   Int      @default(0)
+  users      Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([date])
+  @@index([date])
+}
+
+model SiteDailyPage {
+  id         String   @id @default(cuid())
+  date       DateTime @db.Date
+  path       String
+  pageviews  Int      @default(0)
+  sessions   Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([date, path])
+  @@index([date])
+  @@index([path, date])
+  @@index([pageviews])
+}
+
+model GscProperty {
+  id         String            @id @default(cuid())
+  siteUrl    String            @unique
+  status     GscPropertyStatus @default(DISCONNECTED)
+  lastSyncAt DateTime?
+  lastError  String?
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+}
+
+model GscDailySite {
+  id          String   @id @default(cuid())
+  date        DateTime @db.Date
+  clicks      Int      @default(0)
+  impressions Int      @default(0)
+  ctr         Float    @default(0)
+  position    Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([date])
+  @@index([date])
+}
+
+model GscDailyPage {
+  id          String   @id @default(cuid())
+  date        DateTime @db.Date
+  page        String
+  clicks      Int      @default(0)
+  impressions Int      @default(0)
+  ctr         Float    @default(0)
+  position    Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([date, page])
+  @@index([date])
+  @@index([page, date])
+  @@index([clicks])
+}
+
+model GscDailyQuery {
+  id          String   @id @default(cuid())
+  date        DateTime @db.Date
+  query       String
+  clicks      Int      @default(0)
+  impressions Int      @default(0)
+  ctr         Float    @default(0)
+  position    Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([date, query])
+  @@index([date])
+  @@index([query, date])
+  @@index([clicks])
+}
+
+model GscDailyPageQuery {
+  id          String   @id @default(cuid())
+  date        DateTime @db.Date
+  page        String
+  query       String
+  clicks      Int      @default(0)
+  impressions Int      @default(0)
+  ctr         Float    @default(0)
+  position    Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([date, page, query])
+  @@index([date])
+  @@index([page, date])
+  @@index([query, date])
+}
