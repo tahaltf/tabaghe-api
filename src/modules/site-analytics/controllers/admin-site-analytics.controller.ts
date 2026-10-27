@@ -60,6 +60,26 @@ export class AdminSiteAnalyticsController {
     });
   }
 
+  @Get('site/listings')
+  siteListings(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('q') q?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.query.getSiteListings({
+      from,
+      to,
+      q,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  @Get('gsc/overview')
+  gscOverview(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.query.getGscOverview(from, to);
+  }
+
   @Get('gsc/timeseries')
   gscTimeseries(@Query('from') from?: string, @Query('to') to?: string) {
     return this.query.getGscTimeseries(from, to);
@@ -147,10 +167,10 @@ export class AdminSiteAnalyticsController {
     @Query('to') to?: string,
   ) {
     const data = await this.query.getSitePages({ from, to, limit: 500 });
-    const lines = ['path,pageviews,sessions'];
+    const lines = ['path,visitors,pageviews'];
     for (const row of data.items) {
       lines.push(
-        `"${row.path.replace(/"/g, '""')}",${row.pageviews},${row.sessions}`,
+        `"${row.path.replace(/"/g, '""')}",${row.visitors},${row.pageviews}`,
       );
     }
     res.setHeader(

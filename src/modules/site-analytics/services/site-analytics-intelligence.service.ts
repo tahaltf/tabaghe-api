@@ -251,23 +251,35 @@ export class SiteAnalyticsIntelligenceService {
   }
 
   async getIssues(thresholdPct = 25) {
-    const overview = await this.query.getOverview();
+    const [overview, gsc] = await Promise.all([
+      this.query.getOverview(),
+      this.query.getGscOverview(),
+    ]);
     const issues: Array<{
       severity: 'warning' | 'critical';
       code: string;
       message: string;
     }> = [];
 
+    const visitorsDelta = overview.site.deltas.visitors;
+    if (visitorsDelta !== null && visitorsDelta <= -thresholdPct) {
+      issues.push({
+        severity: visitorsDelta <= -50 ? 'critical' : 'warning',
+        code: 'site_visitors_drop',
+        message: `بازدیدکننده یکتای سایت نسبت به دوره قبل ${Math.abs(visitorsDelta)}٪ افت کرده است.`,
+      });
+    }
+
     const pvDelta = overview.site.deltas.pageviews;
     if (pvDelta !== null && pvDelta <= -thresholdPct) {
       issues.push({
         severity: pvDelta <= -50 ? 'critical' : 'warning',
         code: 'site_pageviews_drop',
-        message: `بازدید سایت نسبت به دوره قبل ${Math.abs(pvDelta)}٪ افت کرده است.`,
+        message: `بازدید صفحه نسبت به دوره قبل ${Math.abs(pvDelta)}٪ افت کرده است.`,
       });
     }
 
-    const clickDelta = overview.gsc.deltas.clicks;
+    const clickDelta = gsc.deltas.clicks;
     if (clickDelta !== null && clickDelta <= -thresholdPct) {
       issues.push({
         severity: clickDelta <= -50 ? 'critical' : 'warning',
@@ -276,17 +288,11 @@ export class SiteAnalyticsIntelligenceService {
       });
     }
 
-    if (overview.gsc.property?.status === 'ERROR') {
+    if (gsc.property?.status === 'ERROR') {
       issues.push({
         severity: 'critical',
         code: 'gsc_connection_error',
-        message: overview.gsc.property.lastError || 'خطا در اتصال Search Console',
-      });
-    } else if (!overview.gsc.property) {
-      issues.push({
-        severity: 'warning',
-        code: 'gsc_not_connected',
-        message: 'Search Console هنوز متصل نشده است.',
+        message: gsc.property.lastError || 'خطا در اتصال Search Console',
       });
     }
 
@@ -299,6 +305,10 @@ export class SiteAnalyticsIntelligenceService {
       });
     }
 
-    return { thresholdPct, issues, overviewRange: { from: overview.from, to: overview.to } };
+    return {
+      thresholdPct,
+      issues,
+      overviewRange: { from: overview.from, to: overview.to },
+    };
   }
 }
