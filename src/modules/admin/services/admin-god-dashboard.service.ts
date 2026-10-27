@@ -49,13 +49,14 @@ export interface GodOverview {
     gmv: number;
     orders: number;
   }>;
-  topPages: Array<{ path: string; title: string | null; pageviews: number; sessions: number }>;
+  topPages: Array<{ path: string; title: string | null; pageviews: number; visitors: number }>;
   topListings: Array<{
     id: string;
     title: string;
     thumbnail: string | null;
     status: ListingStatus;
-    views: number;
+    pageviews: number;
+    visitors: number;
   }>;
 }
 
@@ -235,15 +236,16 @@ export class AdminGodDashboardService {
     };
   }
 
+  /** Same semantics as site-analytics: visitor = distinct userId, or distinct session for guests. */
   private async topPages(from: Date): Promise<GodOverview['topPages']> {
     const rows = await this.prisma.$queryRaw<
-      Array<{ path: string; title: string | null; pv: bigint; s: bigint }>
+      Array<{ path: string; title: string | null; pv: bigint; v: bigint }>
     >`
       SELECT
         "path",
         MAX("title") AS title,
         COUNT(*)::bigint AS pv,
-        COUNT(DISTINCT "sessionId")::bigint AS s
+        COUNT(DISTINCT COALESCE("userId", 's:' || "sessionId"))::bigint AS v
       FROM "SitePageView"
       WHERE "viewedAt" >= ${from}
       GROUP BY "path"
@@ -254,30 +256,39 @@ export class AdminGodDashboardService {
       path: r.path,
       title: r.title,
       pageviews: Number(r.pv),
-      sessions: Number(r.s),
+      visitors: Number(r.v),
     }));
   }
 
+  /** Ranked from `/listing/:id` pageviews so numbers match the site-analytics page. */
   private async topListings(from: Date): Promise<GodOverview['topListings']> {
-    const grouped = await this.prisma.listingView.groupBy({
-      by: ['listingId'],
-      where: { viewedAt: { gte: from } },
-      _count: { listingId: true },
-      orderBy: { _count: { listingId: 'desc' } },
-      take: TOP_LIMIT,
-    });
+    const grouped = await this.prisma.$queryRaw<
+      Array<{ id: string; pv: bigint; v: bigint }>
+    >`
+      SELECT
+        substring("path" from '^/listing/([^/?#]+)') AS id,
+        COUNT(*)::bigint AS pv,
+        COUNT(DISTINCT COALESCE("userId", 's:' || "sessionId"))::bigint AS v
+      FROM "SitePageView"
+      WHERE "viewedAt" >= ${from} AND "path" ~ '^/listing/[^/?#]+'
+      GROUP BY 1
+      ORDER BY pv DESC
+      LIMIT ${TOP_LIMIT * 2}
+    `;
     if (!grouped.length) return [];
 
     const listings = await this.prisma.listing.findMany({
-      where: { id: { in: grouped.map((g) => g.listingId) } },
+      where: { id: { in: grouped.map((g) => g.id) } },
       select: { id: true, title: true, thumbnail: true, status: true },
     });
     const byId = new Map(listings.map((l) => [l.id, l]));
 
-    return grouped.flatMap((g) => {
-      const l = byId.get(g.listingId);
-      return l ? [{ ...l, views: g._count.listingId }] : [];
-    });
+    return grouped
+      .flatMap((g) => {
+        const l = byId.get(g.id);
+        return l ? [{ ...l, pageviews: Number(g.pv), visitors: Number(g.v) }] : [];
+      })
+      .slice(0, TOP_LIMIT);
   }
 }
 
