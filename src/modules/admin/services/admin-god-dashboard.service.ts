@@ -30,6 +30,9 @@ export interface GodOverview {
   from: string;
   to: string;
   generatedAt: string;
+  /** First recorded pageview; ranges whose window starts before this are incomplete. */
+  dataSince: string | null;
+  availableRanges: GodRange[];
   online: number;
   traffic: {
     today: TrafficTotals;
@@ -84,6 +87,7 @@ export class AdminGodDashboardService {
     const last7Start = new Date(todayStart.getTime() - 6 * DAY_MS);
 
     const [
+      dataSince,
       online,
       today,
       yesterday,
@@ -97,6 +101,7 @@ export class AdminGodDashboardService {
       topPages,
       topListings,
     ] = await Promise.all([
+      this.firstPageviewAt(),
       this.onlineSessions(now),
       this.traffic(todayStart, now),
       this.traffic(yesterdayStart, todayStart),
@@ -141,6 +146,10 @@ export class AdminGodDashboardService {
       from: from.toISOString(),
       to: now.toISOString(),
       generatedAt: now.toISOString(),
+      dataSince: dataSince?.toISOString() ?? null,
+      availableRanges: GOD_RANGES.filter(
+        (r) => r === '24h' || (dataSince != null && dataSince <= this.window(r, now).from),
+      ),
       online,
       traffic: { today, yesterday, last7, current, previous },
       commerce: { current: commerceCurrent, previous: commercePrevious },
@@ -160,6 +169,13 @@ export class AdminGodDashboardService {
       from: new Date(tehranDayStart(now).getTime() - (days - 1) * DAY_MS),
       slots: days,
     };
+  }
+
+  private async firstPageviewAt(): Promise<Date | null> {
+    const rows = await this.prisma.$queryRaw<Array<{ at: Date | null }>>`
+      SELECT MIN("viewedAt") AS at FROM "SitePageView"
+    `;
+    return rows[0]?.at ?? null;
   }
 
   private async onlineSessions(now: Date): Promise<number> {
