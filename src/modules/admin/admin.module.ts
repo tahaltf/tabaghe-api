@@ -45,6 +45,7 @@ import { AdminBackupController } from './controllers/admin-backup.controller';
 import { AdminPlatformContentController } from './controllers/admin-platform-content.controller';
 import { AdminServerStorageController } from './controllers/admin-server-storage.controller';
 import { AdminServerMonitorController } from './controllers/admin-server-monitor.controller';
+import { AdminGodDashboardController } from './controllers/admin-god-dashboard.controller';
 import { AdminSystemJobsController } from './controllers/admin-system-jobs.controller';
 import { AdminRolesController } from './controllers/admin-roles.controller';
 import { AdminImageOptimizeController } from './controllers/admin-image-optimize.controller';
@@ -95,6 +96,7 @@ import { AdminBackupService } from './services/admin-backup.service';
 import { AdminPlatformContentService } from './services/admin-platform-content.service';
 import { AdminServerStorageService } from './services/admin-server-storage.service';
 import { AdminServerMonitorService } from './services/admin-server-monitor.service';
+import { AdminGodDashboardService } from './services/admin-god-dashboard.service';
 import { AdminBackupScheduler } from './services/admin-backup.scheduler';
 import { AdminSystemJobsService } from './services/admin-system-jobs.service';
 import { AdminRolesService } from './services/admin-roles.service';
@@ -171,6 +173,7 @@ import { AdminCurrenciesController } from './controllers/admin-currencies.contro
     AdminPlatformContentController,
     AdminServerStorageController,
     AdminServerMonitorController,
+    AdminGodDashboardController,
     AdminSystemJobsController,
     AdminRolesController,
     AdminImageOptimizeController,
@@ -218,6 +221,7 @@ import { AdminCurrenciesController } from './controllers/admin-currencies.contro
     AdminPlatformContentService,
     AdminServerStorageService,
     AdminServerMonitorService,
+    AdminGodDashboardService,
     AdminBackupScheduler,
     AdminSystemJobsService,
     UserRatingHistoryService,
