@@ -18,6 +18,6 @@ export class PageviewController {
     @CurrentUser() user: AuthenticatedUser | null,
     @Headers('user-agent') userAgent?: string,
   ) {
-    return this.pageviews.record(body, user?.id, userAgent);
+    return this.pageviews.record(body, user, userAgent);
   }
 }

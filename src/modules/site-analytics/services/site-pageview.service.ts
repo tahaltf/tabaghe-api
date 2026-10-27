@@ -1,9 +1,16 @@
 import { Injectable } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { RecordPageviewDto } from '../dto/pageview.dto';
 
 const VIEW_DEDUP_MS = 30 * 1000;
 const ADMIN_PATH_RE = /^\/admin(\/|$)/i;
+
+/** Crawlers, link-preview fetchers, SEO tools, monitors and headless/automation browsers. */
+const NON_HUMAN_UA_RE =
+  /bot|crawl|spider|slurp|scrap|fetch|preview|externalhit|externalagent|inspection|lighthouse|pagespeed|gtmetrix|pingdom|uptime|monitor|statuscake|headless|phantom|puppeteer|playwright|selenium|webdriver|python|curl|wget|httpclient|http-client|axios|node-fetch|undici|java\/|go-http|okhttp|postman|insomnia|whatsapp|yandex|baidu|bytespider|petal|semrush|ahrefs|mj12|dataforseo|seznam|qwant|duckduck|applebot|mediapartners|adsbot|apis-google|feedfetcher/i;
+
+const STAFF_ROLES: UserRole[] = [UserRole.ADMIN, UserRole.GODADMIN];
 
 @Injectable()
 export class SitePageviewService {
@@ -11,11 +18,15 @@ export class SitePageviewService {
 
   async record(
     dto: RecordPageviewDto,
-    userId?: string,
+    user?: { id: string; role: UserRole } | null,
     userAgent?: string,
   ): Promise<{ ok: true; skipped?: boolean }> {
     const path = this.normalizePath(dto.path);
     if (!path || ADMIN_PATH_RE.test(path)) {
+      return { ok: true, skipped: true };
+    }
+    // Internal traffic (team browsing the site) and non-human clients are not visits.
+    if (!this.isHumanUserAgent(userAgent) || (user && STAFF_ROLES.includes(user.role))) {
       return { ok: true, skipped: true };
     }
 
@@ -23,6 +34,7 @@ export class SitePageviewService {
     if (!sessionId) {
       return { ok: true, skipped: true };
     }
+    const userId = user?.id ?? null;
 
     const since = new Date(Date.now() - VIEW_DEDUP_MS);
     const existing = await this.prisma.sitePageView.findFirst({
@@ -40,11 +52,16 @@ export class SitePageviewService {
     const now = new Date();
     const device = this.classifyDevice(userAgent);
 
+    const session = await this.prisma.siteSession.findUnique({
+      where: { id: sessionId },
+      select: { userId: true },
+    });
+
     await this.prisma.siteSession.upsert({
       where: { id: sessionId },
       create: {
         id: sessionId,
-        userId: userId ?? null,
+        userId,
         firstSeenAt: now,
         lastSeenAt: now,
         landingPath: path,
@@ -60,10 +77,18 @@ export class SitePageviewService {
       },
     });
 
+    // A guest who logs in is the same visitor: attribute their earlier guest views to the account.
+    if (userId && session && !session.userId) {
+      await this.prisma.sitePageView.updateMany({
+        where: { sessionId, userId: null },
+        data: { userId },
+      });
+    }
+
     await this.prisma.sitePageView.create({
       data: {
         sessionId,
-        userId: userId ?? null,
+        userId,
         path,
         title: dto.title?.slice(0, 500) || null,
         referrer: dto.referrer?.slice(0, 2000) || null,
@@ -72,6 +97,12 @@ export class SitePageviewService {
     });
 
     return { ok: true };
+  }
+
+  private isHumanUserAgent(ua?: string): boolean {
+    if (!ua || ua.length < 20) return false;
+    if (!/mozilla\//i.test(ua)) return false;
+    return !NON_HUMAN_UA_RE.test(ua);
   }
 
   private normalizePath(raw: string): string {
@@ -92,9 +123,8 @@ export class SitePageviewService {
 
   private classifyDevice(ua?: string): string | null {
     if (!ua) return null;
-    if (/bot|crawl|spider|slurp|facebookexternalhit/i.test(ua)) return 'bot';
-    if (/Mobile|Android|iPhone|iPad|iPod/i.test(ua)) return 'mobile';
     if (/Tablet|iPad/i.test(ua)) return 'tablet';
+    if (/Mobile|Android|iPhone|iPod/i.test(ua)) return 'mobile';
     return 'desktop';
   }
 }
