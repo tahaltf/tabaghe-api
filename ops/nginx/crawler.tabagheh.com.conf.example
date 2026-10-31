@@ -56,6 +56,7 @@ server {
     }
 
     # Optional: browser captcha assist (same IP ACL as above)
+    # Embeddable in crawler panel iframe — strip DENY frame headers from noVNC.
     location /vnc/ {
         proxy_pass http://tabagheh_crawler_vnc/;
         proxy_http_version 1.1;
@@ -64,5 +65,8 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_read_timeout 3600s;
+        proxy_hide_header X-Frame-Options;
+        proxy_hide_header Content-Security-Policy;
+        add_header X-Frame-Options "SAMEORIGIN" always;
     }
 }
