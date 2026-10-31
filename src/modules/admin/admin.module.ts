@@ -97,6 +97,7 @@ import { AdminPlatformContentService } from './services/admin-platform-content.s
 import { AdminServerStorageService } from './services/admin-server-storage.service';
 import { AdminServerMonitorService } from './services/admin-server-monitor.service';
 import { AdminGodDashboardService } from './services/admin-god-dashboard.service';
+import { AdminGodCommandService } from './services/admin-god-command.service';
 import { AdminBackupScheduler } from './services/admin-backup.scheduler';
 import { AdminSystemJobsService } from './services/admin-system-jobs.service';
 import { AdminRolesService } from './services/admin-roles.service';
@@ -222,6 +223,7 @@ import { AdminCurrenciesController } from './controllers/admin-currencies.contro
     AdminServerStorageService,
     AdminServerMonitorService,
     AdminGodDashboardService,
+    AdminGodCommandService,
     AdminBackupScheduler,
     AdminSystemJobsService,
     UserRatingHistoryService,
