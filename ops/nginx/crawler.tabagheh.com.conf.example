@@ -57,6 +57,7 @@ server {
 
     # Optional: browser captcha assist (same IP ACL as above)
     # Embeddable in crawler panel iframe — strip DENY frame headers from noVNC.
+    # Client must open: /vnc/vnc.html?path=vnc/websockify&autoconnect=true
     location /vnc/ {
         proxy_pass http://tabagheh_crawler_vnc/;
         proxy_http_version 1.1;
