@@ -74,6 +74,13 @@ export interface GodCommand {
     /** realized / placed when placed > 0 */
     realizationRate: number | null;
   };
+  traffic: {
+    today: { pageviews: number; sessions: number; visitors: number };
+    yesterday: { pageviews: number; sessions: number; visitors: number };
+    last7: { pageviews: number; sessions: number; visitors: number };
+    current: { pageviews: number; sessions: number; visitors: number };
+    previous: { pageviews: number; sessions: number; visitors: number };
+  };
   finance: {
     gmv: number;
     commission: number;

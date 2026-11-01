@@ -292,6 +292,7 @@ export class AdminGodCommandService {
         realizedOrders: overview.commerce.current.realizedOrders,
         realizationRate,
       },
+      traffic: overview.traffic,
       finance: {
         gmv: overview.commerce.current.gmv,
         commission: overview.commerce.current.commission,
