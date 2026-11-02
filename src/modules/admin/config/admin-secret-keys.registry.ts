@@ -131,7 +131,7 @@ export const ADMIN_SECRET_KEYS_REGISTRY: AdminSecretKeyDef[] = [
     categoryLabel: 'کرالر',
     label: 'ادمین ثبت‌کننده لید کرالر',
     description:
-      'شناسه User ادمین برای createdByAdminId هنگام ثبت خودکار لید از کرالر دیوار (اختیاری؛ در غیر این صورت قدیمی‌ترین ادمین)',
+      'شناسه User ادمین/گادادمین برای createdByAdminId هنگام ثبت خودکار لید از کرالر دیوار (اختیاری؛ در غیر این صورت قدیمی‌ترین ADMIN سپس GODADMIN)',
     kind: 'text',
     placeholder: 'cuid ادمین',
   },

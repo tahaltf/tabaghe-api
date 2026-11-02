@@ -879,10 +879,11 @@ export class AdminSellerCrmService {
   }
 
   private async resolveCrawlerAdminId(): Promise<string> {
+    const adminRoles: UserRole[] = [UserRole.ADMIN, UserRole.GODADMIN];
     const configured = this.secrets.get('SELLER_CRM_CRAWLER_ADMIN_ID')?.trim();
     if (configured) {
       const user = await this.prisma.user.findFirst({
-        where: { id: configured, role: UserRole.ADMIN },
+        where: { id: configured, role: { in: adminRoles } },
         select: { id: true },
       });
       if (!user) {
@@ -894,8 +895,8 @@ export class AdminSellerCrmService {
     }
 
     const fallback = await this.prisma.user.findFirst({
-      where: { role: UserRole.ADMIN },
-      orderBy: { createdAt: 'asc' },
+      where: { role: { in: adminRoles } },
+      orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
       select: { id: true },
     });
     if (!fallback) {
