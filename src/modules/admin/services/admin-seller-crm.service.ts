@@ -870,9 +870,13 @@ export class AdminSellerCrmService {
     const parts: string[] = [];
     const adUrl = dto.adUrl?.trim();
     const adId = dto.adId?.trim();
+    const category = dto.categoryHint?.trim();
+    const shop = dto.shopName?.trim();
     const extra = dto.notes?.trim();
     if (adUrl) parts.push(`آگهی: ${adUrl}`);
     if (adId) parts.push(`شناسه دیوار: ${adId}`);
+    if (category) parts.push(`دسته‌بندی: ${category}`);
+    if (shop) parts.push(`فروشگاه: ${shop}`);
     if (extra) parts.push(extra);
     if (parts.length === 0) return null;
     return parts.join('\n').slice(0, 2000);
